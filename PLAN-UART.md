@@ -26,7 +26,7 @@ Everything here is verified against the extracted stock firmware (2.4.15). Nothi
 
 ## Session order (first contact)
 1. PC: set Ethernet static 192.168.1.88/24 (netsh works from the agent shell, verified).
-2. Start the TFTP server (`tools/tftp_server.ts`) serving `router-openwrt/tftp/`.
+2. Start the TFTP server (`tools/tftp_server.ts`) serving `tftp/`.
 3. Attach adapter -> open serial terminal at 115200 -> power-cycle the router.
 4. Press a key at "Hit any key to stop autoboot" -> u-boot prompt.
 5. `printenv` — capture the LIVE env (differs from defaults? note net settings, bootargs).
@@ -51,8 +51,8 @@ Everything here is verified against the extracted stock firmware (2.4.15). Nothi
   mk_fake_bdinfo.py, crack.py, tftp_server.py, tftp_test.py), pyenv/, pages/, CREDENTIALS.txt (web admin `<ROUTER-WEB-PASSWORD>`).
 
 ## TFTP server (for the u-boot session)
-- Serve dir: `router-openwrt/tftp/`; WRQ uploads land in `router-openwrt/tftp/inbox/`.
-- Start: `router-openwrt/pyenv/Scripts/python.exe router-openwrt/tools/tftp_server.py 6969`
-- Self-test: `router-openwrt/pyenv/Scripts/python.exe router-openwrt/tools/tftp_test.py 6969` (GET+PUT round trip).
+- Serve dir: `tftp/`; WRQ uploads land in `tftp/inbox/`.
+- Start: `pyenv/Scripts/python.exe tools/tftp_server.py 6969`
+- Self-test: `pyenv/Scripts/python.exe tools/tftp_test.py 6969` (GET+PUT round trip).
 - The PC must hold 192.168.1.88/24 on the wired NIC (u-boot `serverip`); u-boot fetches by the names its commands
   expect (`bdinfo.bin`, `rootfs.rw.img`, `rootfs.ro.img`, `kernel.images`).
