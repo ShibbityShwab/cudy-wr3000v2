@@ -13,7 +13,7 @@
 # staged, and the harness restores on its own if this process dies.
 #
 # Usage: sh tools/sr-carrier-detached.sh
-W=/c/Users/ShibbityShwab/router-openwrt
+W=/c/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 OUT="$W/build/register-dumps/detached"
 LOG="$OUT/sr-carrier.log"
 mkdir -p "$OUT"

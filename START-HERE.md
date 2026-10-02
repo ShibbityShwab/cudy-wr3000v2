@@ -4,7 +4,7 @@ Work from THIS directory. Earlier sessions ran in the user home directory, which
 checkout, so `task.isolation.enabled` could never apply and DAG nodes / isolated swarms were refused.
 From this repo they work.
 
-    cd C:/Users/ShibbityShwab/router-openwrt
+    cd C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 
 ## Layout
 

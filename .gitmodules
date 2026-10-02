@@ -1,3 +1,3 @@
 [submodule "opensource"]
 	path = opensource
-	url = ./opensource
+	url = https://github.com/ShibbityShwab/cudy-wr3000v2-open-firmware.git

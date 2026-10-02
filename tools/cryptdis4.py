@@ -1,7 +1,7 @@
 import struct, re
 from elftools.elf.elffile import ELFFile
 from capstone import *
-p = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
+p = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
 e = ELFFile(open(p,'rb'))
 for secname in ('.rodata', '.data'):
     s = e.get_section_by_name(secname)

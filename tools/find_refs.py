@@ -1,6 +1,6 @@
 import struct
 from elftools.elf.elffile import ELFFile
-p = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root/usr/lib/libhi_upgrade.so'
+p = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root/usr/lib/libhi_upgrade.so'
 data = open(p,'rb').read()
 e = ELFFile(open(p,'rb'))
 targets = [0xf610, 0xf2c2, 0xf2ce]

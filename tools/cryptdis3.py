@@ -1,7 +1,7 @@
 import struct, re
 from elftools.elf.elffile import ELFFile
 from capstone import *
-p = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
+p = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
 raw = open(p,'rb').read()
 e = ELFFile(open(p,'rb'))
 print('sections:', [(s.name, hex(s['sh_addr']), hex(s['sh_offset']), hex(s['sh_size'])) for s in e.iter_sections()])

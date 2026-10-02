@@ -1,7 +1,7 @@
 import re, struct
 from elftools.elf.elffile import ELFFile
 from capstone import *
-p = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
+p = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
 f = open(p,'rb'); e = ELFFile(f)
 text = e.get_section_by_name('.text'); tb = text.data(); tva = text['sh_addr']
 md = Cs(CS_ARCH_ARM, CS_MODE_ARM)

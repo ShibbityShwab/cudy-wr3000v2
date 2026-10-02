@@ -1,6 +1,6 @@
 #!/bin/sh
 set -u
-W=/c/Users/ShibbityShwab/router-openwrt
+W=/c/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 OUT="$W/build/register-dumps/detached"
 mkdir -p "$OUT"
 LOG="$OUT/run-$(date +%Y%m%d-%H%M%S).log"

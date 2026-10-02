@@ -1,5 +1,5 @@
 from Crypto.Cipher import AES
-data = open(r'C:/Users/ShibbityShwab/router-openwrt/pages/backup.bin','rb').read()
+data = open(r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/pages/backup.bin','rb').read()
 srcs = ['WR3000','WR3000V2','WR3000 V2.0','WR3000V2.0','WR3000-2.0','WR3000 2.0','Cudy','cudy','CudyWR3000','Cudy-WR3000','WR3000@aes#hex','Cudy@aes#hex','WR3000V2@aes#hex','WR3000 V2.0@aes#hex','secret','secret@aes#hex','board@aes#hex','board@secret','secret@board','HSAN','HSAN@aes#hex','2.4.15','2.4.15-20251030-114751','2.4.15-20251030-114751@aes#hex','114751','20251030','R116','WR3000V2-R116','d40dab641c73','d40dab641c73@aes#hex','000000000000','000000000000@aes#hex','4D50318802','4D50318802@aes#hex','admin','admin@aes#hex','Cudy@123','cudygogo2018@606','cudygogo2018@606@aes#hex','0123456789abcdef','30313233343536373839616263646566']
 keys = set()
 for s in srcs:

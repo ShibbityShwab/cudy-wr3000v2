@@ -16,7 +16,7 @@ def dstk(s):
     cbc = DES.new(b'\x00'*8, DES.MODE_CBC, b'\x00'*8)
     return parity(cbc.encrypt(parity(temp)))
 KEY = dstk(b'88T3j05dtFu8=')
-data = open(r'C:/Users/ShibbityShwab/router-openwrt/dumps/bdinfo.bin','rb').read()
+data = open(r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/dumps/bdinfo.bin','rb').read()
 rx = re.compile(rb'[a-z_]{2,14} = [\x21-\x7e]')
 ecb = DES.new(KEY, DES.MODE_ECB)
 hits = []

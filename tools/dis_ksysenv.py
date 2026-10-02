@@ -1,7 +1,7 @@
 import struct
 from elftools.elf.elffile import ELFFile
 from capstone import *
-base = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root'
+base = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root'
 ko = ELFFile(open(base + '/lib/hisilicon/ko/hi_ksysenv.ko','rb'))
 syms = []
 for secname in ('.symtab',):

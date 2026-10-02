@@ -1,7 +1,7 @@
 import struct
 from elftools.elf.elffile import ELFFile
 from capstone import *
-p = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
+p = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root/usr/bin/crypt'
 f = open(p, 'rb'); e = ELFFile(f)
 print('machine', e.header.e_machine, 'type', e.header.e_type, 'entry', hex(e.header.e_entry))
 text = e.get_section_by_name('.text'); ro = e.get_section_by_name('.rodata')

@@ -1,7 +1,7 @@
 import struct
 from elftools.elf.elffile import ELFFile
 from capstone import *
-p = r'C:/Users/ShibbityShwab/router-openwrt/rootfs-2.4.15/squashfs-root/usr/lib/libhi_upgrade.so'
+p = r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/rootfs-2.4.15/squashfs-root/usr/lib/libhi_upgrade.so'
 e = ELFFile(open(p,'rb'))
 ro = e.get_section_by_name('.rodata'); text = e.get_section_by_name('.text')
 rb_ = ro.data(); rva = ro['sh_addr']; tb = text.data(); tva = text['sh_addr']
