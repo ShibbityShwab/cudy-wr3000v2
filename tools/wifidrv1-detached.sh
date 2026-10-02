@@ -29,7 +29,7 @@ export EXP_RESULT_LABEL=WIFIDRV1
 	echo "params: hw=1 program=1 wr=1 (claim EP0, viewports, decode, SR POST + fine poll - does the id-6 word appear?), verbose=1"
 	echo "EXP_DONE_CMD=$EXP_DONE_CMD"
 	echo
-	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 fw=1 release=1 srpost=1 pollms=25 polldur=4000 verbose=1
+	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 pollms=25 polldur=4000 verbose=1
 	echo "=== exp.sh exit=$? $(date -Iseconds) ==="
 	echo "=== wifidrv1 detached takeover run end $(date -Iseconds) ==="
 } >> "$LOG" 2>&1
