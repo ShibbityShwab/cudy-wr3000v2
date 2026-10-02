@@ -1,0 +1,12 @@
+# phase-22 batch example: several SR-trigger hypotheses in ONE boot.
+#
+#   tools/batch.sh --module build/tmp/srt-ko/srt.ko tools/batch-hypotheses.example
+#
+# Format: <label>|<param>[,<param>...]   (# comments and blank lines ignored)
+# Each <param> is appended to the run's base parameters for that hypothesis
+# only; the module-side contract is in opensource/docs/phase22/exp-harness.md.
+
+baseline|srctrl=0,intr=0
+srctrl1|srctrl=1,intr=0
+intr-vendor|srctrl=0,intr=1
+intr-or|srctrl=0,intr=2
