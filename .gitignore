@@ -34,3 +34,6 @@ fake_bdinfo.bin
 *.log
 *.tmp
 nohup.out
+
+# omo workspace state (per-session; init-deep snapshot + scaffolding)
+.omo/
