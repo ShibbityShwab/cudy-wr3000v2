@@ -26,10 +26,10 @@ export EXP_RESULT_LABEL=WIFIDRV1
 {
 	echo "=== wifidrv1 detached takeover run start $(date -Iseconds) ==="
 	echo "module=$MODULE"
-	echo "params: SR post WITH IN-POST ANNOUNCE (id 3 + doorbell, as the vendor fill) + service + fine poll"
+	echo "params: in-post announce ONLY (no post-release send) + service + fine poll - does the correctly-timed announce change the dialogue?"
 	echo "EXP_DONE_CMD=$EXP_DONE_CMD"
 	echo
-	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 drpost=1 msgsvc=1 send=3 pollms=25 polldur=4000 verbose=1
+	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 msgsvc=1 pollms=25 polldur=4000 verbose=1
 	echo "=== exp.sh exit=$? $(date -Iseconds) ==="
 	echo "=== wifidrv1 detached takeover run end $(date -Iseconds) ==="
 } >> "$LOG" 2>&1
