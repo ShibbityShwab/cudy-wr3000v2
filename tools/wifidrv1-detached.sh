@@ -1,5 +1,5 @@
 #!/bin/sh
-# wifidrv1-detached.sh - detached takeover run of wifidrv1 hw=1 (phase 23).
+# wifidrv1-detached.sh - detached takeover run of wifidrv1 hw=1 program=1 wr=1 fw=1 release=1 srpost=1 sr_announce=0 msgsvc=1 pollms=25 polldur=4000 verbose=1
 #
 # Purpose: run the port's own driver with the endpoint claimed. While the vendor
 # stack is loaded, pci_request_mem_regions returns EBUSY (measured, phase 23), so
@@ -29,7 +29,7 @@ export EXP_RESULT_LABEL=WIFIDRV1
 	echo "params: message +4 length now 72 (matches its descriptor, as the live vendor message does) + in-post announce + service"
 	echo "EXP_DONE_CMD=$EXP_DONE_CMD"
 	echo
-	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 msgsvc=1 pollms=25 polldur=4000 verbose=1 reannounce=1000
+	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 sr_announce=0 msgsvc=1 pollms=25 polldur=4000 verbose=1
 	echo "=== exp.sh exit=$? $(date -Iseconds) ==="
 	echo "=== wifidrv1 detached takeover run end $(date -Iseconds) ==="
 } >> "$LOG" 2>&1
