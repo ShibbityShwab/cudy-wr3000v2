@@ -12,6 +12,13 @@ support exists, what the kernel/module ABI allows, and what the bring-up + flash
 
 ## 2. What upstream support exists - answer: none, and that is not a temporary gap
 
+> **Re-verified 2026-10-03, and now split by half.** The “no fork to join” conclusion holds for the
+> **kernel** and was independently re-confirmed by a fresh search (no OpenWrt target, subtarget or device
+> profile for the Hi5671; no `luofu`/`hsan` anywhere; no public Hi5622 driver). It does **not** hold for the
+> **userland**: the vendor's own firmware is OpenWrt 22.03.6 with a *private target* and **stock upstream
+> `arm_cortex-a9` packages**, and a **24.10.5** upstream binary has been measured running on the vendor
+> kernel - see `docs/phase26/how-current-userland.md`.
+
 - `opensource/docs/PORT-PLAN.md` (2026-10-01, [proven by inspection of the tree]): OpenWrt 25.12.5 runs
   kernel 6.12 on mainline drivers; this SoC (HiSilicon **Hi5671Y**, platform `hsan luofu`, board R116)
   has **no mainline support at all** - clock, pinctrl, PCIe host, NAND, Ethernet MAC and the internal
@@ -36,10 +43,12 @@ no fork to join; the machine has to be brought up.
 - Linux has no stable module ABI, so **no vendor 5.10 binary can load into a 6.12 kernel**. Any hybrid
   (modern userland on the vendor kernel, or vendor Wi-Fi on a modern kernel) needs the vendor source to
   recompile and port (`docs/PORT-PLAN.md`), which is exactly what the GPL request is for.
-- Consequence for planning: the only *self-built* images possible today are (a) a custom **rootfs** on
-  the vendor kernel - already done, see §5 - or (b) modules built against a vanilla 5.10.201 prepared
-  for `multi_v7_defconfig` with the P2V vermagic patch (the CI recipe), which is how every `lab/`
-  module that has ever touched this hardware was produced.
+- Consequence for planning (**corrected 2026-10-03**): the earlier text said the only self-built images
+  possible are “(a) a custom **rootfs** on the vendor kernel - already done - or (b) modules built against
+  a vanilla 5.10.201”. That **understates (a)**: it is not merely a rootfs, it is the **whole userland**,
+  and it can be **newer than the vendor's** - a 24.10.5 `arm_cortex-a9` binary was measured running on the
+  vendor 5.10.201 kernel (`docs/phase26/how-current-userland.md`). What is *not* replaceable without the
+  vendor source is the **kernel** itself and the Wi-Fi modules that match it.
 
 ## 4. Bring-up and flashing path (the part that is already de-risked)
 
@@ -75,37 +84,61 @@ One hard-won warning: **do not install official `luci-base`/`luci-compat`/`luci-
 fork** - they shadow the vendor LuCI files and removing them leaves overlay whiteouts (502s); repair
 with `sh tools/restore-vendor.sh` then `/etc/init.d/uhttpd restart` (`docs/FLASH-PLAN.md`).
 
-## 6. The reversal thread (why it is worth continuing)
+## 6. The reversal thread - current state (updated 2026-10-03, phases 23-25)
 
 The Wi-Fi chip can be **released and observed booting** (`0x5a5a` -> CA `0x40000108`; BSS zeroed, live
-analog regs, first HCC mailbox word), the SR/DR rings and the device->host iATU window are matched to a
-live vendor boot, and the host half of the message service is recovered (`acks`/`re-arm` CAs and the
-id-6 handler's action list, `docs/phase20/msg-host-half.md`). The current blocker is split-root-complex:
-the descriptor fetch traverses **EP0**'s RC while the completion INTx arrives on **EP1**'s
-(`docs/phase22/rc-routing.md`, [measured across two boots]). `docs/phase22/NEXT-EXPERIMENT.md` is
-**queued and never run**: one boot, H1 (program EP0 outbound viewport 0) -> H2 (ETE per-channel enable
-`0x40039508`) -> H3 (producer-commit variants on `SR+0x18`) -> H4 (H2D arm via `0x400392e8`/`0x400392ec`),
-stopping at the first act that moves the chip, module extended from `lab/bothep`.
+analog regs, first HCC mailbox word), and the SR/DR rings and the device->host iATU window are matched to a
+live vendor boot. **Since this file was written the frontier moved substantially:**
 
-That thread is what makes Path A or B possible at all: it is the map of the message service a driver
-(or a firmware re-implementation) would have to speak.
+- The phase-22 “split-root-complex” blocker described here was **not the cause**. The real root cause was
+  that the message window base was one page low (`BAR0+0x3f0000` vs `0x3f1000`), masked by an interrupt
+  register that happened to land correctly (`docs/phase23/ROOT-CAUSE-window-base.md`).
+- With it corrected the firmware **speaks**: 9/9 CPU-start signature registers change (the chip leaves ROM
+  state) and it emits id 6 then id 2 (`docs/phase23/firmware-speaks.md`).
+- A host announce is only read if it is **pending at release**, because the firmware clears the message
+  registers during its own boot - the first host->device write this project has ever had **taken**
+  (`docs/phase25/in-post-announce-consumed.md`).
+- The message **header** is fully characterised from a write-atomic bound capture, and the firmware's own
+  messages were read off its live ring; **both** real vendor `0x04000100` frames, byte-exact, were posted -
+  and the firmware reads them and continues regardless (`docs/phase25/replica-b-silent-payload-closed.md`).
+- The **announce-to-release offset** was made an explicit variable and swept: inert
+  (`docs/phase25/announce-offset-inert.md`).
 
-## 7. Ordered plan
+So the current blocker is **not** a host-side byte or a timing. It is that the firmware's receive routine is
+**built and armed but never dispatched** - the glue-ISR / `pcie_thread` route that a raw takeover never
+enters (`docs/phase20/fw-accept.md` A.2, `docs/phase22/fw-sr-gate.md`, `docs/phase21/sr-trigger.md`).
+Whether that dispatch needs the vendor's own service thread is a structural question, and the vendor source
+(G004 / `docs/phase25/OPEN-SOURCE-REQUEST.md`) remains the other answer.
 
-1. **[blocked on one credential]** Restore device access: the SSH lane needs a working password (or an
-   installed key) in `.omo-secrets/`; today `.sshwrap/askpass.sh` is still the placeholder and only the
-   web password + device secret are stored. Nothing mutating runs until this is fixed.
-2. **Run the queued phase-22 boot** (H1-H4) detached via `tools/run-exp-detached.sh`, watchdog armed
-   before staging, per `docs/phase22/NEXT-EXPERIMENT.md`. Success = any of the four hypotheses moving
-   the chip's state (`SR+0x1c`, `out[0]`, completion index).
-3. **Path A trigger**: follow up the GPL request sent to Cudy 2026-10-01 (kernel + u-boot + build
-   config; the Wi-Fi module's own `license=GPL` metadata is the lever for the driver source). If it
-   lands, build the vendor SDK, diff kernel/modules against our dumps, and produce the first
-   **from-source** image into slot B with the 0.3 verification drill.
-4. **Keep slot A stock forever**; keep `docs/FLASH-PLAN.md` updated with each build's hashes; refresh
-   the calibration snapshot (`tools/wifi-cal-snapshot.sh`) before any experiment that touches the radio.
-5. **Only after 1-3**: evaluate a modern userland on the vendor kernel (its own project), and treat a
-   clean-room mainline port as the funding decision PORT-PLAN calls it.
+
+## 7. Ordered plan (revised 2026-10-03)
+
+1. ~~[blocked on one credential] Restore device access~~ - **done**. The SSH lane works and has run
+   phases 23-26; the credential remains a placeholder in tracked text as required.
+2. ~~Run the queued phase-22 boot (H1-H4)~~ - **superseded**. Phases 23-25 answered the question that boot
+   was aimed at, and eliminated a further fourteen host-side candidates
+   (`docs/phase25/replica-b-silent-payload-closed.md`, `one-variable-negative.md`).
+3. **Build the userland half - the concrete, unblocked deliverable.** The vendor kernel stays; the
+   userland is replaceable and can be **newer than the vendor's**, measured (24.10.5 runs on 5.10.201,
+   `docs/phase26/how-current-userland.md`). This is the path to “a custom, current OpenWrt firmware image”
+   that does not depend on the vendor replying: assemble an OpenWrt userland for `arm_cortex-a9`/musl,
+   flash it as a rootfs to the inactive slot, and run the 0.3 verification drill (marker, `ubiblock`
+   hash, service check, rollback test). **Choose the release deliberately**: 22.03.6 matches the vendor
+   exactly, 24.10 is demonstrated and current, 25.12 is a different package container (apk v3) whose
+   tooling is extra work for no ABI gain.
+4. **Path A trigger**: the GPL request (`docs/phase25/OPEN-SOURCE-REQUEST.md`) is written and ready to
+   send. If it lands, build the vendor SDK, diff kernel/modules against our dumps, and produce the first
+   **from-source kernel** image into slot B.
+5. **Keep slot A stock forever**; keep `docs/FLASH-PLAN.md` updated with each build's hashes; refresh the
+   calibration snapshot (`tools/wifi-cal-snapshot.sh`) before any experiment that touches the radio.
+6. **Only after 3-4**: treat a clean-room mainline port as the funding decision PORT-PLAN calls it.
+
+**Transfer discipline (added 2026-10-03).** `/usr/bin/scp` on this box is a **symlink to dropbear**, whose
+scp emulation **acknowledges a file and exits 0 without writing it** - three “successful” transfers left
+nothing, and the file was absent under a fresh `ls` in the same breath. The device has **no `base64`**
+(and no busybox decoder, no python/perl). Working path: base64 chunks over the ssh command lane, then
+`openssl base64 -d -A` on the device, with an **md5 check on both ends**. Never trust an unverified
+transfer to this box.
 
 ## 8. Safety rules that gate every step above
 
