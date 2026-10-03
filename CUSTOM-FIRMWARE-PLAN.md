@@ -84,7 +84,32 @@ One hard-won warning: **do not install official `luci-base`/`luci-compat`/`luci-
 fork** - they shadow the vendor LuCI files and removing them leaves overlay whiteouts (502s); repair
 with `sh tools/restore-vendor.sh` then `/etc/init.d/uhttpd restart` (`docs/FLASH-PLAN.md`).
 
-## 6. The reversal thread - current state (updated 2026-10-03, phases 23-25)
+## 6. The reversal thread - current state (updated 2026-10-03, phases 23-27)
+
+> **Where it now stands (phase 27).** The host-side space is closed by measurement, and the remaining
+> candidates are device-side or need traffic this bench cannot generate:
+>
+> | candidate | closed by |
+> | --- | --- |
+> | host registers (glue, ETE intr, producer commit, `out[5]` arm) | 20 hypotheses, no accept (`docs/phase22/h2d-accept.md`) |
+> | host-memory structures | the device reads only the SR ring + its buffers (`docs/phase22/fw-hostmem.md`) |
+> | the interrupt | **fires** - irq 209 took 52,507 in phase 21 boot 2 (`docs/phase21/both-eps.md`) |
+> | the descriptor fetch | **works** - `SR+0x1c 0x10 -> 0x400` (phase 21 boot 2) |
+> | the mailbox / announce | **irrelevant** - with `sr_announce=0` the ring alone elicits id 6 then id 2 (`docs/phase27/h1-ring-alone-elicits-dialogue.md`) |
+> | ring geometry | **matches** the live vendor shape (`docs/phase27/vendor-live-ring-shape.md`) |
+> | the DR ring as a reception carrier | **not coupled to reception** - free-running (`docs/phase27/dr-ring-free-running.md`) |
+> | payload content | 14 candidates incl. both real vendor frames (`docs/phase25/`) |
+>
+> **The honest state:** the device's own sequence (`id 6` = `pcie_wkup_thread`, then `id 2`) is elicited
+> reliably, while the H2D accept never occurs. The record's own conclusion is that the remaining work is
+> "**device-side (firmware trace/JTAG) or reproducing the vendor's message-context/ISR binding**"
+> (`docs/phase22/h2d-accept.md`), and this phase adds that **the DR ring is free-running, so "no deposit"
+> is neither evidence of a gate nor of its absence** on this bench.
+>
+> **Resuming this thread needs one of:** the vendor source (`docs/phase25/OPEN-SOURCE-REQUEST.md`), a
+> device-side trace, or a bench that can carry real station traffic (the driver offers only `managed` and
+> `AP` - **no monitor mode** - and there are zero associated stations, so received-frame work cannot be
+> driven today).
 
 The Wi-Fi chip can be **released and observed booting** (`0x5a5a` -> CA `0x40000108`; BSS zeroed, live
 analog regs, first HCC mailbox word), and the SR/DR rings and the device->host iATU window are matched to a
