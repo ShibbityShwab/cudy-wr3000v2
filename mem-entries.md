@@ -50,3 +50,45 @@
   measure through the endpoints' BAR0/BAR2 only. Commits `60aeeda`, `b353d96`. NEXT MILESTONE RUNNING:
   `docs/phase20/msg-host-half.md` (`lab/msghalf`) - the ack/re-arm CAs, the id-6 handler's action list, and the
   interrupt source arming.
+
+## Phases 23-25 (2026-10-02/03) - the port runs end to end, and three corrections
+
+The published reports are in `opensource/docs/phase23`, `phase24` and `phase25` (27 documents). The
+short version, in the order the findings arrived:
+
+- **Phase 23x - THE MESSAGE WINDOW BASE WAS ONE PAGE LOW.** The port read `BAR0+0x3f0000`; the message
+  registers are at `0x3f1000`. Every "the firmware is silent" result before this was measuring the wrong
+  page, and the bug survived because the wrong address returned *plausible* values (`0x40000004`) and both
+  the driver and the vendor boot agreed on them - two readings of the same wrong address, which is not
+  verification. `docs/phase23/ROOT-CAUSE-window-base.md`.
+- **Phase 23y - THE FIRMWARE SPEAKS.** With the corrected window the port loads FIRMWARE.bin (`diffs=0`),
+  releases the CPU (**9/9 CPU-start signature**, `dcoldo_vset 0xffffffff -> 0x260d4184`, BSS zeroed) and
+  reads the first word `out[1] 0 -> 0x04`. `docs/phase23/firmware-speaks.md`.
+- **Phase 24c - THE HOST HALF EXECUTES.** dispatch, ack (`out[3]`, self-clearing), clear (`out[1]`, takes
+  and holds), re-arm (`out[4]`, self-clearing) - all readback-verified on the real registers.
+- **Phase 24i - THE SR DESCRIPTOR POST IS THE TRIGGER FOR THE id-6 WORD**, proven by A/B against the
+  recorded `fwaccept` artifact (id 6 -> id 2 with a post; id 2 alone without).
+- **Phase 24q - THE DEVICE'S PLAT READY IS id 2, NOT id 1.** An earlier claim that no such word arrives was
+  wrong in its id and wrong in conclusion; `id 2` is the persistent `0x04` bit every run receives.
+- **Phase 24y - `plat.ko` IS A TX SHIM; the device-facing transfer is a `wifi.ko` function** reached as
+  object `+0x18` from `bal_port_start_xfer`, so the port's H2D path reimplements a routine this project
+  has never read (and `wifi.ko` hardcodes none of the mailbox CAs - they arrive as pointers).
+- **Phase 25b/c - A HOST ANNOUNCE IS ONLY READ IF IT IS PENDING AT RELEASE.** The firmware clears the
+  message registers during its own boot: an announce written before the release is **consumed**, and every
+  post-release send in phases 24d-24t was posted too late to be seen. This is the first host->device write
+  the device has ever taken here. The dialogue is unchanged, so consuming the announce is necessary but not
+  sufficient. `docs/phase25/in-post-announce-consumed.md`.
+- **Phase 25d/e - the framing is settled; the CONTENT is what remains.** The node layout is verified against
+  the vendor's own `get_dscr_len`/`get_dscr_flag` decoders, the announced length is confirmed irrelevant
+  under corrected timing, and the chip interface is mapped by name as `g_st_pcie_bus_driver`. What is left
+  is the bytes the firmware expects the message to carry.
+
+**Nine host-side candidates were tested and eliminated along the way** (the window, the host half, poll
+resolution, the DR producer commit, `out[5]`, the re-arm value, the descriptor length twice, and the
+zero-credit hypothesis). The notebook's value is as much in that record of eliminations as in what works.
+
+**Hard-won process rules** (all three earned by real failures): derive a register address from the
+documented CA plus the translation rule and confirm the register *behaves* as documented; **absence of
+change is not evidence of absence**; and run `opensource/lab/wifidrv1/tools/prebuild-check.js` before every
+build - a hand-maintained identifier list missed two declaration-order bugs that CI then caught.
+
