@@ -11,7 +11,7 @@
 W=/c/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 OUT="$W/build/register-dumps/detached"
 LOG="$OUT/wifidrv1.log"
-MODULE="$W/opensource/build/tmp/wifidrv1y/wifidrv1.ko"
+MODULE="$W/opensource/build/tmp/wifidrv1z/wifidrv1.ko"
 mkdir -p "$OUT"
 : > "$LOG"
 
@@ -26,10 +26,10 @@ export EXP_RESULT_LABEL=WIFIDRV1
 {
 	echo "=== wifidrv1 detached takeover run start $(date -Iseconds) ==="
 	echo "module=$MODULE"
-	echo "params: announce + desclen 0x30 (the frame header length) + ring watch - does the length matter NOW that the firmware looks?"
+	echo "params: message +4 length now 72 (matches its descriptor, as the live vendor message does) + in-post announce + service"
 	echo "EXP_DONE_CMD=$EXP_DONE_CMD"
 	echo
-	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 sr_desclen=0x30 drpost=1 msgsvc=1 pollms=25 polldur=4000 verbose=1
+	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 msgsvc=1 pollms=25 polldur=4000 verbose=1
 	echo "=== exp.sh exit=$? $(date -Iseconds) ==="
 	echo "=== wifidrv1 detached takeover run end $(date -Iseconds) ==="
 } >> "$LOG" 2>&1
