@@ -92,3 +92,34 @@ documented CA plus the translation rule and confirm the register *behaves* as do
 change is not evidence of absence**; and run `opensource/lab/wifidrv1/tools/prebuild-check.js` before every
 build - a hand-maintained identifier list missed two declaration-order bugs that CI then caught.
 
+
+## 2026-10-03 - phases 27-28: H1 confirmed, the DR ring is free-running, the firmware half settled
+
+**H1 confirmed - the mailbox announce is irrelevant.** With `sr_announce=0` (verified from the live
+process's own command line, zero ANNOUNCE lines in dmesg) the firmware still runs the **full** id-6 then
+id-2 dialogue and 9/9 CPU-start. **The SR ring alone is sufficient.** This retires the whole phase-25
+announce line of work: those measurements are true, but they were characterising a signal the firmware
+does not need. Indicator: `out[0]` never set at all, yet `out[1]` bit 6 at t=25 ms.
+`opensource/docs/phase27/h1-ring-alone-elicits-dialogue.md`.
+
+**The vendor's live ring shape** (read-only, normal operation): the vendor uses **ch0 only** - every other
+SR/DR channel is at reset (ch2 holding garbage). DR depth matches SR, so the port's ring geometry is the
+vendor's. `opensource/docs/phase27/vendor-live-ring-shape.md`.
+
+**The DR ring is free-running, not event-driven.** Index-change counts over equal 20 s windows:
+quiet 50, scanning 53, quiet 46. **Ring motion is uncoupled from reception**, so the "no DR deposit"
+observation that earlier phases read as evidence of a device-side gate is **neither evidence of a gate nor
+of its absence**. `opensource/docs/phase27/dr-ring-free-running.md`.
+
+**Three instruments lied first** - this is the phase's real lesson. A device ping to the host went over
+Ethernet (the bridge routed wired, so the radio saw nothing); `rx_packets` never increments for received
+frames on this chip, so it can certify neither validity nor invalidity; and derived "slots advanced"
+arithmetic wrapped and produced invented activity (1023/18/2042). Only the count of index value changes
+could not be miscomputed. **Recorded as invalid experiments, not as negatives.**
+`opensource/docs/phase27/traffic-experiment-invalid.md`.
+
+**The firmware half is settled by measurement.** The curated in-place upgrade is a no-op (433 packages
+installed, **0 upgradable** within 22.03.6 - the base is already current). So every firmware path is
+measured-closed (A), declined (B, 2026-10-03), or waiting on the vendor (C).
+`opensource/docs/phase28/firmware-half-settled.md`.
+

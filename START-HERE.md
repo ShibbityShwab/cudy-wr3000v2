@@ -33,12 +33,26 @@ earlier docs still state**, so check them against the phase docs before relying 
    registers during its own boot, so the `out[0]` announce must be written before the release - every
    post-release send in phases 24d-24t was posted too late to be seen:
    `opensource/docs/phase25/in-post-announce-consumed.md`.
+4. **The announcement turns out not to matter at all** (phase 27, newer than the entry above). With
+   `sr_announce=0` - the mailbox completely untouched - the **SR ring alone** still elicits the full id-6
+   then id-2 dialogue and 9/9 CPU-start: `opensource/docs/phase27/h1-ring-alone-elicits-dialogue.md`.
+   So the phase-25 "consumption" was a side-effect of the firmware's own boot touching the mailbox, not a
+   trigger. Point 3 remains true as a measurement; it is simply not load-bearing.
 
-**Where it stands.** The port owns EP0, programs the viewports and rings, loads and verifies the
-firmware, releases the CPU (9/9 CPU-start signature), posts SR descriptors that the device consumes, and
-elicits the firmware's full dialogue (`out[1]` id 6 then id 2). The remaining blocker is the **content of
-the host message** - the framing is settled and verified against the vendor's own decoders
-(`opensource/docs/phase25/chip-ops-table.md`). `opensource/docs/PORT-STATUS.md` is the current summary.
+**Where it stands (updated 2026-10-03, through phase 28).** The port owns EP0, programs the viewports and
+rings, loads and verifies the firmware, releases the CPU (9/9 signature), posts SR descriptors that the
+device consumes, and elicits the firmware's dialogue (`out[1]` id 6 then id 2). **The host side is now
+closed by measurement** - the message content (14 candidates, including byte-exact copies of both real
+vendor frames), the announce, the ring geometry and the DR ring have all been eliminated:
+`opensource/docs/phase27/dr-ring-free-running.md` and `CUSTOM-FIRMWARE-PLAN.md` section 6 carry the table
+of *what closed each candidate*. What remains is **device-side**: the H2D accept never occurs, and the
+record's own conclusion is that the next move is a firmware trace/JTAG or the vendor's source
+(`opensource/docs/phase25/OPEN-SOURCE-REQUEST.md`, written and ready to send).
+
+The **firmware half** is settled too (`opensource/docs/phase28/firmware-half-settled.md`): the curated
+in-place upgrade is a measured no-op (433 packages installed, 0 upgradable), the wholesale modern rootfs
+was declined on 2026-10-03, and the from-source build needs the vendor. `opensource/docs/PORT-STATUS.md`
+remains the current summary.
 
 **Before every build**, run `node opensource/lab/wifidrv1/tools/prebuild-check.js` in the module
 directory. It sweeps for declarations used before they are declared, unbalanced braces, unlabelled
