@@ -11,7 +11,7 @@
 W=/c/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 OUT="$W/build/register-dumps/detached"
 LOG="$OUT/wifidrv1.log"
-MODULE="$W/opensource/build/tmp/wifidrv1x/wifidrv1.ko"
+MODULE="$W/opensource/build/tmp/wifidrv1y/wifidrv1.ko"
 mkdir -p "$OUT"
 : > "$LOG"
 
@@ -26,7 +26,7 @@ export EXP_RESULT_LABEL=WIFIDRV1
 {
 	echo "=== wifidrv1 detached takeover run start $(date -Iseconds) ==="
 	echo "module=$MODULE"
-	echo "params: SR post + DR post + RING WATCH (SR device index = TX credit proxy) + service + send id 3"
+	echo "params: SR post WITH IN-POST ANNOUNCE (id 3 + doorbell, as the vendor fill) + service + fine poll"
 	echo "EXP_DONE_CMD=$EXP_DONE_CMD"
 	echo
 	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 drpost=1 msgsvc=1 send=3 pollms=25 polldur=4000 verbose=1
