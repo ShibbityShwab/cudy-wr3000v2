@@ -11,7 +11,7 @@
 W=/c/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 OUT="$W/build/register-dumps/detached"
 LOG="$OUT/wifidrv1.log"
-MODULE="$W/opensource/build/tmp/wifidrv1vh/wifidrv1.ko"
+MODULE="$W/opensource/build/tmp/wifidrv1p6/wifidrv1.ko"
 mkdir -p "$OUT"
 : > "$LOG"
 
