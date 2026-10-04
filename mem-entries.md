@@ -207,3 +207,28 @@ mismatch (`omo-drv1: init done`); `module-log.txt` vs `dmesg.txt` wording; `rox_
 driver, not an lsmod entry; the harness reboot-freshness gate (`uptime < 180` could accept a stale boot);
 and the capture-hook remote/local path bug (fixed and reverified).
 
+
+**Follow-up (2026-10-04) - gic-view** (`opensource/docs/phase49/gic-view.md`,
+`build/register-dumps/exp/20261004-174357/`): the post-plan lane that flips the sensor on task 13. Patched
+firmware (`tools/patch_fw_scratch.py` variant `gicview`; blob `b6b7faa9b2682d959cce6d0fb2bae315`, one
+cycle PASS) reads the GIC itself into host-readable cells. **BRANCH-G**: the device CAN read the GIC, and at
+both sampled init instants nothing was pending or active for the CPU. Values (BAR0 == ACP alias for all ten
+cells): C0 = `0x00000001` (ISENABLER word 2 at CA `0x40161108`, a PRE-write read - a real host-invisible
+register the device sees, host reads `0xffffffff` there); C1 = C3 = `0x00000000` (ISPENDR2 CA
+`0x40161208` at the enable point and the bring-up end); C4 = `0x00000000` (ISACTIVER2 CA `0x40161308`); C2
+= C5 = `0x000003FF` (GICC HPPIR CA `0x40160118`, nothing pending for the CPU); S1/S1+4/S2/S2+4 re-verify
+BRANCH-1; window `0x406B8000` = `0xE59FF018`; `[sig]` 9/9. **MAP CORRECTION, load-bearing:** the brief's
+ISPENDR2/ISACTIVER2 `0x40160208`/`0x40160308` sit in the GICC page's read-as-zero area and would have
+faked "nothing pending"; the vendor-layout siblings are `0x40161208`/`0x40161308`, with GICD base
+`0x40161000` anchored by the firmware's own CTLR literal (file `0x716c` -> written at `0x6ed4`), ISENABLER
+`0x40161100` (literal file `0x87044`), ICENABLER `0x40161180`, ICPENDR `0x40161280`. Bounds declared: C0 is
+pre-write; NO doorbell was rung, so a clear pending word does NOT falsify a late/latch-triggered assert
+(rows NOT TESTED); a zero cell cannot tell "clear" from "RAZ" by value alone (anchors: the firmware's own
+write targets plus the C0/C2 positive controls); ISACTIVER2's address rests on the relative layout.
+Independent verifier CONFIRMED (high), map-correction grade RIGHT and bounds HONEST; acceptance 54/54
+ALL_OK; frozen probe/scratch md5s unchanged (`2a9a9f1d...`/`b08699bd...`); original ISENABLER write at file
+`0x8702c` byte-identical; device clean after (stock md5, no `.omo-pat`, no new pstore/chip dumps). **Next
+branch:** a post-SEND sampling iteration - sample ISPENDR2/HPPIR at the moment the FIRMWARE itself posts to
+the host (its `out[1]` writes), which is exactly when the missing ctrl-rb -> GIC wire would have to assert;
+dispatched 2026-10-04.
+
