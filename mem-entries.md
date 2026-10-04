@@ -138,3 +138,15 @@ device-internal ctrl-rb -> GIC wire, not a missing enable.
 closed at the mechanism level; the remaining instruments (JTAG, vendor source) are confirmed
 unavailable.
 
+**Strike, 2026-10-04 - the phase-48 ack headline is vacuous and is superseded.**  CA `0x400392f0`
+is the ctrl-rb `HOST_INTR_CLR` register, write-to-clear: the sibling map makes it the bit-0 clear of
+the 12-source host-intr group, and the H2D dispatcher writes 1 to clear it (`THE-GATE-MAP.md`
+section 1: `0x818b2 movs r7,#1` / `0x818b8 str r7,[r2]`, phase 32).  A W1C register reads 0 before
+AND after any dispatcher run, so "the ack never flips" decides nothing and every readback-based
+"byte-identical" claim resting on it proves decode/storage only, never device effect.  Correction
+blocks added at the top of `opensource/docs/phase48/host-side-closed.md` and in
+`opensource/docs/phase47/THE-LAST-LINK.md` section 3; no original text deleted and the
+never-write-`0x400392f0` rule is unchanged.  The valid observable set is the raw status CA
+`0x400392e4` and masked status CA `0x400392ec` (phase 46 measured), with the device-side signatures
+(pending id CA `0x4016010c`) as the real delivery witness.
+
