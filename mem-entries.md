@@ -150,3 +150,60 @@ never-write-`0x400392f0` rule is unchanged.  The valid observable set is the raw
 `0x400392e4` and masked status CA `0x400392ec` (phase 46 measured), with the device-side signatures
 (pending id CA `0x4016010c`) as the real delivery witness.
 
+
+## 2026-10-04 - phase 49: the forward lane - register(0x4c) ran, enable(0x4c) executed, the delivery hop is the last link
+
+The wifi-forward plan's five device lanes (tasks 9-13), each closing with a healthy router. Reports:
+`opensource/docs/phase49/` (read-boot, probe-boot, scratch-boot, vendor-loader, viewport, README).
+
+**Read boot (task 9, `build/register-dumps/exp/20261004-163526/`).** CA `0x4017D560` = **`0x00040295`**
+(the `fn_array[0x4c]` fn-pool pointer), control `0x4017D4E4` = `0x000462F9`, window sanity `0x406B8000` =
+`0xE59FF018`; all SEVEN live reads match the frozen normal-op barmap word for word -> **firmware
+`register(0x4c)` ran in the takeover boot.** The `[intrsamp]` block reproduced phase 46 exactly: doorbell
+`0x400392d4` bit 0 -> raw `0x2e4` `0x0 -> 0x1`, masked `0x2ec` `0x10 -> 0x11`; bit 3 ring -> raw `0x1 ->
+0x9`, masked `0x11 -> 0x19`; ack unmoved (W1C, decides nothing). `[sig] 9/9`, readback `diffs=0`.
+
+**Probe boot (task 10, `build/register-dumps/exp/20261004-164113/`).** One-byte probe at file `0xe2c97`
+(OUTSIDE the `0xCC0CC` loaded image) accepted: dmesg names `/lib/firmware/hi_wifi/FIRMWARE.bin.omo-pat`,
+readback `diffs=0`, `[sig] 9/9`, no panic, no new pstore, `.omo-pat` removed and stock md5 verified. The
+load path carries a modified blob without bricking the takeover boot (GATE G3 auto-continue).
+
+**Scratch boot (task 11, `build/register-dumps/exp/20261004-165139/`).** BOTH scratch stores executed, at
+BOTH BAR0 aliases: `S1=0x00001000` (bit-12 bitmap word -> id `0x4c`), `S1+4=0x40161108` (the destination),
+`S2=0x00000001`, `S2+4=0x50AA7E49` (the scratch marker, asserted BY EQUALITY because task 9 fixed `S2+4` as
+static frozen-image content, baseline `0x00104427`). The plan table's **BRANCH-1**: `enable(0x4c)`
+EXECUTED. The enable half is settled; the remaining failure is the device-internal delivery hop. Round 1
+(no dir) was a harness/loader stall, not a branch; the round-2 poller pinned the sequence live
+(`build/register-dumps/exp/20261004-165044-diag/`).
+
+**Vendor-loader (task 12, `build/register-dumps/exp/20261004-165759-vendorloader/`).** Verdict
+**rejected** (Wi-Fi never came up; chip `EXCP_PANIC`/`EXCP_DABT` 81.5 s after a 34.4 s device_ready
+timeout, code 35629), BUT the plan's validation assumption is FALSIFIED: the loader logged `version check
+skip` and loaded OUR bytes verbatim (patch sites `0x406FEED4`/`0x4077F024` = scratch) and the patched code
+executed (the S1/S2 cells fired). The fence is firmware runtime, not loader validation - the lane is dead
+as-is for this patch. Residual ambiguity declared (stores vs trampoline liveness). Full recovery, stock
+restored and verified before reboot.
+
+**Viewport (task 13, `build/register-dumps/exp/20261004-171523/`; CI run 37218448504).** Spare viewports
+6/7 programmed (14/14 readbacks), P3 six named viewports unchanged=YES; one doorbell; B control decoded
+(raw `0x2e4` `0x0 -> 0x1` bit 0). **A reads ALL `0xffffffff`**: CA `0x40160000` (the GIC block) is NOT
+host-reachable through an inbound spare viewport -> expected-negative, **GATE G5 default branch**. The
+parameters are the measurement.
+
+**Gates:** G1 blessed the frozen knob-set as-is; G2 proceeded (L1 `0x00040295` nonzero, user confirmed); G3
+auto-continued on `9/9`; G4 authorized task 12 on preconditions; G5 took the default branch.
+`.omo/ulw-execute/ledger.jsonl:30,54,60,66,67,73`.
+
+**Branch recommendation for THE-LAST-LINK section 3.** `0x40161108` bit 12 = 0 is ELIMINATED (task 11:
+`enable(0x4c)` executed) and `register(0x4c)` ran (task 9), so the distributor side is armed. The GIC is
+host-invisible (task 13), so the deciding read CA `0x4016010c` is **device-side only** - a trace across one
+doorbell ring reading distributor bit 12 and IAR. The vendor-loader lane is not that instrument (dead
+as-is). The cheap leading indicator stays the masked-status latch at CA `0x400392ec` bit 0.
+
+**Plan-text defects recorded by the executors (from the ledger):** the S1/S2 range `[0xE7000,0xFFF00]`
+was unsatisfiable (extended to `0x1BFFFF`); the probe rule was vacuous by construction (byte outside the
+loaded image); the host-window overlap with region 4 (spec's P3 mitigation); the `EXP_DONE_CMD` default
+mismatch (`omo-drv1: init done`); `module-log.txt` vs `dmesg.txt` wording; `rox_pci0` is a bound PCIe
+driver, not an lsmod entry; the harness reboot-freshness gate (`uptime < 180` could accept a stale boot);
+and the capture-hook remote/local path bug (fixed and reverified).
+
