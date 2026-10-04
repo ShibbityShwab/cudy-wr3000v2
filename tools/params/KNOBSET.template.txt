@@ -1,0 +1,16 @@
+# KNOBSET.txt -- mandatory header for EVERY device evidence dir (plan task 5 / IS-4).
+# Copy this to <evidence-dir>/KNOBSET.txt and fill EVERY field from the device; leave no
+# placeholder behind -- an evidence dir without a complete KNOBSET.txt fails IS-4.
+#
+# knob-set sha256    : <run: awk '1;/^# --- end of params body ---$/{exit}' tools/params/definitive-run.params | sha256sum>
+# firmware blob md5  : <run: md5sum /lib/firmware/hi_wifi/FIRMWARE.bin>   (stock blob = 0e530b976d5a20e87358671f1a577695, 928920 bytes)
+# module .ko md5     : <run: md5sum <the wifidrv1.ko actually loaded>>
+# module .ko params  : <the exact name=value string passed on the insmod/modprobe line>
+# boot context - lsmod         : <run: lsmod | grep -E 'hi5622v100|rox_pci'>
+# boot context - init scripts  : <run: ls /lib/modules/5.10.201/*.omo-off 2>/dev/null ; ls -l /etc/init.d/>  (module-hiding state of the takeover)
+# boot context - uptime        : <run: uptime ; cat /proc/uptime>
+# boot context - station state : <run: iw dev ; iwpriv Hisilicon0 alg get_2g_power_param ; <the 5G call>>  (expect 6 interfaces, [SUCC] x2)
+# capture utc        : <run: date -u +%Y-%m-%dT%H:%M:%SZ>
+#
+# The knob-set sha256 above MUST equal the footer digest of
+# tools/params/definitive-run.params; if it does not, the run used an unfrozen set.

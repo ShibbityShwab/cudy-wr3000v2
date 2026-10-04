@@ -1,0 +1,98 @@
+# ============================================================================
+# tools/params/definitive-run.params
+# FROZEN vendor-faithful knob-set for wifidrv1.ko -- plan task 5 (closes GAP-4, serves IS-4).
+# One line per knob, in the source's declaration order (wifidrv1.c:197-1890).
+# Format: name=value, then a comment naming the concrete source (report file+line,
+#         live-binding line, or wifidrv1.c declaration line).  No knob value is invented:
+#         every non-default value reproduces a vendor trace line / documented vendor value,
+#         and every other knob carries the explicit '# default (no vendor evidence)'
+#         marker plus its declaration line.
+# ============================================================================
+# USE
+#   PASS STRING (the 5 non-default knobs, source order, as handed to insmod):
+#     hw=1 wr=1 fw=1 release=1 program=1
+#   Tasks 9-13 compose on top of this set: task 9 adds fwctx=1 intrsamp=1 (and msgsvc=1
+#   ONLY if the task-3 verdict were (b); verdict is (a), so it is not added); task 10
+#   overrides fwpath=<staged .omo-pat blob>.  Those tasks write 'frozen set + fw=1 ...';
+#   fw=1 is already frozen here (redundant, harmless).
+#   EVERY device evidence dir MUST contain KNOBSET.txt -- copy
+#   tools/params/KNOBSET.template.txt (sibling) and fill:
+#     knob-set sha256 (recipe in this file's footer), firmware blob md5, module .ko md5,
+#     boot context: lsmod, init scripts, uptime, station state.
+#
+# PROVENANCE
+#   (a) task-2 ordered-diff reports, build/register-dumps/diffs/20261004-160829/
+#       ordered-diff-011_bootprobe_trace_vs_061_testboot_full.txt  (:7 = 26 vendor writes,
+#         :15 = index 0, :40 = index 25) and the identical vendor sequence in
+#       ordered-diff-020_decisive_boot_binding_vs_061_testboot_full.txt (:15, :40).
+#       Their warnings are honoured here: the vendor kprobe records the vendor's OWN
+#       'va=... val=...' store form (regdump_ordered_diff.py:21,63), whose block-base VA
+#       '0x40039000 <= 0x00000020' is the glue chn_res store at CA 0x400392e8 (block base
+#       + 0x2e8); and the port-regex false positives (0x00486d2b, a descriptor word) are
+#       flagged in the reports (:109-110) and never used as knob evidence.
+#   (b) live-binding.md B.1 (lines 157-171), the minimal ordered list of the two PROVEN
+#       vendor writes: #1 ETE intr CA 0x40039508 &= 0xffe0f8f8 -> 0x3f201818
+#       (live-binding.md:161-162; kprobe form at :86) and #2 glue chn_res CA 0x400392e8
+#       &= 0xfffffc20 -> 0x00000020 (live-binding.md:164-165; kprobe form at :93).
+#       Both are issued UNCONDITIONALLY by omo_ete_program when wr=1 (wifidrv1.c:536-538
+#       and :574-577), so no knob exists for them: knob wr=1 is what makes this run
+#       reproduce them, before the rings (#1) and after the rings (#2), as in the vendor.
+#   (c) the port's 41 module_param_named declarations, wifidrv1.c:197-1890 (grep -n
+#       module_param_named wifidrv1.c = 41 names, no more, no fewer).
+#
+# NON-DEFAULT VALUES (5): hw=1, wr=1, fw=1, release=1, program=1.  All 36 others are
+# compiled defaults.  A future change to any of these 41 lines makes every later capture
+# incomparable -- that is what 'frozen' means.
+# --- params body: 41 knobs, declaration order ---------------------------------
+hw=1			# vendor-faithful: claims EP0 and maps the EP0 message window that issues B.1's two proven writes (live-binding.md:161-162,164-165; wifidrv1.c:536,577); decl default 0 = registration only (wifidrv1.c:196,198); documented run composition docs/phase23/firmware-loaded-still-silent.md:4
+wr=1			# gates omo_ete_program (wifidrv1.c:2101) which reproduces the vendor's 26-write ordered boot binding -- report ordered-diff-011_bootprobe_trace_vs_061_testboot_full.txt:15 (index 0, ETE intr 0x40039508 <= 0x3f201818 = live-binding.md:161-162) and :40 (index 25, glue chn_res block-base VA 0x40039000 <= 0x00000020 = CA 0x400392e8, live-binding.md:164-165); decl default 0 (wifidrv1.c:200)
+fw=1			# 'REQUIRED for the firmware to run' (wifidrv1.c:206, decl default 0 at :204); the vendor boot runs its own firmware -- the takeover differed only by the 3 binding writes (live-binding.md:225-228)
+fwpath=/lib/firmware/hi_wifi/FIRMWARE.bin	# default (no vendor evidence); decl default wifidrv1.c:208; this is the vendor firmware path (live-binding.md A.2; docs/phase17/fw-download.md A.2).  Task 10 overrides with the staged .omo-pat blob
+release=1		# writes the documented vendor release value 0x5a5a to CA 0x40000108 (wifidrv1.c:214, decl default 0 at :212); live-binding.md:228 lists release 0x5a5a as already-identical vendor state
+program=1		# programs the six inbound viewports, 'needed for the ETE/IO block to decode' (wifidrv1.c:218, decl default 0 at :216); without it the vendor ring writes (ordered-diff-011...:15-40) do not decode; vendor viewport values measured live in docs/phase18/inbound-map.md
+domain=0		# default (no vendor evidence); decl default wifidrv1.c:220 (0); endpoint 59e7:0005 is in PCI domain 0 (wifidrv1.c:222)
+read_msg5=0		# default (no vendor evidence); decl default wifidrv1.c:224 (0)
+rearm_val=1		# default; decl default wifidrv1.c:238 (=1), documented 'host disasm says 1, the firmware's own handler writes 8' (wifidrv1.c:240); the port's out[4] writes of 1 are ordered-diff-011...:49
+verbose=1		# default; decl default wifidrv1.c:242 (=1)
+irqwin=0		# default (no vendor evidence); decl default wifidrv1.c:294 (0); the phase-34 spare viewport is the task-13 iatuview module, not this run
+dren=0			# default (no vendor evidence); decl default wifidrv1.c:511 (0); phase-44 hypothesis knob (wifidrv1.c:507-513)
+twinmask=0		# default (no vendor evidence); decl default wifidrv1.c:519 (0); phase-48 hypothesis knob (wifidrv1.c:515-522)
+maskreassert=0		# default (no vendor evidence); decl default wifidrv1.c:523 (0); phase-48 hypothesis knob (wifidrv1.c:526)
+pollms=500		# default; decl default wifidrv1.c:636 (=500)
+polldur=8000		# default; decl default wifidrv1.c:640 (=8000)
+d2hsvc=0		# default (no vendor evidence); decl default wifidrv1.c:648 (0); phase-38 hypothesis knob (wifidrv1.c:644-647)
+ackfast=0		# default (no vendor evidence); decl default wifidrv1.c:748 (0); phase-35 hypothesis knob (wifidrv1.c:743-747)
+svc=0			# default (no vendor evidence); decl default wifidrv1.c:895 (0); the vendor's own dispatch is pcie_intr_handle reading glue +0x2ec with mask 0x3d8 (live-binding.md:139-153) -- svc=1 is a per-task ISR stand-in, not part of the minimal frozen binding
+svcms=200		# default; decl default wifidrv1.c:899 (=200)
+svcdur=8000		# default; decl default wifidrv1.c:903 (=8000)
+msgsvc=0		# default (no vendor evidence); decl default wifidrv1.c:1033 (0).  The vendor ack/re-arm at out[3]/out[4] is documented (live-binding.md:169; ordered-diff-011...:48-55); plan .omo/plans/wifi-forward.md:180 adds msgsvc=1 only if the task-3 verdict is (b) -- the verdict is (a) (build/register-dumps/diffs/20261004-160609/glue-2ec-contradiction.md:106)
+msgsvc_dur=10000	# default; decl default wifidrv1.c:1037 (omo_svcdur2 = 10000)
+send=-1			# default; decl default wifidrv1.c:1113 (=-1), 'do not send' (wifidrv1.c:1115)
+senddur=6000		# default; decl default wifidrv1.c:1117 (=6000)
+reannounce=0		# default (no vendor evidence); decl default wifidrv1.c:1227 (0); phase-25y sweep knob (wifidrv1.c:1220-1226)
+fwctx=0			# default (no vendor evidence); decl default wifidrv1.c:1261 (0); task 9 adds fwctx=1 for the context read
+intrsamp=0		# default (no vendor evidence); decl default wifidrv1.c:1329 (0); task 9 adds intrsamp=1 for the 0x2ec sample
+ep1db=0			# default (no vendor evidence); decl default wifidrv1.c:1473 (0); phase-33 sibling-doorbell knob (wifidrv1.c:1470-1472)
+srpost=0		# default (no vendor evidence); decl default wifidrv1.c:1559 (0)
+sr_desclen=0		# default; decl default wifidrv1.c:1571 (0), documented '0 keeps the captured 0x48' (wifidrv1.c:1568)
+sr_announce=1		# default; decl default wifidrv1.c:1583 (=1), documented 'Default 1: do it as the vendor does' -- shuangta_ete_sr_dscr_fill announces id 3 last (wifidrv1.c:1578-1581)
+hccpost=0		# default (no vendor evidence); decl default wifidrv1.c:1592 (0)
+hccgroup=0		# default (no vendor evidence); decl default wifidrv1.c:1595 (0)
+hccid=0			# default (no vendor evidence); decl default wifidrv1.c:1598 (0)
+hcclen=16		# default; decl default wifidrv1.c:1601 (=16)
+hccres=0		# default (no vendor evidence); decl default wifidrv1.c:1604 (0)
+msgb=0			# default (no vendor evidence); decl default wifidrv1.c:1628 (0)
+drparse=0		# default (no vendor evidence); decl default wifidrv1.c:1771 (0)
+drdump=0		# default (no vendor evidence); decl default wifidrv1.c:1774 (0)
+drpost=0		# default (no vendor evidence); decl default wifidrv1.c:1889 (0); note: omo_sr_post (id 3) posts inside the wr=1 path, while dr_post is a separate knob
+# --- end of params body ---
+# ============================================================================
+# FOOTER -- integrity of the frozen set
+# sha256(params body) = 541060a873d58913b9d63457dc8d5b42709d5043549daebcb4f8f208f5c5642c
+#   'params body' = every line from the top of this file through and including the
+#   line '# --- end of params body ---'.  Verify mechanically with:
+#     awk '1;/^# --- end of params body ---$/{exit}' tools/params/definitive-run.params | sha256sum
+#   and compare against the line above (this footer text is excluded from the hash).
+# The same digest goes into every later evidence dir's KNOBSET.txt (see
+# tools/params/KNOBSET.template.txt).
+# ============================================================================
