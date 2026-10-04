@@ -123,3 +123,18 @@ installed, **0 upgradable** within 22.03.6 - the base is already current). So ev
 measured-closed (A), declined (B, 2026-10-03), or waiting on the vendor (C).
 `opensource/docs/phase28/firmware-half-settled.md`.
 
+
+## 2026-10-04 - phases 42-48: the gate located to the mechanism level, the host-side space closed
+
+42-43: the window theory retracted (rings are host DRAM, the port already posts the right nodes);
+the channel map verified (20-word 2g/5g MAC array, ETE rings at CA 0x4003a000, DR ch0-3).
+44: H1/H2 eliminated - the DR channels match the vendor's live state word-for-word.
+45-46: the sibling GPLv2 map (phase 45) revealed the luofu message block IS the PCIE_CTRL_RB
+family - and the RAW interrupt status (0x2e4) became the new observable.  Phase 46's measurement:
+the doorbell sets the raw AND masked status - THE H2D INTERRUPT FIRES.
+47: source 0x4C is registered AND enabled (file 0x9800/0x9816) - the last link is the
+device-internal ctrl-rb -> GIC wire, not a missing enable.
+48: both masks written readback-verified; the ack still never flips.  The host-side space is
+closed at the mechanism level; the remaining instruments (JTAG, vendor source) are confirmed
+unavailable.
+

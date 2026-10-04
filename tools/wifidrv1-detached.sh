@@ -11,7 +11,7 @@
 W=/c/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
 OUT="$W/build/register-dumps/detached"
 LOG="$OUT/wifidrv1.log"
-MODULE="$W/opensource/build/tmp/wifidrv1dren/wifidrv1.ko"
+MODULE="$W/opensource/build/tmp/wifidrv1p48/wifidrv1.ko"
 mkdir -p "$OUT"
 : > "$LOG"
 
@@ -29,7 +29,7 @@ export EXP_RESULT_LABEL=WIFIDRV1
 	echo "params: message +4 length now 72 (matches its descriptor, as the live vendor message does) + in-post announce + service"
 	echo "EXP_DONE_CMD=$EXP_DONE_CMD"
 	echo
-	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 drpost=1 msgsvc=1 pollms=25 polldur=4000 verbose=1 fwctx=1 intrsamp=1 ep1db=1 irqwin=1 ackfast=1 d2hsvc=1 hccpost=1 msgb=1 drparse=1 drdump=1 dren=1
+	bash "$W/tools/exp.sh" "$MODULE" hw=1 program=1 wr=1 fw=1 release=1 srpost=1 drpost=1 msgsvc=1 pollms=25 polldur=4000 verbose=1 fwctx=1 intrsamp=1 ep1db=1 irqwin=1 ackfast=1 d2hsvc=1 hccpost=1 msgb=1 drparse=1 drdump=1 dren=1 twinmask=1 maskreassert=1
 	echo "=== exp.sh exit=$? $(date -Iseconds) ==="
 	echo "=== wifidrv1 detached takeover run end $(date -Iseconds) ==="
 } >> "$LOG" 2>&1

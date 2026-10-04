@@ -39,24 +39,20 @@ earlier docs still state**, so check them against the phase docs before relying 
    So the phase-25 "consumption" was a side-effect of the firmware's own boot touching the mailbox, not a
    trigger. Point 3 remains true as a measurement; it is simply not load-bearing.
 
-**Where it stands (updated 2026-10-04, through phase 35).** The port owns EP0, programs the viewports and
+**Where it stands (updated 2026-10-04, through phase 48).** The port owns EP0, programs the viewports and
 rings, loads and verifies the firmware, releases the CPU (9/9 signature), posts SR descriptors that the
 device consumes, and elicits the firmware's dialogue (`out[1]` id 6 then id 2). **The host side is now
-closed by measurement** - the message content (14 candidates, including byte-exact copies of both real
-vendor frames), the announce, the ring geometry, the DR ring, the doorbell value (1 and 8), and the
-endpoint (EP0 AND EP1) have all been eliminated:
-`opensource/docs/phase27/dr-ring-free-running.md` and `CUSTOM-FIRMWARE-PLAN.md` section 6 carry the table
-of *what closed each candidate*. The verified static lanes (phase 32) located the firmware's real
-interrupt chain - the H2D dispatcher's interrupt line is **id 0x4C** (fn 0x40295 via the stub at file
-0x294->0x818AC), and the vendor rings the H2D doorbell through **EP1** (phy_devid-keyed dev[0]) - then
-the live runs closed the rest: the interrupt block (pending 0x4016010C, enables 0x40161100) is
-**PCIe-unreachable** (a spare iATU viewport returns the no-decode signature), and the dispatcher's ack
-**never pulses even at 100us** across the announce consumption, which is a boot reset of the message
-block, not a message read (`opensource/docs/phase35/dispatcher-never-runs.md`). The gate is the
-device-internal forwarding from the mailbox doorbell to interrupt line 0x4C; the remaining instruments
-are a **device-side trace (JTAG/ROM-monitor)** or the **vendor source** (the Jeton request, set aside by
-the human's 2026-10-04 decision to finish self-contained).
-`opensource/docs/phase32/THE-GATE-MAP.md` carries the verified chain and the priority list.
+closed by measurement at the mechanism level** - the verified chain (phases 42-48) is: the doorbell
+write sets the ctrl-rb raw AND masked interrupt status (0x2e4/0x2ec bit 0, phase 46), the mask is open
+(the vendor's own 0x20), interrupt source 0x4C is registered AND enabled by the firmware (phase 47,
+verified), both masks are written readback-verified (phase 48) - and the firmware's ack (0x400392f0)
+still never flips. The gate is the device-internal delivery from the ctrl-rb's latched status to the
+GIC input, inside the block phase 34 proved PCIe-invisible. Every host-side action the verified maps
+name is performed to the vendor's own values; the remaining instruments are a device-side trace
+(JTAG/ROM-monitor - no hardware) and the vendor source (unresponsive), both confirmed unavailable.
+`opensource/docs/phase48/host-side-closed.md` and `opensource/docs/phase47/THE-LAST-LINK.md` carry
+the full mechanism-level chain; `opensource/docs/phase32/THE-GATE-MAP.md` and
+`opensource/docs/phase42/THE-RING-MAP.md` carry the earlier elimination tables.
 
 The **firmware half** is settled too (`opensource/docs/phase28/firmware-half-settled.md`): the curated
 in-place upgrade is a measured no-op (433 packages installed, 0 upgradable), the wholesale modern rootfs
