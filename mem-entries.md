@@ -208,6 +208,23 @@ driver, not an lsmod entry; the harness reboot-freshness gate (`uptime < 180` co
 and the capture-hook remote/local path bug (fixed and reverified).
 
 
+**Follow-up - gicsend** (`build/register-dumps/exp/20261004-180736/`, round 2; round 1
+`.../20261004-180114/` kept with `aliasing-note.txt`): the post-SEND iteration gic-view dispatched (variant
+`gicsend`, blob md5 `326619bed125e65930a0a62bc6abdd47`, one cycle PASS). A third trampoline at the firmware's
+own `out[1]` post (file `0x86f5a`) samples ISPENDR2/HPPIR/ISACTIVER2 right after the store. **BRANCH-S**: at
+that post the GIC mechanism is alive (word 2 bit 5, id `0x45`, is pending) while source `0x4c`'s line does
+not show pending - D0 = D4 = `0x00000020` (bit 12 clear, bit 5 set, ALIAS view, both pages agree), D1
+(HPPIR) = `0x3FF`, D2 (ISACTIVER2) = `0x0`, S/D markers = `0x50AA7E49`; `[sig]` 9/9, `out[1]` `0x0 -> 0x4`
+at t=500ms. The send-site cells sit above an upper-address **aliasing boundary** (BAR0-direct reads `0x0`,
+the ACP alias `BAR0+0x6b8000` carries the stores; pinned between `0x103ffc` agreeing and `0x104004`
+diverging; mechanism UNEXPLAINED and accepted as a device fact), so D values are quoted from the ALIAS
+ONLY and the `0x50AA7E49` sentinels prove the stores ran. Claim phrased precisely: "not pending at the post
+instant", not "never". Bounds: one-shot timing; ISPENDR2/ISACTIVER2 rest on the GIC-400 relative layout;
+the alias mechanism is unexplained; the host-ring/id-6 hop is untested; id `0x45` recorded, not explained.
+Verifier CONFIRMED (high), acceptance 49/49, pads independently disassembled, frozen probe/scratch/gicview
+md5s unchanged, device clean. **Next:** the `0x4c` line's routing/mask inside the chip - a vendor boot with
+the same instrumented blob, or the two dynamic enable sites / an id `0x45` probe.
+
 **Follow-up (2026-10-04) - gic-view** (`opensource/docs/phase49/gic-view.md`,
 `build/register-dumps/exp/20261004-174357/`): the post-plan lane that flips the sensor on task 13. Patched
 firmware (`tools/patch_fw_scratch.py` variant `gicview`; blob `b6b7faa9b2682d959cce6d0fb2bae315`, one
