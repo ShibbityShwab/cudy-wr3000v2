@@ -29,6 +29,16 @@ Builds two patched copies of the pinned firmware blob:
              Because the site runs on the post, the D cells hold the LAST post's sample - a
              few instructions after the store, which is stated and bounded in the manifest.
              The acknowledging GICC IAR CA 0x4016010c is NEVER read by any variant.
+  gicpost  - gicsend + a FOURTH trampoline at file 0x87036, the first instruction boundary after
+             the conditional enable store (file 0x8702c) that lies OUTSIDE its `itet lo` block -
+             the firmware's own `bl #0xbdf50`.  The pad samples CA 0x40161108 back into E0 (the
+             ISENABLER2 word 2 POST-write readback: bit 12 set proves the conditional store
+             landed), CA 0x40161208 into E1 (ISPENDR2 at the same instant) and re-arms the
+             sentinel E2 = 0x50aa7e49; the enable-gate pad additionally deposits the APSR it
+             captures (`mrs ip, apsr`) into E3 and leaves the request word 0xe2e2e2e2 in E2 on
+             its id-0x4c-gated path, so E0/E1 belong to the same pass as E3.  E3 decodes the very
+             flags the store tests (bit 30 = Z, bit 29 = C; LO held iff C = 0 and Z = 0), which is
+             the one thing every earlier sample could not see.
 
 S1/S2 (and the gicview/gicsend C*/D* cells) are chosen by rule from barmap_ep0_bar0.bin: a
 4-byte aligned firmware runtime address whose 4-byte word is 0x00000000 at BAR0 offset ==
@@ -39,7 +49,7 @@ The input blob is only ever read; every artifact is written under --out.
 
 usage:
   patch_fw_scratch.py --fw <FIRMWARE.bin> --out <variant.bin>
-                      --variant probe|scratch|gicview|gicsend
+                      --variant probe|scratch|gicview|gicsend|gicpost
   patch_fw_scratch.py --selftest [--fw <FIRMWARE.bin>] [--barmap <barmap.bin>]
 
 exit codes: 0 ok, 2 usage/refusal, 3 patch or verification failure
@@ -64,6 +74,7 @@ FW_SIZE = 928920                       # 0xe2c98
 PROBE_MD5 = "2a9a9f1d1340fc63019a69ee8eeca9e0"     # frozen probe-variant output (selftest regression)
 SCRATCH_MD5 = "b08699bd902d35e697e24b94edb6fa2c"   # frozen scratch-variant output (selftest regression)
 GICVIEW_MD5 = "b6b7faa9b2682d959cce6d0fb2bae315"   # frozen gicview-variant output (selftest regression)
+GICSEND_MD5 = "326619bed125e65930a0a62bc6abdd47"   # frozen gicsend-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -174,6 +185,39 @@ S_CELL_EXCLUDE = (
     0x105F80 + 0xA0,
     0x172130 + 0x10,
 )
+# ---- gicpost: the POST-WRITE readback of the enable store (variant "gicpost") --------------
+# The firmware's enable store is the CONDITIONAL `strlo.w r4,[r3,r2,lsl #2]` at file 0x8702c: it
+# lands only when the LO condition holds (C == 0 AND Z == 0).  Every earlier sample is taken
+# BEFORE it (the enable-gate pad at file 0x87024 runs first; gicsend samples at the out[1] post,
+# much later), so a takeover boot in which the condition is false would look exactly like a boot
+# in which the write landed and the wire stayed silent.  gicpost closes that hole:
+#   * a second trampoline at file 0x87036.  0x8702c is the conditional store; 0x87030/0x87034 are
+#     the `itet lo` block's hs/lo slots, so a `bl` planted there would sit INSIDE an IT block
+#     (UNPREDICTABLE).  0x87036 is the first boundary after the store that is outside the block
+#     and runs unconditionally - the firmware's own `bl #0xbdf50` - and the pad reproduces that
+#     call EXACTLY: it contains no `bl` of its own, so lr still holds 0x8703a (the value the
+#     replaced instruction installed, which the callee at file 0xbdf54 passes on), and it ends in
+#     `b.w 0xbdf50`, dropping the callee back to the identical instruction (0x8703a).
+#   * the enable-gate pad (file 0xc8198) additionally deposits the APSR it captured into E3 and
+#     leaves the request word GICP_REQUEST in E2 on the same id-0x4c-gated path.  The post pad
+#     consumes that request (match, clear, sample), so E0/E1 describe the SAME id-0x4c pass whose
+#     flags E3 records, not whatever the last enable() call happened to be.  E2 therefore
+#     separates three states: 0x50aa7e49 = the sample ran; 0xe2e2e2e2 = the request was set and
+#     never consumed (the post pad did not run - say so rather than reading the zeros); 0 = no
+#     id-0x4c enable pass happened at all.
+# The gate pad restores APSR before returning to 0x87028, so the flags at 0x8702c are the ORIGINAL
+# `cmp r4,r3` flags (file 0x87014) - the very ones E3 records.  APSR bit 31 = N, 30 = Z, 29 = C,
+# 28 = V; LO held iff C == 0 and Z == 0.
+POST_SITE = 0x87036          # `bl #0xbdf50` - first boundary after the store, outside the IT block
+POST_CALL = 0xBDF50          # the call the replaced instruction makes (reproduced with `b.w`)
+POST_CONT = 0x8703A          # `mov r0,r4` - where that call returns (lr = 0x8703a at the site)
+GICP_NCELLS = 4              # E0..E3
+GICP_READS = (GICD_ISENABLER2, GICD_ISPENDR2)   # -> E0, E1
+GICP_MARKER = MARKER         # 0x50aa7e49 - the post pad's presence sentinel -> E2
+GICP_REQUEST = 0xE2E2E2E2    # the gate pad's request word -> E2 (consumed by the post pad)
+GICP_E_LO = S_CELL_LO        # the sub-boundary band, where BAR0 and the ACP alias agree
+GICP_E_HI = 0x104000         # the pinned agreement boundary (0x103ffc agrees, 0x104004 does not)
+
 PROBE_WALK_LO = 0xE2C00
 PAD_MIN = 64
 PAD_LO = 0x4000                        # keep clear of the image head / boot-stub area
@@ -569,6 +613,84 @@ def select_cells_gicsend(barmap: bytes):
     return cells, sel
 
 
+NOTE_GICPOST_E = (
+    "E0..E3 live in the sub-boundary band [0xE7000, 0x104000): the BAR0 view and the ACP alias "
+    "agree there (the boundary is empirically pinned at 0x104000 - the C5 cell 0x103ffc reads "
+    "identically at both views, the round-1 cell 0x104004 did not), so an E value is admissible "
+    "from the BAR0 read alone.  The brief's preference for an all-zero 4 KB page below the "
+    "boundary is UNSATISFIABLE against barmap_ep0_bar0.bin: the lowest all-zero page is 0x11e000 "
+    "(above the boundary), and the entire sub-boundary band holds exactly 13 zero words, nine of "
+    "which are already S1/S1+4/S2/S2+4/C0..C5.  The four survivors - 0x103fb8, 0x103fe8, "
+    "0x103ff0, 0x103ff8, all in the one sub-boundary page that has any zero word at all "
+    "(0x103000, the page the C cells sit in) - are E0..E3, so E2 (the sentinel) and E3 (the APSR) "
+    "sit in the same page as E0/E1 as required, and the deposit is readable from the BAR0 view "
+    "(the C cells prove that view live at these addresses in the gicview/gicsend boots)."
+)
+
+
+def select_cells_gicpost(barmap: bytes):
+    """The gicsend cells (S1/S2/C0..C5 = the walk's prefix, D0..D5 = the two all-zero pages) plus
+    the four E cells of the post-write sample group (see NOTE_GICPOST_E)."""
+    check_barmap(barmap)
+    ok = _cell_ok(barmap)
+    primary = [a for a in range(S_CELL_LO, S_CELL_HI, 4) if ok(a)]
+    prefix = walk_cells(barmap, 2 + GICV_NCELLS, ok=ok)
+    if len(prefix) < 2 + GICV_NCELLS:
+        raise PatchError("gicpost selection failed: fewer than eight usable cells for S1/S2/C0..C5")
+    pages = _zero_page_spans(barmap)
+    if len(pages) < 2:
+        raise PatchError("gicpost selection failed: fewer than two all-zero 4 KB pages in the band")
+
+    def take(page: int, n: int, prev: list[int]) -> list[int]:
+        out: list[int] = []
+        a = page
+        while a + 8 <= page + 0x1000 and len(out) < n:
+            last = out[-1] if out else prev[-1]
+            if ok(a) and a - last >= 8:
+                out.append(a)
+            a += 4
+        return out
+
+    d = take(pages[0], 4, prefix)
+    if len(d) < 4:
+        raise PatchError(f"gicpost selection failed: page {pages[0]:#x} has fewer than four usable cells")
+    d2 = take(pages[1], 2, d)
+    if len(d2) < 2:
+        raise PatchError(f"gicpost selection failed: page {pages[1]:#x} has fewer than two usable cells")
+
+    used = set(prefix) | {prefix[0] + 4, prefix[1] + 4}     # S1+4/S2+4 are written slots
+    band = [a for a in range(GICP_E_LO, GICP_E_HI, 4) if ok(a)]
+    e = [a for a in band if a not in used][:GICP_NCELLS]
+    if len(e) < GICP_NCELLS:
+        raise PatchError(f"gicpost selection failed: only {len(e)} free sub-boundary cells for E0..E3")
+
+    cells = prefix + d + d2 + e
+    sel = {
+        "rule": "S1/S2/C0..C5 = the walk's fixed prefix and D0..D5 = the two all-zero 4 KB pages "
+                "(identical to the gicsend variant, so the variants stay directly comparable).  "
+                "E0..E3 = the free 4-byte words of the sub-boundary band [0xE7000, 0x104000) that "
+                "are 0x00000000 at BOTH the BAR0 offset and the alias offset in "
+                "barmap_ep0_bar0.bin, outside the four excluded tables and distinct from every "
+                "earlier cell and from the S1+4/S2+4 written slots",
+        "spec_range": [hex(S_CELL_LO), hex(S_CELL_HI)],
+        "spec_range_zero_words": len(primary),
+        "range_used": [hex(S_CELL_LO), hex(S_CELL_ALIAS_HI)],
+        "excludes": [hex(x) for x in S_CELL_EXCLUDE],
+        "cells_used": [hex(c) for c in cells],
+        "all_zero_pages": [hex(p) for p in pages],
+        "all_zero_pages_below_boundary": [hex(p) for p in pages if p < GICP_E_HI],
+        "d_page_1": hex(pages[0]),
+        "d_page_2": hex(pages[1]),
+        "e_band": [hex(GICP_E_LO), hex(GICP_E_HI)],
+        "e_band_zero_words": [hex(a) for a in band],
+        "e_band_used_by_earlier_cells": [hex(a) for a in band if a in used],
+        "e_pages": sorted({hex(a & ~0xFFF) for a in e}),
+        "note": NOTE_RANGE,
+        "e_note": NOTE_GICPOST_E,
+    }
+    return cells, sel
+
+
 def select_cells_gicview(barmap: bytes):
     """Eight cells by the same rule: S1, S2 (identical to the scratch variant - the walk's first
     two), then the six fresh deposit cells C0..C5.  All eight are mutually >= 8 bytes apart."""
@@ -623,7 +745,8 @@ def gic_read_store_block(read_ca: int, cell: int) -> bytes:
     ])
 
 
-def pad_thunk(pad: int, s1: int, gic_cells: list[int] | None = None) -> bytes:
+def pad_thunk(pad: int, s1: int, gic_cells: list[int] | None = None,
+              apsr_cell: int | None = None, req_cell: int | None = None) -> bytes:
     head = b"".join([
         mrs_apsr(12),                     # +0  save condition flags
         push(PAD_SAVE),                   # +4  24 bytes, keeps SP 8-aligned
@@ -642,6 +765,10 @@ def pad_thunk(pad: int, s1: int, gic_cells: list[int] | None = None) -> bytes:
     if gic_cells:
         for read_ca, cell in zip(GIC_THUNK_READS, gic_cells[:3]):
             body += gic_read_store_block(read_ca, cell)   # +34.. gicview: C0, C1, C2
+    if req_cell is not None:                          # gicpost: E2 <- the id-0x4c request word
+        body += _store_imm_block(GICP_REQUEST, req_cell)
+    if apsr_cell is not None:                         # gicpost: E3 <- the APSR captured below
+        body += _store_ip_block(apsr_cell)
     l1 = bne_addr + 2 + len(body)         # +34 (scratch); later when the GIC blocks are added
     tail = b"".join([
         pop(PAD_SAVE),
@@ -692,6 +819,65 @@ def pad_send(pad: int, d_cells: list[int]) -> bytes:
     return head + tail + b_w(back, SEND_CONT)
 
 
+def _store_ip_block(cell: int) -> bytes:
+    """movw/movt the cell address into r0 and `str.w ip,[r0]`.  ip (r12) is where the gate pad
+    parks the APSR it captured, and ip is not a low register, so the 32-bit store form is used."""
+    return b"".join([
+        movw(0, cell & 0xFFFF),
+        movt(0, cell >> 16),
+        str_imm_w(12, 0, 0),
+    ])
+
+
+def pad_post(pad: int, e_cells: list[int]) -> bytes:
+    """The post-write pad (gicpost), entered at file 0x87036.
+
+    0x8702c is the conditional store; 0x87030/0x87034 are the `itet lo` block's hs/lo slots, so a
+    `bl` planted there would sit INSIDE an IT block (UNPREDICTABLE).  0x87036 is the first boundary
+    after the store that is outside the block and runs unconditionally: the firmware's own
+    `bl #0xbdf50`.  The pad therefore has to leave that call's semantics exactly as they were:
+
+      * it must NOT contain any `bl` of its own - the `bl` at 0x87036 installs lr = 0x8703a, the
+        callee's own `mov r2, lr` (file 0xbdf54) passes that value on, and the callee returns
+        through it, so lr is live data at this point, not scratch;
+      * it ends in `b.w 0xbdf50`, a tail branch that leaves lr at 0x8703a and so drops the callee
+        back to the identical instruction (0x8703a, `mov r0,r4`) it would have reached unpatched.
+
+    The sample is gated on the request the gate pad left in E2 (GICP_REQUEST): the gate pad only
+    writes it on its id-0x4c path, so E0/E1/E2 describe that pass and no earlier or later enable()
+    call.  E0 is CA 0x40161108 (ISENABLER2 word 2) read back immediately after the store, E1 is
+    CA 0x40161208 (ISPENDR2 word 2) read at the same instant, and E2 is then re-armed with the
+    0x50aa7e49 sentinel, which is the presence proof of the sample.  r0-r5 and the condition flags
+    are saved and restored.
+    """
+    e0, e1, e2, _e3 = e_cells
+    head = b"".join([
+        mrs_apsr(12),                                    # +0  park the condition flags
+        push(PAD_SAVE),                                  # +4  24 bytes, SP stays 8-aligned
+        movw(1, GICP_REQUEST & 0xFFFF),                  # +6
+        movt(1, GICP_REQUEST >> 16),                     # +10  r1 = 0xe2e2e2e2
+        movw(0, e2 & 0xFFFF),                            # +14  r0 = &E2
+        movt(0, e2 >> 16),                               # +18
+        ldr_imm(2, 0, 0),                                # +22  r2 = *E2 (the request word)
+        cmp_reg(2, 1),                                   # +24
+    ])
+    bne_addr = pad + len(head)                           # +26
+    body = b"".join([
+        movw(2, 0),                                      # r2 = 0
+        str_imm(2, 0, 0),                                # *E2 = 0 (consume the request)
+        gic_read_store_block(GICP_READS[0], e0),         # E0  ISENABLER2, POST-write readback
+        gic_read_store_block(GICP_READS[1], e1),         # E1  ISPENDR2, right after the store
+        _store_imm_block(GICP_MARKER, e2),               # E2  sentinel: the sample happened
+    ])
+    l_skip = bne_addr + 2 + len(body)
+    tail = b"".join([
+        pop(PAD_SAVE),
+        msr_apsr(12),                                    # the flags the replaced bl saw
+    ])
+    back = l_skip + len(tail)
+    return head + b_cond(bne_addr, l_skip, COND_NE) + body + tail + b_w(back, POST_CALL)
+
+
 def pad_bringup(pad: int, s2: int, gic_cells: list[int] | None = None) -> bytes:
     head = b"".join([
         push(PAD_SAVE),                   # +0
@@ -716,12 +902,15 @@ def pad_bringup(pad: int, s2: int, gic_cells: list[int] | None = None) -> bytes:
 
 # ---------------------------------------------------------------- guards / verify
 
-def patch_sites(data: bytes, pad_i: int, pad_b: int, pad_s: int | None = None) -> bytes:
+def patch_sites(data: bytes, pad_i: int, pad_b: int, pad_s: int | None = None,
+                pad_p: int | None = None) -> bytes:
     buf = bytearray(data)
     buf[SITE_THUNK:SITE_THUNK + 4] = bl(SITE_THUNK, pad_i)
     buf[BRINGUP_SITE:BRINGUP_SITE + 4] = bl(BRINGUP_SITE, pad_b)
     if pad_s is not None:
         buf[SEND_SITE:SEND_SITE + 4] = bl(SEND_SITE, pad_s)
+    if pad_p is not None:
+        buf[POST_SITE:POST_SITE + 4] = bl(POST_SITE, pad_p)
     return bytes(buf)
 
 
@@ -740,7 +929,8 @@ def check_original_gic_write(data: bytes) -> None:
 
 
 def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int,
-                  gic_cells: list[int] | None = None) -> dict:
+                  gic_cells: list[int] | None = None,
+                  apsr_cell: int | None = None, req_cell: int | None = None) -> dict:
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
 
     def dis(off: int, size: int) -> list[str]:
@@ -753,7 +943,7 @@ def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int,
     if not (len(site) == 1 and site[0].startswith("bl ")):
         raise PatchError(f"thunk site 0x{SITE_THUNK:x} did not re-disassemble to a bl: {site!r}")
 
-    p_i = dis(pad_i, len(pad_thunk(pad_i, s1, gic_cells)))
+    p_i = dis(pad_i, len(pad_thunk(pad_i, s1, gic_cells, apsr_cell=apsr_cell, req_cell=req_cell)))
     if not any(s.startswith("str r4, [r0]") for s in p_i):
         raise PatchError(f"thunk pad missing the S1 bitmap store: {p_i!r}")
     if not any(s.startswith("str r5, [r0, #4]") for s in p_i):
@@ -770,8 +960,15 @@ def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int,
     if not any(s.startswith("str.w sl, [r7]") for s in p_b):
         raise PatchError(f"bring-up pad missing the reproduced distributor enable: {p_b!r}")
 
+    if req_cell is not None:                          # gicpost: the E2 request store
+        if not any(s.startswith("movw r1, #0xe2e2") for s in p_i):
+            raise PatchError(f"thunk pad missing the gicpost request store (E2): {p_i!r}")
+    if apsr_cell is not None:                         # gicpost: the E3 APSR deposit
+        if not any(s.startswith("str.w ip, [r0]") for s in p_i):
+            raise PatchError(f"thunk pad missing the gicpost APSR deposit (E3): {p_i!r}")
+
     if gic_cells:
-        code_i = pad_thunk(pad_i, s1, gic_cells)
+        code_i = pad_thunk(pad_i, s1, gic_cells, apsr_cell=apsr_cell, req_cell=req_cell)
         code_b = pad_bringup(pad_b, s2, gic_cells)
         for read_ca, cell in zip(GIC_THUNK_READS, gic_cells[:3]):
             block = gic_read_store_block(read_ca, cell)
@@ -888,11 +1085,13 @@ def make_scratch(data: bytes, barmap: bytes, refs: set[int]):
 
 
 def verify_disasm_gicsend(data: bytes, pad_i: int, pad_b: int, pad_s: int, s1: int, s2: int,
-                          gic_cells: list[int], d_cells: list[int]) -> dict:
+                          gic_cells: list[int], d_cells: list[int],
+                          apsr_cell: int | None = None, req_cell: int | None = None) -> dict:
     """gicview verification plus the send-site trampoline: the site must re-disassemble to a bl,
     the pad must reproduce the out[1] post and `movs r2,#1`, and it must carry the three
     device-side GIC read/store blocks into D0/D1/D2 in the documented order."""
-    seen = verify_disasm(data, pad_i, pad_b, s1, s2, gic_cells)
+    seen = verify_disasm(data, pad_i, pad_b, s1, s2, gic_cells,
+                         apsr_cell=apsr_cell, req_cell=req_cell)
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
     site = [f"{i.mnemonic} {i.op_str}".strip()
             for i in md.disasm(data[SEND_SITE:SEND_SITE + 4], SEND_SITE)]
@@ -929,6 +1128,65 @@ def verify_disasm_gicsend(data: bytes, pad_i: int, pad_b: int, pad_s: int, s1: i
         raise PatchError(f"send continuation 0x{SEND_CONT:x} is not the expected add.w: {cont!r}")
     seen["send_site"] = site
     seen["send_pad"] = p_s
+    return seen
+
+
+def verify_disasm_gicpost(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int,
+                          s1: int, s2: int, gic_cells: list[int], d_cells: list[int],
+                          e_cells: list[int]) -> dict:
+    """The gicsend verification (with the gicpost thunk-pad additions) plus the post-write pad:
+    the site re-disassembles to a bl, the pad carries the request gate, the request clear, the two
+    POST-write GIC read/store blocks and the re-armed sentinel, it holds no `bl` (which would
+    clobber the live lr) and its tail is the `b.w` that reproduces the replaced call."""
+    seen = verify_disasm_gicsend(data, pad_i, pad_b, pad_s, s1, s2, gic_cells, d_cells,
+                                 apsr_cell=e_cells[3], req_cell=e_cells[2])
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+    if POST_SITE != 0x87036 or data[POST_SITE:POST_SITE + 4] != bl(POST_SITE, pad_p):
+        raise PatchError(f"post site {POST_SITE:#x} bytes are not the intended bl")
+    site = [f"{i.mnemonic} {i.op_str}".strip()
+            for i in md.disasm(data[POST_SITE:POST_SITE + 4], POST_SITE)]
+    if not (len(site) == 1 and site[0].startswith("bl ")):
+        raise PatchError(f"post site 0x{POST_SITE:x} did not re-disassemble to a bl: {site!r}")
+
+    code_p = pad_post(pad_p, e_cells)
+    p_p = [f"{i.mnemonic} {i.op_str}".strip()
+           for i in md.disasm(data[pad_p:pad_p + len(code_p)], pad_p)]
+    if not any(s.startswith("cmp r2, r1") for s in p_p):
+        raise PatchError(f"post pad missing the request gate: {p_p!r}")
+    if not any(s.startswith("bne") for s in p_p):
+        raise PatchError(f"post pad missing the gate branch: {p_p!r}")
+    if not any(s.startswith("ldr r2, [r0]") for s in p_p):
+        raise PatchError(f"post pad missing the request load: {p_p!r}")
+    if not any(s.startswith("str r2, [r0]") for s in p_p):
+        raise PatchError(f"post pad missing the request clear: {p_p!r}")
+    for read_ca, cell in zip(GICP_READS, e_cells[:2]):
+        block = gic_read_store_block(read_ca, cell)
+        if block not in code_p or block not in data[pad_p:pad_p + len(code_p)]:
+            raise PatchError(f"post pad missing the GIC read/store for CA {read_ca:#x} -> cell {cell:#x}")
+    if _store_imm_block(GICP_MARKER, e_cells[2]) not in code_p:
+        raise PatchError("post pad missing the re-armed sentinel")
+    if _store_ip_block(e_cells[3]) in code_p:
+        raise PatchError("post pad must not write E3 (the gate pad owns it)")
+    if push(PAD_SAVE) not in code_p or pop(PAD_SAVE) not in code_p:
+        raise PatchError("post pad missing the register save/restore")
+    if mrs_apsr(12) not in code_p or msr_apsr(12) not in code_p:
+        raise PatchError("post pad missing the flag save/restore")
+    if bl(pad_p, POST_CALL) in code_p:
+        raise PatchError("post pad must NOT contain a bl: it would clobber the live lr")
+    if code_p[-4:] != b_w(pad_p + len(code_p) - 4, POST_CALL):
+        raise PatchError(f"post pad tail is not the reproduced `b.w` call: {code_p[-4:].hex()}")
+    n_ldr = sum(1 for s in p_p if s.startswith("ldr r1, [r1]"))
+    if n_ldr != len(GICP_READS):
+        raise PatchError(f"expected {len(GICP_READS)} post-pad GIC loads, disassembly shows {n_ldr}")
+    # the sample order: clear the request, then E0, then E1, then re-arm the sentinel
+    i_clear = code_p.index(str_imm(2, 0, 0))
+    i_e0 = code_p.index(gic_read_store_block(GICP_READS[0], e_cells[0]))
+    i_e1 = code_p.index(gic_read_store_block(GICP_READS[1], e_cells[1]))
+    i_sent = code_p.index(_store_imm_block(GICP_MARKER, e_cells[2]))
+    if not i_clear < i_e0 < i_e1 < i_sent:
+        raise PatchError("post pad order is not clear -> E0 -> E1 -> sentinel")
+    seen["post_site"] = site
+    seen["post_pad"] = p_p
     return seen
 
 
@@ -1056,6 +1314,182 @@ def make_gicsend(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+def make_gicpost(data: bytes, barmap: bytes, refs: set[int]):
+    """gicsend + a fourth trampoline at file 0x87036 (the post-write pad, E0/E1/E2) plus the gate
+    pad's E2/E3 deposits: the APSR the conditional store executes with, and the post-write
+    readback of the word that store writes."""
+    cells, sel = select_cells_gicpost(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    dc = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICS_NCELLS]
+    ec = cells[2 + GICV_NCELLS + GICS_NCELLS:2 + GICV_NCELLS + GICS_NCELLS + GICP_NCELLS]
+    if len(ec) != GICP_NCELLS:
+        raise PatchError("internal error: E0..E3 were not selected")
+
+    need_i = len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))
+    pad_i, len_i = find_padding(data, refs, need_i, [])
+    need_b = len(pad_bringup(0, s2, gc))
+    pad_b, len_b = find_padding(data, refs, need_b, [(pad_i, pad_i + len_i)])
+    need_s = len(pad_send(0, dc))
+    pad_s, len_s = find_padding(data, refs, need_s, [(pad_i, pad_i + len_i), (pad_b, pad_b + len_b)])
+    need_p = len(pad_post(0, ec))
+    pad_p, len_p = find_padding(data, refs, need_p, [(pad_i, pad_i + len_i),
+                                                     (pad_b, pad_b + len_b), (pad_s, pad_s + len_s)])
+
+    code_i = pad_thunk(pad_i, s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pad_b, s2, gc)
+    code_s = pad_send(pad_s, dc)
+    code_p = pad_post(pad_p, ec)
+    out = bytearray(patch_sites(data, pad_i, pad_b, pad_s, pad_p))
+    out[pad_i:pad_i + len(code_i)] = code_i
+    out[pad_b:pad_b + len(code_b)] = code_b
+    out[pad_s:pad_s + len(code_s)] = code_s
+    out[pad_p:pad_p + len(code_p)] = code_p
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the patch changed the image size")
+    for site, pad in ((SITE_THUNK, pad_i), (BRINGUP_SITE, pad_b), (SEND_SITE, pad_s),
+                      (POST_SITE, pad_p)):
+        if out[site:site + 4] != bl(site, pad):
+            raise PatchError(f"internal error: site {site:#x} bytes are not the intended bl")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+
+    check_original_gic_write(out)
+    seen = verify_disasm_gicpost(out, pad_i, pad_b, pad_s, pad_p, s1, s2, gc, dc, ec)
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(dc):
+        records[f"D{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+
+    manifest = {
+        "variant": "gicpost",
+        "selection": sel,
+        "cells": records,
+        "gic_map": {
+            "GICD_base": "0x40161000",
+            "GICD_ISENABLER2": hex(GICD_ISENABLER2),
+            "GICD_ISPENDR2": hex(GICD_ISPENDR2),
+            "GICD_ISACTIVER2": hex(GICD_ISACTIVER2),
+            "GICC_base": "0x40160100",
+            "GICC_HPPIR": hex(GICC_HPPIR),
+            "never_read": "0x4016010c (GICC IAR - acknowledging)",
+            "note": NOTE_GIC_MAP,
+            "read_order": {
+                "C0": {"ca": hex(GICD_ISENABLER2), "point": "gate pad (file 0x87024), PRE-write"},
+                "C1": {"ca": hex(GICD_ISPENDR2), "point": "gate pad, PRE-write"},
+                "C2": {"ca": hex(GICC_HPPIR), "point": "gate pad, PRE-write"},
+                "C3": {"ca": hex(GICD_ISPENDR2), "point": "bring-up end"},
+                "C4": {"ca": hex(GICD_ISACTIVER2), "point": "bring-up end"},
+                "C5": {"ca": hex(GICC_HPPIR), "point": "bring-up end"},
+                "D0": {"ca": hex(GICD_ISPENDR2), "point": "send pad, after the out[1] post"},
+                "D1": {"ca": hex(GICC_HPPIR), "point": "send pad, after the out[1] post"},
+                "D2": {"ca": hex(GICD_ISACTIVER2), "point": "send pad, after the out[1] post"},
+                "D3": {"ca": "none", "point": f"presence marker 0x{GICS_MARKER:08x} (send pad)"},
+                "D4": {"ca": hex(GIC_SEND_RECHECK), "point": "send pad, second read, second all-zero page"},
+                "D5": {"ca": "none", "point": f"presence marker 0x{GICS_MARKER:08x} (send pad)"},
+                "E0": {"ca": hex(GICD_ISENABLER2), "point": "post-write pad (file 0x87036), AFTER the store"},
+                "E1": {"ca": hex(GICD_ISPENDR2), "point": "post-write pad, AFTER the store"},
+                "E2": {"ca": "none", "point": f"request 0x{GICP_REQUEST:08x} (gate pad) / sentinel "
+                                                       f"0x{GICP_MARKER:08x} (post pad)"},
+                "E3": {"ca": "none", "point": "the APSR the gate pad captured (mrs ip,apsr at file "
+                                                    "0x87024) and restored before the store at 0x8702c"},
+            },
+            "cells_note": NOTE_GICSEND_CELLS,
+            "marker_note": NOTE_GICSEND_MARKER,
+            "e_note": NOTE_GICPOST_E,
+        },
+        "classification": {
+            "instrument": "E0 is the LATCHED ISENABLER2 word 2 read a few instructions after the "
+                           "conditional store; E3 is the APSR the same pass executed with.  E2 proves "
+                           "the sample belongs to an id-0x4c-gated pass.",
+            "E0_bit12_set": "the conditional store LANDED (its LO condition held) - the silence is "
+                            "downstream of the write, and the store-skipped root cause is excluded",
+            "E0_bit12_clear_E3_lo_false": "THE STORE WAS SKIPPED - the enable never happens in a "
+                                          "takeover boot (ROOT CAUSE)",
+            "E0_bit12_clear_E3_lo_true": "the store executed but did not take (register anomaly, "
+                                         "its own finding)",
+            "E3_decode": "APSR bit 31 = N, 30 = Z, 29 = C, 28 = V; LO held iff C == 0 and Z == 0",
+            "E2_states": {hex(GICP_MARKER): "the post pad sampled",
+                          hex(GICP_REQUEST): "the request was set and never consumed - the post pad "
+                                             "did not run, so E0/E1 zeros are void (say so, do "
+                                             "not interpret them)",
+                          "0x0": "no id-0x4c enable pass"},
+            "bounds": "one-shot latched sample, not a timing window; E1 is the pending state at the "
+                      "same instant only; the gate is the bitmap 0x1000, which within the thunk's "
+                      "valid id range 0x10..0x5f is id 0x4c or id 0x2c (id 0x2c would store to word "
+                      "1, CA 0x40161104, which is not read here - the static enable table gives "
+                      "both ids the same 05 01 descriptor shape, so the id is inferred from the "
+                      "phase47 enable list and the S1+4 destination constant, not proven here)",
+        },
+        "post_site": {
+            "file_offset": hex(POST_SITE),
+            "runtime_addr": hex(POST_SITE + BIAS),
+            "replaced_bytes": data[POST_SITE:POST_SITE + 4].hex(),
+            "replaced_instruction": "bl #0xbdf50",
+            "why_this_site": (
+                "the first instruction boundary after the conditional store at file 0x8702c that is "
+                "outside the `itet lo` block (0x87030 is its hs slot, 0x87034 its lo slot: a bl "
+                "there would be unpredictable) and runs unconditionally"
+            ),
+            "reproduction": (
+                "the pad contains no `bl`, so lr still holds 0x8703a - the return address the "
+                "replaced instruction itself installed and the value the callee (file 0xbdf50, "
+                "`mov r2, lr` at 0xbdf54) passes on; the pad ends in `b.w 0xbdf50`, so the callee "
+                "returns to the identical instruction (file 0x8703a) it would have reached unpatched"
+            ),
+            "continuation_file_offset": hex(POST_CONT),
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pad_i), "runtime_addr": hex(pad_i + BIAS),
+                      "run_length": hex(len_i), "code_length": len(code_i), "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pad_b), "runtime_addr": hex(pad_b + BIAS),
+                        "run_length": hex(len_b), "code_length": len(code_b), "code_hex": code_b.hex()},
+            "send": {"file_offset": hex(pad_s), "runtime_addr": hex(pad_s + BIAS),
+                     "run_length": hex(len_s), "code_length": len(code_s), "code_hex": code_s.hex()},
+            "post": {"file_offset": hex(pad_p), "runtime_addr": hex(pad_p + BIAS),
+                     "run_length": hex(len_p), "code_length": len(code_p), "code_hex": code_p.hex()},
+        },
+        "patches": [
+            {"kind": "trampoline-entry", "region": "enable thunk 0x86ff4", "file_offset": hex(SITE_THUNK),
+             "before": data[SITE_THUNK:SITE_THUNK + 4].hex(),
+             "after": bl(SITE_THUNK, pad_i).hex(), "note": NOTE_GICVIEW_I},
+            {"kind": "trampoline-entry", "region": "distributor bring-up 0x6e5c-0x6ed4",
+             "file_offset": hex(BRINGUP_SITE), "before": data[BRINGUP_SITE:BRINGUP_SITE + 4].hex(),
+             "after": bl(BRINGUP_SITE, pad_b).hex(), "note": NOTE_GICVIEW_II},
+            {"kind": "trampoline-entry", "region": "firmware out[1] post 0x86F5A (ETE bring-up 0x86E14)",
+             "file_offset": hex(SEND_SITE), "before": data[SEND_SITE:SEND_SITE + 4].hex(),
+             "after": bl(SEND_SITE, pad_s).hex(), "note": NOTE_GICSEND_SITE},
+            {"kind": "trampoline-entry", "region": "enable-thunk post-store boundary 0x87036",
+             "file_offset": hex(POST_SITE), "before": data[POST_SITE:POST_SITE + 4].hex(),
+             "after": bl(POST_SITE, pad_p).hex(),
+             "note": "the firmware's own `bl #0xbdf50` at the first post-store boundary outside "
+                     "the `itet lo` block; the pad samples ISENABLER2/ISPENDR2 post-write (E0/E1) "
+                     "and reproduces the call as a `b.w` with lr untouched"},
+        ],
+        "preserved": {
+            "original_gic_write": {
+                "file_offset": "0x8702c",
+                "instruction": "strlo.w r4, [r3, r2, lsl #2]",
+                "ca": "0x40161100 + (id/32)*4",
+                "verified_present": True,
+                "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030],
+            },
+            "itet_block": {"file_offset": "0x8702a..0x87035",
+                           "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+        },
+        "disasm": seen,
+    }
+    return out, manifest
+
+
 def make_gicview(data: bytes, barmap: bytes, refs: set[int]):
     """scratch + six device-side GIC reads deposited into fresh cells C0..C5 (see NOTE_GIC_MAP)."""
     cells, sel = select_cells_gicview(barmap)
@@ -1167,6 +1601,13 @@ def _encoder_roundtrip() -> None:
     one("bl", bl(0x1000, 0x8000), "bl #0x8000", addr=0x1000)
     one("bw", b_w(0x1000, 0x800000), "b.w #0x800000", addr=0x1000)
     one("bcond", b_cond(0x1000, 0x1010, COND_NE), "bne #0x1010", addr=0x1000)
+    one("strw_ip", str_imm_w(12, 0, 0), "str.w ip, [r0]")
+    one("str2", str_imm(2, 0, 0), "str r2, [r0]")
+    one("movw0", movw(2, 0), "movw r2, #0")
+    one("movwreq", movw(1, GICP_REQUEST & 0xFFFF), "movw r1, #0xe2e2")
+    one("movtreq", movt(1, GICP_REQUEST >> 16), "movt r1, #0xe2e2")
+    one("cmp21", cmp_reg(2, 1), "cmp r2, r1")
+    one("bwcall", b_w(0x1000, 0x800000), "b.w #0x800000", addr=0x1000)
 
 
 def selftest(fw_path: str, barmap_path: str) -> int:
@@ -1337,6 +1778,84 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert diff_gv and all((SEND_SITE <= c < SEND_SITE + 4) or (pad_d_s <= c < pad_d_s + len(code_d_s))
                            for c in diff_gv), "gicsend differs from gicview outside the send site/pad"
 
+    assert md5(gsen) == GICSEND_MD5, f"gicsend output changed: {md5(gsen)} != {GICSEND_MD5}"
+
+    # ---- gicpost: gicsend + the post-write pad (E0/E1/E2) and the gate pad's E2/E3 deposits
+    gp, gpm = make_gicpost(data, barmap, refs)
+    assert len(gp) == len(data), "gicpost changed the size"
+    gp2, gpm2 = make_gicpost(data, barmap, refs)
+    assert gp == gp2, "gicpost patch is not deterministic"
+    assert json.dumps(gpm, sort_keys=True) == json.dumps(gpm2, sort_keys=True), \
+        "gicpost manifest is not deterministic"
+    for nm in ["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)] + [f"D{i}" for i in range(GICS_NCELLS)]:
+        assert gpm["cells"][nm]["addr"] == gsm["cells"][nm]["addr"], f"gicpost moved cell {nm}"
+    ec = [int(gpm["cells"][f"E{i}"]["addr"], 16) for i in range(GICP_NCELLS)]
+    every = [s1, s2] + gc + ds + ec
+    assert len(set(every)) == len(every), "gicpost cells are not all distinct"
+    assert all(gpm["cells"][f"E{i}"]["barmap_value"] == "0x0" for i in range(GICP_NCELLS)), \
+        "an E cell baseline is not zero at BAR0"
+    assert all(gpm["cells"][f"E{i}"]["barmap_alias_value"] == "0x0" for i in range(GICP_NCELLS)), \
+        "an E cell baseline is not zero at the alias"
+    assert all(c not in S_CELL_EXCLUDE for c in ec), "an E cell is inside an excluded table"
+    assert all(c < GICP_E_HI for c in ec), "an E cell sits at or above the aliasing boundary"
+    assert len({c & ~0xFFF for c in ec}) == 1, "the E cells are not all in one page"
+    assert gpm["selection"]["e_pages"] == [hex(ec[0] & ~0xFFF)], "the e_pages record is wrong"
+    assert gpm["selection"]["all_zero_pages_below_boundary"] == [], \
+        "the barmap grew a sub-boundary all-zero page - the E selection rule needs revisiting"
+    assert len(gpm["selection"]["e_band_zero_words"]) == 13, "the sub-boundary zero-word count moved"
+
+    # the post site is the firmware's own bl, reproduced as a b.w that leaves lr alone
+    assert POST_SITE == 0x87036 and data[POST_SITE:POST_SITE + 4] == bytes.fromhex("36f08bff"), \
+        "the post site is not bl #0xbdf50"
+    pad_i_p = int(gpm["padding"]["thunk"]["file_offset"], 16)
+    pad_b_p = int(gpm["padding"]["bringup"]["file_offset"], 16)
+    pad_s_p = int(gpm["padding"]["send"]["file_offset"], 16)
+    pad_p_p = int(gpm["padding"]["post"]["file_offset"], 16)
+    assert gp[POST_SITE:POST_SITE + 4] == bl(POST_SITE, pad_p_p), "the post site is not the intended bl"
+    assert gp[0x8702C:0x87030] == data[0x8702C:0x87030], "gicpost altered the original ISENABLER store"
+    assert gp[0x87030:0x87036] == data[0x87030:0x87036], "gicpost altered the itet block"
+    check_original_gic_write(gp)
+    verify_disasm_gicpost(gp, pad_i_p, pad_b_p, pad_s_p, pad_p_p, s1, s2, gc, ds, ec)
+
+    # the gicpost pads: gicsend's pads plus the E deposits; bring-up and send stay byte-identical
+    code_i_p = pad_thunk(pad_i_p, s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_p_p = pad_post(pad_p_p, ec)
+    assert gp[pad_i_p:pad_i_p + len(code_i_p)] == code_i_p, "the gicpost thunk pad is not in the image"
+    assert gp[pad_p_p:pad_p_p + len(code_p_p)] == code_p_p, "the gicpost post pad is not in the image"
+    assert _store_imm_block(GICP_REQUEST, ec[2]) in code_i_p, "thunk pad missing the E2 request"
+    assert _store_ip_block(ec[3]) in code_i_p, "thunk pad missing the E3 APSR deposit"
+    assert code_i_p[:12] == bytes.fromhex(gsm["padding"]["thunk"]["code_hex"])[:12], \
+        "the gicpost thunk pad head diverged from gicsend"
+    assert gpm["padding"]["bringup"]["code_hex"] == gsm["padding"]["bringup"]["code_hex"], \
+        "the gicpost bring-up pad differs from gicsend"
+    assert gpm["padding"]["send"]["code_hex"] == gsm["padding"]["send"]["code_hex"], \
+        "the gicpost send pad differs from gicsend"
+    for key in ("thunk", "bringup", "send"):
+        assert gpm["padding"][key]["file_offset"] == gsm["padding"][key]["file_offset"], \
+            f"gicpost moved the {key} pad"
+
+    # gicpost must differ from gicsend only at the post site and the two pads it touches
+    diff_gs = [i for i in range(len(data)) if gp[i] != gsen[i]]
+    ok_diff = (set(range(POST_SITE, POST_SITE + 4)) | set(range(pad_p_p, pad_p_p + len(code_p_p)))
+               | set(range(pad_i_p, pad_i_p + len(code_i_p))))
+    assert diff_gs and all(c in ok_diff for c in diff_gs), \
+        "gicpost differs from gicsend outside its own regions"
+
+    # changed bytes confined to the four sites + four pads
+    allowed_p = set()
+    for site in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE):
+        allowed_p |= set(range(site, site + 4))
+    for key in ("thunk", "bringup", "send", "post"):
+        off = int(gpm["padding"][key]["file_offset"], 16)
+        allowed_p |= set(range(off, off + int(gpm["padding"][key]["code_length"])))
+    changed_p = [i for i in range(len(data)) if gp[i] != data[i]]
+    assert changed_p and all(c in allowed_p for c in changed_p), \
+        "gicpost changed bytes outside its regions"
+    assert not (set(range(pad_i_p, pad_i_p + 64)) & set(range(pad_p_p, pad_p_p + 64))), \
+        "the gicpost post pad overlaps the thunk pad"
+    assert gpm["post_site"]["file_offset"] == hex(POST_SITE) == "0x87036"
+    assert gpm["classification"]["E3_decode"].startswith("APSR bit 31 = N")
+
     # ---- input untouched
     assert rd(fw_path) == data, "the input file changed during the run"
 
@@ -1384,6 +1903,11 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           + f" (send pad @ file {gsm['padding']['send']['file_offset']}, site {hex(SEND_SITE)})")
     print(f"  gicsend sends     : D0/D1/D2={[hex(x) for x in GIC_SEND_READS]}")
     print(f"  gicsend md5       : {md5(gsen)}")
+    print(f"  gicpost cells     : " + " ".join(f"E{i}={gpm['cells'][f'E{i}']['addr']}"
+                                               for i in range(GICP_NCELLS))
+          + f" (post pad @ file {gpm['padding']['post']['file_offset']}, site {hex(POST_SITE)})")
+    print(f"  gicpost post reads: E0/E1={[hex(x) for x in GICP_READS]} E3=APSR from the gate pad")
+    print(f"  gicpost md5       : {md5(gp)}")
     return 0
 
 
@@ -1395,11 +1919,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--barmap", default="opensource/build/register-dumps/barmap_ep0_bar0.bin",
                     help="normal-op BAR0 baseline used for S1/S2 selection")
     ap.add_argument("--out", help="output blob (never the input)")
-    ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend"),
+    ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
-                         "post (file 0x86F5A) reading ISPENDR2/HPPIR/ISACTIVER2 into cells D0..D2")
+                         "post (file 0x86F5A) reading ISPENDR2/HPPIR/ISACTIVER2 into cells D0..D2; "
+                         "gicpost: gicsend + a fourth trampoline at file 0x87036 (the first "
+                         "boundary after the conditional enable store) reading ISENABLER2 back "
+                         "POST-write into E0 and ISPENDR2 into E1, with the enable-gate pad's "
+                         "APSR deposit in E3")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -1421,7 +1949,8 @@ def main(argv: list[str] | None = None) -> int:
         out, manifest = (make_probe(data, refs) if args.variant == "probe"
                          else make_scratch(data, barmap, refs) if args.variant == "scratch"
                          else make_gicview(data, barmap, refs) if args.variant == "gicview"
-                         else make_gicsend(data, barmap, refs))
+                         else make_gicsend(data, barmap, refs) if args.variant == "gicsend"
+                         else make_gicpost(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
             "input": {"path": args.fw, "md5": md5(data), "size": len(data), "checks": checks},
