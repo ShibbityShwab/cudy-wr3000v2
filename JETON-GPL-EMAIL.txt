@@ -1,0 +1,25 @@
+TO:      support@jeton-tech.ru
+SUBJECT: GPL source code request - AX3000 Core V3.1.00-260924 (Linux 5.10.201, hisilicon/luofu, luofu_V200)
+
+Hello,
+
+I own a Jeton AX3000 Core running your firmware
+Jeton-AX3000-Core_V3.1.00-260924_JETONTECHver (OpenWrt 22.03.6-r23439, target
+hisilicon/luofu, chip luofu_V200, product wrt_hg5013_4g_h2, product version
+ChenTang_1.2.16.linux0).
+
+That firmware distributes GPL-licensed software in binary form: the Linux kernel 5.10.201,
+U-Boot, BusyBox, opkg and the other GPL packages of the OpenWrt base.
+
+Under GPLv2 sections 3(a)/3(b), I request the complete corresponding source code for those
+GPL-licensed components as you distribute them, including:
+
+1. the Linux kernel sources with the luofu/hi5671y/hsan platform modifications and the build
+   configuration (defconfig, device trees);
+2. the U-Boot sources for this board;
+3. the source or build recipes for the other GPL packages in the image.
+
+The vendor SDK flow identifiers for this platform are hisi_trunk / opal22, chip luofu_V200.
+Please provide a download link, or a written offer valid for at least three years.
+
+Thank you.
