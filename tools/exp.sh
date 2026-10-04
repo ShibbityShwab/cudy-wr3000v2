@@ -26,7 +26,7 @@
 # This file is also sourceable: batch.sh sources it and reuses exp_run().
 # Env knobs (all optional): EXP_WATCH EXP_BOOT_TIMEOUT EXP_RUN_TIMEOUT EXP_POLL
 #   EXP_KVER EXP_EVID_SUFFIX EXP_EXTRA_STAGE EXP_EXTRA_PULL EXP_DONE_CMD
-#   EXP_RESULT_LABEL
+#   EXP_CAPTURE_CMD EXP_RESULT_LABEL
 set -uo pipefail
 
 EXP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,6 +49,10 @@ EXP_HOST="root@192.168.10.1"
 # logs 'S95done (5809): drop_caches: 3' at boot, which the loose pattern
 # matched, so exp.sh captured and recovered before the S99 loader even ran
 # (found on the first real BOOT B run 2026-10-02).
+: "${EXP_CAPTURE_CMD:=}"                   # optional remote cmd run after the done
+#   marker and before the capture step; stdout+stderr land in capture-cmd.txt.
+#   Empty (default) = no hook. A non-zero exit records a FAILURE but is
+#   non-fatal: exp.sh still captures, recovers and reports FAIL.
 : "${EXP_RESULT_LABEL:=EXP}"
 
 EXP_RECOVER_SCRIPT="/root/recover-exp.sh"
@@ -370,6 +374,13 @@ exp_capture() {
 	if [ "$DRY" = 1 ]; then
 		exp_hr "5/7 capture the evidence"
 		printf '$ mkdir -p %s\n' "$dir"
+		if [ -n "$EXP_CAPTURE_CMD" ]; then
+			exp_note "EXP_CAPTURE_CMD (after done-check, before capture): $EXP_CAPTURE_CMD"
+			exp_remote "capture hook (EXP_CAPTURE_CMD)" \
+"{ $EXP_CAPTURE_CMD ; } 2>&1"
+			# the redirect below is executed LOCALLY and writes the evidence file
+			printf '$ ssh %s <<EOS ... > %s/capture-cmd.txt\n' "$EXP_HOST" "$dir"
+		fi
 		exp_remote "capture dmesg"        "dmesg > $dir/dmesg.txt"
 		exp_remote "capture lsmod"        "lsmod > $dir/lsmod.txt"
 		exp_remote "capture interrupts"   "cat /proc/interrupts > $dir/interrupts.txt"
@@ -385,6 +396,14 @@ ls -l $EXP_CAPTURE_TAR"
 	fi
 	printf -- '-- [5/7] capture the evidence\n'
 	mkdir -p "$dir" || return 1
+	if [ -n "$EXP_CAPTURE_CMD" ]; then
+		printf -- '-- capture hook (EXP_CAPTURE_CMD)\n'
+		if "$EXP_RSH" "{ $EXP_CAPTURE_CMD ; } 2>&1" > "$dir/capture-cmd.txt"; then
+			printf '  capture hook: ok -> %s/capture-cmd.txt\n' "$dir"
+		else
+			exp_fail "capture-hook" "EXP_CAPTURE_CMD exited non-zero (see $dir/capture-cmd.txt)"
+		fi
+	fi
 	"$EXP_RSH" 'dmesg'                  > "$dir/dmesg.txt" 2>/dev/null
 	"$EXP_RSH" 'lsmod'                  > "$dir/lsmod.txt" 2>/dev/null
 	"$EXP_RSH" 'cat /proc/interrupts'   > "$dir/interrupts.txt" 2>/dev/null

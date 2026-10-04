@@ -32,7 +32,7 @@ Everything that touches the device or the firmware images. Two instrument sets: 
 - `.sh` headers: `# <name> - <purpose>` + usage block; `set -uo pipefail` in the harnesses (never `set -e`), errors accumulated in `FAILURE` so recovery always runs.
 - Both harnesses support `--dry-run` (prints the ssh/scp shape, touches nothing) - use it before any real run.
 - Device I/O goes through `.sshwrap/rsh.sh` / `.sshwrap/rscp.sh`; target `root@192.168.10.1`; kernel `5.10.201`.
-- Env contract on `exp.sh`: `EXP_WATCH=1800 EXP_BOOT_TIMEOUT=300 EXP_RUN_TIMEOUT=180 EXP_HEALTH_TIMEOUT=180 EXP_DONE_CMD` (default `dmesg | grep -q ': done ('`).
+- Env contract on `exp.sh`: `EXP_WATCH=1800 EXP_BOOT_TIMEOUT=300 EXP_RUN_TIMEOUT=180 EXP_HEALTH_TIMEOUT=180 EXP_DONE_CMD` (default `dmesg | grep -q ': done ('`) `EXP_CAPTURE_CMD` (default empty = no hook; when set it runs remotely after `EXP_DONE_CMD` and before the capture step, stdout+stderr saved to `capture-cmd.txt` in the evidence dir, non-zero exit records FAILURE with recovery still running).
 - Credentials are placeholders: `PW=<ROUTER-WEB-PASSWORD>`, `echo <ROUTER-SSH-PASSWORD>`, env `ROUTER_SSH_PASSWORD`; real values live in `.omo-secrets/`.
 - Python scripts are standalone (no package, no shared module); the only cross-file import is `mqtt_takeover.py -> forge_jwt.forge`. Devices in files named `…2/…3/…4` are scratch variants, the highest number is most developed.
 - Python deps live in the repo venv `pyenv/` (capstone, pycryptodome, pyelftools, PyJWT, paho-mqtt, passlib); run with `pyenv/Scripts/python.exe`.
