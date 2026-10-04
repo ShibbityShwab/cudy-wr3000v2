@@ -282,3 +282,37 @@ nit noted: the acceptance script would label P1 even if LO were false, not trigg
 (takeover instrumented, safe), or a vendor-stack boot with the same instrument (needs lead authorization,
 carries the task-12 abort risk).
 
+**Follow-up - gicmask** (`opensource/docs/phase49/gic-view.md` ADDENDUM 3, `build/register-dumps/exp/20261004-194824/`,
+variant `gicmask`, +608/-13, blob md5 `2d354bd297270d6a64056bf2fc663dc2`, one cycle PASS, 150 s, acceptance
+67/67 `ALL_OK`, gm_check 55/55): the DELIVERY-CONFIGURATION test. Instead of another pending-word sample, the
+send-site pad additionally reads and stores ten words F0..F9, and the run reads the three candidate delivery
+roots device-side at the firmware's own post. **BRANCH-M (label BRANCH-M4): all three candidate roots are
+EXCLUDED; the delivery configuration is fully ARMED, and the missing piece is the EVENT ASSERTION (ctrl-rb ->
+GIC).** Values (F cells above the `0x104000` boundary, quoted from the ACP alias; F8/F9 = `0x50AA7E49` prove
+the pads ran; sentinels): F0 `0x40160100` GICC_CTLR = `0x1` (EnableGrp0 SET, CPU interface enabled); F1
+`0x40160104` GICC_PMR = `0xF0` (passes `0x4c`'s priority `0x50`); F2 `0x4016184C` ITARGETSR = `0x01010101`
+(byte 0 = `0x01`, CPU 0); F3 `0x4016144C` IPRIORITYR = `0xF050F050` (id `0x4c` -> `0x50`); F4 `0x40161C10`
+ICFGR = `0x55555555` (all `0b01` = EDGE); F5 `0x400392E8` glue HOST_INTR_MASK = `0x20` (bit 0 = 0, H2D line
+UNMASKED); F6 `0x400392E4` raw status = `0x0`; F7 `0x400392EC` post-mask = `0x0`. F6/F7 clear is the EXPECTED
+reading of a boot with no ring rung, so it cannot separate "never asserts" from "asserts but is dropped". TWO
+BRIEF CORRECTIONS (disasm-verified): (a) "mask `0x3d8`" is a MASK CONSTANT (`ldr r4,[r3,#0x2ec]` at
+`hi5622v100_plat.ko` file `0x833c`, `ands r4,r4,#0x3d8` at `0x8344`), NOT an address; the real mask register is
+CA `0x400392E8` (+0x2E8, 1 = masked); (b) the F addresses rest on firmware literals (`0x8309c` =
+`0x40160100`, `0x83010` = `0x4016010c`, `0x83020` = `0x40160110`, `0x7174` = `0x40161800`, `0x7170` =
+`0x40161400`, `0x715c` = `0x40161c00`, `0x86fb4` = `0x40039000`), with the verifier's nit that `0x83098` =
+`0x40160104` is also a literal, so F1 is literal-anchored, not layout-derived (the instrument's prose
+contradicted its own table; conservative, no value changed). OWN FINDINGS: the BAR0 view LAGS the alias (F9
+BAR0 = `0xE2E2E2E2`, the gate pad's earlier request, vs alias = the send pad's sentinel) - the boundary
+phenomenon has content, a lag not a decode difference; F1 = `0xF0` while the image's only PMR writer stores
+`0xff` (file `0x8304e`/`0x83054`; unexplained, immaterial, both pass `0x50`); no `0xffffffff` anywhere.
+Verifier CONFIRMED (high): values reproduced (44 view-reads), acceptance 67/67 + gm_check 55/55, six variants
+regenerate (five frozen pins unchanged, `gicmask` deterministic), the mask constant and literals confirmed by
+capstone, live device clean. TWO inherited conventions flagged as RESIDUAL RISKS: (i) the F5 mask POLARITY
+(1 = masked) is inherited from a sibling header + the vendor live value, not re-derived (an inversion would
+resurrect the "the glue masks it" root); (ii) GICC_CTLR bit 0 is read as "enabled" without checking the
+interrupt's GROUP (no IGROUPR check; a Group-1 SPI with only EnableGrp0 would keep a variant alive). Also:
+the acceptance ladder prints F1..F4 without pinning them (only F0/F5/F6 gate the branch), a noted weakness, the
+values independently pinned; and "no ring -> expected clear" is correct and conceals nothing. **Next (one
+line):** a ring-instrumented run (doorbell + event-assertion sampling) AND the two convention checks (F5
+polarity via a known-masked line; IGROUPR for id `0x4c` + EnableGrp1), all takeover-safe.
+
