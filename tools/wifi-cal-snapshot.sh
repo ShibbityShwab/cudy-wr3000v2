@@ -4,9 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOST=root@192.168.10.1
 SSH_OPTS=(-o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
-export SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0
-printf '#!/bin/sh\necho <ROUTER-SSH-PASSWORD>\n' > /tmp/askpass.sh
-chmod +x /tmp/askpass.sh
+export SSH_ASKPASS="$ROOT/.sshwrap/askpass.sh" SSH_ASKPASS_REQUIRE=force DISPLAY=:0
 
 OUT="$ROOT/build/cal-snapshots/$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT"
