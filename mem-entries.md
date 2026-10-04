@@ -249,3 +249,36 @@ branch:** a post-SEND sampling iteration - sample ISPENDR2/HPPIR at the moment t
 the host (its `out[1]` writes), which is exactly when the missing ctrl-rb -> GIC wire would have to assert;
 dispatched 2026-10-04.
 
+**Follow-up - gicpost** (`build/register-dumps/exp/20261004-190222/`, variant `gicpost`,
+blob md5 `a4e69d74c172d856dd0e336a64482fbd`, one cycle PASS, 147 s): the conditional-enable test. The enable
+write is the CONDITIONAL `strlo.w r4,[r3,r2,lsl #2]` at file `0x8702c` (executes iff C = 0 and Z = 0), and
+every prior sample of it was PRE-write, so a failed condition would have been a root-cause candidate
+upstream of everything. The gate pad now deposits the APSR it captures -> E3, and a post-store trampoline at
+file `0x87036` (pad file `0xc8558`, the firmware's own `bl #0xbdf50` swapped for a pad that holds no `bl` and
+ends `b.w #0xbdf50` with `lr` untouched -> resumes at `0x8703a`) matches/clears the `0xe2e2e2e2` request,
+re-arms the sentinel `0x50AA7E49` -> E2, and reads CA `0x40161108` -> E0 (POST-write ISENABLER2 word 2) and
+CA `0x40161208` -> E1. **BRANCH-P: the conditional store EXECUTED and TOOK; the silent-condition root cause
+is EXONERATED.** E0 = `0x00001001` bit 12 SET (bit 0 = the prior id-`0x40` enable) at BOTH views, a LATCHED
+register readback rather than a timing sample; E3 = `0x80000093` (N=1 Z=0 C=0 V=0 -> LO HELD); E1 = `0x0`
+(the `0x4c` line not pending at that instant); E2 = `0x50AA7E49` (both-pad handshake fired). Sanities:
+S1/S1+4/S2/S2+4 re-verify BRANCH-1; C0 = `0x1` is the same register PRE-write with bit 12 clear (the 0 -> 1
+happened in this pass); C2/C5 = `0x3FF`; D3/D5 markers present; `[sig]` 9/9. The E cells sit in the
+sub-boundary band (`0x103fb8`..`0x103ff8`) where both views agree. The chain now reads registered (L1) ->
+enabled-and-taken (E0) -> not pending at the enable instant (E1) nor at the firmware's own post (BRANCH-S
+D0 = D4 = `0x00000020`, word 2 carrying id `0x45`, HPPIR = `0x3FF`) => the break is DOWNSTREAM of the enable
+register: the delivery/mask path for the `0x4c` line. Bounds: E1 is an instant, not a window ("not pending at
+that instant", never "never"); the gate cannot see an enable that never reached the bitmap path; the gate
+bitmap `0x1000` admits id `0x4c` (word 2) and `0x2c` (word 1), and a landed word-2 bit 12 is an id-`0x4c`
+pass; the map rests on the GIC-400 relative layout (IAR `0x4016010c` never read, `0x400392f0` untouched,
+`0x10161000` never read); the above-`0x104000` BAR0/alias disagreement is unexplained (this run stays
+sub-boundary); no doorbell rung (host-ring / id-6 hop untested); no pre-cycle calibration snapshot (the lane
+writes no calibration data); and the run proves the WRITE landed, not the downstream cause. Verifier
+CONFIRMED (high): values independently parsed, acceptance 47/47, all five variant md5s regenerated identical
+and `gicpost` deterministic, capstone confirmed the site swap (stock `36f08bff` -> patched `41f08ff8` `bl
+#0xc8558`, pad tail `b.w #0xbdf50`, no `bl` inside the pad, `lr` preserved), the handshake logic proven
+(E2 = sentinel requires both pads), live device clean (stock md5, 3 pstore records, 6 ifaces, `[SUCC]`); one
+nit noted: the acceptance script would label P1 even if LO were false, not triggered by the observed pair.
+**Next:** probe the distributor delivery/target/priority words and the CPU-interface mask for the `0x4c` line
+(takeover instrumented, safe), or a vendor-stack boot with the same instrument (needs lead authorization,
+carries the task-12 abort risk).
+
