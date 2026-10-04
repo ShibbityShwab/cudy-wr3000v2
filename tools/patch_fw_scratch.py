@@ -48,6 +48,8 @@ from capstone.arm import ARM_OP_IMM, ARM_OP_MEM, ARM_REG_PC
 
 FW_MD5 = "0e530b976d5a20e87358671f1a577695"
 FW_SIZE = 928920                       # 0xe2c98
+PROBE_MD5 = "2a9a9f1d1340fc63019a69ee8eeca9e0"     # frozen probe-variant output (selftest regression)
+SCRATCH_MD5 = "b08699bd902d35e697e24b94edb6fa2c"   # frozen scratch-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -62,6 +64,34 @@ BITMAP_0X4C = 0x1000
 BRINGUP_SITE = 0x6ED4                  # `str.w sl,[r7]` -> distributor CTLR = 1
 BRINGUP_CONT = 0x6ED8
 MARKER = 0x50AA7E49
+
+# ---- gicview: the device-side GIC readback map (variant "gicview") -------------
+# Verified against the image (disassembly below) and phase32/phase47 before use:
+#   * GICD base = 0x40161000.  The bring-up's final store `str.w sl,[r7]` (file 0x6ed4, sl=1)
+#     uses r7, loaded at file 0x6e88 from the literal at file 0x716c = 0x40161000; phase47
+#     calls the same store "distributor CTLR = 1".
+#   * GICD_ISENABLER base = 0x40161100 - the enable thunk's literal-pool word at file 0x87044
+#     (`ldrlo r3,[pc,#0x1c]` at file 0x87026); the firmware's own write `str r4,[r3,r2,lsl #2]`
+#     (file 0x8702c) then reaches word 2 / bit 12 = CA 0x40161108 for id 0x4c (phase32: "for id
+#     0x4C: word 2, bit 12 -> CA 0x40161108"; phase47 section 1).
+#   * Therefore, by the GIC-400/PL390 relative layout within the same page,
+#     ISPENDR word 2 = base+0x208 and ISACTIVER word 2 = base+0x308.  Corroborated by phase32's
+#     clear pair `enableA 0x86DB8 -> 0x40161180 + mirror 0x40161280` (base+0x180 ICENABLER /
+#     base+0x280 ICPENDR) and phase47's "slot 1 is 0x40161c00 ICFGR" (base+0xC00).
+#   * GICC (CPU interface) page base = 0x40160100 (phase32: IAR 0x4016010c, EoI 0x40160110;
+#     phase47 section 3 keys on those) -> HPPIR = base+0x18 = 0x40160118, NON-acknowledging.
+# The plan's first-draft map gave ISPENDR2/ISACTIVER2 as 0x40160208/0x40160308 (a 0x40160000
+# base).  Those addresses fall in the GICC page's reserved area (RAZ), so reading them would
+# return a guaranteed zero and fake a "nothing pending" result.  This variant reads the two
+# words that actually decode as the named registers.
+# NEVER read the acknowledging IAR CA 0x4016010c (a read acknowledges the pending interrupt).
+GICD_ISENABLER2 = 0x40161108           # the word the firmware's enable(0x4c) writes
+GICD_ISPENDR2 = 0x40161208             # ISPENDR word 2: bit 12 = source id 0x4c
+GICD_ISACTIVER2 = 0x40161308           # ISACTIVER word 2: bit 12 = delivered/active
+GICC_HPPIR = 0x40160118                # CPU interface highest-pending-priority (0x3ff = none)
+GICV_NCELLS = 6                        # C0..C5
+GIC_THUNK_READS = (GICD_ISENABLER2, GICD_ISPENDR2, GICC_HPPIR)      # -> C0, C1, C2
+GIC_BRINGUP_READS = (GICD_ISPENDR2, GICD_ISACTIVER2, GICC_HPPIR)    # -> C3, C4, C5
 
 S_CELL_LO, S_CELL_HI = 0xE7000, 0xFFF00
 S_CELL_ALIAS_HI = 0x1BFFFF             # descriptor 0 (ROM_WRAM) device limit
@@ -97,6 +127,36 @@ NOTE_BRINGUP = (
     "state), relocated into a trampoline that also stores the marker. The marker at S2+4 is "
     "the load-bearing presence proof for the bring-up having run."
 )
+NOTE_GICVIEW_I = (
+    "gicview(i) keeps the scratch(i) enable-thunk trampoline (gate r4==0x1000, S1/S1+4 stores) and, "
+    "after them, adds three side-effect-free device-side GICD/GICC reads deposited into the fresh "
+    "WRAM cells C0/C1/C2: CA 0x40161108 -> C0 (the word the firmware's own enable writes), "
+    "CA 0x40161208 -> C1 (ISPENDR word 2; bit 12 = source id 0x4c) and CA 0x40160118 -> C2 "
+    "(GICC HPPIR, non-acknowledging). C0 answers whether the device side can read back the "
+    "enable bit the host cannot see; C1 answers whether the source is already pending at the GIC "
+    "at the enable point."
+)
+NOTE_GICVIEW_II = (
+    "gicview(ii) keeps the scratch(ii) bring-up-end trampoline (S2/S2+4 stores, then the reproduced "
+    "distributor CTLR write str.w sl,[r7] with r7 = CA 0x40161000) and, between the stores and the "
+    "CTLR write, adds three further side-effect-free reads into C3/C4/C5: CA 0x40161208 -> C3 "
+    "(ISPENDR word 2 at the bring-up end), CA 0x40161308 -> C4 (ISACTIVER word 2; bit 12 set means "
+    "the source was delivered/active) and CA 0x40160118 -> C5 (HPPIR again)."
+)
+NOTE_GIC_MAP = (
+    "The GIC map was verified against the image and phase32/phase47 before use. GICD base "
+    "0x40161000: the bring-up's CTLR literal at file 0x716c = 0x40161000 is loaded into r7 (file "
+    "0x6e88) and written 1 at file 0x6ed4. GICD_ISENABLER base 0x40161100: the enable thunk's "
+    "literal-pool word at file 0x87044; its `str r4,[r3,r2,lsl #2]` (file 0x8702c) reaches word 2 / "
+    "bit 12 = CA 0x40161108 for id 0x4c (phase32 'for id 0x4C: word 2, bit 12 -> CA 0x40161108'). "
+    "Hence GICD_ISPENDR2 = 0x40161208 and GICD_ISACTIVER2 = 0x40161308 by the GIC-400 relative "
+    "layout (corroborated by phase32's clear pair 0x40161180/0x40161280 = base+0x180/0x280 and "
+    "phase47's ICFGR 0x40161c00 = base+0xC00). GICC page base 0x40160100 (phase32 IAR "
+    "0x4016010c / EoI 0x40160110) -> HPPIR 0x40160118. The first-draft map's ISPENDR2/ISACTIVER2 "
+    "(0x40160208/0x40160308, off a 0x40160000 base) fall inside the GICC page's reserved area "
+    "(RAZ); they were NOT used, because a read there returns a guaranteed zero and would fake a "
+    "'nothing pending' result. The acknowledging IAR CA 0x4016010c is never read by this variant."
+)
 
 
 class PatchError(RuntimeError):
@@ -131,6 +191,13 @@ def str_imm(rt: int, rn: int, imm: int) -> bytes:
 
 def str_imm_w(rt: int, rn: int, imm: int) -> bytes:
     return struct.pack("<HH", 0xF8C0 | rn, ((rt & 0xF) << 12) | (imm & 0xFFF))
+
+
+def ldr_imm(rt: int, rn: int, imm: int) -> bytes:
+    """LDR (immediate) T1: `ldr Rt, [Rn, #imm]`, low registers, imm a multiple of 4 in 0..124."""
+    if imm % 4 or not 0 <= imm <= 124:
+        raise PatchError(f"ldr immediate out of range: {imm}")
+    return struct.pack("<H", 0x6800 | ((imm // 4) << 6) | ((rn & 0x7) << 3) | (rt & 0x7))
 
 
 def push(regs: list[int]) -> bytes:
@@ -315,21 +382,35 @@ def find_padding(data: bytes, refs: set[int], need: int, taken: list[tuple[int, 
 
 # ---------------------------------------------------------------- S1 / S2 selection
 
-def select_cells(barmap: bytes):
-    check_barmap(barmap)
-
+def _cell_ok(barmap: bytes):
+    """The cell rule: 4-byte aligned, 4-byte word 0 at BAR0 offset a AND at alias 0x6b8000+a,
+    outside the four excluded tables."""
     def ok(a: int) -> bool:
         if a % 4 or a in S_CELL_EXCLUDE:
             return False
         return word_at(barmap, a) == 0 and word_at(barmap, ALIAS_OFF + a) == 0
+    return ok
 
-    primary = [a for a in range(S_CELL_LO, S_CELL_HI, 4) if ok(a)]
-    cells = []
+
+def walk_cells(barmap: bytes, n: int, ok=None) -> list[int]:
+    """The tool's cell walk from S_CELL_LO upward; each accepted cell is >= 8 bytes from the
+    previous one.  Deterministic: the first n cells are a fixed prefix of the same sequence."""
+    check_barmap(barmap)
+    ok = ok or _cell_ok(barmap)
+    cells: list[int] = []
     a = S_CELL_LO
-    while a + 8 <= S_CELL_ALIAS_HI and len(cells) < 2:
+    while a + 8 <= S_CELL_ALIAS_HI and len(cells) < n:
         if ok(a) and (not cells or a - cells[-1] >= 8):
             cells.append(a)
         a += 4
+    return cells
+
+
+def select_cells(barmap: bytes):
+    check_barmap(barmap)
+    ok = _cell_ok(barmap)
+    primary = [a for a in range(S_CELL_LO, S_CELL_HI, 4) if ok(a)]
+    cells = walk_cells(barmap, 2, ok=ok)
     if len(cells) < 2:
         raise PatchError("S1/S2 selection failed: fewer than two usable zero cells found")
     return cells[0], cells[1], {
@@ -341,6 +422,35 @@ def select_cells(barmap: bytes):
         "excludes": [hex(x) for x in S_CELL_EXCLUDE],
         "note": NOTE_RANGE,
     }
+
+
+def select_cells_gicview(barmap: bytes):
+    """Eight cells by the same rule: S1, S2 (identical to the scratch variant - the walk's first
+    two), then the six fresh deposit cells C0..C5.  All eight are mutually >= 8 bytes apart."""
+    check_barmap(barmap)
+    ok = _cell_ok(barmap)
+    primary = [a for a in range(S_CELL_LO, S_CELL_HI, 4) if ok(a)]
+    cells = walk_cells(barmap, 2 + GICV_NCELLS, ok=ok)
+    if len(cells) < 2 + GICV_NCELLS:
+        raise PatchError("gicview selection failed: fewer than eight usable zero cells found")
+    sel = {
+        "rule": "4-byte aligned runtime addr; 4-byte word == 0x00000000 at BAR0 offset addr and "
+                "at alias 0x6b8000+addr; outside the four excluded tables; each cell >= 8 bytes "
+                "from the previous one; S1/S2 = the first two cells (as in the scratch variant)",
+        "spec_range": [hex(S_CELL_LO), hex(S_CELL_HI)],
+        "spec_range_zero_words": len(primary),
+        "range_used": [hex(S_CELL_LO), hex(S_CELL_ALIAS_HI)],
+        "excludes": [hex(x) for x in S_CELL_EXCLUDE],
+        "cells_used": [hex(c) for c in cells],
+        "note": NOTE_RANGE,
+        "fresh_cell_justification": (
+            "C0..C5 are freshly selected by the same rule as S1/S2 in the same walk (so S1/S2 keep "
+            "their scratch-variant values and are directly comparable across variants), are >= 8 "
+            "bytes apart from each other and from S1/S2, are zero in barmap_ep0_bar0.bin at BOTH "
+            "the BAR0 and the ACP-alias offsets, and lie outside the four excluded tables."
+        ),
+    }
+    return cells, sel
 
 
 def cell_record(barmap: bytes, addr: int) -> dict:
@@ -355,7 +465,20 @@ def cell_record(barmap: bytes, addr: int) -> dict:
 
 # ---------------------------------------------------------------- trampolines
 
-def pad_thunk(pad: int, s1: int) -> bytes:
+def gic_read_store_block(read_ca: int, cell: int) -> bytes:
+    """A side-effect-free device-side GIC read: movw/movt the mapped CA into r1, `ldr r1,[r1]`,
+    then movw/movt the WRAM cell into r0 and `str r1,[r0]`.  r0/r1 are saved by the pad's push."""
+    return b"".join([
+        movw(1, read_ca & 0xFFFF),
+        movt(1, read_ca >> 16),
+        ldr_imm(1, 1, 0),
+        movw(0, cell & 0xFFFF),
+        movt(0, cell >> 16),
+        str_imm(1, 0, 0),
+    ])
+
+
+def pad_thunk(pad: int, s1: int, gic_cells: list[int] | None = None) -> bytes:
     head = b"".join([
         mrs_apsr(12),                     # +0  save condition flags
         push(PAD_SAVE),                   # +4  24 bytes, keeps SP 8-aligned
@@ -371,18 +494,21 @@ def pad_thunk(pad: int, s1: int) -> bytes:
         movt(5, GIC_DEST_0X4C >> 16),     # +28
         str_imm(5, 0, 4),                 # +32  S1+4 <- 0x40161108
     ])
-    l1 = bne_addr + 2 + len(body)         # +34
+    if gic_cells:
+        for read_ca, cell in zip(GIC_THUNK_READS, gic_cells[:3]):
+            body += gic_read_store_block(read_ca, cell)   # +34.. gicview: C0, C1, C2
+    l1 = bne_addr + 2 + len(body)         # +34 (scratch); later when the GIC blocks are added
     tail = b"".join([
-        pop(PAD_SAVE),                    # +34
-        movw(3, GIC_CA_BASE & 0xFFFF),    # +36  r3 = 0x40161100 (the replaced ldrlo r3)
-        movt(3, GIC_CA_BASE >> 16),       # +40
-        msr_apsr(12),                     # +44  restore flags for the itet block
+        pop(PAD_SAVE),
+        movw(3, GIC_CA_BASE & 0xFFFF),    # r3 = 0x40161100 (the replaced ldrlo r3)
+        movt(3, GIC_CA_BASE >> 16),
+        msr_apsr(12),                     # restore flags for the itet block
     ])
-    back = l1 + len(tail)                 # +48
+    back = l1 + len(tail)
     return head + b_cond(bne_addr, l1, COND_NE) + body + tail + b_w(back, CONT_THUNK)
 
 
-def pad_bringup(pad: int, s2: int) -> bytes:
+def pad_bringup(pad: int, s2: int, gic_cells: list[int] | None = None) -> bytes:
     head = b"".join([
         push(PAD_SAVE),                   # +0
         movw(0, s2 & 0xFFFF),             # +2
@@ -392,11 +518,16 @@ def pad_bringup(pad: int, s2: int) -> bytes:
         movw(1, MARKER & 0xFFFF),         # +14
         movt(1, MARKER >> 16),            # +18
         str_imm(1, 0, 4),                 # +22  S2+4 <- marker
-        pop(PAD_SAVE),                    # +24
-        str_imm_w(10, 7, 0),              # +26  reproduce str.w sl,[r7]
     ])
-    back = pad + len(head)                # +30
-    return head + b_w(back, BRINGUP_CONT)
+    if gic_cells:
+        for read_ca, cell in zip(GIC_BRINGUP_READS, gic_cells[3:6]):
+            head += gic_read_store_block(read_ca, cell)   # gicview: C3, C4, C5
+    tail = b"".join([
+        pop(PAD_SAVE),
+        str_imm_w(10, 7, 0),              # reproduce str.w sl,[r7]
+    ])
+    back = pad + len(head) + len(tail)
+    return head + tail + b_w(back, BRINGUP_CONT)
 
 
 # ---------------------------------------------------------------- guards / verify
@@ -422,7 +553,8 @@ def check_original_gic_write(data: bytes) -> None:
     )
 
 
-def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int) -> dict:
+def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int,
+                  gic_cells: list[int] | None = None) -> dict:
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
 
     def dis(off: int, size: int) -> list[str]:
@@ -435,7 +567,7 @@ def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int) -> dict
     if not (len(site) == 1 and site[0].startswith("bl ")):
         raise PatchError(f"thunk site 0x{SITE_THUNK:x} did not re-disassemble to a bl: {site!r}")
 
-    p_i = dis(pad_i, len(pad_thunk(pad_i, s1)))
+    p_i = dis(pad_i, len(pad_thunk(pad_i, s1, gic_cells)))
     if not any(s.startswith("str r4, [r0]") for s in p_i):
         raise PatchError(f"thunk pad missing the S1 bitmap store: {p_i!r}")
     if not any(s.startswith("str r5, [r0, #4]") for s in p_i):
@@ -444,13 +576,30 @@ def verify_disasm(data: bytes, pad_i: int, pad_b: int, s1: int, s2: int) -> dict
     b_site = dis(BRINGUP_SITE, 4)
     if not (len(b_site) == 1 and b_site[0].startswith("bl ")):
         raise PatchError(f"bring-up site 0x{BRINGUP_SITE:x} did not re-disassemble to a bl: {b_site!r}")
-    p_b = dis(pad_b, len(pad_bringup(pad_b, s2)))
+    p_b = dis(pad_b, len(pad_bringup(pad_b, s2, gic_cells)))
     if not any(s.startswith("str r1, [r0]") for s in p_b):
         raise PatchError(f"bring-up pad missing the S2 state store: {p_b!r}")
     if not any(s.startswith("str r1, [r0, #4]") for s in p_b):
         raise PatchError(f"bring-up pad missing the S2+4 marker store: {p_b!r}")
     if not any(s.startswith("str.w sl, [r7]") for s in p_b):
         raise PatchError(f"bring-up pad missing the reproduced distributor enable: {p_b!r}")
+
+    if gic_cells:
+        code_i = pad_thunk(pad_i, s1, gic_cells)
+        code_b = pad_bringup(pad_b, s2, gic_cells)
+        for read_ca, cell in zip(GIC_THUNK_READS, gic_cells[:3]):
+            block = gic_read_store_block(read_ca, cell)
+            if block not in code_i or block not in data[pad_i:pad_i + len(code_i)]:
+                raise PatchError(f"thunk pad missing the GIC read/store for CA {read_ca:#x} "
+                                 f"-> cell {cell:#x}")
+        for read_ca, cell in zip(GIC_BRINGUP_READS, gic_cells[3:6]):
+            block = gic_read_store_block(read_ca, cell)
+            if block not in code_b or block not in data[pad_b:pad_b + len(code_b)]:
+                raise PatchError(f"bring-up pad missing the GIC read/store for CA {read_ca:#x} "
+                                 f"-> cell {cell:#x}")
+        n_ldr = sum(1 for s in p_i + p_b if s.startswith("ldr r1, [r1]"))
+        if n_ldr != len(GIC_THUNK_READS) + len(GIC_BRINGUP_READS):
+            raise PatchError(f"expected six device-side GIC loads, disassembly shows {n_ldr}")
 
     return {"enable_thunk": thunk, "thunk_site": site, "thunk_pad": p_i,
             "bringup_site": b_site, "bringup_pad": p_b}
@@ -552,6 +701,88 @@ def make_scratch(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+def make_gicview(data: bytes, barmap: bytes, refs: set[int]):
+    """scratch + six device-side GIC reads deposited into fresh cells C0..C5 (see NOTE_GIC_MAP)."""
+    cells, sel = select_cells_gicview(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+
+    need_i = len(pad_thunk(0, s1, gc))
+    pad_i, len_i = find_padding(data, refs, need_i, [])
+    need_b = len(pad_bringup(0, s2, gc))
+    pad_b, len_b = find_padding(data, refs, need_b, [(pad_i, pad_i + len_i)])
+
+    code_i = pad_thunk(pad_i, s1, gc)
+    code_b = pad_bringup(pad_b, s2, gc)
+    out = bytearray(patch_sites(data, pad_i, pad_b))
+    out[pad_i:pad_i + len(code_i)] = code_i
+    out[pad_b:pad_b + len(code_b)] = code_b
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the patch changed the image size")
+    if out[SITE_THUNK:SITE_THUNK + 4] != bl(SITE_THUNK, pad_i):
+        raise PatchError("internal error: the thunk site bytes are not the intended bl")
+    if out[BRINGUP_SITE:BRINGUP_SITE + 4] != bl(BRINGUP_SITE, pad_b):
+        raise PatchError("internal error: the bring-up site bytes are not the intended bl")
+
+    check_original_gic_write(out)
+    seen = verify_disasm(out, pad_i, pad_b, s1, s2, gc)
+
+    cell_records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        cell_records[f"C{i}"] = cell_record(barmap, a)
+
+    manifest = {
+        "variant": "gicview",
+        "selection": sel,
+        "cells": cell_records,
+        "gic_map": {
+            "GICD_base": "0x40161000",
+            "GICD_CTLR": "0x40161000",
+            "GICD_ISENABLER2": hex(GICD_ISENABLER2),
+            "GICD_ISPENDR2": hex(GICD_ISPENDR2),
+            "GICD_ISACTIVER2": hex(GICD_ISACTIVER2),
+            "GICC_base": "0x40160100",
+            "GICC_HPPIR": hex(GICC_HPPIR),
+            "never_read": "0x4016010c (GICC IAR - acknowledging)",
+            "note": NOTE_GIC_MAP,
+            "read_order": {
+                "C0": {"ca": hex(GICD_ISENABLER2), "point": "enable thunk, after the S1/S1+4 stores"},
+                "C1": {"ca": hex(GICD_ISPENDR2), "point": "enable thunk, after the S1/S1+4 stores"},
+                "C2": {"ca": hex(GICC_HPPIR), "point": "enable thunk, after the S1/S1+4 stores"},
+                "C3": {"ca": hex(GICD_ISPENDR2), "point": "bring-up end, after the S2/S2+4 stores"},
+                "C4": {"ca": hex(GICD_ISACTIVER2), "point": "bring-up end, after the S2/S2+4 stores"},
+                "C5": {"ca": hex(GICC_HPPIR), "point": "bring-up end, after the S2/S2+4 stores"},
+            },
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pad_i), "runtime_addr": hex(pad_i + BIAS),
+                      "run_length": hex(len_i), "code_length": len(code_i), "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pad_b), "runtime_addr": hex(pad_b + BIAS),
+                        "run_length": hex(len_b), "code_length": len(code_b), "code_hex": code_b.hex()},
+        },
+        "patches": [
+            {"kind": "trampoline-entry", "region": "enable thunk 0x86ff4", "file_offset": hex(SITE_THUNK),
+             "before": data[SITE_THUNK:SITE_THUNK + 4].hex(),
+             "after": bl(SITE_THUNK, pad_i).hex(), "note": NOTE_GICVIEW_I},
+            {"kind": "trampoline-entry", "region": "distributor bring-up 0x6e5c-0x6ed4",
+             "file_offset": hex(BRINGUP_SITE), "before": data[BRINGUP_SITE:BRINGUP_SITE + 4].hex(),
+             "after": bl(BRINGUP_SITE, pad_b).hex(), "note": NOTE_GICVIEW_II},
+        ],
+        "preserved": {
+            "original_gic_write": {
+                "file_offset": "0x8702c",
+                "instruction": "strlo.w r4, [r3, r2, lsl #2]",
+                "ca": "0x40161100 + (id/32)*4",
+                "verified_present": True,
+            }
+        },
+        "disasm": seen,
+    }
+    return out, manifest
+
+
 # ---------------------------------------------------------------- selftest
 
 def _encoder_roundtrip() -> None:
@@ -572,6 +803,8 @@ def _encoder_roundtrip() -> None:
     one("str", str_imm(4, 0, 0), "str r4, [r0]")
     one("str4", str_imm(5, 0, 4), "str r5, [r0, #4]")
     one("strw", str_imm_w(10, 7, 0), "str.w sl, [r7]")
+    one("ldr", ldr_imm(1, 1, 0), "ldr r1, [r1]")
+    one("ldr4", ldr_imm(0, 5, 4), "ldr r0, [r5, #4]")
     one("push", push(PAD_SAVE), "push {r0, r1, r2, r3, r4, r5}")
     one("pop", pop(PAD_SAVE), "pop {r0, r1, r2, r3, r4, r5}")
     one("mrs", mrs_apsr(12), "mrs ip, apsr")
@@ -625,6 +858,46 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     check_original_gic_write(scratch)
     verify_disasm(scratch, pad_i, pad_b, s1, s2)
 
+    # ---- frozen sibling variants: the probe/scratch blobs must not have moved
+    assert md5(probe) == PROBE_MD5, f"probe output changed: {md5(probe)} != {PROBE_MD5}"
+    assert md5(scratch) == SCRATCH_MD5, f"scratch output changed: {md5(scratch)} != {SCRATCH_MD5}"
+
+    # ---- gicview: size unchanged, deterministic, six GIC reads, fresh distinct cells
+    gic, gm = make_gicview(data, barmap, refs)
+    assert len(gic) == len(data), "gicview changed the size"
+    gic2, gm2 = make_gicview(data, barmap, refs)
+    assert gic == gic2, "gicview patch is not deterministic"
+    assert json.dumps(gm, sort_keys=True) == json.dumps(gm2, sort_keys=True), "gicview manifest not deterministic"
+    assert gm["cells"]["S1"]["addr"] == sm["cells"]["S1"]["addr"], "gicview moved S1"
+    assert gm["cells"]["S2"]["addr"] == sm["cells"]["S2"]["addr"], "gicview moved S2"
+    gc = [int(gm["cells"][f"C{i}"]["addr"], 16) for i in range(GICV_NCELLS)]
+    assert len(set(gc + [s1, s2])) == 2 + GICV_NCELLS, "C0..C5 are not distinct from S1/S2"
+    assert all(gc[i + 1] - gc[i] >= 8 for i in range(GICV_NCELLS - 1)), "C cells are not distinct"
+    assert all(gm["cells"][f"C{i}"]["barmap_value"] == "0x0" for i in range(GICV_NCELLS)), \
+        "a C cell baseline is not zero"
+    assert all(c not in S_CELL_EXCLUDE for c in gc), "a C cell is inside an excluded table"
+    assert gm["gic_map"]["GICD_ISPENDR2"] == hex(GICD_ISPENDR2) == "0x40161208"
+    assert gm["gic_map"]["GICD_ISACTIVER2"] == hex(GICD_ISACTIVER2) == "0x40161308"
+    pad_i_g = int(gm["padding"]["thunk"]["file_offset"], 16)
+    pad_b_g = int(gm["padding"]["bringup"]["file_offset"], 16)
+    code_i_g = pad_thunk(pad_i_g, s1, gc)
+    code_b_g = pad_bringup(pad_b_g, s2, gc)
+    for read_ca, cell in zip(GIC_THUNK_READS, gc[:3]):
+        assert gic_read_store_block(read_ca, cell) in code_i_g, f"thunk pad missing CA {read_ca:#x}"
+    for read_ca, cell in zip(GIC_BRINGUP_READS, gc[3:6]):
+        assert gic_read_store_block(read_ca, cell) in code_b_g, f"bring-up pad missing CA {read_ca:#x}"
+    allowed_g = set(range(SITE_THUNK, SITE_THUNK + 4)) | set(range(BRINGUP_SITE, BRINGUP_SITE + 4))
+    allowed_g |= set(range(pad_i_g, pad_i_g + len(code_i_g)))
+    allowed_g |= set(range(pad_b_g, pad_b_g + len(code_b_g)))
+    changed_g = [i for i in range(len(data)) if gic[i] != data[i]]
+    assert changed_g and all(c in allowed_g for c in changed_g), "gicview changed bytes outside its regions"
+    assert gic[0x8702C:0x87030] == data[0x8702C:0x87030], "gicview altered the original ISENABLER write"
+    assert gic[SITE_THUNK + 8:SITE_THUNK + 0x50] == data[SITE_THUNK + 8:SITE_THUNK + 0x50], \
+        "gicview altered the enable thunk's executable stream"
+    check_original_gic_write(gic)
+    verify_disasm(gic, pad_i_g, pad_b_g, s1, s2, gc)
+    assert not (set(range(pad_i_g, pad_i_g + 64)) & set(range(pad_b_g, pad_b_g + 64))), "the gicview pads overlap"
+
     # ---- input untouched
     assert rd(fw_path) == data, "the input file changed during the run"
 
@@ -663,6 +936,11 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     print(f"  padding (bringup) : {sm['padding']['bringup']['file_offset']} len {sm['padding']['bringup']['run_length']}")
     print(f"  changed bytes     : {len(changed)} (sites 8, pads {len(pad_thunk(pad_i, s1))}+{len(pad_bringup(pad_b, s2))})")
     print(f"  scratch md5       : {md5(scratch)}")
+    print(f"  gicview cells     : S1={gm['cells']['S1']['addr']} S2={gm['cells']['S2']['addr']} "
+          + " ".join(f"C{i}={gm['cells'][f'C{i}']['addr']}" for i in range(GICV_NCELLS)))
+    print(f"  gicview gic reads : C0/C1/C2={[hex(x) for x in GIC_THUNK_READS]} "
+          f"C3/C4/C5={[hex(x) for x in GIC_BRINGUP_READS]}")
+    print(f"  gicview md5       : {md5(gic)}")
     return 0
 
 
@@ -674,8 +952,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--barmap", default="opensource/build/register-dumps/barmap_ep0_bar0.bin",
                     help="normal-op BAR0 baseline used for S1/S2 selection")
     ap.add_argument("--out", help="output blob (never the input)")
-    ap.add_argument("--variant", choices=("probe", "scratch"),
-                    help="probe: one non-executed byte flip; scratch: the two instrumentation stores")
+    ap.add_argument("--variant", choices=("probe", "scratch", "gicview"),
+                    help="probe: one non-executed byte flip; scratch: the two instrumentation "
+                         "stores; gicview: scratch + six device-side GIC reads into cells C0..C5")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -695,7 +974,8 @@ def main(argv: list[str] | None = None) -> int:
         barmap = rd(args.barmap)
         refs = build_refs(data)
         out, manifest = (make_probe(data, refs) if args.variant == "probe"
-                         else make_scratch(data, barmap, refs))
+                         else make_scratch(data, barmap, refs) if args.variant == "scratch"
+                         else make_gicview(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
             "input": {"path": args.fw, "md5": md5(data), "size": len(data), "checks": checks},
