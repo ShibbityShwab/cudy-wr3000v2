@@ -161,6 +161,9 @@ TRIGCONS_MD5 = "5fb51acd68c62699435d2e1fd823d900"             # frozen trigcons-
 INTA_MD5 = "bcf14dbeefe45bcfce8df279c06776bd"                 # frozen inta-variant output (selftest regression)
 INTA2_MD5 = "545e77a5b12b4e0da8a6923eea29672c"                # frozen inta2-variant output (selftest regression)
 INTA3_MD5 = "eee1f67370b56eca42316f6eeb490c45"              # frozen inta3-variant output (selftest regression)
+TAKE1_MD5 = "0c681650de28488ab75fb5755684f0c7"              # frozen take1-variant output (selftest regression)
+# ^ take1 = inta3 + the fwprobe.md `vec` canary/CPSR/counter pads + the giccpu.md cell set; the
+#   value is pinned by the selftest and re-derived from the two byte-identical regenerations.
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -6124,6 +6127,122 @@ def selftest(fw_path: str, barmap_path: str) -> int:
         "inta3 altered the original ISENABLER store"
     assert md5(g3) == INTA3_MD5, f"inta3 output changed: {md5(g3)} != {INTA3_MD5}"
 
+    # ---- take1: the IRQ-vector canary + the two CPSR milestones + the giccpu cells
+    # (fwprobe.md sections 2-5 + giccpu.md sections 4/5)
+    g4, g4m = make_take1(data, barmap, refs)
+    assert len(g4) == len(data), "take1 changed the size"
+    g4b, g4mb = make_take1(data, barmap, refs)
+    assert g4 == g4b, "take1 patch is not deterministic"
+    assert json.dumps(g4m, sort_keys=True) == json.dumps(g4mb, sort_keys=True), \
+        "take1 manifest is not deterministic"
+    # every inherited cell keeps its inta3 address
+    for nm in (["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)]
+               + [f"E{i}" for i in range(GICP_NCELLS)] + a_names + b_names
+               + ["B_D4", "B_D5", "B_D6", "B_D7", "B_P4"] + list(INTA2_F_NAMES)
+               + list(INTA2_N_NAMES)):
+        assert g4m["cells"][nm]["addr"] == g3m["cells"][nm]["addr"], f"take1 moved cell {nm}"
+    # the ten NEW cells: page 10, fwprobe's V/M addresses, the contiguous giccpu words, all zero
+    v4 = [int(g4m["cells"][nm]["addr"], 16) for nm in TAKE1_V_NAMES]
+    c4 = [int(g4m["cells"][nm]["addr"], 16) for nm in TAKE1_CP_NAMES]
+    assert v4 == [0x1500A4, 0x1500A8, 0x1500AC, 0x1500B0, 0x1500B4], \
+        f"the take1 V/M cells are not fwprobe's addresses: {[hex(c) for c in v4]}"
+    assert c4 == [0x1500B8, 0x1500BC, 0x1500C0, 0x1500C4, 0x1500C8], \
+        f"the take1 giccpu cells are not the contiguous free words: {[hex(c) for c in c4]}"
+    assert all((c & ~0xFFF) == 0x150000 for c in v4 + c4), "a take1 new cell left page 10"
+    assert all(g4m["cells"][nm]["barmap_value"] == "0x0"
+               and g4m["cells"][nm]["barmap_alias_value"] == "0x0"
+               for nm in TAKE1_V_NAMES + TAKE1_CP_NAMES), \
+        "a take1 new cell is not zero in barmap at both views"
+    inherited4 = set(int(g4m["cells"][nm]["addr"], 16) for nm in g4m["cells"]
+                     if nm not in TAKE1_V_NAMES + TAKE1_CP_NAMES)
+    assert not (set(v4 + c4) & inherited4), "a take1 new cell collides with an inherited cell"
+    assert g4m["aliases"] == {"C_PSR": "B_D5", "F_CTLR": "B_D6", "F_PMR": "B_D7"}, \
+        "the take1 alias map changed"
+    assert g4m["take1"]["gicc_reads"] == [hex(TAKE1_GICC_RPR), hex(GICC_HPPIR),
+                                            hex(TAKE1_GICC_ABPR), hex(TAKE1_GICC_BPR)]
+    assert "0x40160120" in g4m["gic_map"]["never_read"], "the AIAR exclusion is not recorded"
+    # the three new pads are fwprobe.md section 4's bytes (m2 only in the tail displacement)
+    assert g4m["padding"]["vec"]["code_hex"] == \
+        "2de9f34d4af2a440caf2a44040f2a401c0f215010860eff30080486040f2ac02c0f2150213685b1c1360baf77ebd", \
+        "the take1 vec pad is not fwprobe's bytes"
+    assert g4m["padding"]["m1"]["code_hex"] == \
+        "0fb4eff3008040f2b001c0f2150108600fbca84772b6baf72bbd", \
+        "the take1 m1 pad is not fwprobe's bytes"
+    assert g4m["padding"]["m2"]["code_hex"][:-4] == \
+        "03b4eff3008040f2b401c0f21501086003bceff30082baf7", \
+        "the take1 m2 pad is not fwprobe's program (only the tail displacement may differ)"
+    assert g4m["sites"]["vec"]["after"] == "45f06bba" \
+        and g4m["sites"]["m1"]["after"] == "45f0c8fa", \
+        "the take1 vec/m1 site branches are not fwprobe's (45f06bba / 45f0c8fa)"
+    assert g4m["sites"]["vec"]["replaced_bytes"] == "2de9f34d"
+    assert g4m["sites"]["m1"]["replaced_bytes"] == "a84772b6"
+    assert g4m["sites"]["m2"]["replaced_bytes"] == "eff30082"
+    v_site = int(g4m["sites"]["vec"]["file_offset"], 16)
+    m1_site = int(g4m["sites"]["m1"]["file_offset"], 16)
+    m2_site = int(g4m["sites"]["m2"]["file_offset"], 16)
+    pad_v4 = int(g4m["padding"]["vec"]["file_offset"], 16)
+    pad_14 = int(g4m["padding"]["m1"]["file_offset"], 16)
+    pad_24 = int(g4m["padding"]["m2"]["file_offset"], 16)
+    pad_g4 = int(g4m["padding"]["giccpu"]["file_offset"], 16)
+    assert g4[v_site:v_site + 4] == b_w(v_site, pad_v4), "the take1 V_SITE is not the b.w"
+    assert g4[m1_site:m1_site + 4] == bl(m1_site, pad_14), "the take1 M1_SITE is not the bl"
+    assert g4[m2_site:m2_site + 4] == bl(m2_site, pad_24), "the take1 M2_SITE is not the bl"
+    # the giccpu chain: drain companion -> giccpu pad -> loop head
+    code_g4 = pad_giccpu_take1(pad_g4, c4, TRIGCONS_CONT_B)
+    code_14 = pad_m1_take1(pad_14, v4[3], TAKE1_M1_CONT)
+    code_24 = pad_m2_take1(pad_24, v4[4], TAKE1_M2_CONT)
+    code_v4 = pad_vec_take1(pad_v4, v4, TAKE1_V_CONT)
+    code_m4 = pad_drain_extra_inta(int(g4m["padding"]["drain_extra"]["file_offset"], 16),
+                                   [int(g4m["cells"][nm]["addr"], 16)
+                                    for nm in ("B_D4", "B_D5", "B_D6", "B_D7", "B_P4")],
+                                   next_pad=pad_g4)
+    assert g4[pad_g4:pad_g4 + len(code_g4)] == code_g4, "the take1 giccpu pad is not in the image"
+    assert g4[pad_v4:pad_v4 + len(code_v4)] == code_v4, "the take1 vec pad is not in the image"
+    assert g4[pad_14:pad_14 + len(code_14)] == code_14, "the take1 m1 pad is not in the image"
+    assert g4[pad_24:pad_24 + len(code_24)] == code_24, "the take1 m2 pad is not in the image"
+    assert b_w(pad_g4 + len(code_g4) - 4, TRIGCONS_CONT_B) == code_g4[-4:], \
+        "the take1 giccpu pad does not return to the loop head"
+    assert code_m4[-4:] == b_w(int(g4m["padding"]["drain_extra"]["file_offset"], 16)
+                               + len(code_m4) - 4, pad_g4), \
+        "the take1 drain companion does not branch to the giccpu pad"
+    for ca4, cell4, nm4 in ((TAKE1_GICC_RPR, c4[0], "C_GRP0"), (GICC_HPPIR, c4[1], "C_GRP1"),
+                            (TAKE1_GICC_ABPR, c4[2], "C_GRP2"), (TAKE1_GICC_BPR, c4[3], "F_BPR")):
+        assert gic_read_store_block(ca4, cell4) in code_g4, f"take1 is missing {nm4}"
+    assert _store_imm_block(INTA_SENTINEL, c4[4]) in code_g4, "take1 is missing the C_SNT sentinel"
+    # the untouched bodies and the allowed-change set
+    assert g4[TAKE1_V_CONT:TAKE1_M1_SITE] == data[TAKE1_V_CONT:TAKE1_M1_SITE], \
+        "take1 altered the ISR body before M1_SITE"
+    assert g4[TAKE1_M1_CONT:0x82F78] == data[TAKE1_M1_CONT:0x82F78], \
+        "take1 altered the ISR body after M1_SITE"
+    assert g4[0x826E0:TAKE1_M2_SITE] == data[0x826E0:TAKE1_M2_SITE], \
+        "take1 altered the release body before the guard"
+    assert g4[TAKE1_M2_CONT:0x82730] == data[TAKE1_M2_CONT:0x82730], \
+        "take1 altered the release spin after the guard"
+    assert g4[INTA_SITE_L:INTA_SITE_L + 4] == data[INTA_SITE_L:INTA_SITE_L + 4], \
+        "take1 altered the dropped Pad-L site 0x86F78"
+    allowed_4 = set()
+    for site_4 in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B, INTA2_SITE_F,
+                   TAKE1_V_SITE, TAKE1_M1_SITE, TAKE1_M2_SITE):
+        allowed_4 |= set(range(site_4, site_4 + 4))
+    for key_4 in ("thunk", "bringup", "send_n", "post", "drain_b2", "drain_extra", "giccpu",
+                  "fallthrough_f", "vec", "m1", "m2"):
+        off_4 = int(g4m["padding"][key_4]["file_offset"], 16)
+        allowed_4 |= set(range(off_4, off_4 + int(g4m["padding"][key_4]["code_length"])))
+    changed_4 = [i for i in range(len(data)) if g4[i] != data[i]]
+    assert changed_4 and all(c in allowed_4 for c in changed_4), \
+        "take1 changed bytes outside its regions"
+    for name_4, code_4 in (("vec", code_v4), ("m1", code_14), ("m2", code_24), ("giccpu", code_g4)):
+        for bad_4 in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                      write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0),
+                      gic_read_store_block(0x40160120, 0)):
+            assert bad_4 not in code_4, f"the take1 {name_4} pad addresses a forbidden CA"
+    assert g4[0x8702C:0x87030] == data[0x8702C:0x87030], "take1 altered the ISENABLER store"
+    assert g4[0x87030:0x87036] == data[0x87030:0x87036], "take1 altered the itet block"
+    assert g4m["classification"]["ROW_1"].startswith("fwprobe.md section 6.1")
+    assert g4m["preserved"]["isr_body_around_m1"]["bytes_identical"] is True
+    assert g4m["preserved"]["release_body_around_m2"]["bytes_identical"] is True
+    assert md5(g4) == TAKE1_MD5, f"take1 output changed: {md5(g4)} != {TAKE1_MD5}"
+
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
           f"{pm['patches'][0]['before']} -> {pm['patches'][0]['after']} "
@@ -6229,6 +6348,15 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"{hex(INTA2_SITE_F)} cont {hex(INTA2_CONT_F)}; only {len(diff_23)} bytes differ from "
           f"inta2 (the six N-cell movw immediates)")
     print(f"  inta3 md5         : {md5(g3)}")
+    print(f"  take1 cells       : " + " ".join(f"{n}={g4m['cells'][n]['addr']}"
+                                                for n in TAKE1_V_NAMES + TAKE1_CP_NAMES)
+          + " (aliases C_PSR=B_D5 F_CTLR=B_D6 F_PMR=B_D7)")
+    print(f"  take1 sites       : V 0x82efc (2de9f34d) -> vec pad "
+          f"{g4m['padding']['vec']['file_offset']}; M1 0x82f4a (a84772b6) -> "
+          f"{g4m['padding']['m1']['file_offset']}; M2 0x8270a (eff30082) -> "
+          f"{g4m['padding']['m2']['file_offset']}; giccpu pad "
+          f"{g4m['padding']['giccpu']['file_offset']} chained after the drain companion")
+    print(f"  take1 md5         : {md5(g4)}")
     return 0
 
 
@@ -6405,12 +6533,14 @@ def pad_drain_inta(pad: int, b_cells: list[int], next_pad: int) -> bytes:
     return head + tail + b_w(back, next_pad)
 
 
-def pad_drain_extra_inta(pad: int, b2_cells: list[int]) -> bytes:
+def pad_drain_extra_inta(pad: int, b2_cells: list[int], next_pad: int = TRIGCONS_CONT_B) -> bytes:
     """The inta drain companion (devcpu.md section 4.1's added cells): entered by the `b.w` at the
     tail of Pad B2, so it samples at the SAME instant.  B_D4 (ISACTIVER2 word 2, CA 0x40161308),
     B_D5 (the full CPSR via `mrs r0,<PSR>`), B_D6 (GICC_CTLR, CA 0x40160100), B_D7 (GICC_PMR, CA
-    0x40160104) and the page-11 sentinel B_P4; then pop and `b.w 0x86F78` (the loop head, Pad L's
-    site).  r0-r5 are saved/restored, so r1 (the 0x4000010c spin pointer) and r3 (0xcece) survive."""
+    0x40160104) and the page-11 sentinel B_P4; then pop and a tail branch.  r0-r5 are saved/
+    restored, so r1 (the 0x4000010c spin pointer) and r3 (0xcece) survive.  `next_pad` is the
+    loop head 0x86F78 for inta/inta2/inta3 and the take1 giccpu pad (which then returns to the
+    same loop head), so the inta3 callers' bytes are unchanged by the default."""
     b2 = b"".join([
         push(PAD_SAVE),                                          # r0-r5 are clobbered by the reads
         gic_read_store_block(GICD_ISACTIVER2, b2_cells[0]),      # B_D4 ISACTIVER2 w2 (active)
@@ -6421,7 +6551,7 @@ def pad_drain_extra_inta(pad: int, b2_cells: list[int]) -> bytes:
         pop(PAD_SAVE),
     ])
     back = pad + len(b2)
-    return b2 + b_w(back, TRIGCONS_CONT_B)
+    return b2 + b_w(back, next_pad)
 
 
 def pad_loop_inta(pad: int, l_cells: list[int]) -> bytes:
@@ -7381,6 +7511,654 @@ def make_inta3(data: bytes, barmap: bytes, refs: set[int]):
                            NOTE_INTA3_CELLS)
 
 
+# ---- take1: the IRQ-VECTOR CANARY + the two CPSR milestones + the giccpu.md cell set
+# (build/tmp/inta-spec/fwprobe.md sections 2-5, plus giccpu.md sections 4/5).
+#
+# The instrument is inta3's (thunk / bring-up / Pad A(N) at 0x86f5a / Pad B2 at 0x86f74 / the drain
+# companion / Site F at 0x86f7e; Pad L dropped) PLUS the three fwprobe sites and their pads:
+#   * V_SITE file 0x82efc - the firmware ISR's first instruction `push.w {r0,r1,r4,r5,r6,r7,r8,sl,fp,
+#     lr}` (stock 2de9f34d), reached only through the ARM IRQ stub's `blx 0xC2EFC` (build_refs is
+#     Thumb-only, so the site has no static Thumb reference - the canary is the dynamic proof).  A
+#     `b.w` (NOT `bl`: the pushed lr is the epilogue's return) to the NEW vec pad, which re-emits
+#     the stock push.w, arms V_MAGIC (0xa4a4a4a4 - a CPSR is never 0, so a zero V_PSR can only mean
+#     the pad did not run), stores the entry CPSR in V_PSR (I=1, M[4:0]=0x13 expected), increments
+#     the persistent ISR-entry counter V_CNT and branches to 0x82f00 (the IAR read at 0x82f04 has
+#     no branch before it, so V_CNT counts IAR reads).
+#   * M1_SITE file 0x82f4a - `blx r5` + `cpsid i` (stock a84772b6; the site is 2-mod-4, legal for a
+#     Thumb-2 BL), replaced by `bl m1`; the pad saves r0-r3, stores the CPSR of the ISR's live-IRQ
+#     window (0x82f46 `cpsie i`) in M1_PSR, restores r0-r3, re-emits `blx r5` + `cpsid i` and
+#     branches to 0x82f4e.  The pad runs only when the stock `cbz r5,0x82f4c` at 0x82f48 is not
+#     taken (a non-null handler; id 0x4c holds 0x00040295).
+#   * M2_SITE file 0x8270a - the release `0x826e0` guard `mrs r2, apsr` (stock eff30082), replaced
+#     by `bl m2`; the pad saves r0/r1, stores the CPSR the guard sees in M2_PSR (I=1 = the `bmi` at
+#     0x82710 skips the release body; I=0 = the body runs), restores r0/r1, re-emits `mrs r2, apsr`
+#     byte-exact and branches to 0x8270e.
+#   No pad sets flags (push/pop/movw/movt/str/ldr/adds/mrs only) and none returns through lr (all
+#   end in `b.w`), so the `bl`s' lr clobber is inert - the enclosing frames restore pc from the
+#   stack (fwprobe.md sections 4/7).
+#
+# PLUS the giccpu.md cell set, sampled on the drain chain at the announce wait's own `movw
+# r3,#0xcece` (file 0x86f74, the pre-exit instant): C_GRP0 (CA 0x40160114, canonical GICC_RPR /
+# giccpu.md's IGRPEN0 prediction), C_GRP1 (CA 0x40160118, canonical GICC_HPPIR - the same word the
+# tool already samples), C_GRP2 (CA 0x4016011c, canonical GICC_ABPR / the legacy IGRPEN1
+# candidate), F_BPR (CA 0x40160108, canonical GICC_BPR - the image's only writer, file 0x8305a) and
+# the C_SNT sentinel.  The acknowledging aliased IAR (CA 0x40160120, GICC_AIAR) is deliberately NOT
+# read: giccpu.md sec.4 names the four-word candidate block 0x40160114/18/1c/20, but reading 0x20
+# would acknowledge, and the take must be the CPU's, not the pad's.  F_CTLR / F_PMR / C_PSR are the
+# existing B_D6 / B_D7 / B_D5 cells (giccpu.md's reuse instruction), aliased in the manifest.
+# The chain is pad_d (B2) -> pad_m (drain companion, program byte-identical to inta3's) -> the NEW
+# giccpu pad -> the loop head 0x86f78, so the added reads land at the SAME pre-exit instant.
+#
+# ALL new cells sit on PAGE 10 (runtime 0x150000), the retention-verified band (witness2.md FLAW 2);
+# giccpu.md's page-15 claim (0x158000) was a barmap-baseline all-zero check, never a retention
+# test.  The V/M cells keep fwprobe.md's exact addresses 0x1500a4..0x1500b4 (the first free slots
+# above the inta3 N cells, which end at 0x150080); the five giccpu cells take the next free
+# contiguous words 0x1500b8..0x1500c8.  NEVER writes 0x400392f0 / 0x40039af0; NEVER reads the IAR
+# 0x4016010c or 0x10161000 (the gate word 0x4000010c is a DIFFERENT address); every added GIC read
+# is non-acknowledging.
+TAKE1_V_MAGIC = 0x1500A4
+TAKE1_V_PSR = 0x1500A8
+TAKE1_V_CNT = 0x1500AC
+TAKE1_M1_PSR = 0x1500B0
+TAKE1_M2_PSR = 0x1500B4
+TAKE1_C_GRP0 = 0x1500B8
+TAKE1_C_GRP1 = 0x1500BC
+TAKE1_C_GRP2 = 0x1500C0
+TAKE1_F_BPR = 0x1500C4
+TAKE1_C_SNT = 0x1500C8
+TAKE1_V_CELLS = (TAKE1_V_MAGIC, TAKE1_V_PSR, TAKE1_V_CNT, TAKE1_M1_PSR, TAKE1_M2_PSR)
+TAKE1_CP_CELLS = (TAKE1_C_GRP0, TAKE1_C_GRP1, TAKE1_C_GRP2, TAKE1_F_BPR, TAKE1_C_SNT)
+TAKE1_V_NAMES = ("V_MAGIC", "V_PSR", "V_CNT", "M1_PSR", "M2_PSR")
+TAKE1_CP_NAMES = ("C_GRP0", "C_GRP1", "C_GRP2", "F_BPR", "C_SNT")
+TAKE1_V_SITE = 0x82EFC                         # the ISR entry `push.w` (runtime 0xC2EFC)
+TAKE1_M1_SITE = 0x82F4A                        # `blx r5` + `cpsid i` (runtime 0xC2F4A)
+TAKE1_M2_SITE = 0x8270A                        # the release guard `mrs r2, apsr` (runtime 0xC270A)
+TAKE1_V_CONT = 0x82F00                         # the ISR body continues at the IAR read
+TAKE1_M1_CONT = 0x82F4E                        # the EoI store follows
+TAKE1_M2_CONT = 0x8270E                        # the guard's `lsls r3,r2,#0x18` follows
+TAKE1_V_SITE_STOCK = bytes.fromhex("2de9f34d")     # push.w {r0,r1,r4,r5,r6,r7,r8,sl,fp,lr}
+TAKE1_M1_SITE_STOCK = bytes.fromhex("a84772b6")    # blx r5 ; cpsid i
+TAKE1_M2_SITE_STOCK = bytes.fromhex("eff30082")    # mrs r2, apsr
+TAKE1_BLX_R5 = bytes.fromhex("a847")               # the re-emitted `blx r5` (T1)
+TAKE1_CPSID_I = bytes.fromhex("72b6")              # the re-emitted `cpsid i`
+TAKE1_PRINTABLE = 0xA4A4A4A4                   # the V_MAGIC canary word
+TAKE1_GICC_RPR = 0x40160114                    # giccpu.md's C_GRP0 (canonical GICC_RPR)
+TAKE1_GICC_HPPIR = GICC_HPPIR                  # giccpu.md's C_GRP1 (canonical GICC_HPPIR, 0x40160118)
+TAKE1_GICC_ABPR = 0x4016011C                   # giccpu.md's C_GRP2 (canonical GICC_ABPR)
+TAKE1_GICC_BPR = 0x40160108                    # giccpu.md's F_BPR (canonical GICC_BPR)
+TAKE1_GICC_READS = (TAKE1_GICC_RPR, TAKE1_GICC_HPPIR, TAKE1_GICC_ABPR, TAKE1_GICC_BPR)
+TAKE1_NEVER_READ = "0x40160120 (GICC_AIAR, the aliased acknowledging IAR) - never read"
+TAKE1_NEW_CELLS = len(TAKE1_V_CELLS) + len(TAKE1_CP_CELLS)
+
+NOTE_TAKE1_V = (
+    "fwprobe.md sections 2-4: V_SITE (file 0x82efc, the ISR's stock `push.w {r0,r1,r4,r5,r6,r7,r8,"
+    "sl,fp,lr}`) is replaced by a `b.w` to the vec pad, which re-emits the stock push.w, arms "
+    "V_MAGIC (0x1500a4 <= 0xa4a4a4a4), stores the ISR-entry CPSR in V_PSR (0x1500a8; expect I=1, "
+    "M[4:0]=0x13, T=1), increments the persistent ISR-entry counter V_CNT (0x1500ac) and branches "
+    "to 0x82f00.  M1_SITE (file 0x82f4a, `blx r5` + `cpsid i`) is replaced by `bl m1`, whose pad "
+    "stores the live-IRQ-window CPSR (0x82f46 `cpsie i`) in M1_PSR (0x1500b0; expect I=0).  "
+    "M2_SITE (file 0x8270a, the release 0x826e0 guard `mrs r2, apsr`) is replaced by `bl m2`, whose "
+    "pad stores the guard's CPSR in M2_PSR (0x1500b4; I=1 = the bmi at 0x82710 skips the release "
+    "body, I=0 = the body runs)."
+)
+NOTE_TAKE1_CP = (
+    "giccpu.md sections 4/5: the added drain-chain pad reads C_GRP0 (CA 0x40160114), C_GRP1 (CA "
+    "0x40160118 = the canonical GICC_HPPIR the tool already samples), C_GRP2 (CA 0x4016011c) and "
+    "F_BPR (CA 0x40160108) into 0x1500b8..0x1500c4 and arms the C_SNT sentinel at 0x1500c8, then "
+    "returns to the announce loop head 0x86f78.  The acknowledging aliased IAR (0x40160120) is NOT "
+    "read.  F_CTLR (0x153010 = B_D6), F_PMR (0x153018 = B_D7) and C_PSR (0x153008 = B_D5) are the "
+    "existing drain-companion cells (aliases, not new reads)."
+)
+NOTE_TAKE1_CELLS = (
+    "the ten NEW cells all sit on PAGE 10 (runtime 0x150000, the retention-VERIFIED band: witness2.md "
+    "FLAW 2 showed page 14 did not retain while pages 9-13 did; giccpu.md's 0x158000 was only a "
+    "barmap-baseline zero check).  The V/M cells keep fwprobe.md's exact addresses "
+    "0x1500a4..0x1500b4 (the first free slots above inta3's N cells, which end at 0x150080); the "
+    "five giccpu cells take the next free contiguous words 0x1500b8..0x1500c8.  All ten are "
+    "0x00000000 at BOTH the BAR0 and the ACP-alias offsets in barmap_ep0_bar0.bin, 4-byte aligned "
+    "and distinct from every earlier cell."
+)
+NOTE_TAKE1_CHAIN = (
+    "Pad B2's tail branches to the inta3 drain companion (its program byte-identical to inta3's), "
+    "whose tail now branches to the NEW giccpu pad instead of straight to the loop head; the "
+    "giccpu pad's tail returns to 0x86f78.  Every pad is a straight-line trampoline ending in "
+    "`b.w`, so the chain adds no lr dependency."
+)
+
+
+def pad_vec_take1(pad: int, v_cells: list[int], cont: int) -> bytes:
+    """fwprobe.md section 4's `vec` pad: re-emit the stock push.w, arm V_MAGIC, store the entry
+    CPSR in V_PSR (V_MAGIC+4), increment the persistent V_CNT and branch to 0x82f00."""
+    v_magic, v_psr, v_cnt = v_cells[0], v_cells[1], v_cells[2]
+    if v_psr != v_magic + 4:
+        raise PatchError("take1 vec pad expects V_PSR = V_MAGIC + 4 (the `str r0,[r1,#4]` form)")
+    body = b"".join([
+        TAKE1_V_SITE_STOCK,
+        movw(0, TAKE1_PRINTABLE & 0xFFFF), movt(0, TAKE1_PRINTABLE >> 16),
+        movw(1, v_magic & 0xFFFF), movt(1, v_magic >> 16),
+        str_imm(0, 1, 0),
+        mrs_apsr(0),
+        str_imm(0, 1, 4),
+        movw(2, v_cnt & 0xFFFF), movt(2, v_cnt >> 16),
+        ldr_imm(3, 2, 0), adds_imm(3, 3, 1), str_imm(3, 2, 0),
+    ])
+    return body + b_w(pad + len(body), cont)
+
+
+def pad_m1_take1(pad: int, m1_cell: int, cont: int) -> bytes:
+    """fwprobe.md section 4's `m1` pad: save r0-r3, store the live-IRQ-window CPSR in M1_PSR,
+    restore r0-r3, re-emit `blx r5` + `cpsid i` and branch to 0x82f4e."""
+    body = b"".join([
+        push([0, 1, 2, 3]),
+        mrs_apsr(0),
+        movw(1, m1_cell & 0xFFFF), movt(1, m1_cell >> 16),
+        str_imm(0, 1, 0),
+        pop([0, 1, 2, 3]),
+        TAKE1_BLX_R5,
+        TAKE1_CPSID_I,
+    ])
+    return body + b_w(pad + len(body), cont)
+
+
+def pad_m2_take1(pad: int, m2_cell: int, cont: int) -> bytes:
+    """fwprobe.md section 4's `m2` pad: save r0/r1, store the release guard's CPSR in M2_PSR,
+    restore r0/r1, re-emit `mrs r2, apsr` byte-exact and branch to 0x8270e."""
+    body = b"".join([
+        push([0, 1]),
+        mrs_apsr(0),
+        movw(1, m2_cell & 0xFFFF), movt(1, m2_cell >> 16),
+        str_imm(0, 1, 0),
+        pop([0, 1]),
+        TAKE1_M2_SITE_STOCK,
+    ])
+    return body + b_w(pad + len(body), cont)
+
+
+def pad_giccpu_take1(pad: int, cp_cells: list[int], next_pad: int) -> bytes:
+    """giccpu.md sections 4/5's cell set on its OWN pad (chained after the inta3 drain companion so
+    that pad's program stays byte-identical): C_GRP0/C_GRP1/C_GRP2/F_BPR (CA 0x40160114/0x40160118/
+    0x4016011c/0x40160108, all non-acknowledging) plus the C_SNT sentinel, then `next_pad` (the
+    announce loop head 0x86f78).  r0-r5 are saved/restored."""
+    body = b"".join([
+        push(PAD_SAVE),
+        gic_read_store_block(TAKE1_GICC_READS[0], cp_cells[0]),
+        gic_read_store_block(TAKE1_GICC_READS[1], cp_cells[1]),
+        gic_read_store_block(TAKE1_GICC_READS[2], cp_cells[2]),
+        gic_read_store_block(TAKE1_GICC_READS[3], cp_cells[3]),
+        _store_imm_block(INTA_SENTINEL, cp_cells[4]),
+        pop(PAD_SAVE),
+    ])
+    return body + b_w(pad + len(body), next_pad)
+
+
+def verify_disasm_take1(data: bytes, pads: dict[str, int], s1: int, s2: int,
+                        gic_cells: list[int], e_cells: list[int], a_cells: list[int],
+                        b_cells: list[int], b2_cells: list[int], f_cells: list[int],
+                        v_cells: list[int], cp_cells: list[int]) -> dict:
+    """Byte-equality of the eleven take1 pads against their reconstructions PLUS the block
+    structure: inta3's five pads, the vec/m1/m2 pads' re-emitted stock instructions and tails, the
+    giccpu pad's read order and tail, the nine site bytes and the forbidden-CA absence."""
+    if len(a_cells) != INTA2_A_NCELLS:
+        raise PatchError(f"take1 expected {INTA2_A_NCELLS} A cells, got {len(a_cells)}")
+    if len(b_cells) != TRIGNAT_B_NCELLS:
+        raise PatchError(f"take1 expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
+    if len(b2_cells) != INTA_B2_NCELLS:
+        raise PatchError(f"take1 expected {INTA_B2_NCELLS} B2 cells, got {len(b2_cells)}")
+    if len(f_cells) != INTA2_F_NCELLS:
+        raise PatchError(f"take1 expected {INTA2_F_NCELLS} F cells, got {len(f_cells)}")
+    if len(v_cells) != len(TAKE1_V_CELLS):
+        raise PatchError(f"take1 expected {len(TAKE1_V_CELLS)} V/M cells, got {len(v_cells)}")
+    if len(cp_cells) != len(TAKE1_CP_CELLS):
+        raise PatchError(f"take1 expected {len(TAKE1_CP_CELLS)} giccpu cells, got {len(cp_cells)}")
+    every = ([s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + f_cells + v_cells
+             + cp_cells)
+    if len(set(every)) != len(every):
+        raise PatchError("take1 cells are not all distinct")
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+
+    def dis(off: int, size: int) -> list[str]:
+        return [f"{i.mnemonic} {i.op_str}".strip() for i in md.disasm(data[off:off + size], off)]
+
+    code = {
+        "thunk": pad_thunk(pads["thunk"], s1, gic_cells, apsr_cell=e_cells[3], req_cell=e_cells[2]),
+        "bringup": pad_bringup(pads["bringup"], s2, gic_cells),
+        "send_n": pad_send_inta2(pads["send"], a_cells),
+        "post": pad_post(pads["post"], e_cells),
+        "drain_b2": pad_drain_inta(pads["drain"], b_cells, pads["drain_extra"]),
+        "drain_extra": pad_drain_extra_inta(pads["drain_extra"], b2_cells, next_pad=pads["giccpu"]),
+        "giccpu": pad_giccpu_take1(pads["giccpu"], cp_cells, TRIGCONS_CONT_B),
+        "fallthrough_f": pad_fallthrough_inta2(pads["fallthrough"], f_cells),
+        "vec": pad_vec_take1(pads["vec"], v_cells, TAKE1_V_CONT),
+        "m1": pad_m1_take1(pads["m1"], v_cells[3], TAKE1_M1_CONT),
+        "m2": pad_m2_take1(pads["m2"], v_cells[4], TAKE1_M2_CONT),
+    }
+    pad_of = {"send_n": "send", "drain_b2": "drain", "fallthrough_f": "fallthrough"}
+    for name, c in code.items():
+        off = pads[pad_of.get(name, name)]
+        if data[off:off + len(c)] != c:
+            raise PatchError(f"the take1 {name} pad at {off:#x} is not the intended bytes")
+
+    # inta3's structural invariants (unchanged programs, moved tail targets only)
+    if write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL) not in code["send_n"]:
+        raise PatchError("the take1 Pad A(N) lost the H2D ring")
+    if movw(3, 0xcece) not in code["drain_b2"]:
+        raise PatchError("take1 Pad B2 must re-emit `movw r3,#0xcece`")
+    if b_w(pads["drain"] + len(code["drain_b2"]) - 4, pads["drain_extra"]) != code["drain_b2"][-4:]:
+        raise PatchError("take1 Pad B2 does not branch to the drain companion")
+    if _store_cpsr_block(f_cells[4]) not in code["fallthrough_f"]:
+        raise PatchError("take1 Site F is missing the F_PSR CPSR read")
+    if code["fallthrough_f"].count(TRIGNAT_DRAIN_POP) != 1:
+        raise PatchError("take1 Site F must re-emit the replaced pop.w exactly once")
+    if b_w(pads["fallthrough"] + len(code["fallthrough_f"]) - 4, INTA2_CONT_F) != \
+            code["fallthrough_f"][-4:]:
+        raise PatchError("take1 Site F has no `b.w` to 0x86f82")
+
+    # the drain companion: same program as inta3's, tail now on the giccpu pad
+    for ca, cell, nm in ((GICD_ISACTIVER2, b2_cells[0], "B_D4"), (INTA_GICC_CTLR, b2_cells[2], "B_D6"),
+                         (INTA_GICC_PMR, b2_cells[3], "B_D7")):
+        if gic_read_store_block(ca, cell) not in code["drain_extra"]:
+            raise PatchError(f"the take1 drain companion is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    if _store_cpsr_block(b2_cells[1]) not in code["drain_extra"]:
+        raise PatchError("the take1 drain companion is missing the B_D5 CPSR read")
+    if _store_imm_block(TRIGNAT_SENTINEL, b2_cells[4]) not in code["drain_extra"]:
+        raise PatchError("the take1 drain companion is missing the B_P4 sentinel")
+    if code["drain_extra"].count(push(PAD_SAVE)) != 1 or code["drain_extra"].count(pop(PAD_SAVE)) != 1:
+        raise PatchError("the take1 drain companion must save/restore r0-r5 exactly once")
+    if b_w(pads["drain_extra"] + len(code["drain_extra"]) - 4, pads["giccpu"]) != code["drain_extra"][-4:]:
+        raise PatchError("the take1 drain companion does not branch to the giccpu pad")
+
+    # the giccpu pad: push, C_GRP0..F_BPR (in CA order), C_SNT, pop, tail to 0x86f78
+    order_cp = [code["giccpu"].index(gic_read_store_block(ca, cell))
+                for ca, cell in zip(TAKE1_GICC_READS, cp_cells[:4])]
+    order_cp += [code["giccpu"].index(_store_imm_block(INTA_SENTINEL, cp_cells[4])),
+                 code["giccpu"].index(pop(PAD_SAVE))]
+    if order_cp != sorted(order_cp) or len(set(order_cp)) != len(order_cp):
+        raise PatchError("the take1 giccpu order is not C_GRP0 -> C_GRP1 -> C_GRP2 -> F_BPR -> C_SNT -> pop")
+    if code["giccpu"].count(push(PAD_SAVE)) != 1:
+        raise PatchError("the take1 giccpu pad must save r0-r5 exactly once")
+    if b_w(pads["giccpu"] + len(code["giccpu"]) - 4, TRIGCONS_CONT_B) != code["giccpu"][-4:]:
+        raise PatchError("the take1 giccpu pad does not return to the loop head 0x86f78")
+
+    # the vec pad: the re-emitted push.w, the canary/CPSR/counter block and the tail
+    vd = dis(pads["vec"], len(code["vec"]))
+    if not vd or not vd[0].startswith("push.w "):
+        raise PatchError(f"the take1 vec pad does not re-emit the stock push.w: {vd!r}")
+    for want in ("movw r0, #0xa4a4", "movt r0, #0xa4a4", "str r0, [r1]", "str r0, [r1, #4]",
+                 "ldr r3, [r2]", "adds r3, r3, #1", "str r3, [r2]"):
+        if want not in vd:
+            raise PatchError(f"the take1 vec pad lost `{want}`: {vd!r}")
+    if not any(s.startswith("mrs r0, ") for s in vd):
+        raise PatchError(f"the take1 vec pad lost the V_PSR `mrs r0,<PSR>`: {vd!r}")
+    if b_w(pads["vec"] + len(code["vec"]) - 4, TAKE1_V_CONT) != code["vec"][-4:]:
+        raise PatchError("the take1 vec pad has no `b.w` to 0x82f00")
+
+    # the m1 pad: push r0-r3, M1_PSR, pop, the re-emitted `blx r5` + `cpsid i`, the tail
+    md1 = dis(pads["m1"], len(code["m1"]))
+    for want in ("push {r0, r1, r2, r3}", "pop {r0, r1, r2, r3}", "blx r5", "cpsid i"):
+        if want not in md1:
+            raise PatchError(f"the take1 m1 pad lost `{want}`: {md1!r}")
+    if not any(s.startswith("mrs r0, ") for s in md1):
+        raise PatchError(f"the take1 m1 pad lost the M1_PSR `mrs r0,<PSR>`: {md1!r}")
+    if b_w(pads["m1"] + len(code["m1"]) - 4, TAKE1_M1_CONT) != code["m1"][-4:]:
+        raise PatchError("the take1 m1 pad has no `b.w` to 0x82f4e")
+
+    # the m2 pad: push r0/r1, M2_PSR, pop, the byte-exact re-emitted guard, the tail
+    md2 = dis(pads["m2"], len(code["m2"]))
+    for want in ("push {r0, r1}", "pop {r0, r1}"):
+        if want not in md2:
+            raise PatchError(f"the take1 m2 pad lost `{want}`: {md2!r}")
+    if not any(s.startswith("mrs r0, ") for s in md2) or not any(s.startswith("mrs r2, ") for s in md2):
+        raise PatchError(f"the take1 m2 pad lost an `mrs` (M2_PSR / the re-emitted guard): {md2!r}")
+    if TAKE1_M2_SITE_STOCK not in code["m2"]:
+        raise PatchError("the take1 m2 pad does not re-emit `mrs r2, apsr` byte-exact")
+    if b_w(pads["m2"] + len(code["m2"]) - 4, TAKE1_M2_CONT) != code["m2"][-4:]:
+        raise PatchError("the take1 m2 pad has no `b.w` to 0x8270e")
+
+    # the nine sites
+    for site, pad, want_bytes in ((SITE_THUNK, pads["thunk"], bl(SITE_THUNK, pads["thunk"])),
+                                  (BRINGUP_SITE, pads["bringup"], bl(BRINGUP_SITE, pads["bringup"])),
+                                  (SEND_SITE, pads["send"], bl(SEND_SITE, pads["send"])),
+                                  (POST_SITE, pads["post"], bl(POST_SITE, pads["post"])),
+                                  (TRIGCONS_SITE_B, pads["drain"],
+                                   bl(TRIGCONS_SITE_B, pads["drain"])),
+                                  (INTA2_SITE_F, pads["fallthrough"],
+                                   bl(INTA2_SITE_F, pads["fallthrough"])),
+                                  (TAKE1_V_SITE, pads["vec"], b_w(TAKE1_V_SITE, pads["vec"])),
+                                  (TAKE1_M1_SITE, pads["m1"], bl(TAKE1_M1_SITE, pads["m1"])),
+                                  (TAKE1_M2_SITE, pads["m2"], bl(TAKE1_M2_SITE, pads["m2"]))):
+        if data[site:site + 4] != want_bytes:
+            raise PatchError(f"take1 site {site:#x} is not the intended branch: "
+                             f"{data[site:site + 4].hex()} != {want_bytes.hex()}")
+
+    for name, c in code.items():
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0),
+                    gic_read_store_block(0x40160120, 0)):
+            if bad in c:
+                raise PatchError(f"the take1 {name} pad addresses a forbidden CA: {bad.hex()}")
+
+    return {
+        "thunk_pad": dis(pads["thunk"], len(code["thunk"])),
+        "bringup_pad": dis(pads["bringup"], len(code["bringup"])),
+        "send_pad": dis(pads["send"], len(code["send_n"])),
+        "post_pad": dis(pads["post"], len(code["post"])),
+        "drain_pad": dis(pads["drain"], len(code["drain_b2"])),
+        "drain_extra_pad": dis(pads["drain_extra"], len(code["drain_extra"])),
+        "giccpu_pad": dis(pads["giccpu"], len(code["giccpu"])),
+        "fallthrough_pad": dis(pads["fallthrough"], len(code["fallthrough_f"])),
+        "vec_pad": dis(pads["vec"], len(code["vec"])),
+        "m1_pad": dis(pads["m1"], len(code["m1"])),
+        "m2_pad": dis(pads["m2"], len(code["m2"])),
+        "take1": {
+            "v_site": hex(TAKE1_V_SITE), "v_cont": hex(TAKE1_V_CONT),
+            "m1_site": hex(TAKE1_M1_SITE), "m1_cont": hex(TAKE1_M1_CONT),
+            "m2_site": hex(TAKE1_M2_SITE), "m2_cont": hex(TAKE1_M2_CONT),
+            "v_site_stock": TAKE1_V_SITE_STOCK.hex(),
+            "m1_site_stock": TAKE1_M1_SITE_STOCK.hex(),
+            "m2_site_stock": TAKE1_M2_SITE_STOCK.hex(),
+            "v_cells": [hex(c) for c in v_cells], "cp_cells": [hex(c) for c in cp_cells],
+            "printable": hex(TAKE1_PRINTABLE),
+            "gicc_reads": [hex(x) for x in TAKE1_GICC_READS],
+            "aliases": {"F_CTLR": hex(INTA_GICC_CTLR), "F_PMR": hex(INTA_GICC_PMR),
+                        "C_PSR": "B_D5"},
+        },
+    }
+
+
+def make_take1(data: bytes, barmap: bytes, refs: set[int]):
+    """fwprobe.md sections 2-5 + giccpu.md sections 4/5: inta3's instrument (thunk / bring-up /
+    Pad A(N) / Pad B2 / drain companion / Site F; Pad L dropped) PLUS the three fwprobe sites and
+    pads (V_SITE 0x82efc -> the vec canary pad, M1_SITE 0x82f4a -> the m1 CPSR pad, M2_SITE 0x8270a
+    -> the m2 release-guard pad) PLUS the giccpu cell pad chained after the drain companion.  All
+    ten new cells sit on page 10 (the retention-verified band)."""
+    cells, sel = select_cells_inta3(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    off_b = off_a + TRIGNAT_A_NCELLS
+    bc = cells[off_b:off_b + TRIGNAT_B_NCELLS]
+    off_b2 = off_b + TRIGNAT_B_NCELLS
+    b2c = cells[off_b2:off_b2 + INTA_B2_NCELLS]
+    off_f = off_b2 + INTA_B2_NCELLS
+    fc = cells[off_f:off_f + INTA2_F_NCELLS]
+    off_n = off_f + INTA2_F_NCELLS
+    nc = cells[off_n:off_n + INTA2_N_NCELLS]
+    ac2 = ac + nc
+    vc = list(TAKE1_V_CELLS)
+    cpc = list(TAKE1_CP_CELLS)
+    if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
+            or len(b2c) != INTA_B2_NCELLS or len(fc) != INTA2_F_NCELLS
+            or len(nc) != INTA2_N_NCELLS or len(ac2) != INTA2_A_NCELLS):
+        raise PatchError("internal error: take1 inta3 cells were not selected")
+    ok = _cell_ok(barmap)
+    for a in vc + cpc:
+        if not ok(a):
+            raise PatchError(f"take1 new cell {a:#x} is not a zero cell at both views")
+    if set(vc + cpc) & set(cells):
+        raise PatchError("take1 new cells collide with an inta3 cell")
+    if vc != [TAKE1_V_MAGIC, TAKE1_V_PSR, TAKE1_V_CNT, TAKE1_M1_PSR, TAKE1_M2_PSR]:
+        raise PatchError("internal error: take1 V/M cell order changed")
+
+    need_s = len(pad_send_inta2(0, ac2))
+    need_i = len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))
+    need_b = len(pad_bringup(0, s2, gc))
+    need_p = len(pad_post(0, ec))
+    need_d = len(pad_drain_inta(0, bc, 0))
+    need_m = len(pad_drain_extra_inta(0, b2c))
+    need_f = len(pad_fallthrough_inta2(0, fc))
+    need_g = len(pad_giccpu_take1(0, cpc, 0))
+    need_v = len(pad_vec_take1(0, vc, 0))
+    need_1 = len(pad_m1_take1(0, vc[3], 0))
+    need_2 = len(pad_m2_take1(0, vc[4], 0))
+    alloc = alloc_pads(data, refs, [("send", need_s), ("thunk", need_i), ("bringup", need_b),
+                                    ("post", need_p), ("drain", need_d),
+                                    ("drain_extra", need_m), ("fallthrough", need_f),
+                                    ("giccpu", need_g), ("vec", need_v), ("m1", need_1),
+                                    ("m2", need_2)])
+    pads = {name: off for name, (off, _run) in alloc.items()}
+
+    code_i = pad_thunk(pads["thunk"], s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pads["bringup"], s2, gc)
+    code_s = pad_send_inta2(pads["send"], ac2)
+    code_p = pad_post(pads["post"], ec)
+    code_d = pad_drain_inta(pads["drain"], bc, pads["drain_extra"])
+    code_m = pad_drain_extra_inta(pads["drain_extra"], b2c, next_pad=pads["giccpu"])
+    code_g = pad_giccpu_take1(pads["giccpu"], cpc, TRIGCONS_CONT_B)
+    code_f = pad_fallthrough_inta2(pads["fallthrough"], fc)
+    code_v = pad_vec_take1(pads["vec"], vc, TAKE1_V_CONT)
+    code_1 = pad_m1_take1(pads["m1"], vc[3], TAKE1_M1_CONT)
+    code_2 = pad_m2_take1(pads["m2"], vc[4], TAKE1_M2_CONT)
+
+    out = bytearray(patch_sites(data, pads["thunk"], pads["bringup"], pads["send"], pads["post"],
+                                pads["drain"], drain_site=TRIGCONS_SITE_B, loop_pad=pads["fallthrough"],
+                                loop_site=INTA2_SITE_F))
+    out[TAKE1_V_SITE:TAKE1_V_SITE + 4] = b_w(TAKE1_V_SITE, pads["vec"])
+    out[TAKE1_M1_SITE:TAKE1_M1_SITE + 4] = bl(TAKE1_M1_SITE, pads["m1"])
+    out[TAKE1_M2_SITE:TAKE1_M2_SITE + 4] = bl(TAKE1_M2_SITE, pads["m2"])
+    for off, code in ((pads["thunk"], code_i), (pads["bringup"], code_b), (pads["send"], code_s),
+                      (pads["post"], code_p), (pads["drain"], code_d),
+                      (pads["drain_extra"], code_m), (pads["giccpu"], code_g),
+                      (pads["fallthrough"], code_f), (pads["vec"], code_v), (pads["m1"], code_1),
+                      (pads["m2"], code_2)):
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the take1 patch changed the image size")
+    if data[TAKE1_V_SITE:TAKE1_V_SITE + 4] != TAKE1_V_SITE_STOCK:
+        raise PatchError("the take1 V_SITE stock bytes are not the ISR entry `push.w` (2de9f34d)")
+    if data[TAKE1_M1_SITE:TAKE1_M1_SITE + 4] != TAKE1_M1_SITE_STOCK:
+        raise PatchError("the take1 M1_SITE stock bytes are not `blx r5`+`cpsid i` (a84772b6)")
+    if data[TAKE1_M2_SITE:TAKE1_M2_SITE + 4] != TAKE1_M2_SITE_STOCK:
+        raise PatchError("the take1 M2_SITE stock bytes are not `mrs r2, apsr` (eff30082)")
+    if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
+        raise PatchError("the take1 Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+    if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("the take1 Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
+    if data[INTA2_SITE_F:INTA2_SITE_F + 4] != TRIGNAT_DRAIN_POP:
+        raise PatchError("the take1 Site F site is not the stock `pop.w {r3..sb,lr}` (bde8f843)")
+    if data[INTA_SITE_L:INTA_SITE_L + 4] != INTA_LOOP_PAIR:
+        raise PatchError("the take1 dropped Pad-L site is not the stock `ldr r2,[r1]`+`cmp`")
+    # continuations and the untouched bodies
+    for a, b_, nm in ((TAKE1_V_CONT, 0x82F4A, "the ISR body up to M1_SITE"),
+                      (TAKE1_M1_CONT, 0x82F78, "the ISR body after M1_SITE"),
+                      (0x826E0, TAKE1_M2_SITE, "the release body up to the guard"),
+                      (TAKE1_M2_CONT, 0x82730, "the release spin after the guard"),
+                      (INTA2_CONT_F, 0x86F92, "the announce-exit continuation"),
+                      (INTA_SITE_L, 0x86F7E, "the announce loop head")):
+        if out[a:b_] != data[a:b_]:
+            raise PatchError(f"take1 altered {nm} ({a:#x}..{b_:#x})")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s), ("post", code_p),
+                       ("drain", code_d), ("drain_extra", code_m), ("giccpu", code_g),
+                       ("fallthrough", code_f), ("vec", code_v), ("m1", code_1), ("m2", code_2)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0),
+                    gic_read_store_block(0x40160120, 0)):
+            if bad in code:
+                raise PatchError(f"internal error: the take1 {name} pad addresses a forbidden CA")
+
+    check_original_gic_write(out)
+    verify_disasm_take1(out, pads, s1, s2, gc, ec, ac2, bc, b2c, fc, vc, cpc)
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ac[:4]):
+        records[f"A_S{i}"] = cell_record(barmap, a)
+    records["A_P1"] = cell_record(barmap, ac[4])
+    records["A_E0"] = cell_record(barmap, ac[5])
+    records["A_E1"] = cell_record(barmap, ac[6])
+    for i, a in enumerate(ac[7:12]):
+        records[f"A_S{4 + i}"] = cell_record(barmap, a)
+    records["A_P2"] = cell_record(barmap, ac[12])
+    for i, a in enumerate(bc[:4]):
+        records[f"B_D{i}"] = cell_record(barmap, a)
+    records["B_P3"] = cell_record(barmap, bc[4])
+    for i, a in enumerate(b2c[:4]):
+        records[f"B_D{4 + i}"] = cell_record(barmap, a)
+    records["B_P4"] = cell_record(barmap, b2c[4])
+    for nm, a in zip(INTA2_F_NAMES, fc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(INTA2_N_NAMES, nc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TAKE1_V_NAMES, vc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TAKE1_CP_NAMES, cpc):
+        records[nm] = cell_record(barmap, a)
+    aliases = {"C_PSR": "B_D5", "F_CTLR": "B_D6", "F_PMR": "B_D7"}
+
+    manifest = {
+        "variant": "take1",
+        "spec": "build/tmp/inta-spec/fwprobe.md sections 2-5 + giccpu.md sections 4/5",
+        "selection": sel,
+        "cells": records,
+        "aliases": aliases,
+        "take1": {
+            "v_site": hex(TAKE1_V_SITE), "v_cont": hex(TAKE1_V_CONT),
+            "m1_site": hex(TAKE1_M1_SITE), "m1_cont": hex(TAKE1_M1_CONT),
+            "m2_site": hex(TAKE1_M2_SITE), "m2_cont": hex(TAKE1_M2_CONT),
+            "v_site_stock": TAKE1_V_SITE_STOCK.hex(),
+            "m1_site_stock": TAKE1_M1_SITE_STOCK.hex(),
+            "m2_site_stock": TAKE1_M2_SITE_STOCK.hex(),
+            "v_cells": [hex(c) for c in vc], "cp_cells": [hex(c) for c in cpc],
+            "new_cells": [hex(c) for c in vc + cpc],
+            "printable": hex(TAKE1_PRINTABLE),
+            "gicc_reads": [hex(x) for x in TAKE1_GICC_READS],
+            "aliases": aliases,
+        },
+        "take1_cells_note": NOTE_TAKE1_CELLS,
+        "gic_map": {
+            "GICD_base": "0x40161000", "GICC_base": "0x40160100",
+            "ISACTIVER2": hex(GICD_ISACTIVER2), "ISPENDR2": hex(GICD_ISPENDR2),
+            "HPPIR": hex(GICC_HPPIR),
+            "take1_reads": [hex(x) for x in TAKE1_GICC_READS],
+            "take1_reads_note": "C_GRP0 0x40160114 (RPR) / C_GRP1 0x40160118 (HPPIR, the word "
+                                 "the tool already samples) / C_GRP2 0x4016011c (ABPR) / "
+                                 "F_BPR 0x40160108 (BPR)",
+            "never_read": "0x4016010c (GICC IAR - acknowledging), " + TAKE1_NEVER_READ +
+                          ", and 0x10161000 (RC misc, panics)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, W1C) and the masked glue word 0x21",
+            "ring": {"ca": hex(TRIGNAT_RING_CA), "value": hex(TRIGNAT_RING_VAL),
+                     "note": NOTE_TRIGCONS_A},
+            "gate": {"ca": "0x4000010c", "wait_value": "0x0000cece",
+                     "site_b2": hex(TRIGCONS_SITE_B), "cont_b2": hex(TRIGCONS_CONT_B),
+                     "note": NOTE_TRIGCONS_B},
+            "site_f_note": NOTE_INTA2_F,
+            "site_n_note": NOTE_INTA3_N,
+            "pad_l_dropped_note": NOTE_INTA2_DROP,
+            "vec_note": NOTE_TAKE1_V,
+            "giccpu_note": NOTE_TAKE1_CP,
+            "chain_note": NOTE_TAKE1_CHAIN,
+        },
+        "classification": {
+            "instrument": "inta3's POST-EXIT take sample (Pad B2 + Site F + Pad A(N)) PLUS the "
+                           "IRQ-vector canary (V_SITE -> the vec pad: V_MAGIC/V_PSR/V_CNT) and the "
+                           "two CPSR milestones (M1_PSR in the cpsie-i window, M2_PSR at the "
+                           "release guard) PLUS the giccpu cell pad chained after the drain "
+                           "companion.",
+            "ROW_1": "fwprobe.md section 6.1: V_MAGIC == 0xa4a4a4a4 and V_CNT >= 1 (V_PSR I=1, "
+                      "M[4:0]=0x13, T=1) => VECTOR ENTERED - the core took the IRQ and the IAR "
+                      "was read: precondition 3 OBSERVED; then M1_PSR I=0 proves the service window "
+                      "ran live, and the inta3 cells must agree in the same epoch (F_ACT bit 12 "
+                      "SET / N_ACT bit 12 SET, out[0] 8->0).",
+            "ROW_2": "fwprobe.md section 6.2: V_MAGIC == 0 and V_CNT == 0 => VECTOR NEVER ENTERED "
+                      "- the CPU never took the IRQ this boot, whatever ISPENDR2/ISACTIVER2 say "
+                      "(matches exp/20261005-200139: the gate is the core take, not the wire).",
+            "ROW_3": "fwprobe.md section 6.3/6.5: V_CNT >= 1 with M1_PSR == 0 => the ISR ran but "
+                      "never reached 0x82f4a (a null fn_array entry or a spurious id); M2_PSR with "
+                      "I=1 => the release guard ran with the mask still set, the `bmi` at 0x82710 "
+                      "skips the body and the release never issues.",
+            "ROW_4": "giccpu.md section 2: F_CTLR (B_D6)/F_PMR (B_D7)/C_GRP0/C_GRP1/C_GRP2/F_BPR "
+                      "close the two unmeasured config candidates - a CPU-interface group enable "
+                      "reading 0 (a 1/0 pair among the candidate words) or a CTLR bit2/bit3 quirk; "
+                      "the armed-consistent survivor is the mask (C_PSR = B_D5).",
+            "bounds": "one-shot latched samples, not a trace: V_CNT is a plain ldr/adds/str in a "
+                      "pad that runs with IRQs live, so a nested IRQ can race it (undercount <= 1 "
+                      "per nested entry) - V_MAGIC is the binary proof.  M1_PSR exists only when "
+                      "fn_array[id] != 0.  M2_PSR/M1_PSR are latched by the LAST visit.",
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pads["thunk"]), "code_length": len(code_i),
+                      "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pads["bringup"]), "code_length": len(code_b),
+                        "code_hex": code_b.hex()},
+            "send_n": {"file_offset": hex(pads["send"]), "code_length": len(code_s),
+                       "code_hex": code_s.hex()},
+            "post": {"file_offset": hex(pads["post"]), "code_length": len(code_p),
+                     "code_hex": code_p.hex()},
+            "drain_b2": {"file_offset": hex(pads["drain"]), "code_length": len(code_d),
+                         "code_hex": code_d.hex()},
+            "drain_extra": {"file_offset": hex(pads["drain_extra"]), "code_length": len(code_m),
+                            "code_hex": code_m.hex()},
+            "giccpu": {"file_offset": hex(pads["giccpu"]), "code_length": len(code_g),
+                       "code_hex": code_g.hex()},
+            "fallthrough_f": {"file_offset": hex(pads["fallthrough"]), "code_length": len(code_f),
+                              "code_hex": code_f.hex()},
+            "vec": {"file_offset": hex(pads["vec"]), "code_length": len(code_v),
+                    "code_hex": code_v.hex()},
+            "m1": {"file_offset": hex(pads["m1"]), "code_length": len(code_1),
+                   "code_hex": code_1.hex()},
+            "m2": {"file_offset": hex(pads["m2"]), "code_length": len(code_2),
+                   "code_hex": code_2.hex()},
+        },
+        "sites": {
+            "send_n": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(TRIGNAT_CONT_A),
+                       "replaced_bytes": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
+                       "after": bl(TRIGNAT_SITE_A, pads["send"]).hex()},
+            "drain_b2": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                         "replaced_bytes": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
+                         "after": bl(TRIGCONS_SITE_B, pads["drain"]).hex()},
+            "fallthrough_f": {"file_offset": hex(INTA2_SITE_F), "cont": hex(INTA2_CONT_F),
+                              "replaced_bytes": data[INTA2_SITE_F:INTA2_SITE_F + 4].hex(),
+                              "after": bl(INTA2_SITE_F, pads["fallthrough"]).hex()},
+            "vec": {"file_offset": hex(TAKE1_V_SITE), "cont": hex(TAKE1_V_CONT),
+                    "replaced_bytes": data[TAKE1_V_SITE:TAKE1_V_SITE + 4].hex(),
+                    "after": b_w(TAKE1_V_SITE, pads["vec"]).hex()},
+            "m1": {"file_offset": hex(TAKE1_M1_SITE), "cont": hex(TAKE1_M1_CONT),
+                   "replaced_bytes": data[TAKE1_M1_SITE:TAKE1_M1_SITE + 4].hex(),
+                   "after": bl(TAKE1_M1_SITE, pads["m1"]).hex()},
+            "m2": {"file_offset": hex(TAKE1_M2_SITE), "cont": hex(TAKE1_M2_CONT),
+                   "replaced_bytes": data[TAKE1_M2_SITE:TAKE1_M2_SITE + 4].hex(),
+                   "after": bl(TAKE1_M2_SITE, pads["m2"]).hex()},
+            "loop_head_stock": {"file_offset": hex(INTA_SITE_L),
+                                "bytes": data[INTA_SITE_L:INTA_SITE_L + 4].hex(),
+                                "unchanged": out[INTA_SITE_L:INTA_SITE_L + 4] ==
+                                             data[INTA_SITE_L:INTA_SITE_L + 4]},
+        },
+        "preserved": {
+            "original_gic_write": {"file_offset": "0x8702c",
+                                   "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030]},
+            "itet_block": {"file_offset": "0x87030..0x87035",
+                           "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+            "announce_loop_head": {"file_offset": "0x86f78..0x86f7e",
+                                   "bytes_identical": out[0x86F78:0x86F7E] == data[0x86F78:0x86F7E]},
+            "announce_exit_continuation": {"file_offset": "0x86f82..",
+                                            "bytes_identical": out[INTA2_CONT_F:0x86F92] ==
+                                                               data[INTA2_CONT_F:0x86F92]},
+            "isr_body_around_m1": {"file_offset": "0x82f00..0x82f4a / 0x82f4e..0x82f78",
+                                   "bytes_identical": out[TAKE1_V_CONT:TAKE1_M1_SITE] ==
+                                                      data[TAKE1_V_CONT:TAKE1_M1_SITE] and
+                                                      out[TAKE1_M1_CONT:0x82F78] ==
+                                                      data[TAKE1_M1_CONT:0x82F78]},
+            "release_body_around_m2": {"file_offset": "0x826e0..0x8270a / 0x8270e..0x82730",
+                                       "bytes_identical": out[0x826E0:TAKE1_M2_SITE] ==
+                                                          data[0x826E0:TAKE1_M2_SITE] and
+                                                          out[TAKE1_M2_CONT:0x82730] ==
+                                                          data[TAKE1_M2_CONT:0x82730]},
+        },
+    }
+    return out, manifest
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="patch_fw_scratch.py", description=__doc__.splitlines()[0])
     ap.add_argument("--fw", default="build/tmp/FIRMWARE.bin", help="input blob (READ-ONLY)")
@@ -7389,7 +8167,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="output blob (never the input)")
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
-                                          "trigcons", "inta", "inta2", "inta3"),
+                                          "trigcons", "inta", "inta2", "inta3", "take1"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -7446,7 +8224,14 @@ def main(argv: list[str] | None = None) -> int:
                          "addresses, which move from page 14 (0x157000 did not retain the inta2 run's "
                          "deposits) to page 10 (0x150000, the retention-verified band) at "
                          "0x150058..0x150080, the first free 8-byte slots after the trignat Pad A/B "
-                         "cells (B_P3 = 0x150050); Site F keeps page 13, every pad program unchanged")
+                         "cells (B_P3 = 0x150050); Site F keeps page 13, every pad program "
+                         "unchanged; take1: fwprobe.md sections 2-5 + giccpu.md sections 4/5 - "
+                         "inta3 plus the IRQ-vector canary (V_SITE file 0x82efc -> the vec pad: "
+                         "V_MAGIC/V_PSR/V_CNT), the two CPSR milestones (M1_SITE 0x82f4a -> M1_PSR "
+                         "in the cpsie-i window, M2_SITE 0x8270a -> M2_PSR at the release 0x826e0 "
+                         "guard) and the giccpu cell pad (C_GRP0/C_GRP1/C_GRP2/F_BPR + C_SNT, CAs "
+                         "0x40160114/18/1c/08) chained after the drain companion; all ten new cells "
+                         "on page 10; the acknowledging AIAR 0x40160120 is never read")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -7478,6 +8263,7 @@ def main(argv: list[str] | None = None) -> int:
                          else make_inta(data, barmap, refs) if args.variant == "inta"
                          else make_inta2(data, barmap, refs) if args.variant == "inta2"
                          else make_inta3(data, barmap, refs) if args.variant == "inta3"
+                         else make_take1(data, barmap, refs) if args.variant == "take1"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
