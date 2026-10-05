@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # finish-evidence.sh <evidence-dir> [--variant NAME] [--ko PATH] [--interp-source CMD]
+# finish-evidence.sh --verdict <phase-label>      (verifier mode: new diffs/<TS>-<label>/verdict.txt)
+# finish-evidence.sh --check-verdict <pattern>    (gate: does a diffs dir matching <pattern> exist?)
 #
 # The worker-files finisher.  tools/pack-evidence.sh --require KNOBSET.txt interp.txt
 # acceptance.txt cleanup.txt only WARNS when a worker file is missing (it is read-only and
@@ -27,6 +29,16 @@
 #   * interp.txt to be generated    -> a capture context (capture-cmd.txt or run-*.log) in the dir
 # The dir itself must exist and be a directory (usage error, code 2).
 #
+# The VERIFIER MODE (--verdict) cures the recurring "verifier ran, verdict never landed" gap: a
+# verifier session produced a thorough verdict as chat prose and no diffs/<TS>-<label>/verdict.txt
+# ever existed, so a later auditor could not tell the phase was verified.  --verdict creates that
+# dir (build/register-dumps/diffs/<UTC-TS>-<label>/) plus a verdict.txt SKELETON, and prints the
+# ABSOLUTE path so the agent appends its findings there.  It NEVER overwrites an existing file:
+# re-running --verdict with the SAME label on the SAME UTC second is a clean no-op (rc 0, the
+# pre-existing file reported, byte count unchanged); on a later second it mints a NEW dir (rc 0).
+# --check-verdict <pattern> is the cheap gate: rc 0 when diffs/ holds a matching dir, rc 4 when it
+# does not (it never creates anything, and is device-free/host-only).
+#
 # Host-only by default: the only device I/O is the optional --live probe set (read-only
 # ls/md5sum/cat/iw/iwpriv/lsmod through .sshwrap/rsh.sh).  Never writes CA 0x400392f0, never
 # reads 0x4016010c or 0x10161000, never stages anything -- see the hard rules in AGENTS.md.
@@ -43,6 +55,8 @@ KVER=5.10.201
 fe_usage() {
 	cat <<'EOF'
 usage: finish-evidence.sh <evidence-dir> [--variant NAME] [--ko PATH] [--interp-source CMD]
+       finish-evidence.sh --verdict <phase-label>
+       finish-evidence.sh --check-verdict <label-pattern>
 
   <evidence-dir>        one build/register-dumps/exp/<TS>/ directory (required)
   --variant NAME        name the firmware/port variant for the KNOBSET header and the interp
@@ -55,12 +69,38 @@ usage: finish-evidence.sh <evidence-dir> [--variant NAME] [--ko PATH] [--interp-
                         its raw output to cleanup.txt (default: receipts only, no device I/O)
   -h|--help             this text
 
-generates KNOBSET.txt / cleanup.txt / interp.txt into the dir, NEVER overwriting an existing
-file; runs the dir's accept*.py|accept*.sh when present; prints a summary.  Exits 0 when every
-target file is present (pre-existing or generated), 2 on usage error, 3 when a required input
-for a file that must still be generated is missing.
+finisher mode (default) -- generates KNOBSET.txt / cleanup.txt / interp.txt into the dir, NEVER
+overwriting an existing file; runs the dir's accept*.py|accept*.sh when present; prints a summary.
+Exits 0 when every target file is present (pre-existing or generated), 2 on usage error, 3 when a
+required input for a file that must still be generated is missing.
+
+verifier mode --
+  --verdict <phase-label>
+        create build/register-dumps/diffs/<UTC-TS>-<label>/verdict.txt (a SKELETON: header block +
+        numbered section stubs + the hard-rule audit + the tally table, every row TODO) and print
+        the ABSOLUTE path + the verdict-dir contents.  Existing file: NEVER overwritten (rc 0).
+  --check-verdict <label-pattern>
+        glob/search token matched against diffs subdir names (PATH-style: substring, e.g. `vrun12`
+        -> `20261005T1855Z-vrun12`); rc 0 when a matching dir exists (its path printed), rc 4 when
+        none does.  With NO argument the default token `v(rec|run|tool|top|fix|dts|chip|erify)[0-9]`
+        is used = "any of this phase's verifier dirs".  Creates nothing; host-only.
+
+verifier-mode exit codes: 0 = created / already present / pattern matched; 2 = usage error;
+4 = --check-verdict found no matching dir; 5 = the diffs root is missing/unwritable.
 EOF
 }
+
+# ---- verifier-mode defaults: reuse the phase-22 verifier dir convention --------------------
+# Default --check-verdict token: no argument means "any of this phase's verifier dirs", i.e. the
+# label prefix vrec|vrun|vtool... followed by a number (vrun12, vrec5, vtool3, vrun, ...).
+# Default --check-verdict token: no argument means "any of this phase's verifier dirs".  The
+# matcher is bash `case` GLOB (not regex) and matches anywhere in the basename, so one trailing
+# char class is enough to cover every suffix (vrun/vrun2/vrun12/vrec5/vtool3/vdts/...): glob
+# alternation is written (rec|run|...) and `[0-9]` here is the class {0..9}, i.e. a mandatory
+# digit that every real dir carries.  (A literal `*` in this variable would be treated as a
+# character, not a quantifier - that was a bug caught in the tool's self-test.)
+VER_PATTERN_RE='v(rec|run|tool|top|fix|dts|chip|erify)[0-9]'
+VER_TS() { date -u +%Y%m%dT%H%MZ; }
 
 # ---- the standard read-only post-cycle probe set (never a write; .omo-pat must be gone) ----
 read -r -d '' STD_PROBE <<'PROBE' || true
@@ -79,12 +119,170 @@ cut -d. -f1 /proc/uptime                                                  # reco
 PROBE
 
 DIR=""; VARIANT=""; KO=""; INTERP_SRC=""; LIVE=0
+MODE=finish; LABEL=""; PATTERN=""
+
+diffs_root() { printf '%s' "$FE_ROOT/build/register-dumps/diffs"; }
+
+fe_bad_pattern() {
+	case "$1" in
+		''|*[!A-Za-z0-9._-]*) return 0 ;;   # empty, or a glob metachar / separator = not a bare label
+		esac
+	return 1
+}
+
+run_verdict() {
+	local root ts vdir label
+	label="$1"
+	if [ -z "$label" ] || ! fe_bad_pattern "$label"; then
+		:  # label is a bare token: usable as a pattern (empty means "this phase's [a-z]+[0-9]+ form")
+	else
+		echo "finish-evidence.sh: --verdict label must be a bare token (letters/digits/._-): $label" >&2
+		return 2
+	fi
+	root="$(diffs_root)"
+	if [ ! -d "$root" ]; then
+		mkdir -p "$root" || { echo "finish-evidence.sh: cannot create $root" >&2; return 5; }
+	fi
+	ts="$(VER_TS)"
+	vdir="$root/$ts-$label"
+	mkdir -p "$vdir" || { echo "finish-evidence.sh: cannot create $vdir" >&2; return 5; }
+	if [ -e "$vdir/verdict.txt" ]; then
+		printf 'finish-evidence --verdict: REUSING existing (NOT overwritten)
+'
+		printf 'VERDICT PATH: %s/verdict.txt
+' "$vdir"
+		printf '  bytes : %s (a re-run on the same UTC second is a no-op; a later second mints a new dir)
+' "$(wc -c < "$vdir/verdict.txt" | tr -d ' ')"
+		return 0
+	fi
+	{
+		cat <<EOF
+================================================================================
+VERDICT - $label - <one-line subject: what was verified>
+================================================================================
+Task        : <task id>  (adversarial verifier; ran NO device cycle, made NO commit, pushed NOTHING)
+Verdict dir : build/register-dumps/diffs/$ts-$label/   (this file)
+Subject     : <the boot / artifact / claim under test + its dir or path>
+Run window  : <start UTC> -> <end UTC>   ; label $label ; skeleton by tools/finish-evidence.sh
+Hard rules  : never write CA 0x400392f0; never read the IAR CA 0x4016010c or the RC misc CA
+              0x10161000; device cycles serial/detached via tools/exp.sh; ko staged as wifidrv1.ko.
+
+Fill EVERY numbered section below with the decisive line(s) quoted verbatim from the primary
+artifact (capture-cmd.txt / dmesg.txt / the raw probe output), never from memory.  A witness that
+legitimately reads UNAVAILABLE / NO-ROW is NOT a failure; say so and say why.
+
+--------------------------------------------------------------------------------
+1. WHAT WAS VERIFIED (the claim under test, stated so it can fail)
+--------------------------------------------------------------------------------
+   TODO
+
+--------------------------------------------------------------------------------
+2. METHOD (the exact read-only commands / files this verifier used)
+--------------------------------------------------------------------------------
+   TODO
+
+--------------------------------------------------------------------------------
+3. THE LOAD-BEARING LINES (verbatim; one quoted block per claim)
+--------------------------------------------------------------------------------
+   TODO
+
+--------------------------------------------------------------------------------
+4. THE HARD BOUND / SAFETY RECORD (a bound-trip must self-disable; never enable_irq after it,
+   except the ONE designed re-enable probe and its own second bound)
+--------------------------------------------------------------------------------
+   TODO
+
+--------------------------------------------------------------------------------
+5. LIVE DEVICE PROBE (read-only; filesystem/iwpriv only - no devmem, no register read)
+--------------------------------------------------------------------------------
+   TODO (or: NOT RUN - why)
+
+--------------------------------------------------------------------------------
+6. COUNTER / REGISTER EVIDENCE (BAR0/BAR2 only; the exact values and their tags)
+--------------------------------------------------------------------------------
+   TODO
+
+--------------------------------------------------------------------------------
+7. DEVIATIONS / PRECISION GAPS (none may invert a load-bearing claim)
+--------------------------------------------------------------------------------
+   TODO
+
+--------------------------------------------------------------------------------
+8. HARD-RULE AUDIT (this verifier)
+--------------------------------------------------------------------------------
+  CA 0x400392f0 (copy-A W1C): <written? no>
+  CA 0x40039af0 (copy-B W1C): <written? no>
+  IAR 0x4016010c: never read.  RC misc 0x10161000: never read.
+  Device cycles: <NONE run by this verifier>
+  Device writes: <NONE / list>
+  ko staged name (checked in the run, not staged here): wifidrv1.ko
+  Push: <NONE made>; authorization (unused) is omo/phase22-hccaccept only, never master.
+  Router left healthy: <2 wiphys, 6 interfaces, cal [SUCC] both bands, no .omo-off leftovers>
+
+--------------------------------------------------------------------------------
+9. VERDICT / TALLY  (per claim: CONFIRMED / FAIL)
+--------------------------------------------------------------------------------
+  C1  <claim> ...................................................................... TODO
+  C2  <claim> ...................................................................... TODO
+  => TODO (one honest sentence; a verified negative is not a failure)
+================================================================================
+EOF
+	} > "$vdir/verdict.txt"
+	printf 'finish-evidence --verdict: CREATED
+'
+	printf 'VERDICT PATH: %s/verdict.txt
+' "$vdir"
+	printf '  label  : %s (run it a 2nd time to reuse: same UTC second -> no-op)
+' "$label"
+	printf '  bytes  : %s
+' "$(wc -c < "$vdir/verdict.txt" | tr -d ' ')"
+	printf 'CURRENT VERDICT DIRS (newest last):
+'
+	ls -1 "$root" | tail -5 | sed 's/^/  /'
+	return 0
+}
+
+run_check() {
+	local root p hit n
+	p="$1"
+	if [ -z "$p" ]; then p="$VER_PATTERN_RE"; fi
+	if fe_bad_pattern "${p//[][^$*?\\]/}"; then :; else
+		echo "finish-evidence.sh: --check-verdict pattern must not contain a path separator: $p" >&2
+		return 2
+	fi
+	root="$(diffs_root)"
+	if [ ! -d "$root" ]; then
+		echo "finish-evidence --check-verdict: NO MATCH (diffs root missing: $root) for $p"
+		return 4
+	fi
+	hit=""
+	for n in "$root"/*; do
+		[ -d "$n" ] || continue
+		case "$(basename "$n")" in
+			*${p}*) hit="$n" ;;
+		esac
+	done
+	if [ -n "$hit" ]; then
+		printf 'finish-evidence --check-verdict: MATCH for pattern %s\n' "$p"
+		printf '  newest match dir : %s\n' "$hit"
+		if [ -f "$hit/verdict.txt" ]; then
+			printf '  newest match     : %s/verdict.txt (%s bytes)\n' "$hit" "$(wc -c < "$hit/verdict.txt" | tr -d ' ')"
+		else
+			printf '  newest match     : (no verdict.txt in it)\n'
+		fi
+		return 0
+	fi
+	printf 'finish-evidence --check-verdict: NO MATCH for pattern %s (searched %s)\n' "$p" "$root" >&2
+	return 4
+}
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--variant)       shift; VARIANT="${1:-}" ;;
 		--ko)            shift; KO="${1:-}" ;;
 		--interp-source) shift; INTERP_SRC="${1:-}" ;;
 		--live)          LIVE=1 ;;
+		--verdict)         shift; MODE=verdict; LABEL="${1:-}" ;;
+		--check-verdict)   shift; MODE=check;   PATTERN="${1:-}" ;;
 		-h|--help)       fe_usage; exit 0 ;;
 		-*) echo "finish-evidence.sh: unknown option: $1" >&2; fe_usage >&2; exit 2 ;;
 		*)  if [ -z "$DIR" ]; then DIR="$1"; else
@@ -93,11 +291,18 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
+case "$MODE" in
+	verdict) run_verdict "$LABEL"; exit $? ;;
+	check)   run_check   "$PATTERN"; exit $? ;;
+esac
+
 [ -n "$DIR" ] || { fe_usage >&2; exit 2; }
 [ -d "$DIR" ] || { echo "finish-evidence.sh: no such evidence dir: $DIR" >&2; exit 2; }
 DIR="$(cd "$DIR" && pwd)"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 DIRNAME="$(basename "$DIR")"
+# Note: the --verdict skeleton timestamp is the compact file-safe VER_TS (e.g. 20261005T1855Z);
+# this TS stays the human-readable ISO stamp for the KNOBSET/cleanup headers.
 
 # ---- resolve inputs -----------------------------------------------------------------------
 MISSING=()
