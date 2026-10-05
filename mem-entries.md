@@ -316,3 +316,41 @@ values independently pinned; and "no ring -> expected clear" is correct and conc
 line):** a ring-instrumented run (doorbell + event-assertion sampling) AND the two convention checks (F5
 polarity via a known-masked line; IGROUPR for id `0x4c` + EnableGrp1), all takeover-safe.
 
+**Follow-up - gicking** (`opensource/docs/phase49/gic-view.md` ADDENDUM 4, `build/register-dumps/exp/20261005-053936/`,
+variant `gicking`, +670/-20, blob md5 `0f2e431f8e32c040b8ad7e7001f8ab57`, one cycle PASS, 150 s): the
+ASSERTION TRIO, the ring-instrumented run that addendum-3's next line named, answering all three open
+questions in one boot and paying the polarity fixture forward. The send pad rings the H2D doorbell CA
+`0x400392d4` <= `0x1` exactly once, holds the glue mask MASKED (CA `0x400392e8` <= `0x21`), samples, then
+restores it OPEN (`0x20`) and reads again. **BRANCH-GICK.** RING: the ring LEAVES THE HOST and latches the
+glue raw status (F6 `0x400392e4` bit 0 = `0x1`, against gicmask's `0x0` on the same pad with no ring; the
+firmware dispatcher writes `0x8` = bit 3, and F6 has bit 3 clear, so the new raw bit 0 is the ring's), but
+the ring -> GIC step is UNDECIDED: the post-ring ISPENDR2 word-2 samples (D0 = D4 = `0x00000020`, id `0x4c`
+bit 12 clear) were taken with the mask DELIBERATELY held MASKED (F5 = `0x21`, F7 = `0x0`), so a line the
+mask gates is expected to leave ISPENDR clear; the mask reopens only after the D samples and there is no
+post-unmask ISPENDR2 read, so neither "the ring reaches the GIC" nor "it does not" is supported. GROUP: the
+group gate DIES - G2 GICD_IGROUPR word 2 (`0x40161088`, layout-derived) bit 12 = `0`, id `0x4c` is Group 0,
+and F0 GICC_CTLR = `0x1` (EnableGrp0 SET, EnableGrp1 = 0) is exactly what Group 0 needs; E0 = `0x1001`
+re-proves the enable landed; the residual root is the EVENT ASSERTION side (addr.md row B), closing
+addendum-3's residual risk (ii). POLARITY: "1 = masked" is CONFIRMED in-run (closing residual risk i) by the
+F6/F7/G0 triple in the same boot - F6 bit 0 = 1 (raw, masked instant), F7 bit 0 = 0 (post-mask, same
+instant), G0 bit 0 = 1 (status once open) - which EXCLUDES the inverted model (F7 = 1 while masked) and the
+independent-raw-latch model; the raw bit was already 1 at F6, read before F7, so F7 = 0 is not a latency
+artifact, and F5 = `0x21` read at the same instant proves the mask was really set. `[sig]` 9/9, done marker,
+out[1] witness present; no `0xffffffff`; window sanity `0xE59FF018`; sentinels F8 = F9 = D3 = D5 = G3 =
+S2+4 = `0x50AA7E49`. Bounds: one-shot instants; the D/F/G cells are alias-only (above `0x104000`); no
+post-unmask GIC sample (the top bound); the G2 address is layout-derived (the read is the check); the run's
+own `interp.txt`/`acceptance.txt`/`cleanup.txt`/`pstore-check.txt` were never produced
+(`pack-gicking-evidence.sh` did not run). Two verifiers CONFIRMED (neither ran the cycle): the runtime one
+(`build/register-dumps/diffs/20261005-053936-vrun/verdict.txt`, independent acceptance 108/108 `ALL_OK`,
+polarity re-derived, G2 = row B) declared R1/R2/R3 - R2 is the ring -> GIC confound (masked ISPENDR), and
+R3 is the staged `.omo-pat` LEFT BY THE RUN because its pack-cleanup never ran, which the verifier then
+removed under the HARD RULE (post-remove: 3 stock firmware entries, stock md5
+`0e530b976d5a20e87358671f1a577695`, `pat_after` = 0); the instrument one
+(`build/register-dumps/diffs/20261005T054100Z-vtool/verdict.txt`) regenerated the blob 6x identical to the
+staged blob, capstone-audited the pads (ring CA `0x400392d4` <= `0x1` exactly once, mask `0x21` -> `0x20`,
+every CA->cell pair, `changed bytes OUTSIDE 4 sites + 4 pads: 0`, originals preserved, no forbidden CA).
+Health after the cycle and the mandated cleanup: `WIFI=1 PLAT=1 WIPHY=2 IFACE=6 CAL_SUCC=1 OMO_OFF=0
+STAGED=0 LOADER=0 RECOVER=0`, 2 wiphys, 6 interfaces, cal `[SUCC]` on both bands, 3 pstore records (no new
+crash), no leftovers. **Next (one line):** one follow-up cycle with an ISPENDR2 word-2 read for source
+`0x4c` AFTER the mask is restored open (or a compile-time open mask), paired with HPPIR and ISACTIVER2 at
+the same post - the sample this boot is missing - takeover-safe, serial/detached via `tools/exp.sh`.
