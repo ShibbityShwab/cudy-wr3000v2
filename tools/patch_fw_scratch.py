@@ -159,6 +159,7 @@ TRIGRING_MD5 = "0769eed122c0506d3afca6b5a8bd8ae9"             # frozen trigring-
 TRIGNAT_MD5 = "845188343f70cff9de29e77aea464021"             # frozen trignat-variant output (selftest regression)
 TRIGCONS_MD5 = "5fb51acd68c62699435d2e1fd823d900"             # frozen trigcons-variant output (selftest regression)
 INTA_MD5 = "bcf14dbeefe45bcfce8df279c06776bd"                 # frozen inta-variant output (selftest regression)
+INTA2_MD5 = "545e77a5b12b4e0da8a6923eea29672c"                # frozen inta2-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -5917,6 +5918,101 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert gim["sites"]["loop_l"]["cont"] == hex(INTA_CONT_L) == "0x86f7c"
     assert md5(gi) == INTA_MD5, f"inta output changed: {md5(gi)} != {INTA_MD5}"
 
+    # ---- inta2: the POST-EXIT take sample (take2.md sections 2/3)
+    g2, g2m = make_inta2(data, barmap, refs)
+    assert len(g2) == len(data), "inta2 changed the size"
+    g2b, g2mb = make_inta2(data, barmap, refs)
+    assert g2 == g2b, "inta2 patch is not deterministic"
+    assert json.dumps(g2m, sort_keys=True) == json.dumps(g2mb, sort_keys=True), \
+        "inta2 manifest is not deterministic"
+    # every KEPT cell keeps its inta address; the dropped Pad-L cells are gone
+    for nm in (["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)]
+               + [f"E{i}" for i in range(GICP_NCELLS)] + a_names + b_names
+               + ["B_D4", "B_D5", "B_D6", "B_D7", "B_P4"]):
+        assert g2m["cells"][nm]["addr"] == gim["cells"][nm]["addr"], f"inta2 moved cell {nm}"
+    for nm in ("L1_ISP", "L1_ACT", "L_CNT", "L_SNT", "L2_PSR"):
+        assert nm not in g2m["cells"], f"inta2 kept the dropped Pad-L cell {nm}"
+    pages = _zero_page_spans(barmap)
+    p_f2, p_n2 = pages[INTA2_F_PAGE_IDX], pages[INTA2_N_PAGE_IDX]
+    assert (p_f2, p_n2) == (0x155000, 0x157000), \
+        f"the inta2 pages are not take2's [13]/[14]: {hex(p_f2)}/{hex(p_n2)}"
+    fc2 = [int(g2m["cells"][nm]["addr"], 16) for nm in INTA2_F_NAMES]
+    assert fc2 == [p_f2 + 8 * i for i in range(INTA2_F_NCELLS)], \
+        f"the inta2 F cells are not the page-13 walk: {[hex(c) for c in fc2]}"
+    nc2 = [int(g2m["cells"][nm]["addr"], 16) for nm in INTA2_N_NAMES]
+    assert nc2 == [p_n2 + 8 * i for i in range(INTA2_N_NCELLS)], \
+        f"the inta2 N cells are not the page-14 walk: {[hex(c) for c in nc2]}"
+    for nm in INTA2_F_NAMES + INTA2_N_NAMES:
+        assert g2m["cells"][nm]["barmap_value"] == "0x0" \
+            and g2m["cells"][nm]["barmap_alias_value"] == "0x0", f"inta2 cell {nm} is not zero"
+    assert g2m["selection"]["inta2_f_page"] == hex(p_f2) \
+        and g2m["selection"]["inta2_n_page"] == hex(p_n2)
+    # the pads
+    pad_d2 = int(g2m["padding"]["drain_b2"]["file_offset"], 16)
+    pad_m2 = int(g2m["padding"]["drain_extra"]["file_offset"], 16)
+    pad_f2 = int(g2m["padding"]["fallthrough_f"]["file_offset"], 16)
+    pad_s2 = int(g2m["padding"]["send_n"]["file_offset"], 16)
+    acn2 = [int(g2m["cells"][nm]["addr"], 16) for nm in a_names] + nc2
+    bcn2 = [int(g2m["cells"][nm]["addr"], 16) for nm in b_names]
+    code_s2 = pad_send_inta2(pad_s2, acn2)
+    code_f2 = pad_fallthrough_inta2(pad_f2, fc2)
+    code_d2 = pad_drain_inta(pad_d2, bcn2, pad_m2)
+    code_m2 = pad_drain_extra_inta(pad_m2, [int(g2m["cells"][nm]["addr"], 16)
+                                            for nm in ("B_D4", "B_D5", "B_D6", "B_D7", "B_P4")])
+    assert g2[pad_s2:pad_s2 + len(code_s2)] == code_s2, "the inta2 Pad A(N) is not in the image"
+    assert g2[pad_f2:pad_f2 + len(code_f2)] == code_f2, "the inta2 Site F pad is not in the image"
+    assert g2[pad_d2:pad_d2 + len(code_d2)] == code_d2, "the inta2 Pad B2 is not in the image"
+    assert g2[pad_m2:pad_m2 + len(code_m2)] == code_m2, "the inta2 drain companion is not in the image"
+    # Pad B2 + companion are byte-identical to inta's programs (the pre-exit baseline is unchanged)
+    assert code_d2 == pad_drain_inta(pad_d2, bcn2, pad_m2)
+    assert movw(3, 0xcece) in code_d2 and b_w(pad_d2 + len(code_d2) - 4, pad_m2) == code_d2[-4:]
+    assert TRIGNAT_DRAIN_POP in code_f2 and b_w(pad_f2 + len(code_f2) - 4, INTA2_CONT_F) == code_f2[-4:]
+    for ca2, c2, nm2 in ((GICD_ISACTIVER2, fc2[0], "F_ACT"), (GICD_ISPENDR2, fc2[1], "F_ISP"),
+                         (GICC_HPPIR, fc2[2], "F_HPP"), (TRIGNAT_OUT0_CA, fc2[3], "F_OU0"),
+                         (GICD_ISACTIVER2, nc2[0], "N_ACT"), (GICD_ISPENDR2, nc2[1], "N_ISP"),
+                         (GICC_HPPIR, nc2[2], "N_HPP"), (TRIGNAT_OUT0_CA, nc2[3], "N_OU0")):
+        code = code_f2 if nm2.startswith("F_") else code_s2
+        assert gic_read_store_block(ca2, c2) in code, f"inta2 is missing {nm2}: {ca2:#x} -> {c2:#x}"
+    assert _store_cpsr_block(fc2[4]) in code_f2 and _store_imm_block(INTA_SENTINEL, fc2[5]) in code_f2
+    assert _store_cpsr_block(nc2[4]) in code_s2 and _store_imm_block(INTA_SENTINEL, nc2[5]) in code_s2
+    # the sites: 0x86F5A -> Pad A(N), 0x86F74 -> Pad B2, 0x86F7E -> Site F, 0x86F78 STOCK
+    assert g2[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] == bl(TRIGNAT_SITE_A, pad_s2)
+    assert g2[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] == bl(TRIGCONS_SITE_B, pad_d2)
+    assert g2[INTA2_SITE_F:INTA2_SITE_F + 4] == bl(INTA2_SITE_F, pad_f2)
+    assert g2[INTA_SITE_L:INTA_SITE_L + 4] == data[INTA_SITE_L:INTA_SITE_L + 4] == INTA_LOOP_PAIR, \
+        "inta2 altered the dropped Pad-L site 0x86F78"
+    assert g2[0x86F7C:0x86F7E] == data[0x86F7C:0x86F7E], "inta2 altered the loop's `bne 0x86f78`"
+    assert data[INTA2_SITE_F:INTA2_SITE_F + 4] == TRIGNAT_DRAIN_POP, \
+        "the inta2 Site F original bytes are not the stock pop.w (bde8f843)"
+    assert g2m["sites"]["loop_head_stock"]["unchanged"] is True
+    assert g2m["sites"]["fallthrough_f"]["replaced_bytes"] == TRIGNAT_DRAIN_POP.hex() == "bde8f843"
+    assert g2m["sites"]["send_n"]["replaced_bytes"] == "1a600122"
+    assert g2m["preserved"]["announce_loop_head"]["bytes_identical"] is True
+    assert g2m["preserved"]["original_gic_write"]["bytes_identical"] is True
+    assert g2m["preserved"]["itet_block"]["bytes_identical"] is True
+    allowed_2 = set()
+    for site_2 in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B, INTA2_SITE_F):
+        allowed_2 |= set(range(site_2, site_2 + 4))
+    for key_2 in ("thunk", "bringup", "send_n", "post", "drain_b2", "drain_extra", "fallthrough_f"):
+        off_2 = int(g2m["padding"][key_2]["file_offset"], 16)
+        allowed_2 |= set(range(off_2, off_2 + int(g2m["padding"][key_2]["code_length"])))
+    changed_2 = [i for i in range(len(data)) if g2[i] != data[i]]
+    assert changed_2 and all(c in allowed_2 for c in changed_2), \
+        "inta2 changed bytes outside its regions"
+    assert g2[0x8702C:0x87030] == data[0x8702C:0x87030], "inta2 altered the ISENABLER store"
+    assert g2[0x87030:0x87036] == data[0x87030:0x87036], "inta2 altered the itet block"
+    assert g2[0x86F78:0x86F7E] == data[0x86F78:0x86F7E], "inta2 altered the dropped Pad-L region"
+    assert g2[INTA2_CONT_F:0x86F92] == data[INTA2_CONT_F:0x86F92], \
+        "inta2 altered the Site-F continuation"
+    assert g2m["gic_map"]["ISACTIVER2"] == hex(GICD_ISACTIVER2) == "0x40161308"
+    assert g2m["gic_map"]["ISPENDR2"] == hex(GICD_ISPENDR2) == "0x40161208"
+    assert g2m["gic_map"]["HPPIR"] == hex(GICC_HPPIR) == "0x40160118"
+    assert g2m["inta2"]["site_f"] == hex(INTA2_SITE_F) == "0x86f7e"
+    assert g2m["inta2"]["cont_f"] == hex(INTA2_CONT_F) == "0x86f82"
+    assert g2m["inta2"]["site_l_stock"] == "0a689a42"
+    assert g2m["classification"]["ROW_1"].startswith("take2.md section 4")
+    assert md5(g2) == INTA2_MD5, f"inta2 output changed: {md5(g2)} != {INTA2_MD5}"
+
     # ---- input untouched
     assert rd(fw_path) == data, "the input file changed during the run"
 
@@ -6032,6 +6128,16 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"(B_D4 ISACTIVER2 0x40161308 / B_D5 CPSR / B_D6 0x40160100 / B_D7 0x40160104 + B_P4); "
           f"Pad L @ file {gim['padding']['loop_l']['file_offset']}, site 0x86f78 cont 0x86f7c")
     print(f"  inta md5          : {md5(gi)}")
+    print(f"  inta2 cells       : F_ACT={g2m['cells']['F_ACT']['addr']} F_ISP={g2m['cells']['F_ISP']['addr']} "
+          f"F_HPP={g2m['cells']['F_HPP']['addr']} F_OU0={g2m['cells']['F_OU0']['addr']} "
+          f"F_PSR={g2m['cells']['F_PSR']['addr']} F_SNT={g2m['cells']['F_SNT']['addr']} "
+          f"N_ACT={g2m['cells']['N_ACT']['addr']} N_SNT={g2m['cells']['N_SNT']['addr']}")
+    print(f"  inta2 pads        : Pad A(N) @ file {g2m['padding']['send_n']['file_offset']}, "
+          f"site {hex(TRIGNAT_SITE_A)}; Pad B2 @ {g2m['padding']['drain_b2']['file_offset']} + "
+          f"companion {g2m['padding']['drain_extra']['file_offset']}; Site F @ "
+          f"{g2m['padding']['fallthrough_f']['file_offset']}, site {hex(INTA2_SITE_F)} "
+          f"cont {hex(INTA2_CONT_F)}; 0x86f78 STOCK (Pad L dropped)")
+    print(f"  inta2 md5         : {md5(g2)}")
     return 0
 
 
@@ -6589,6 +6695,501 @@ def make_inta(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+# ---- inta2: the POST-EXIT take sample (take2.md sections 2/3, variant "inta2")
+# take2.md: the inta run proved the unlock but not the take - the delayed Pad L sat INSIDE the
+# 0xcece gate loop (site 0x86F78), so once the loop exits nothing re-visits it (L_CNT = 1, every
+# L2_* = 0).  inta2 moves the delayed sample to the two sites execution reaches AFTER the gate:
+#   * Site F = file 0x86F7E, the loop's own `pop.w {r3,r4,r5,r6,r7,r8,sb,lr}` (stock bde8f843) - the
+#     first instruction executed post-unlock and the only clean 4-byte slot there; the pad samples
+#     ISACTIVER2 (bit 12 = the IAR was read) / ISPENDR2 / HPPIR / out[0] / the full CPSR + the
+#     page-13 sentinel F_SNT, then re-emits the pop.w and branches to 0x86F82.
+#   * Site N = file 0x86F5A, the firmware's own out[1] post (Pad A's existing site): Pad A's entry
+#     block is WIDENED into the take set - after A_E0/A_E1 and BEFORE the post is reproduced, the
+#     same four reads + the CPSR + the page-14 sentinel N_SNT are deposited.  The sample lands on
+#     the NEXT visit's send site, an instant after the prior visit's unlock/interrupt window.
+# Pad L is DROPPED: 0x86F78..0x86F7C returns to the firmware's own `ldr r2,[r1]` + `cmp r2,r3` +
+# `bne 0x86f78` (INTA_LOOP_PAIR + the stock bne).  Pad B2 and its drain companion are KEPT
+# byte-identical to inta's (the pre-exit baseline B_D0..B_D7 the branch table needs).  The thunk /
+# bring-up / post pads and the S1/S2/C0..C5/E0..E3/A_*/B_* cells keep their inta addresses.
+# NEVER writes 0x400392f0 or the masked word 0x21; NEVER reads the IAR 0x4016010c or 0x10161000;
+# every added GIC read (ISPENDR2/ISACTIVER2/HPPIR) is non-acknowledging.
+INTA2_F_PAGE_IDX = TRIGNAT_B_PAGE_IDX + 3     # all_zero_pages[13] = 0x155000 (F_ACT..F_SNT)
+INTA2_N_PAGE_IDX = TRIGNAT_B_PAGE_IDX + 4     # all_zero_pages[14] = 0x157000 (N_ACT..N_SNT)
+INTA2_F_NCELLS = 6                            # F_ACT, F_ISP, F_HPP, F_OU0, F_PSR, F_SNT
+INTA2_N_NCELLS = 6                            # N_ACT, N_ISP, N_HPP, N_OU0, N_PSR, N_SNT
+INTA2_A_NCELLS = TRIGNAT_A_NCELLS + INTA2_N_NCELLS   # Pad A's cells = the 13 + the 6 N cells
+INTA2_TAKE_READS = (GICD_ISACTIVER2, GICD_ISPENDR2, GICC_HPPIR, TRIGNAT_OUT0_CA)  # + CPSR
+INTA2_SITE_F = 0x86F7E                        # the loop's own `pop.w {r3..sb,lr}` (stock bde8f843)
+INTA2_CONT_F = 0x86F82                        # continuation: `ldr r0,[pc,#0x3c]`
+INTA2_SITE_N = TRIGNAT_SITE_A                 # 0x86f5a - Pad A's site (the out[1] post)
+INTA2_F_NAMES = ("F_ACT", "F_ISP", "F_HPP", "F_OU0", "F_PSR", "F_SNT")
+INTA2_N_NAMES = ("N_ACT", "N_ISP", "N_HPP", "N_OU0", "N_PSR", "N_SNT")
+
+NOTE_INTA2_F = (
+    "Site F (take2.md section 2.1) is the NEW pad at file 0x86F7E, the 0xcece gate loop's own "
+    "`pop.w {r3,r4,r5,r6,r7,r8,sb,lr}` (stock bde8f843) - the first instruction executed after the "
+    "unlock and the only clean 4-byte slot there.  It samples F_ACT (CA 0x40161308 ISACTIVER2 word "
+    "2; bit 12 SET = the CPU read the IAR, i.e. the id-0x4c interrupt is ACTIVE), F_ISP (CA "
+    "0x40161208 ISPENDR2 word 2; bit 12 = pending), F_HPP (CA 0x40160118 GICC HPPIR; 0x4c = "
+    "pending vs 0x3ff = none), F_OU0 (CA 0x40039010 out[0]; 8 = unconsumed, 0 = the dispatcher "
+    "ran), F_PSR (the full CPSR via `mrs r0,<PSR>` = F3EF 8000, bit 7 = I) and the page-13 "
+    "sentinel F_SNT, then re-emits the replaced pop.w and branches to 0x86F82.  The pad never "
+    "returns through lr (it ends in `b.w`), so the `bl`'s lr clobber is inert exactly as Pad B2's."
+)
+NOTE_INTA2_N = (
+    "Site N (take2.md section 2.2) is a REUSE of Pad A's site (file 0x86F5A, the firmware's own "
+    "out[1] post).  Only the entry block is widened: after the unchanged A_E0/A_E1 entry reads and "
+    "BEFORE the post is reproduced and BEFORE the ring, the pad deposits N_ACT (ISACTIVER2 w2, CA "
+    "0x40161308) / N_ISP (ISPENDR2 w2, CA 0x40161208) / N_HPP (GICC HPPIR, CA 0x40160118) / "
+    "N_OU0 (out[0], CA 0x40039010) / N_PSR (the full CPSR) and the page-14 sentinel N_SNT.  The "
+    "sample therefore lands on the send site of the NEXT visit - an instant after the prior "
+    "visit's unlock, exit and interrupt window.  Pad A's post, glue-mask, submission, ring, A_S* "
+    "reads and sentinels stay byte-identical to trignat's."
+)
+NOTE_INTA2_DROP = (
+    "Pad L is DROPPED (take2.md section 2.3): the site 0x86F78..0x86F7C returns to the stock "
+    "`ldr r2,[r1]` + `cmp r2,r3` + `bne 0x86f78` (0a689a42 + fcd1).  The in-loop pad was the only "
+    "site the parked CPU re-visited, and it is void once the park ends (the inta run: L_CNT = 1, "
+    "every L2_* = 0).  The old announce-exit site 0x86F7E, which trignat/trigcons/inta left stock, "
+    "is now Site F's site."
+)
+NOTE_INTA2_CELLS = (
+    "trignat/inta cells (IDENTICAL addresses: S1/S2, C0..C5, E0..E3, A_S0..A_S8/A_P1/A_E0/A_E1/"
+    "A_P2, B_D0..B_D3/B_P3, B_D4..B_D7/B_P4) plus the two fresh all-zero 4 KB pages after inta's "
+    "[12]: all_zero_pages[13] = 0x155000 carries F_ACT/F_ISP/F_HPP/F_OU0/F_PSR/F_SNT (6); "
+    "all_zero_pages[14] = 0x157000 carries N_ACT/N_ISP/N_HPP/N_OU0/N_PSR/N_SNT (6).  "
+    "(0x156000 is not all-zero and is skipped, exactly as take2.md section 3 records.)  Every cell "
+    "is 0x00000000 at BOTH the BAR0 and the ACP-alias offsets in barmap_ep0_bar0.bin, 4-byte "
+    "aligned, >= 8 bytes apart, outside the four excluded tables and distinct from every earlier "
+    "cell.  Pad L's page-12 cells are NOT used."
+)
+
+
+def select_cells_inta2(barmap: bytes):
+    """trignat's cells (identical addresses) + all_zero_pages[11] (B_D4..B_D7 + B_P4, kept from
+    "inta) + all_zero_pages[13] (F_*) and all_zero_pages[14] (N_*).  No Pad L cells."""
+    cells, sel = select_cells_trignat(barmap)
+    ok = _cell_ok(barmap)
+    pages = _zero_page_spans(barmap)
+    if len(pages) < INTA2_N_PAGE_IDX + 1:
+        raise PatchError(f"inta2 selection failed: fewer than {INTA2_N_PAGE_IDX + 1} all-zero 4 KB "
+                         "pages in the band")
+    p_b2, p_f, p_n = pages[INTA_B2_PAGE_IDX], pages[INTA2_F_PAGE_IDX], pages[INTA2_N_PAGE_IDX]
+    b2 = _take_cells(p_b2, INTA_B2_NCELLS, ok, cells)
+    if len(b2) < INTA_B2_NCELLS:
+        raise PatchError(f"inta2 selection failed: page {p_b2:#x} has fewer than {INTA_B2_NCELLS} "
+                         "usable cells")
+    fc = _take_cells(p_f, INTA2_F_NCELLS, ok, b2)
+    if len(fc) < INTA2_F_NCELLS:
+        raise PatchError(f"inta2 selection failed: page {p_f:#x} has fewer than {INTA2_F_NCELLS} "
+                         "usable cells")
+    nc = _take_cells(p_n, INTA2_N_NCELLS, ok, fc)
+    if len(nc) < INTA2_N_NCELLS:
+        raise PatchError(f"inta2 selection failed: page {p_n:#x} has fewer than {INTA2_N_NCELLS} "
+                         "usable cells")
+    sel = dict(sel)
+    sel.update({
+        "inta2_rule": "trignat's cells + all_zero_pages[11] (B_D4..B_D7 + B_P4) + "
+                      "all_zero_pages[13] (F_*) + all_zero_pages[14] (N_*); no Pad L cells",
+        "inta2_b2_page": hex(p_b2), "inta2_f_page": hex(p_f), "inta2_n_page": hex(p_n),
+        "inta2_b2_page_idx": INTA_B2_PAGE_IDX, "inta2_f_page_idx": INTA2_F_PAGE_IDX,
+        "inta2_n_page_idx": INTA2_N_PAGE_IDX,
+        "inta2_b2_cells": [hex(a) for a in b2], "inta2_f_cells": [hex(a) for a in fc],
+        "inta2_n_cells": [hex(a) for a in nc], "inta2_note": NOTE_INTA2_CELLS,
+        "inta2_dropped": "Pad L (site 0x86f78) removed - the site is the firmware's own again",
+    })
+    return cells + b2 + fc + nc, sel
+
+
+def pad_send_inta2(pad: int, a_cells: list[int]) -> bytes:
+    """take2.md section 2.2: trignat/inta's Pad A (the natural out[1] post at 0x86F5A) with its
+    ENTRY block widened into the take set.  Order: A_E0/A_E1 (unchanged) -> N_ACT/N_ISP/N_HPP/
+    N_OU0/N_PSR + N_SNT (the added take reads, all BEFORE the post is reproduced and before the
+    ring) -> the post / mask-open / H2D submission / pre-ring A_S0..A_S2 / THE RING / post-ring
+    A_S3..A_S8 / A_P1/A_P2 (byte-identical to trignat's) -> pop, `movw r2,#1`, msr, b.w 0x86F5E."""
+    a_s0_3, a_p1, a_e = a_cells[0:4], a_cells[4], a_cells[5:7]
+    a_s4_8, a_p2 = a_cells[7:12], a_cells[12]
+    n = a_cells[13:19]
+    head = b"".join([
+        mrs_apsr(12),
+        push(PAD_SAVE),
+        gic_read_store_block(TRIGNAT_OUT0_CA, a_e[0]),        # A_E0 entry read of out[0]
+        gic_read_store_block(TRIGNAT_OUT1_CA, a_e[1]),        # A_E1 entry read of out[1]
+        gic_read_store_block(INTA2_TAKE_READS[0], n[0]),      # N_ACT ISACTIVER2 w2
+        gic_read_store_block(INTA2_TAKE_READS[1], n[1]),      # N_ISP ISPENDR2 w2
+        gic_read_store_block(INTA2_TAKE_READS[2], n[2]),      # N_HPP GICC HPPIR
+        gic_read_store_block(INTA2_TAKE_READS[3], n[3]),      # N_OU0 out[0]
+        _store_cpsr_block(n[4]),                              # N_PSR the full CPSR
+        _store_imm_block(INTA_SENTINEL, n[5]),                # N_SNT page-14 sentinel
+        str_imm(2, 3, 0),                                     # reproduce `str r2,[r3]`
+        write_ca_block(TRIGNAT_GLUE_MASK, TRIGNAT_MASK_OPEN),  # glue mask OPEN (0x20)
+        write_ca_block(TRIGNAT_OUT0_CA, TRIGNAT_SUBMIT_VAL),   # H2D submission out[0] <= 8
+    ])
+    body = b"".join([
+        gic_read_store_block(TRIGNAT_PRE_READS[0], a_s0_3[0]),
+        gic_read_store_block(TRIGNAT_PRE_READS[1], a_s0_3[1]),
+        gic_read_store_block(TRIGNAT_PRE_READS[2], a_s0_3[2]),
+        write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL),
+        gic_read_store_block(TRIGNAT_POST_READS[0], a_s0_3[3]),
+        gic_read_store_block(TRIGNAT_POST_READS[1], a_s4_8[0]),
+        gic_read_store_block(TRIGNAT_POST_READS[2], a_s4_8[1]),
+        gic_read_store_block(TRIGNAT_POST_READS[3], a_s4_8[2]),
+        gic_read_store_block(TRIGNAT_POST_READS[4], a_s4_8[3]),
+        gic_read_store_block(TRIGNAT_POST_READS[5], a_s4_8[4]),
+        _store_imm_block(TRIGNAT_SENTINEL, a_p1),
+        _store_imm_block(TRIGNAT_SENTINEL, a_p2),
+    ])
+    tail = b"".join([
+        pop(PAD_SAVE),
+        movw(2, 1),
+        msr_apsr(12),
+    ])
+    back = pad + len(head) + len(body) + len(tail)
+    return head + body + tail + b_w(back, TRIGNAT_CONT_A)
+
+
+def pad_fallthrough_inta2(pad: int, f_cells: list[int]) -> bytes:
+    """take2.md section 2.1: the NEW Site F pad at file 0x86F7E (the 0xcece gate loop's own
+    `pop.w {r3,r4,r5,r6,r7,r8,sb,lr}`).  Reads F_ACT (ISACTIVER2 w2) / F_ISP (ISPENDR2 w2) /
+    F_HPP (GICC HPPIR) / F_OU0 (out[0]) / F_PSR (the full CPSR) + the page-13 sentinel F_SNT, then
+    re-emits the replaced pop.w and branches to 0x86F82.  r0-r5 and the flags are saved/restored."""
+    head = b"".join([
+        mrs_apsr(12),
+        push(PAD_SAVE),
+        gic_read_store_block(INTA2_TAKE_READS[0], f_cells[0]),   # F_ACT ISACTIVER2 w2
+        gic_read_store_block(INTA2_TAKE_READS[1], f_cells[1]),   # F_ISP ISPENDR2 w2
+        gic_read_store_block(INTA2_TAKE_READS[2], f_cells[2]),   # F_HPP GICC HPPIR
+        gic_read_store_block(INTA2_TAKE_READS[3], f_cells[3]),   # F_OU0 out[0]
+        _store_cpsr_block(f_cells[4]),                           # F_PSR the full CPSR
+        _store_imm_block(INTA_SENTINEL, f_cells[5]),             # F_SNT page-13 sentinel
+    ])
+    tail = b"".join([
+        pop(PAD_SAVE),
+        msr_apsr(12),
+        TRIGNAT_DRAIN_POP,                                       # reproduce pop.w {r3..sb,lr}
+    ])
+    back = pad + len(head) + len(tail)
+    return head + tail + b_w(back, INTA2_CONT_F)
+
+
+def verify_disasm_inta2(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int, pad_d: int,
+                        pad_m: int, pad_f: int, s1: int, s2: int, gic_cells: list[int],
+                        e_cells: list[int], a_cells: list[int], b_cells: list[int],
+                        b2_cells: list[int], f_cells: list[int]) -> dict:
+    """Byte-equality of the seven pads against their reconstruction PLUS the block orders: Pad A's
+    widened entry (N_* before the post), Site F's take reads + the re-emitted pop.w + b.w 0x86F82,
+    Pad B2 + companion unchanged from inta, the stock loop head, and the forbidden-CA absence."""
+    if len(a_cells) != INTA2_A_NCELLS:
+        raise PatchError(f"inta2 expected {INTA2_A_NCELLS} A cells, got {len(a_cells)}")
+    if len(b_cells) != TRIGNAT_B_NCELLS:
+        raise PatchError(f"inta2 expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
+    if len(b2_cells) != INTA_B2_NCELLS:
+        raise PatchError(f"inta2 expected {INTA_B2_NCELLS} B2 cells, got {len(b2_cells)}")
+    if len(f_cells) != INTA2_F_NCELLS:
+        raise PatchError(f"inta2 expected {INTA2_F_NCELLS} F cells, got {len(f_cells)}")
+    every = [s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + f_cells
+    if len(set(every)) != len(every):
+        raise PatchError("inta2 cells are not all distinct")
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+
+    def dis(off: int, size: int) -> list[str]:
+        return [f"{i.mnemonic} {i.op_str}".strip() for i in md.disasm(data[off:off + size], off)]
+
+    code_i = pad_thunk(pad_i, s1, gic_cells, apsr_cell=e_cells[3], req_cell=e_cells[2])
+    code_b = pad_bringup(pad_b, s2, gic_cells)
+    code_s = pad_send_inta2(pad_s, a_cells)
+    code_p = pad_post(pad_p, e_cells)
+    code_d = pad_drain_inta(pad_d, b_cells, pad_m)
+    code_m = pad_drain_extra_inta(pad_m, b2_cells)
+    code_f = pad_fallthrough_inta2(pad_f, f_cells)
+    for name, off, code in (("thunk", pad_i, code_i), ("bringup", pad_b, code_b),
+                            ("send", pad_s, code_s), ("post", pad_p, code_p),
+                            ("drain", pad_d, code_d), ("drain_extra", pad_m, code_m),
+                            ("fallthrough", pad_f, code_f)):
+        if data[off:off + len(code)] != code:
+            raise PatchError(f"the inta2 {name} pad at {off:#x} is not the intended bytes")
+
+    # Pad A: the added N_* take reads must sit in the ENTRY block, before the reproduced post.
+    n = a_cells[13:19]
+    for ca, cell, nm in ((INTA2_TAKE_READS[0], n[0], "N_ACT"), (INTA2_TAKE_READS[1], n[1], "N_ISP"),
+                         (INTA2_TAKE_READS[2], n[2], "N_HPP"), (INTA2_TAKE_READS[3], n[3], "N_OU0")):
+        if gic_read_store_block(ca, cell) not in code_s:
+            raise PatchError(f"inta2 Pad A is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    if _store_cpsr_block(n[4]) not in code_s:
+        raise PatchError("inta2 Pad A is missing the N_PSR CPSR read")
+    if _store_imm_block(INTA_SENTINEL, n[5]) not in code_s:
+        raise PatchError("inta2 Pad A is missing the N_SNT sentinel")
+    if write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL) not in code_s:
+        raise PatchError("the inta2 Pad A lost the H2D ring")
+    post_off = code_s.index(str_imm(2, 3, 0))
+    order_n = [code_s.index(gic_read_store_block(INTA2_TAKE_READS[i], n[i])) for i in range(4)] \
+        + [code_s.index(_store_cpsr_block(n[4])), code_s.index(_store_imm_block(INTA_SENTINEL, n[5]))]
+    if order_n != sorted(order_n) or len(set(order_n)) != len(order_n) or max(order_n) > post_off:
+        raise PatchError("the inta2 Pad A N_* block is not before the reproduced post")
+
+    # Pad B2 + companion: unchanged from inta (the pre-exit baseline).
+    if movw(3, 0xcece) not in code_d or b_w(pad_d + len(code_d) - 4, pad_m) != code_d[-4:]:
+        raise PatchError("inta2 Pad B2 lost its `movw r3,#0xcece` / companion branch")
+    if b_w(pad_m + len(code_m) - 4, TRIGCONS_CONT_B) != code_m[-4:]:
+        raise PatchError("inta2 drain companion does not return to the loop head 0x86F78")
+    if _store_cpsr_block(b2_cells[1]) not in code_m:
+        raise PatchError("inta2 drain companion is missing the B_D5 CPSR read")
+
+    # Site F: the take reads, the re-emitted pop.w and the branch to 0x86F82.
+    for ca, cell, nm in ((INTA2_TAKE_READS[0], f_cells[0], "F_ACT"), (INTA2_TAKE_READS[1], f_cells[1], "F_ISP"),
+                         (INTA2_TAKE_READS[2], f_cells[2], "F_HPP"), (INTA2_TAKE_READS[3], f_cells[3], "F_OU0")):
+        if gic_read_store_block(ca, cell) not in code_f:
+            raise PatchError(f"inta2 Site F is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    if _store_cpsr_block(f_cells[4]) not in code_f:
+        raise PatchError("inta2 Site F is missing the F_PSR CPSR read")
+    if _store_imm_block(INTA_SENTINEL, f_cells[5]) not in code_f:
+        raise PatchError("inta2 Site F is missing the F_SNT sentinel")
+    if code_f.count(TRIGNAT_DRAIN_POP) != 1:
+        raise PatchError("inta2 Site F must re-emit the replaced pop.w exactly once")
+    if b_w(pad_f + len(code_f) - 4, INTA2_CONT_F) != code_f[-4:]:
+        raise PatchError("inta2 Site F has no `b.w` to 0x86F82")
+    order_f = [code_f.index(gic_read_store_block(INTA2_TAKE_READS[i], f_cells[i])) for i in range(4)] \
+        + [code_f.index(_store_cpsr_block(f_cells[4])),
+           code_f.index(_store_imm_block(INTA_SENTINEL, f_cells[5])),
+           code_f.index(TRIGNAT_DRAIN_POP)]
+    if order_f != sorted(order_f) or len(set(order_f)) != len(order_f):
+        raise PatchError("the inta2 Site F order is not F_ACT..F_OU0 -> F_PSR -> F_SNT -> pop.w")
+
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s),
+                       ("post", code_p), ("drain", code_d), ("drain_extra", code_m),
+                       ("fallthrough", code_f)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            if bad in code:
+                raise PatchError(f"the inta2 {name} pad addresses a forbidden CA: {bad.hex()}")
+
+    return {
+        "thunk_pad": dis(pad_i, len(code_i)),
+        "bringup_pad": dis(pad_b, len(code_b)),
+        "send_pad": dis(pad_s, len(code_s)),
+        "post_pad": dis(pad_p, len(code_p)),
+        "drain_pad": dis(pad_d, len(code_d)),
+        "drain_extra_pad": dis(pad_m, len(code_m)),
+        "fallthrough_pad": dis(pad_f, len(code_f)),
+        "inta2": {
+            "site_n": hex(INTA2_SITE_N), "cont_n": hex(TRIGNAT_CONT_A),
+            "site_b2": hex(TRIGCONS_SITE_B), "cont_b2": hex(TRIGCONS_CONT_B),
+            "site_f": hex(INTA2_SITE_F), "cont_f": hex(INTA2_CONT_F),
+            "site_f_replaced": TRIGNAT_DRAIN_POP.hex(),
+            "site_l": hex(INTA_SITE_L), "site_l_stock": INTA_LOOP_PAIR.hex(),
+            "take_reads": [hex(x) for x in INTA2_TAKE_READS] + ["CPSR"],
+            "f_cells": [hex(c) for c in f_cells], "n_cells": [hex(c) for c in n],
+            "send_pad_len": len(code_s), "fallthrough_pad_len": len(code_f),
+        },
+    }
+
+
+def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
+    """take2.md sections 2/3: trigcons/inta's thunk + bring-up + post pads, Pad A's entry widened
+    with the N_* take reads, the inta Pad B2 + drain companion kept, Pad L dropped (0x86F78 stock)
+    and the NEW Site F pad at 0x86F7E."""
+    cells, sel = select_cells_inta2(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    off_b = off_a + TRIGNAT_A_NCELLS
+    bc = cells[off_b:off_b + TRIGNAT_B_NCELLS]
+    off_b2 = off_b + TRIGNAT_B_NCELLS
+    b2c = cells[off_b2:off_b2 + INTA_B2_NCELLS]
+    off_f = off_b2 + INTA_B2_NCELLS
+    fc = cells[off_f:off_f + INTA2_F_NCELLS]
+    off_n = off_f + INTA2_F_NCELLS
+    nc = cells[off_n:off_n + INTA2_N_NCELLS]
+    ac2 = ac + nc
+    if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
+            or len(b2c) != INTA_B2_NCELLS or len(fc) != INTA2_F_NCELLS
+            or len(nc) != INTA2_N_NCELLS or len(ac2) != INTA2_A_NCELLS):
+        raise PatchError("internal error: inta2 cells were not selected")
+
+    need_s = len(pad_send_inta2(0, ac2))
+    need_i = len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))
+    need_b = len(pad_bringup(0, s2, gc))
+    need_p = len(pad_post(0, ec))
+    need_d = len(pad_drain_inta(0, bc, 0))
+    need_m = len(pad_drain_extra_inta(0, b2c))
+    need_f = len(pad_fallthrough_inta2(0, fc))
+    pads = alloc_pads(data, refs, [("send", need_s), ("thunk", need_i), ("bringup", need_b),
+                                   ("post", need_p), ("drain", need_d),
+                                   ("drain_extra", need_m), ("fallthrough", need_f)])
+    (pad_s, len_s), (pad_i, len_i) = pads["send"], pads["thunk"]
+    (pad_b, len_b), (pad_p, len_p) = pads["bringup"], pads["post"]
+    (pad_d, len_d), (pad_m, len_m) = pads["drain"], pads["drain_extra"]
+    (pad_f, len_f) = pads["fallthrough"]
+
+    code_i = pad_thunk(pad_i, s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pad_b, s2, gc)
+    code_s = pad_send_inta2(pad_s, ac2)
+    code_p = pad_post(pad_p, ec)
+    code_d = pad_drain_inta(pad_d, bc, pad_m)
+    code_m = pad_drain_extra_inta(pad_m, b2c)
+    code_f = pad_fallthrough_inta2(pad_f, fc)
+    out = bytearray(patch_sites(data, pad_i, pad_b, pad_s, pad_p, pad_d,
+                                drain_site=TRIGCONS_SITE_B, loop_pad=pad_f, loop_site=INTA2_SITE_F))
+    for off, code in ((pad_i, code_i), (pad_b, code_b), (pad_s, code_s), (pad_p, code_p),
+                      (pad_d, code_d), (pad_m, code_m), (pad_f, code_f)):
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the inta2 patch changed the image size")
+    for site, pad in ((SITE_THUNK, pad_i), (BRINGUP_SITE, pad_b), (SEND_SITE, pad_s),
+                      (POST_SITE, pad_p), (TRIGCONS_SITE_B, pad_d), (INTA2_SITE_F, pad_f)):
+        if out[site:site + 4] != bl(site, pad):
+            raise PatchError(f"internal error: site {site:#x} bytes are not the intended bl")
+    if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
+        raise PatchError("the inta2 Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+    if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("the inta2 Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
+    if data[INTA2_SITE_F:INTA2_SITE_F + 4] != TRIGNAT_DRAIN_POP:
+        raise PatchError("the inta2 Site F site is not the stock `pop.w {r3..sb,lr}` (bde8f843)")
+    if data[INTA_SITE_L:INTA_SITE_L + 4] != INTA_LOOP_PAIR:
+        raise PatchError("the inta2 dropped Pad-L site is not the stock `ldr r2,[r1]`+`cmp`")
+    if out[INTA_SITE_L:INTA_SITE_L + 4] != data[INTA_SITE_L:INTA_SITE_L + 4]:
+        raise PatchError("internal error: inta2 altered the dropped Pad-L site 0x86F78")
+    if out[0x86F7C:0x86F7E] != data[0x86F7C:0x86F7E]:
+        raise PatchError("internal error: inta2 altered the loop's `bne 0x86f78`")
+    if out[INTA2_CONT_F:0x86F92] != data[INTA2_CONT_F:0x86F92]:
+        raise PatchError("internal error: inta2 altered the byte stream after Site F")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s),
+                       ("post", code_p), ("drain", code_d), ("drain_extra", code_m),
+                       ("fallthrough", code_f)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            if bad in code:
+                raise PatchError(f"internal error: the inta2 {name} pad addresses a forbidden CA")
+
+    check_original_gic_write(out)
+    verify_disasm_inta2(out, pad_i, pad_b, pad_s, pad_p, pad_d, pad_m, pad_f, s1, s2, gc, ec, ac2,
+                        bc, b2c, fc)
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ac[:4]):
+        records[f"A_S{i}"] = cell_record(barmap, a)
+    records["A_P1"] = cell_record(barmap, ac[4])
+    records["A_E0"] = cell_record(barmap, ac[5])
+    records["A_E1"] = cell_record(barmap, ac[6])
+    for i, a in enumerate(ac[7:12]):
+        records[f"A_S{4 + i}"] = cell_record(barmap, a)
+    records["A_P2"] = cell_record(barmap, ac[12])
+    for i, a in enumerate(bc[:4]):
+        records[f"B_D{i}"] = cell_record(barmap, a)
+    records["B_P3"] = cell_record(barmap, bc[4])
+    for i, a in enumerate(b2c[:4]):
+        records[f"B_D{4 + i}"] = cell_record(barmap, a)
+    records["B_P4"] = cell_record(barmap, b2c[4])
+    for nm, a in zip(INTA2_F_NAMES, fc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(INTA2_N_NAMES, nc):
+        records[nm] = cell_record(barmap, a)
+
+    manifest = {
+        "variant": "inta2",
+        "selection": sel,
+        "cells": records,
+        "gic_map": {
+            "GICD_base": "0x40161000", "GICC_base": "0x40160100",
+            "ISACTIVER2": hex(GICD_ISACTIVER2), "ISPENDR2": hex(GICD_ISPENDR2),
+            "HPPIR": hex(GICC_HPPIR),
+            "never_read": "0x4016010c (GICC IAR - acknowledging) and 0x10161000 (RC misc, panics)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, W1C) and the masked glue word 0x21",
+            "ring": {"ca": hex(TRIGNAT_RING_CA), "value": hex(TRIGNAT_RING_VAL),
+                     "note": NOTE_TRIGCONS_A},
+            "gate": {"ca": "0x4000010c", "wait_value": "0x0000cece",
+                     "site_b2": hex(TRIGCONS_SITE_B), "cont_b2": hex(TRIGCONS_CONT_B),
+                     "note": NOTE_TRIGCONS_B},
+            "site_f_note": NOTE_INTA2_F,
+            "site_n_note": NOTE_INTA2_N,
+            "pad_l_dropped_note": NOTE_INTA2_DROP,
+            "cells_note": NOTE_INTA2_CELLS,
+        },
+        "classification": {
+            "instrument": "the POST-EXIT take sample: Pad B2 (the pre-exit drain baseline at "
+                           "0x86F74) + the NEW Site F at the gate's own fall-through 0x86F7E "
+                           "(ISACTIVER2/ISPENDR2/HPPIR/out[0]/CPSR) + Pad A's widened entry at "
+                           "0x86F5A (N_ACT/N_ISP/N_HPP/N_OU0/N_PSR at the NEXT visit's send site).",
+            "ROW_1": "take2.md section 4: F_ACT bit12 SET or N_ACT bit12 SET => TAKEN-AND-ACTIVE "
+                      "(cross-check F_OU0/N_OU0: 0 = the dispatcher consumed it too; still 8 = the "
+                      "residual is inside the ISR dispatch).",
+            "ROW_2": "F_ISP bit12 SET and N_ISP bit12 CLEAR (or both clear), F_ACT = N_ACT = 0 => "
+                      "PENDING-CLEARED - an IAR read (the take) between the samples, or the "
+                      "firmware's own disable+clear path.",
+            "ROW_3": "F_ISP bit12 SET and N_ISP bit12 SET and F_ACT = N_ACT = 0 => STILL-PENDING-"
+                      "UNTAKEN; the CPSR pair splits it (I=1 at both => still inside a masked "
+                      "section; I=0 with the GIC armed => the CPU-interface -> core hand-off).",
+            "ROW_4": "F_SNT absent => the routine never fell through the gate; N_SNT absent => the "
+                      "routine was not re-entered in this boot (single visit: N is void, F alone "
+                      "carries the record).",
+            "bounds": "instants, not a trace: F_* is one read at the fall-through, N_* one read at "
+                      "the send site's next entry; a take that both starts and finishes between the "
+                      "two samples is caught only by its persistent effect (N_ISP bit 12 clear / "
+                      "N_OU0 = 0).  The pad touches no I/F state (mrs/msr apsr_nzcvq only).",
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pad_i), "code_length": len(code_i), "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pad_b), "code_length": len(code_b), "code_hex": code_b.hex()},
+            "send_n": {"file_offset": hex(pad_s), "code_length": len(code_s), "code_hex": code_s.hex()},
+            "post": {"file_offset": hex(pad_p), "code_length": len(code_p), "code_hex": code_p.hex()},
+            "drain_b2": {"file_offset": hex(pad_d), "code_length": len(code_d), "code_hex": code_d.hex()},
+            "drain_extra": {"file_offset": hex(pad_m), "code_length": len(code_m), "code_hex": code_m.hex()},
+            "fallthrough_f": {"file_offset": hex(pad_f), "code_length": len(code_f),
+                              "code_hex": code_f.hex()},
+        },
+        "sites": {
+            "send_n": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(TRIGNAT_CONT_A),
+                       "replaced_bytes": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
+                       "after": bl(TRIGNAT_SITE_A, pad_s).hex()},
+            "drain_b2": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                         "replaced_bytes": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
+                         "after": bl(TRIGCONS_SITE_B, pad_d).hex()},
+            "fallthrough_f": {"file_offset": hex(INTA2_SITE_F), "cont": hex(INTA2_CONT_F),
+                              "replaced_bytes": data[INTA2_SITE_F:INTA2_SITE_F + 4].hex(),
+                              "after": bl(INTA2_SITE_F, pad_f).hex()},
+            "loop_head_stock": {"file_offset": hex(INTA_SITE_L),
+                                "bytes": data[INTA_SITE_L:INTA_SITE_L + 4].hex(),
+                                "unchanged": out[INTA_SITE_L:INTA_SITE_L + 4] ==
+                                             data[INTA_SITE_L:INTA_SITE_L + 4]},
+        },
+        "preserved": {
+            "original_gic_write": {"file_offset": "0x8702c",
+                                   "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030]},
+            "itet_block": {"file_offset": "0x87030..0x87035",
+                           "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+            "announce_loop_head": {"file_offset": "0x86f78..0x86f7e",
+                                   "bytes_identical": out[0x86F78:0x86F7E] == data[0x86F78:0x86F7E]},
+            "announce_exit_continuation": {"file_offset": "0x86f82..",
+                                            "bytes_identical": out[INTA2_CONT_F:0x86F92] ==
+                                                               data[INTA2_CONT_F:0x86F92]},
+        },
+        "inta2": {
+            "site_n": hex(INTA2_SITE_N), "cont_n": hex(TRIGNAT_CONT_A),
+            "site_b2": hex(TRIGCONS_SITE_B), "cont_b2": hex(TRIGCONS_CONT_B),
+            "site_f": hex(INTA2_SITE_F), "cont_f": hex(INTA2_CONT_F),
+            "site_f_replaced": TRIGNAT_DRAIN_POP.hex(),
+            "site_l": hex(INTA_SITE_L), "site_l_stock": INTA_LOOP_PAIR.hex(),
+            "take_reads": [hex(x) for x in INTA2_TAKE_READS] + ["CPSR"],
+            "f_cells": [hex(c) for c in fc], "n_cells": [hex(c) for c in nc],
+            "send_pad_len": len(code_s), "fallthrough_pad_len": len(code_f),
+        },
+    }
+    return out, manifest
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="patch_fw_scratch.py", description=__doc__.splitlines()[0])
     ap.add_argument("--fw", default="build/tmp/FIRMWARE.bin", help="input blob (READ-ONLY)")
@@ -6597,7 +7198,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="output blob (never the input)")
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
-                                          "trigcons", "inta"),
+                                          "trigcons", "inta", "inta2"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -6642,7 +7243,14 @@ def main(argv: list[str] | None = None) -> int:
                          "the extended drain pad (B_D4 ISACTIVER2 / B_D5 CPSR / B_D6 GICC_CTLR / "
                          "B_D7 GICC_PMR + the B_P4 sentinel, all on all_zero_pages[11]) and the "
                          "delayed Pad L at the 0xcece spin head 0x86F78 (L1_*/L2_*/L_CNT/L_SNT on "
-                         "all_zero_pages[12]), which re-emits the loop pair and returns to 0x86F7C")
+                         "all_zero_pages[12]), which re-emits the loop pair and returns to 0x86F7C"
+                         "; inta2: take2.md sections 2/3 - the POST-EXIT take sample: inta's thunk/"
+                         "bring-up/post pads, Pad A's entry widened with the N_ACT/N_ISP/N_HPP/N_OU0/"
+                         "N_PSR/N_SNT take reads at the firmware's own out[1] post (0x86F5A), the inta "
+                         "Pad B2 + drain companion kept (the pre-exit baseline), the NEW Site F pad at "
+                         "the 0xcece gate's own fall-through 0x86F7E (pop.w -> the take reads -> b.w "
+                         "0x86F82) and Pad L DROPPED (0x86F78 back to the stock loop head); the F_* "
+                         "cells sit on all_zero_pages[13] and the N_* cells on all_zero_pages[14]")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -6672,6 +7280,7 @@ def main(argv: list[str] | None = None) -> int:
                          else make_trignat(data, barmap, refs) if args.variant == "trignat"
                          else make_trigcons(data, barmap, refs) if args.variant == "trigcons"
                          else make_inta(data, barmap, refs) if args.variant == "inta"
+                         else make_inta2(data, barmap, refs) if args.variant == "inta2"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
