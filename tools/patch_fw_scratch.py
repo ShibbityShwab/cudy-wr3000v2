@@ -50,6 +50,18 @@ Builds two patched copies of the pinned firmware blob:
              sentinel means a post ran AFTER the id-0x4c enable pass, F9 = request means the
              enable pass came last, F9 = 0 means no id-0x4c enable pass happened.  Every address
              is re-derived from the image before use (see the gicmask constants below).
+  gicking  - gicmask + the H2D RING and the polarity discriminator, plus the GICD_IGROUPR read.  The
+             send pad (the firmware's own out[1] post, file 0x86F5A) first drives the glue mask
+             (CA 0x400392e8 <= 0x21, bit 0 MASKED + bit 5 held), THEN rings the H2D doorbell
+             (CA 0x400392d4 <= 0x1, bit 0 - ring.md's fallback actor, placed immediately before
+             the GIC sample), then samples the eight delivery registers (D0..D5/F0..F9, as gicmask)
+             - F5/F6/F7 are therefore the MASKED post-ring glue mask/raw/status - then restores the
+             vendor-live open mask (0x20) and reads the control group G0..G2 (status with the mask
+             open, mask readback, GICD_IGROUPR word 2 for id 0x4c = CA 0x40161088) with the page
+             sentinel G3.  One boot carries the three checks the reports specify: the ring, the glue
+             raw/status across it, and the polarity discriminator (record model: raw rises while the
+             masked status stays 0, then status rises once the mask opens).  NEVER writes
+             0x400392f0 (intr-clear); NEVER reads 0x4016010c (acknowledging IAR) or 0x10161000.
 
 S1/S2 (and the gicview/gicsend C*/D* cells) are chosen by rule from barmap_ep0_bar0.bin: a
 4-byte aligned firmware runtime address whose 4-byte word is 0x00000000 at BAR0 offset ==
@@ -60,7 +72,7 @@ The input blob is only ever read; every artifact is written under --out.
 
 usage:
   patch_fw_scratch.py --fw <FIRMWARE.bin> --out <variant.bin>
-                      --variant probe|scratch|gicview|gicsend|gicpost
+                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking
   patch_fw_scratch.py --selftest [--fw <FIRMWARE.bin>] [--barmap <barmap.bin>]
 
 exit codes: 0 ok, 2 usage/refusal, 3 patch or verification failure
@@ -88,6 +100,7 @@ GICVIEW_MD5 = "b6b7faa9b2682d959cce6d0fb2bae315"   # frozen gicview-variant outp
 GICSEND_MD5 = "326619bed125e65930a0a62bc6abdd47"   # frozen gicsend-variant output (selftest regression)
 GICPOST_MD5 = "a4e69d74c172d856dd0e336a64482fbd"   # frozen gicpost-variant output (selftest regression)
 GICMASK_MD5 = "2d354bd297270d6a64056bf2fc663dc2"   # frozen gicmask-variant output (selftest regression)
+GICKING_MD5 = "0f2e431f8e32c040b8ad7e7001f8ab57"   # frozen gicking-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -322,6 +335,84 @@ NOTE_GICM_HANDSHAKE = (
     "enable pass and the post; it does NOT bind the sample to the enable pass the way gicpost's "
     "post-store pad could (the two pads are in different functions), which is irrelevant here: the "
     "delivery-configuration registers are static post-init state, not a per-pass transient."
+)
+
+# ---- gicking: the H2D ring + the polarity discriminator + IGROUPR (variant "gicking") -----------
+# Implements, in ONE takeover boot, the three checks the gicking reports specify:
+#   (1) the RING per ring.md section 3's fallback actor - a device-side store of value 0x1 (bit 0,
+#       host2device_tx) to CA 0x400392d4, placed in the same straight-line send pad immediately
+#       BEFORE the GIC sample.  Bit 3 (value 8) is the firmware's own dispatcher re-arm constant,
+#       NOT the H2D ring, and is never written (the port's intrsamp rings 1 then 8; only 1 is the
+#       host2device event).
+#   (2) the glue raw/status sample across the ring: CA 0x400392E4 (raw) / 0x400392EC (status) /
+#       0x400392E8 (mask), sampled at the firmware's own post (the send site) - the F5/F6/F7 cells
+#       (masked, since the pad holds bit 0 of the mask set across the ring) and the G0 cell (the
+#       post-unmask control).
+#   (3) the polarity discriminator (polarity.md section 3): the pad sets the glue mask to 0x21
+#       (bit 0 MASKED, bit 5 held), rings, reads the trio; then restores 0x20 (open, the vendor
+#       live value) and re-reads.  Record-model prediction: raw bit 0 -> 1 while the post-mask
+#       status bit 0 stays 0 (F6/F7), then status bit 0 -> 1 once the mask is open (G0).  The
+#       inverted model shows status bit 0 -> 1 while still masked (F7); an independent raw-latch
+#       model shows both rise.  One boot separates all three.
+#   plus the GICD_IGROUPR word-2 read for id 0x4c (CA 0x40161088, bit 12, mask 0x1000 - addr.md):
+#   bit 12 = 1 (Group 1) with GICC_CTLR = 0x1 (EnableGrp0 only, F0) is the group-gate root (row A);
+#   0 (Group 0) kills that root (row B).
+# The doorbell is rung ONCE per send-pad run; it is write-only / self-clearing (every record line
+# reads back 0).  The pad restores the glue mask to 0x20 before it returns, leaving the vendor-live
+# state.  NEVER written: 0x400392f0 (intr-clear).  NEVER read: 0x4016010c (acknowledging IAR),
+# 0x10161000 (RC misc).
+GICK_RING_CA = 0x400392D4               # ctrl-rb +0x2d4 = HOST2DEVICE_INTR_SET (out[2])
+GICK_RING_VAL = 0x00000001              # bit 0 = host2device_tx (ring.md)
+GICK_GLUE_RAW = 0x400392E4              # HOST_INTR_RAW_STATUS (+0x2e4)
+GICK_GLUE_MASK = 0x400392E8             # HOST_INTR_MASK (+0x2e8), 1 = masked
+GICK_GLUE_STATUS = 0x400392EC           # HOST_INTR_STATUS (+0x2ec), post-mask
+GICK_MASK_MASKED = 0x00000021           # bit 0 set (masked) + bit 5 held (the vendor's 0x20 | 0x1)
+GICK_MASK_OPEN = 0x00000020             # the vendor live value: bit 0 open, bit 5 set
+GICD_IGROUPR2 = 0x40161088              # GICD_IGROUPR word 2 (ids 0x40..0x5f), bit 12 = id 0x4c
+GICD_IGROUPR_0X4C = 0x00001000          # the id-0x4c bit in that word (mask)
+GICK_NCELLS = 4                         # G0 status(open) / G1 mask(open) / G2 IGROUPR / G3 sentinel
+GICK_SENTINEL = MARKER                  # 0x50aa7e49 - the per-page presence proof
+GICK_G_PAGE_IDX = 4                     # all_zero_pages[4] = 0x122000 (next page after the F pair)
+NOTE_GICK_RING = (
+    "The ring is ring.md section 3's device-side fallback actor: CA 0x400392d4 <= 0x1 (bit 0, "
+    "host2device_tx), value 1 NOT 8 (bit 3 is the firmware's own dispatcher re-arm constant, not "
+    "the H2D ring).  The CA reads back 0 after a write (write-only / self-clearing - both of "
+    "ring.md's records show readback 0), so the presence proof of the ring is the glue raw bit 0 "
+    "rising (F6), not a readback.  The store sits in the SAME straight-line pad as the GIC sample, "
+    "immediately before it (the fallback's prescribed placement), so D0/F0/F5/F6/F7 are the "
+    "post-ring samples.  The host-side ring (wifidrv1 intrsamp) is not in the frozen params "
+    "(intrsamp=0) and cannot be co-timed with a device-side sample anyway."
+)
+NOTE_GICK_DISC = (
+    "The polarity discriminator (polarity.md section 3) is a controlled knob inside the same pad: "
+    "the pad first stores 0x21 into the glue mask CA 0x400392e8 (bit 0 MASKED, bit 5 held), rings, "
+    "and the F block reads mask/raw/status with the mask still set (F5 = 0x21 proves the knob "
+    "landed; F6 = raw; F7 = status).  It then restores 0x20 (open - the vendor live value, which "
+    "wifidrv1's own wr=1 bind also writes to CA 0x400392e8) and reads status again (G0) plus the "
+    "mask readback (G1).  Predictions, all read in ONE boot: the record model ('1 = masked', "
+    "status = raw & ~mask) gives raw bit0 = 1 while status bit0 = 0 (F6/F7), then status bit0 = 1 "
+    "once open (G0); the inverted model gives status bit0 = 1 while still masked (F7); an "
+    "independent-raw-latch model gives F7 bit0 = 1 too.  The mask is restored before the pad "
+    "returns, so the device is left in the vendor-live state."
+)
+NOTE_GICK_IGROUPR = (
+    "GICD_IGROUPR word 2 for id 0x4c = CA 0x40161088 (bit 12, mask 0x1000), layout-derived "
+    "exactly as addr.md section 1: GICD base 0x40161000 (firmware literal file 0x716c) + 0x080 "
+    "(the IGROUPR bank) + 4*2, the same id->word/bit style phase32/phase49 verified for the "
+    "ISENABLER word (0x40161108).  addr.md notes the image holds NO IGROUPR literal, so this is "
+    "doc-anchored, not literal-anchored - the read is the check.  GICv2 semantics: 1 = Group 1, "
+    "0 = Group 0.  With GICC_CTLR = 0x1 (F0, EnableGrp0 only) a Group-1 id 0x4c cannot signal to "
+    "the CPU (row A = the group-gate root); Group 0 (bit 12 = 0) kills that root (row B)."
+)
+NOTE_GICK_CELLS = (
+    "G0..G3 continue the F pages' rule: the next all-zero 4 KB page after the F pair "
+    "(all_zero_pages[4] = 0x122000), entirely 0x00000000 at BOTH the BAR0 and the ACP-alias "
+    "offsets in barmap_ep0_bar0.bin, >= 8 bytes apart, outside the four excluded tables and "
+    "distinct from every earlier cell.  The brief's preference for the sub-boundary band is "
+    "EXHAUSTED (13 zero words: S1/S1+4/S2/S2+4/C0..C5/E0..E3 - the F cells already had to go "
+    "above 0x104000), so the G cells are alias-only, exactly like the D/F cells, and are quoted "
+    "from the ACP alias; G3 is the page's presence sentinel, written by the same pad after "
+    "G0..G2, so a zero G0 is a real register read and not a lost deposit."
 )
 
 PROBE_WALK_LO = 0xE2C00
@@ -907,6 +998,100 @@ def select_cells_gicmask(barmap: bytes):
     return cells, sel
 
 
+def select_cells_gicking(barmap: bytes):
+    """The gicmask cells (S1/S2/C0..C5, D0..D5, E0..E3, F0..F9 - IDENTICAL, so every iteration stays
+    directly comparable) plus the four G cells of the ring/discriminator group: G0..G2 and the page
+    sentinel G3 from the first four usable cells of all_zero_pages[4] (the next all-zero 4 KB page
+    after the F pair).  Deterministic; every cell zero at both views, outside the exclusions and
+    distinct from every earlier cell."""
+    check_barmap(barmap)
+    ok = _cell_ok(barmap)
+    primary = [a for a in range(S_CELL_LO, S_CELL_HI, 4) if ok(a)]
+    prefix = walk_cells(barmap, 2 + GICV_NCELLS, ok=ok)
+    if len(prefix) < 2 + GICV_NCELLS:
+        raise PatchError("gicking selection failed: fewer than eight usable cells for S1/S2/C0..C5")
+    pages = _zero_page_spans(barmap)
+    if len(pages) < GICK_G_PAGE_IDX + 1:
+        raise PatchError("gicking selection failed: fewer than five all-zero 4 KB pages in the band")
+
+    def take(page: int, n: int, prev: list[int]) -> list[int]:
+        out: list[int] = []
+        a = page
+        while a + 8 <= page + 0x1000 and len(out) < n:
+            last = out[-1] if out else prev[-1]
+            if ok(a) and a - last >= 8:
+                out.append(a)
+            a += 4
+        return out
+
+    d = take(pages[0], 4, prefix)
+    if len(d) < 4:
+        raise PatchError(f"gicking selection failed: page {pages[0]:#x} has fewer than four usable cells")
+    d2 = take(pages[1], 2, d)
+    if len(d2) < 2:
+        raise PatchError(f"gicking selection failed: page {pages[1]:#x} has fewer than two usable cells")
+
+    used = set(prefix) | {prefix[0] + 4, prefix[1] + 4}
+    band = [a for a in range(GICP_E_LO, GICP_E_HI, 4) if ok(a)]
+    e = [a for a in band if a not in used][:GICP_NCELLS]
+    if len(e) < GICP_NCELLS:
+        raise PatchError(f"gicking selection failed: only {len(e)} free sub-boundary cells for E0..E3")
+
+    p1, p2 = pages[GICM_F_PAGE_1_IDX], pages[GICM_F_PAGE_2_IDX]
+    f1 = take(p1, 5, d2)
+    if len(f1) < 5:
+        raise PatchError(f"gicking selection failed: page {p1:#x} has fewer than five usable cells")
+    f2 = take(p2, 5, f1)
+    if len(f2) < 5:
+        raise PatchError(f"gicking selection failed: page {p2:#x} has fewer than five usable cells")
+
+    gp = pages[GICK_G_PAGE_IDX]
+    gg = take(gp, GICK_NCELLS, f2)
+    if len(gg) < GICK_NCELLS:
+        raise PatchError(f"gicking selection failed: page {gp:#x} has fewer than {GICK_NCELLS} "
+                         "usable cells for G0..G3")
+
+    cells = prefix + d + d2 + e + f1[:4] + f2[:4] + [f1[4], f2[4]] + gg
+    sel = {
+        "rule": "S1/S2/C0..C5 = the walk's fixed prefix, D0..D5 = the two all-zero 4 KB pages and "
+                "E0..E3 = the free sub-boundary zero words and F0..F9 = the next all-zero pair "
+                "(all IDENTICAL to the gicmask variant).  G0..G2 + G3 = the first four usable cells "
+                "of all_zero_pages[4] (the next all-zero 4 KB page after the F pair) - same rule as "
+                "D/F: 4-byte aligned, 0x00000000 at BOTH the BAR0 and the alias offset in "
+                "barmap_ep0_bar0.bin, outside the four excluded tables, >= 8 bytes from the "
+                "previous cell, distinct from every earlier cell",
+        "spec_range": [hex(S_CELL_LO), hex(S_CELL_HI)],
+        "spec_range_zero_words": len(primary),
+        "range_used": [hex(S_CELL_LO), hex(S_CELL_ALIAS_HI)],
+        "excludes": [hex(x) for x in S_CELL_EXCLUDE],
+        "cells_used": [hex(c) for c in cells],
+        "all_zero_pages": [hex(p) for p in pages],
+        "all_zero_pages_below_boundary": [hex(p) for p in pages if p < GICP_E_HI],
+        "d_page_1": hex(pages[0]),
+        "d_page_2": hex(pages[1]),
+        "f_page_1": hex(p1),
+        "f_page_2": hex(p2),
+        "g_page": hex(gp),
+        "g_page_idx": GICK_G_PAGE_IDX,
+        "g_cells": [hex(c) for c in gg],
+        "g_samples": [hex(c) for c in gg[:3]],
+        "g_sentinel": hex(gg[3]),
+        "e_band": [hex(GICP_E_LO), hex(GICP_E_HI)],
+        "e_band_zero_words": [hex(a) for a in band],
+        "e_band_used_by_earlier_cells": [hex(a) for a in band if a in used],
+        "e_pages": sorted({hex(a & ~0xFFF) for a in e}),
+        "f_pages": sorted({hex(a & ~0xFFF) for a in f1 + f2}),
+        "f_samples_page_1": [hex(a) for a in f1[:4]],
+        "f_samples_page_2": [hex(a) for a in f2[:4]],
+        "f_sentinels": [hex(f1[4]), hex(f2[4])],
+        "note": NOTE_RANGE,
+        "e_note": NOTE_GICPOST_E,
+        "f_note": NOTE_GICM_CELLS,
+        "g_note": NOTE_GICK_CELLS,
+    }
+    return cells, sel
+
+
 def select_cells_gicview(barmap: bytes):
     """Eight cells by the same rule: S1, S2 (identical to the scratch variant - the walk's first
     two), then the six fresh deposit cells C0..C5.  All eight are mutually >= 8 bytes apart."""
@@ -961,6 +1146,19 @@ def gic_read_store_block(read_ca: int, cell: int) -> bytes:
     ])
 
 
+def write_ca_block(ca: int, value: int) -> bytes:
+    """A device-side store of a constant to a mapped CA: movw/movt the CA into r1, movw the
+    constant into r0, then `str r0,[r1]`.  r0/r1 are saved by the pad's push.  Used by the gicking
+    variant to ring the H2D doorbell (CA 0x400392d4 <= 1) and to drive the glue mask
+    (CA 0x400392e8 <= 0x21, then <= 0x20).  NEVER used on the intr-clear CA 0x400392f0."""
+    return b"".join([
+        movw(1, ca & 0xFFFF),
+        movt(1, ca >> 16),
+        movw(0, value & 0xFFFF),
+        str_imm(0, 1, 0),
+    ])
+
+
 def pad_thunk(pad: int, s1: int, gic_cells: list[int] | None = None,
               apsr_cell: int | None = None, req_cell: int | None = None,
               f_req_cell: int | None = None) -> bytes:
@@ -1011,7 +1209,8 @@ def _store_imm_block(value: int, cell: int) -> bytes:
     ])
 
 
-def pad_send(pad: int, d_cells: list[int], f_cells: list[int] | None = None) -> bytes:
+def pad_send(pad: int, d_cells: list[int], f_cells: list[int] | None = None,
+             g_cells: list[int] | None = None) -> bytes:
     """The send-site pad. Order matters: the replaced `str r2,[r3]` poster is reproduced FIRST
     (before its own sample), then the three device-side GIC reads are deposited into D0/D1/D2, a
     presence marker into D3, a second read of the critical word into D4 and a second marker into
@@ -1022,13 +1221,27 @@ def pad_send(pad: int, d_cells: list[int], f_cells: list[int] | None = None) -> 
     registers into F0..F7, arms the sentinel F8 at the end of the first F page's samples (F0..F3),
     then reads F4..F7 and arms F9 at the end of the second page.  F8/F9 are written after their
     page's samples with no branch between, so an intact sentinel makes a zero sample a real
-    register read."""
+    register read.
+
+    gicking passes g_cells (G0..G3): the pad stores the masked glue word (0x21) into CA 0x400392e8,
+    rings the H2D doorbell (CA 0x400392d4 <= 0x1) BEFORE the D/F sample blocks (so D0/F0/F5/F6/F7
+    are the post-ring samples and F5 = 0x21 proves the controlled knob landed), then after the F
+    block restores the open vendor mask (0x20) and reads the control group - status with the mask
+    open (G0), the mask readback (G1), the GICD_IGROUPR word 2 for id 0x4c (G2, CA 0x40161088), and
+    the page sentinel G3.  The mask is left at its vendor-live value 0x20."""
     d0, d1, d2, d3, d4, d5 = d_cells
     head = b"".join([
         mrs_apsr(12),                                   # +0  save condition flags
         push(PAD_SAVE),                                 # +4  24 bytes, keeps SP 8-aligned
         str_imm(2, 3, 0),                               # +6  reproduce `str r2,[r3]` -> the post
-        gic_read_store_block(GIC_SEND_READS[0], d0),    # D0  ISPENDR2
+    ])
+    if g_cells:                                         # gicking: mask the line, THEN ring
+        head += b"".join([
+            write_ca_block(GICK_GLUE_MASK, GICK_MASK_MASKED),   # bit 0 = masked (the knob)
+            write_ca_block(GICK_RING_CA, GICK_RING_VAL),        # the H2D doorbell (bit 0 = 1)
+        ])
+    head += b"".join([
+        gic_read_store_block(GIC_SEND_READS[0], d0),    # D0  ISPENDR2 (post-ring)
         gic_read_store_block(GIC_SEND_READS[1], d1),    # D1  HPPIR
         gic_read_store_block(GIC_SEND_READS[2], d2),    # D2  ISACTIVER2
         _store_imm_block(GICS_MARKER, d3),              # D3  presence marker (same page)
@@ -1042,6 +1255,15 @@ def pad_send(pad: int, d_cells: list[int], f_cells: list[int] | None = None) -> 
         for i in range(4, GICM_NSAMPLES):
             head += gic_read_store_block(GICM_READS[i][0], f_cells[i])          # F4..F7
         head += _store_imm_block(GICM_SENTINEL, f_cells[9])                     # F9 (page 2)
+    if g_cells:                                         # gicking: restore the open mask, then control
+        g0, g1, g2, g3 = g_cells
+        head += b"".join([
+            write_ca_block(GICK_GLUE_MASK, GICK_MASK_OPEN),     # restore the vendor-live open mask
+            gic_read_store_block(GICK_GLUE_STATUS, g0),         # G0 status with the mask open (control)
+            gic_read_store_block(GICK_GLUE_MASK, g1),           # G1 mask readback (0x20)
+            gic_read_store_block(GICD_IGROUPR2, g2),            # G2 IGROUPR word 2 (id 0x4c bit 12)
+            _store_imm_block(GICK_SENTINEL, g3),                # G3 page sentinel (after G0..G2)
+        ])
     tail = b"".join([
         pop(PAD_SAVE),
         movw(2, 1),                       # reproduce `movs r2,#1`
@@ -1319,12 +1541,15 @@ def make_scratch(data: bytes, barmap: bytes, refs: set[int]):
 def verify_disasm_gicsend(data: bytes, pad_i: int, pad_b: int, pad_s: int, s1: int, s2: int,
                           gic_cells: list[int], d_cells: list[int],
                           apsr_cell: int | None = None, req_cell: int | None = None,
-                          f_cells: list[int] | None = None) -> dict:
+                          f_cells: list[int] | None = None,
+                          g_cells: list[int] | None = None) -> dict:
     """gicview verification plus the send-site trampoline: the site must re-disassemble to a bl,
     the pad must reproduce the out[1] post and `movs r2,#1`, and it must carry the three
     device-side GIC read/store blocks into D0/D1/D2 in the documented order.  gicmask passes
     f_cells so the pad is disassembled as it exists: its F block sits between the D block and the
-    tail, so a pad built without f_cells would be truncated before the `movs r2,#1` reproduction."""
+    tail, so a pad built without f_cells would be truncated before the `movs r2,#1` reproduction.
+    gicking passes g_cells for the same reason (its ring/discriminator block sits between the D/F
+    blocks and the tail)."""
     seen = verify_disasm(data, pad_i, pad_b, s1, s2, gic_cells,
                          apsr_cell=apsr_cell, req_cell=req_cell)
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
@@ -1333,7 +1558,7 @@ def verify_disasm_gicsend(data: bytes, pad_i: int, pad_b: int, pad_s: int, s1: i
     if not (len(site) == 1 and site[0].startswith("bl ")):
         raise PatchError(f"send site 0x{SEND_SITE:x} did not re-disassemble to a bl: {site!r}")
 
-    code_s = pad_send(pad_s, d_cells, f_cells)
+    code_s = pad_send(pad_s, d_cells, f_cells, g_cells)
     p_s = [f"{i.mnemonic} {i.op_str}".strip()
            for i in md.disasm(data[pad_s:pad_s + len(code_s)], pad_s)]
     if not any(s.startswith("str r2, [r3]") for s in p_s):
@@ -1352,7 +1577,7 @@ def verify_disasm_gicsend(data: bytes, pad_i: int, pad_b: int, pad_s: int, s1: i
         if block not in code_s or block not in data[pad_s:pad_s + len(code_s)]:
             raise PatchError(f"send pad missing the presence marker 0x{GICS_MARKER:08x} -> cell {cell:#x}")
     n_ldr = sum(1 for s in p_s if s.startswith("ldr r1, [r1]"))
-    n_expect = len(GIC_SEND_READS) + 1 + (GICM_NSAMPLES if f_cells else 0)
+    n_expect = len(GIC_SEND_READS) + 1 + (GICM_NSAMPLES if f_cells else 0) + (3 if g_cells else 0)
     if n_ldr != n_expect:
         raise PatchError(f"expected {n_expect} send-side GIC loads, "
                          f"disassembly shows {n_ldr}: {p_s!r}")
@@ -1369,13 +1594,15 @@ def verify_disasm_gicsend(data: bytes, pad_i: int, pad_b: int, pad_s: int, s1: i
 
 def verify_disasm_gicpost(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int,
                           s1: int, s2: int, gic_cells: list[int], d_cells: list[int],
-                          e_cells: list[int], f_cells: list[int] | None = None) -> dict:
+                          e_cells: list[int], f_cells: list[int] | None = None,
+                          g_cells: list[int] | None = None) -> dict:
     """The gicsend verification (with the gicpost thunk-pad additions) plus the post-write pad:
     the site re-disassembles to a bl, the pad carries the request gate, the request clear, the two
     POST-write GIC read/store blocks and the re-armed sentinel, it holds no `bl` (which would
     clobber the live lr) and its tail is the `b.w` that reproduces the replaced call."""
     seen = verify_disasm_gicsend(data, pad_i, pad_b, pad_s, s1, s2, gic_cells, d_cells,
-                                 apsr_cell=e_cells[3], req_cell=e_cells[2], f_cells=f_cells)
+                                 apsr_cell=e_cells[3], req_cell=e_cells[2], f_cells=f_cells,
+                                 g_cells=g_cells)
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
     if POST_SITE != 0x87036 or data[POST_SITE:POST_SITE + 4] != bl(POST_SITE, pad_p):
         raise PatchError(f"post site {POST_SITE:#x} bytes are not the intended bl")
@@ -1428,18 +1655,20 @@ def verify_disasm_gicpost(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p
 
 def verify_disasm_gicmask(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int,
                           s1: int, s2: int, gic_cells: list[int], d_cells: list[int],
-                          e_cells: list[int], f_cells: list[int]) -> dict:
+                          e_cells: list[int], f_cells: list[int],
+                          g_cells: list[int] | None = None) -> dict:
     """The gicpost verification PLUS the gicmask additions: the enable-gate pad must carry the F9
     request store, the send pad must carry the eight delivery-configuration read/store blocks (in
     GICM_READS order, F0..F3 before F8, F4..F7 before F9) and the two sentinels, and every F cell
-    must be distinct from the earlier ones."""
+    must be distinct from the earlier ones.  gicking passes g_cells so the send pad is
+    disassembled as it exists (with the ring/discriminator block)."""
     if len(f_cells) != GICM_NCELLS:
         raise PatchError(f"gicmask expected {GICM_NCELLS} F cells, got {len(f_cells)}")
     every = [s1, s2] + gic_cells + d_cells + e_cells + f_cells
     if len(set(every)) != len(every):
         raise PatchError("gicmask cells are not all distinct")
     seen = verify_disasm_gicpost(data, pad_i, pad_b, pad_s, pad_p, s1, s2, gic_cells, d_cells,
-                                 e_cells, f_cells=f_cells)
+                                 e_cells, f_cells=f_cells, g_cells=g_cells)
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
 
     code_i = pad_thunk(pad_i, s1, gic_cells, apsr_cell=e_cells[3], req_cell=e_cells[2],
@@ -1449,7 +1678,7 @@ def verify_disasm_gicmask(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p
     if _store_imm_block(GICM_REQUEST, f_cells[9]) not in code_i:
         raise PatchError("gicmask: the gate pad is missing the F9 handshake request")
 
-    code_s = pad_send(pad_s, d_cells, f_cells)
+    code_s = pad_send(pad_s, d_cells, f_cells, g_cells)
     p_s = [f"{i.mnemonic} {i.op_str}".strip()
            for i in md.disasm(data[pad_s:pad_s + len(code_s)], pad_s)]
     if not any(s.startswith("str r2, [r3]") for s in p_s):
@@ -1465,9 +1694,10 @@ def verify_disasm_gicmask(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p
     if push(PAD_SAVE) not in code_s or pop(PAD_SAVE) not in code_s:
         raise PatchError("gicmask send pad missing the register save/restore")
     n_ldr = sum(1 for s in p_s if s.startswith("ldr r1, [r1]"))
-    if n_ldr != len(GIC_SEND_READS) + 1 + GICM_NSAMPLES:
-        raise PatchError(f"gicmask expected {len(GIC_SEND_READS) + 1 + GICM_NSAMPLES} send-pad loads, "
-                         f"disassembly shows {n_ldr}")
+    n_g = 3 if g_cells else 0
+    if n_ldr != len(GIC_SEND_READS) + 1 + GICM_NSAMPLES + n_g:
+        raise PatchError(f"gicmask expected {len(GIC_SEND_READS) + 1 + GICM_NSAMPLES + n_g} "
+                         f"send-pad loads, disassembly shows {n_ldr}")
     # the F order: F0..F3, then F8, then F4..F7, then F9
     idx = []
     for i in range(4):
@@ -1481,6 +1711,76 @@ def verify_disasm_gicmask(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p
     seen["send_pad"] = p_s
     seen["thunk_pad"] = [f"{i.mnemonic} {i.op_str}".strip()
                          for i in md.disasm(data[pad_i:pad_i + len(code_i)], pad_i)]
+    return seen
+
+
+def verify_disasm_gicking(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int,
+                          s1: int, s2: int, gic_cells: list[int], d_cells: list[int],
+                          e_cells: list[int], f_cells: list[int], g_cells: list[int]) -> dict:
+    """The gicmask verification (with the send pad disassembled including its gicking block) PLUS
+    the ring checks: the send pad must carry the two glue-mask stores, the H2D ring store, the three
+    G reads and the G sentinel, in the order mask-masked -> ring -> D/F samples -> mask-open -> G;
+    the doorbell must be rung exactly once; and no gicking pad may address the forbidden CAs
+    0x400392f0 (intr-clear) or 0x4016010c (acknowledging IAR)."""
+    if len(g_cells) != GICK_NCELLS:
+        raise PatchError(f"gicking expected {GICK_NCELLS} G cells, got {len(g_cells)}")
+    every = [s1, s2] + gic_cells + d_cells + e_cells + f_cells + g_cells
+    if len(set(every)) != len(every):
+        raise PatchError("gicking cells are not all distinct")
+    seen = verify_disasm_gicmask(data, pad_i, pad_b, pad_s, pad_p, s1, s2, gic_cells, d_cells,
+                                 e_cells, f_cells, g_cells=g_cells)
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+    code_s = pad_send(pad_s, d_cells, f_cells, g_cells)
+    p_s = [f"{i.mnemonic} {i.op_str}".strip()
+           for i in md.disasm(data[pad_s:pad_s + len(code_s)], pad_s)]
+
+    blk_mask_set = write_ca_block(GICK_GLUE_MASK, GICK_MASK_MASKED)
+    blk_ring = write_ca_block(GICK_RING_CA, GICK_RING_VAL)
+    blk_mask_open = write_ca_block(GICK_GLUE_MASK, GICK_MASK_OPEN)
+    for name, blk in (("mask-masked", blk_mask_set), ("ring", blk_ring),
+                      ("mask-open", blk_mask_open)):
+        if blk not in code_s or blk not in data[pad_s:pad_s + len(code_s)]:
+            raise PatchError(f"gicking send pad missing the {name} store: {p_s!r}")
+    for read_ca, cell, nm in ((GICK_GLUE_STATUS, g_cells[0], "G0 status(open)"),
+                              (GICK_GLUE_MASK, g_cells[1], "G1 mask(open)"),
+                              (GICD_IGROUPR2, g_cells[2], "G2 IGROUPR2")):
+        blk = gic_read_store_block(read_ca, cell)
+        if blk not in code_s or blk not in data[pad_s:pad_s + len(code_s)]:
+            raise PatchError(f"gicking send pad missing {nm}: CA {read_ca:#x} -> {cell:#x}")
+    if _store_imm_block(GICK_SENTINEL, g_cells[3]) not in code_s:
+        raise PatchError("gicking send pad missing the G3 page sentinel")
+    order = [
+        code_s.index(blk_mask_set),
+        code_s.index(blk_ring),
+        code_s.index(gic_read_store_block(GIC_SEND_READS[0], d_cells[0])),
+        code_s.index(gic_read_store_block(GICM_READS[0][0], f_cells[0])),
+        code_s.index(gic_read_store_block(GICM_READS[5][0], f_cells[5])),
+        code_s.index(blk_mask_open),
+        code_s.index(gic_read_store_block(GICK_GLUE_STATUS, g_cells[0])),
+        code_s.index(gic_read_store_block(GICD_IGROUPR2, g_cells[2])),
+        code_s.index(_store_imm_block(GICK_SENTINEL, g_cells[3])),
+    ]
+    if order != sorted(order) or len(set(order)) != len(order):
+        raise PatchError("gicking send pad order is not mask-masked -> ring -> D/F -> mask-open -> G")
+    if code_s.count(blk_ring) != 1:
+        raise PatchError("gicking send pad must ring the doorbell exactly once")
+    for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0)):
+        if bad in code_s:
+            raise PatchError(f"gicking send pad addresses a forbidden CA: {bad.hex()}")
+    seen["send_pad"] = p_s
+    seen["gicking"] = {
+        "ring_ca": hex(GICK_RING_CA),
+        "ring_value": hex(GICK_RING_VAL),
+        "mask_masked": hex(GICK_MASK_MASKED),
+        "mask_open": hex(GICK_MASK_OPEN),
+        "igroupr_ca": hex(GICD_IGROUPR2),
+        "igroupr_bit": hex(GICD_IGROUPR_0X4C),
+        "disc_cells": {"F5_mask": hex(f_cells[5]), "F6_raw": hex(f_cells[6]),
+                       "F7_status": hex(f_cells[7]), "G0_status_open": hex(g_cells[0]),
+                       "G1_mask_open": hex(g_cells[1])},
+        "igroupr_cell": hex(g_cells[2]),
+        "sentinel_cell": hex(g_cells[3]),
+    }
     return seen
 
 
@@ -1987,6 +2287,235 @@ def make_gicmask(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+def make_gicking(data: bytes, barmap: bytes, refs: set[int]):
+    """gicmask + the H2D RING, the polarity discriminator and the GICD_IGROUPR read (NOTE_GICK_*).
+
+    The send pad (the firmware's own out[1] post, file 0x86F5A) first stores the masked glue word
+    0x21 into CA 0x400392e8, rings the H2D doorbell (CA 0x400392d4 <= 0x1, bit 0 - ring.md's
+    fallback actor, immediately before the GIC sample), then takes the D/F samples (post-ring; F5 =
+    the masked readback, F6 = raw, F7 = post-mask status) and finally restores the vendor-live open
+    mask 0x20 and reads the control group G0..G2 (status with the mask open, mask readback,
+    GICD_IGROUPR word 2 for id 0x4c) plus the page sentinel G3."""
+    cells, sel = select_cells_gicking(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    dc = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICS_NCELLS]
+    ec = cells[2 + GICV_NCELLS + GICS_NCELLS:2 + GICV_NCELLS + GICS_NCELLS + GICP_NCELLS]
+    fc = cells[2 + GICV_NCELLS + GICS_NCELLS + GICP_NCELLS:
+              2 + GICV_NCELLS + GICS_NCELLS + GICP_NCELLS + GICM_NCELLS]
+    gg = cells[2 + GICV_NCELLS + GICS_NCELLS + GICP_NCELLS + GICM_NCELLS:]
+    if len(ec) != GICP_NCELLS or len(fc) != GICM_NCELLS or len(gg) != GICK_NCELLS:
+        raise PatchError("internal error: gicking cells were not selected")
+
+    need_s = len(pad_send(0, dc, fc, gg))
+    need_i = len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2], f_req_cell=fc[9]))
+    need_b = len(pad_bringup(0, s2, gc))
+    need_p = len(pad_post(0, ec))
+    pads = alloc_pads(data, refs, [("send", need_s), ("thunk", need_i), ("bringup", need_b),
+                                   ("post", need_p)])
+    (pad_s, len_s), (pad_i, len_i) = pads["send"], pads["thunk"]
+    (pad_b, len_b), (pad_p, len_p) = pads["bringup"], pads["post"]
+
+    code_i = pad_thunk(pad_i, s1, gc, apsr_cell=ec[3], req_cell=ec[2], f_req_cell=fc[9])
+    code_b = pad_bringup(pad_b, s2, gc)
+    code_s = pad_send(pad_s, dc, fc, gg)
+    code_p = pad_post(pad_p, ec)
+    out = bytearray(patch_sites(data, pad_i, pad_b, pad_s, pad_p))
+    for off, code in ((pad_i, code_i), (pad_b, code_b), (pad_s, code_s), (pad_p, code_p)):
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the patch changed the image size")
+    for site, pad in ((SITE_THUNK, pad_i), (BRINGUP_SITE, pad_b), (SEND_SITE, pad_s),
+                      (POST_SITE, pad_p)):
+        if out[site:site + 4] != bl(site, pad):
+            raise PatchError(f"internal error: site {site:#x} bytes are not the intended bl")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s), ("post", code_p)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0)):
+            if bad in code:
+                raise PatchError(f"internal error: the gicking {name} pad addresses a forbidden CA")
+
+    check_original_gic_write(out)
+    seen = verify_disasm_gicking(out, pad_i, pad_b, pad_s, pad_p, s1, s2, gc, dc, ec, fc, gg)
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(dc):
+        records[f"D{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(fc):
+        records[f"F{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(gg):
+        records[f"G{i}"] = cell_record(barmap, a)
+
+    read_map = {}
+    for i, (ca, gname) in enumerate(GICM_READS):
+        read_map[f"F{i}"] = {"ca": hex(ca), "register": gname,
+                              "point": "send pad, after the ring (post-ring)"}
+    read_map["F8"] = {"ca": "none",
+                      "register": f"sentinel 0x{GICM_SENTINEL:08x}, page 1, after F0..F3"}
+    read_map["F9"] = {"ca": "none",
+                      "register": f"handshake: request 0x{GICM_REQUEST:08x} (gate pad, id-0x4c "
+                                  f"path) / sentinel 0x{GICM_SENTINEL:08x} (send pad, after F4..F7)"}
+    g_map = {
+        "G0": {"ca": hex(GICK_GLUE_STATUS), "register": "glue HOST_INTR_STATUS (+0x2ec), mask OPEN",
+               "point": "send pad, after the mask is restored to 0x20 (the discriminator control)"},
+        "G1": {"ca": hex(GICK_GLUE_MASK), "register": "glue HOST_INTR_MASK (+0x2e8) readback",
+               "point": "send pad, mask restored (0x20)"},
+        "G2": {"ca": hex(GICD_IGROUPR2),
+               "register": "GICD_IGROUPR word 2 (bit 12 = id 0x4c)",
+               "point": "send pad, the group-gate check (addr.md)"},
+        "G3": {"ca": "none", "register": f"sentinel 0x{GICK_SENTINEL:08x}, the G page",
+               "point": "after G0..G2"},
+    }
+
+    manifest = {
+        "variant": "gicking",
+        "selection": sel,
+        "cells": records,
+        "gic_map": {
+            "GICD_base": "0x40161000",
+            "GICC_base": "0x40160100",
+            "GICD_IGROUPR2": hex(GICD_IGROUPR2),
+            "GICD_IGROUPR_0X4C_bit": hex(GICD_IGROUPR_0X4C),
+            "never_read": "0x4016010c (GICC IAR - acknowledging; a read acknowledges) and "
+                          "0x10161000 (RC misc, a read panics)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, write-to-clear)",
+            "ring": {"ca": hex(GICK_RING_CA), "value": hex(GICK_RING_VAL),
+                     "register": "ctrl-rb +0x2d4 = HOST2DEVICE_INTR_SET (out[2])",
+                     "note": NOTE_GICK_RING},
+            "glue": {"raw": hex(GICK_GLUE_RAW), "mask": hex(GICK_GLUE_MASK),
+                     "status": hex(GICK_GLUE_STATUS),
+                     "mask_masked": hex(GICK_MASK_MASKED), "mask_open": hex(GICK_MASK_OPEN),
+                     "note": NOTE_GICK_DISC},
+            "f_read_order": read_map,
+            "g_read_order": g_map,
+            "igroupr_note": NOTE_GICK_IGROUPR,
+            "verification": {
+                "method": "every CA re-derived from the image on disk (capstone, Thumb) plus the "
+                            "verified vendor-module/sibling quotes in the record; the ring and "
+                            "discriminator CAs are the ctrl-rb glue offsets of phase 45/46/47 and "
+                            "the ring value is ring.md section 0; the IGROUPR CA is addr.md "
+                            "section 1 (GICD base 0x40161000 + 0x080 + 4*2)",
+                "GICD_base_0x40161000": "firmware literal file 0x716c, loaded into r7 at file 0x6e88, "
+                                         "written 1 at file 0x6ed4",
+                "GICD_ISENABLER_0x40161100": "firmware literal file 0x87044, loaded at 0x87026, written "
+                                              "at 0x8702c",
+                "GICD_IGROUPR2_0x40161088": "GICD base + 0x080 (the IGROUPR bank) + 4*2; the image "
+                                             "holds NO IGROUPR literal (addr.md section 1d), so this "
+                                             "is doc-anchored exactly as phase32/phase49 anchored "
+                                             "the ISENABLER word 0x40161108",
+                "GICC_page_0x40160100": "firmware literal file 0x8309c (written 1 at 0x8308e); IAR "
+                                        "0x4016010c = literal file 0x83010, EoI 0x40160110 = literal "
+                                        "file 0x83020",
+                "glue_base_0x40039000": "firmware literal file 0x86fb4 (and 0xcf2ac); the ctrl-rb "
+                                        "+0x2d4/+0x2e4/+0x2e8/+0x2ec offsets are the sibling header's "
+                                        "HOST2DEVICE_INTR_SET / HOST_INTR_RAW_STATUS / HOST_INTR_MASK "
+                                        "/ HOST_INTR_STATUS, measured live in phase 46/47",
+                "ring_value_0x1": "ring.md section 0: bit 0 = host2device_tx doorbell; bit 3 (0x8) is "
+                                  "the firmware dispatcher's own re-arm constant, NOT the H2D ring",
+            },
+            "f5_polarity": "HOST_INTR_MASK bit 0 = host2device_tx_intr_mask: 1 = MASKED, 0 = OPEN.  "
+                           "gicking drives it explicitly (0x21 masked, then 0x20 open) so the "
+                           "polarity is witnessed in-run: F5/F6/F7 are the masked samples, G0/G1 the "
+                           "open ones.",
+            "cells_note": NOTE_GICK_CELLS,
+            "handshake_note": NOTE_GICM_HANDSHAKE,
+        },
+        "classification": {
+            "instrument": "The send pad rings the H2D doorbell (CA 0x400392d4 <= 0x1) and then "
+                           "samples: F0 GICC_CTLR, F5/F6/F7 the glue mask/raw/status (post-ring, "
+                           "MASKED at 0x21), D0 ISPENDR2 word 2, D1 HPPIR, D2 ISACTIVER2; then it "
+                           "restores the open mask and reads G0 (status open) / G1 (mask open) / G2 "
+                           "(GICD_IGROUPR word 2 for id 0x4c).  G3 is the page sentinel.",
+            "check1_ring": "F6 bit 0 = 1 means the ring reached the ctrl-rb raw latch (the doorbell "
+                            "is write-only; its readback is 0 by construction).  F6 bit 0 = 0 with an "
+                            "intact F8/F9/G3 sentinel means the ring did not latch at the glue.",
+            "check2_glue": "F5 = the mask readback (0x21 proves the controlled knob landed), F6 = "
+                            "raw, F7 = post-mask status; G0 = status with the mask open, G1 = the "
+                            "restored mask readback.",
+            "check3_igroupr": {
+                "G2_bit12_set_0x1000": "id 0x4c is Group 1; with GICC_CTLR = 0x1 (F0, EnableGrp0 "
+                                       "only) the line CANNOT signal to the CPU - the group gate "
+                                       "is a real root cause (addr.md row A)",
+                "G2_bit12_clear": "id 0x4c is Group 0 - that group is enabled at the CPU interface "
+                                   "(F0 bit 0), so the group gate DIES and the remaining root is "
+                                   "the event assertion (addr.md row B)",
+                "G2_unreadable": "0xffffffff / a value that does not decode = report as its own "
+                                  "finding, never read as an architectural value",
+            },
+            "polarity_discriminator": {
+                "record_model_1_is_masked": "F6 bit 0 = 1 while F7 bit 0 = 0 (raw rises, the masked "
+                                            "post-mask status stays clear) and then G0 bit 0 = 1 "
+                                            "once the mask is open - the record's model, "
+                                            "re-derived in-run",
+                "inverted_model": "F7 bit 0 = 1 with the mask still set at 0x21 (the passing line "
+                                   "follows the SET mask bit)",
+                "independent_raw_latch": "F7 bit 0 = 1 as well (the mask does not gate the status "
+                                          "word at all)",
+                "prediction_note": "F5/F6/F7 are the MASKED samples and G0/G1 the OPEN ones; the "
+                                   "three models are separated by the F6-vs-F7-vs-G0 triple in this "
+                                   "single boot (polarity.md section 3)",
+            },
+            "bounds": "one-shot latched samples, not a timing window; the ring is rung once per "
+                      "send-pad run; F1..F4 (PMR/ITARGETSR/IPRIORITYR/ICFGR) are the gicmask "
+                      "delivery-configuration reads and are unchanged; the mask is restored to the "
+                      "vendor-live 0x20 before the pad returns.",
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pad_i), "runtime_addr": hex(pad_i + BIAS),
+                      "run_length": hex(len_i), "code_length": len(code_i), "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pad_b), "runtime_addr": hex(pad_b + BIAS),
+                        "run_length": hex(len_b), "code_length": len(code_b), "code_hex": code_b.hex()},
+            "send": {"file_offset": hex(pad_s), "runtime_addr": hex(pad_s + BIAS),
+                     "run_length": hex(len_s), "code_length": len(code_s), "code_hex": code_s.hex()},
+            "post": {"file_offset": hex(pad_p), "runtime_addr": hex(pad_p + BIAS),
+                     "run_length": hex(len_p), "code_length": len(code_p), "code_hex": code_p.hex()},
+        },
+        "patches": [
+            {"kind": "trampoline-entry", "region": "enable thunk 0x86ff4", "file_offset": hex(SITE_THUNK),
+             "before": data[SITE_THUNK:SITE_THUNK + 4].hex(),
+             "after": bl(SITE_THUNK, pad_i).hex(), "note": NOTE_GICVIEW_I},
+            {"kind": "trampoline-entry", "region": "distributor bring-up 0x6e5c-0x6ed4",
+             "file_offset": hex(BRINGUP_SITE), "before": data[BRINGUP_SITE:BRINGUP_SITE + 4].hex(),
+             "after": bl(BRINGUP_SITE, pad_b).hex(), "note": NOTE_GICVIEW_II},
+            {"kind": "trampoline-entry", "region": "firmware out[1] post 0x86F5A (ETE bring-up 0x86E14)",
+             "file_offset": hex(SEND_SITE), "before": data[SEND_SITE:SEND_SITE + 4].hex(),
+             "after": bl(SEND_SITE, pad_s).hex(),
+             "note": "the send pad reproduces the out[1] post, then RINGS the H2D doorbell "
+                     "(CA 0x400392d4 <= 0x1) and samples the glue + GIC (see NOTE_GICK_RING / "
+                     "NOTE_GICK_DISC); the gicmask D/F sample blocks are kept and are now the "
+                     "post-ring samples"},
+            {"kind": "trampoline-entry", "region": "enable-thunk post-store boundary 0x87036",
+             "file_offset": hex(POST_SITE), "before": data[POST_SITE:POST_SITE + 4].hex(),
+             "after": bl(POST_SITE, pad_p).hex(),
+             "note": "the firmware's own `bl #0xbdf50`; the pad samples ISENABLER2/ISPENDR2 "
+                     "post-write (E0/E1) and reproduces the call as a `b.w` with lr untouched"},
+        ],
+        "preserved": {
+            "original_gic_write": {
+                "file_offset": "0x8702c",
+                "instruction": "strlo.w r4, [r3, r2, lsl #2]",
+                "ca": "0x40161100 + (id/32)*4",
+                "verified_present": True,
+                "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030],
+            },
+            "itet_block": {"file_offset": "0x8702a..0x87035",
+                           "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+        },
+        "disasm": seen,
+    }
+    return out, manifest
+
+
 def make_gicview(data: bytes, barmap: bytes, refs: set[int]):
     """scratch + six device-side GIC reads deposited into fresh cells C0..C5 (see NOTE_GIC_MAP)."""
     cells, sel = select_cells_gicview(barmap)
@@ -2440,6 +2969,112 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert gkm["gic_map"]["f_read_order"]["F2"]["ca"] == "0x4016184c"
     assert md5(gmk) == GICMASK_MD5, f"gicmask output changed: {md5(gmk)} != {GICMASK_MD5}"
 
+    # ---- gicking: gicmask + the H2D ring + the polarity discriminator + the IGROUPR read
+    gkb, gkn = make_gicking(data, barmap, refs)
+    assert len(gkb) == len(data), "gicking changed the size"
+    gkb2, gkn2 = make_gicking(data, barmap, refs)
+    assert gkb == gkb2, "gicking patch is not deterministic"
+    assert json.dumps(gkn, sort_keys=True) == json.dumps(gkn2, sort_keys=True), \
+        "gicking manifest is not deterministic"
+
+    # every earlier cell keeps its gicmask address (the iterations stay directly comparable)
+    for nm in (["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)]
+               + [f"D{i}" for i in range(GICS_NCELLS)] + [f"E{i}" for i in range(GICP_NCELLS)]
+               + [f"F{i}" for i in range(GICM_NCELLS)]):
+        assert gkn["cells"][nm]["addr"] == gkm["cells"][nm]["addr"], f"gicking moved cell {nm}"
+
+    gkc = [int(gkn["cells"][f"G{i}"]["addr"], 16) for i in range(GICK_NCELLS)]
+    every_k = [s1, s2] + gc + ds + ec + fmc + gkc
+    assert len(set(every_k)) == len(every_k), "gicking cells are not all distinct"
+    assert all(gkn["cells"][f"G{i}"]["barmap_value"] == "0x0" for i in range(GICK_NCELLS)), \
+        "a G cell baseline is not zero at BAR0"
+    assert all(gkn["cells"][f"G{i}"]["barmap_alias_value"] == "0x0" for i in range(GICK_NCELLS)), \
+        "a G cell baseline is not zero at the alias"
+    assert all(c not in S_CELL_EXCLUDE for c in gkc), "a G cell is inside an excluded table"
+    assert all(gkc[i + 1] - gkc[i] >= 8 for i in range(GICK_NCELLS - 1)), \
+        "the G cells are not >= 8 bytes apart"
+    ggp = int(gkn["selection"]["g_page"], 16)
+    assert ggp == int(gkn["selection"]["all_zero_pages"][GICK_G_PAGE_IDX], 16), \
+        "gicking picked an unexpected G page"
+    assert all(ggp <= c < ggp + 0x1000 for c in gkc), "the G cells are not in the G page"
+    assert all(word_at(barmap, x) == 0 and word_at(barmap, ALIAS_OFF + x) == 0
+               for x in range(ggp, ggp + 0x1000, 4)), f"G page {ggp:#x} is not all-zero in the barmap"
+    assert gkn["gic_map"]["ring"]["ca"] == hex(GICK_RING_CA) == "0x400392d4"
+    assert gkn["gic_map"]["ring"]["value"] == "0x1"
+    assert gkn["gic_map"]["GICD_IGROUPR2"] == hex(GICD_IGROUPR2) == "0x40161088"
+    assert gkn["gic_map"]["glue"]["mask_masked"] == "0x21"
+    assert gkn["gic_map"]["glue"]["mask_open"] == "0x20"
+
+    pad_i_k = int(gkn["padding"]["thunk"]["file_offset"], 16)
+    pad_b_k = int(gkn["padding"]["bringup"]["file_offset"], 16)
+    pad_s_k = int(gkn["padding"]["send"]["file_offset"], 16)
+    pad_p_k = int(gkn["padding"]["post"]["file_offset"], 16)
+    code_i_k = pad_thunk(pad_i_k, s1, gc, apsr_cell=ec[3], req_cell=ec[2], f_req_cell=fmc[9])
+    code_b_k = pad_bringup(pad_b_k, s2, gc)
+    code_s_k = pad_send(pad_s_k, ds, fmc, gkc)
+    code_p_k = pad_post(pad_p_k, ec)
+    for off_k, code_k in ((pad_i_k, code_i_k), (pad_b_k, code_b_k), (pad_s_k, code_s_k),
+                          (pad_p_k, code_p_k)):
+        assert gkb[off_k:off_k + len(code_k)] == code_k, \
+            f"the gicking pad at {off_k:#x} is not in the image"
+    for site_k, pad_k in ((SITE_THUNK, pad_i_k), (BRINGUP_SITE, pad_b_k), (SEND_SITE, pad_s_k),
+                          (POST_SITE, pad_p_k)):
+        assert gkb[site_k:site_k + 4] == bl(site_k, pad_k), f"site {site_k:#x} is not the intended bl"
+
+    # the ring/discriminator/IGROUPR gates are present and in order
+    blk_set = write_ca_block(GICK_GLUE_MASK, GICK_MASK_MASKED)
+    blk_ring = write_ca_block(GICK_RING_CA, GICK_RING_VAL)
+    blk_open = write_ca_block(GICK_GLUE_MASK, GICK_MASK_OPEN)
+    assert blk_set in code_s_k and blk_ring in code_s_k and blk_open in code_s_k, \
+        "the gicking send pad lost a ring/mask store"
+    assert code_s_k.count(blk_ring) == 1, "the gicking send pad must ring exactly once"
+    assert gic_read_store_block(GICD_IGROUPR2, gkc[2]) in code_s_k, "the IGROUPR read is missing"
+    assert _store_imm_block(GICK_SENTINEL, gkc[3]) in code_s_k, "the G3 sentinel is missing"
+    order_k = [code_s_k.index(blk_set), code_s_k.index(blk_ring),
+               code_s_k.index(gic_read_store_block(GIC_SEND_READS[0], ds[0])),
+               code_s_k.index(gic_read_store_block(GICM_READS[0][0], fmc[0])),
+               code_s_k.index(gic_read_store_block(GICM_READS[5][0], fmc[5])),
+               code_s_k.index(blk_open),
+               code_s_k.index(gic_read_store_block(GICK_GLUE_STATUS, gkc[0])),
+               code_s_k.index(gic_read_store_block(GICD_IGROUPR2, gkc[2])),
+               code_s_k.index(_store_imm_block(GICK_SENTINEL, gkc[3]))]
+    assert order_k == sorted(order_k) and len(set(order_k)) == len(order_k), \
+        "the gicking send pad order is not mask-masked -> ring -> D/F -> mask-open -> G"
+
+    # no gicking pad may address a forbidden CA (intr-clear, acknowledging IAR, RC misc)
+    for bad_k in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                  write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+        assert bad_k not in code_i_k and bad_k not in code_b_k and bad_k not in code_s_k \
+            and bad_k not in code_p_k, "a gicking pad addresses a forbidden CA"
+
+    pads_k = [(pad_i_k, len(code_i_k)), (pad_b_k, len(code_b_k)), (pad_s_k, len(code_s_k)),
+              (pad_p_k, len(code_p_k))]
+    for a_i in range(len(pads_k)):
+        for b_i in range(a_i + 1, len(pads_k)):
+            s_a, l_a = pads_k[a_i]
+            s_b, l_b = pads_k[b_i]
+            assert s_a + l_a <= s_b or s_b + l_b <= s_a, "two gicking pads overlap"
+    allowed_k = set()
+    for site_k in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE):
+        allowed_k |= set(range(site_k, site_k + 4))
+    for key_k in ("thunk", "bringup", "send", "post"):
+        off_k = int(gkn["padding"][key_k]["file_offset"], 16)
+        allowed_k |= set(range(off_k, off_k + int(gkn["padding"][key_k]["code_length"])))
+    changed_k = [i for i in range(len(data)) if gkb[i] != data[i]]
+    assert changed_k and all(c in allowed_k for c in changed_k), \
+        "gicking changed bytes outside its regions"
+    assert gkb[0x8702C:0x87030] == data[0x8702C:0x87030], "gicking altered the ISENABLER store"
+    assert gkb[0x87030:0x87036] == data[0x87030:0x87036], "gicking altered the itet block"
+    check_original_gic_write(gkb)
+    verify_disasm_gicking(gkb, pad_i_k, pad_b_k, pad_s_k, pad_p_k, s1, s2, gc, ds, ec, fmc, gkc)
+
+    # gicking must differ from gicmask ONLY at the four sites and the four pads (same sites, so
+    # only the bl displacements and the pad bodies move)
+    diff_gmk = [i for i in range(len(data)) if gkb[i] != gmk[i]]
+    assert diff_gmk and all(c in allowed_k for c in diff_gmk), \
+        "gicking differs from gicmask outside the sites/pads"
+    assert md5(gkb) == GICKING_MD5, f"gicking output changed: {md5(gkb)} != {GICKING_MD5}"
+
     # ---- input untouched
     assert rd(fw_path) == data, "the input file changed during the run"
 
@@ -2498,6 +3133,15 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     print(f"  gicmask reads     : " + ", ".join(f"F{i}={GICM_READS[i][0]:#x}" for i in range(GICM_NSAMPLES))
           + f" F8/F9=sentinel 0x{GICM_SENTINEL:08x} (F9 also the handshake request)")
     print(f"  gicmask md5       : {md5(gmk)}")
+    print(f"  gicking cells     : " + " ".join(f"G{i}={gkn['cells'][f'G{i}']['addr']}"
+                                               for i in range(GICK_NCELLS))
+          + f" (send pad @ file {gkn['padding']['send']['file_offset']}, site {hex(SEND_SITE)})")
+    print(f"  gicking ring      : CA {gkn['gic_map']['ring']['ca']} <= {gkn['gic_map']['ring']['value']} "
+          f"+ mask {gkn['gic_map']['glue']['mask_masked']} -> {gkn['gic_map']['glue']['mask_open']} "
+          f"+ IGROUPR {gkn['gic_map']['GICD_IGROUPR2']} -> F5/F6/F7={gkn['cells']['F5']['addr']}/"
+          f"{gkn['cells']['F6']['addr']}/{gkn['cells']['F7']['addr']} G0/G1/G2="
+          + "/".join(gkn['cells'][f'G{i}']['addr'] for i in range(3)))
+    print(f"  gicking md5       : {md5(gkb)}")
     return 0
 
 
@@ -2510,7 +3154,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="normal-op BAR0 baseline used for S1/S2 selection")
     ap.add_argument("--out", help="output blob (never the input)")
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
-                                          "gicmask"),
+                                          "gicmask", "gicking"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -2521,7 +3165,12 @@ def main(argv: list[str] | None = None) -> int:
                          "APSR deposit in E3; gicmask: gicpost + the send pad's eight "
                          "delivery-configuration reads (GICC_CTLR/PMR, GICD ITARGETSR/IPRIORITYR/"
                          "ICFGR for id 0x4c, glue mask/raw/masked status) into F0..F7 with the "
-                         "per-page sentinels F8/F9 and the F9 handshake request")
+                         "per-page sentinels F8/F9 and the F9 handshake request; gicking: gicmask "
+                         "+ the H2D RING (CA 0x400392d4 <= 0x1 at the send pad, immediately before "
+                         "the GIC sample) and the polarity discriminator (the pad drives the glue "
+                         "mask 0x2e8: 0x21 masked across the ring, then 0x20 open) plus the "
+                         "GICD_IGROUPR word-2 read for id 0x4c (CA 0x40161088) into G0..G2 with the "
+                         "G3 sentinel")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -2545,7 +3194,8 @@ def main(argv: list[str] | None = None) -> int:
                          else make_gicview(data, barmap, refs) if args.variant == "gicview"
                          else make_gicsend(data, barmap, refs) if args.variant == "gicsend"
                          else make_gicpost(data, barmap, refs) if args.variant == "gicpost"
-                         else make_gicmask(data, barmap, refs))
+                         else make_gicmask(data, barmap, refs) if args.variant == "gicmask"
+                         else make_gicking(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
             "input": {"path": args.fw, "md5": md5(data), "size": len(data), "checks": checks},
