@@ -26,7 +26,7 @@
 # This file is also sourceable: batch.sh sources it and reuses exp_run().
 # Env knobs (all optional): EXP_WATCH EXP_BOOT_TIMEOUT EXP_RUN_TIMEOUT EXP_POLL
 #   EXP_KVER EXP_EVID_SUFFIX EXP_EXTRA_STAGE EXP_EXTRA_PULL EXP_DONE_CMD
-#   EXP_CAPTURE_CMD EXP_RESULT_LABEL
+#   EXP_CAPTURE_CMD EXP_PREFLIGHT_CMD EXP_RESULT_LABEL
 set -uo pipefail
 
 EXP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,6 +53,10 @@ EXP_HOST="root@192.168.10.1"
 #   marker and before the capture step; stdout+stderr land in capture-cmd.txt.
 #   Empty (default) = no hook. A non-zero exit records a FAILURE but is
 #   non-fatal: exp.sh still captures, recovers and reports FAIL.
+: "${EXP_PREFLIGHT_CMD:=}"                 # optional remote gate run BEFORE the
+#   watchdog is armed and anything is staged; stdout+stderr are shown. Empty
+#   (default) = no gate. A non-zero exit aborts the run before the first device
+#   mutation (fail closed) under its own step name, distinct from a run failure.
 : "${EXP_RESULT_LABEL:=EXP}"
 
 EXP_RECOVER_SCRIPT="/root/recover-exp.sh"
@@ -164,6 +168,9 @@ rm -f "/etc/init.d/omo-$MODNAME"
 rmmod "$MODNAME" 2>/dev/null
 rm -f "/lib/modules/$KVER/$MOD"
 rm -f "/tmp/$MOD"
+# the staged vendor-firmware blob (EXP_EXTRA_STAGE *.omo-pat) must not survive
+# the experiment; the stock FIRMWARE.bin is not a *.omo-pat and is untouched
+rm -f /lib/firmware/hi_wifi/*.omo-pat
 # batch.sh stages its hypothesis list on the persistent overlay; remove it too
 rm -f /root/omo-batch-list
 rm -rf /root/omo-batch
@@ -217,6 +224,27 @@ exp_preflight() {
 	EXP_PREFLIGHT_ERR=""
 	[ -f "$MODULE" ] || { EXP_PREFLIGHT_ERR="module not found: $MODULE"; return 1; }
 	command -v md5sum >/dev/null || { EXP_PREFLIGHT_ERR="md5sum not on PATH"; return 1; }
+	return 0
+}
+
+# Optional remote gate (EXP_PREFLIGHT_CMD): a one-liner run on the device BEFORE
+# the watchdog is armed or anything is staged. A non-zero exit fails closed: the
+# run aborts before the first device mutation (no arm, no stage, no reboot).
+# Empty (default) = no gate, i.e. today's behaviour, byte for byte.
+exp_preflight_remote() {
+	[ -n "$EXP_PREFLIGHT_CMD" ] || return 0
+	if [ "$DRY" = 1 ]; then
+		exp_hr "0/7 device preflight gate (EXP_PREFLIGHT_CMD, before any mutation)"
+		exp_note "EXP_PREFLIGHT_CMD (before arm/stage; non-zero aborts the run): $EXP_PREFLIGHT_CMD"
+		exp_remote "preflight gate (EXP_PREFLIGHT_CMD)" \
+"{ $EXP_PREFLIGHT_CMD ; } 2>&1"
+		return 0
+	fi
+	printf -- '-- [0/7] device preflight gate (EXP_PREFLIGHT_CMD)\n'
+	if ! "$EXP_RSH" "{ $EXP_PREFLIGHT_CMD ; } 2>&1"; then
+		exp_fail "preflight-cmd" "EXP_PREFLIGHT_CMD exited non-zero - refusing to arm/stage (fail closed)"
+		return 1
+	fi
 	return 0
 }
 
@@ -364,6 +392,21 @@ $EXP_DONE_CMD && echo EXP_DONE"
 	return 1
 }
 
+# Inventory the evidence dir at capture time (tools/pack-evidence.sh). The
+# packer exits non-zero when a required artifact is absent, but at capture time
+# that is expected (health.txt lands in step 7; worker-delivered files land
+# later), so a non-zero exit is echoed as a WARNING, never recorded as FAILURE.
+exp_pack_evidence() { # dir
+	local out rc miss
+	out="$(bash "$EXP_DIR/pack-evidence.sh" "$1" 2>&1)"; rc=$?
+	printf '%s\n' "$out" | sed 's/^/  /'
+	if [ "$rc" -ne 0 ]; then
+		miss="$(printf '%s\n' "$out" | sed -n 's/^MISSING://p')"
+		printf '  WARNING: pack-evidence: required evidence not present yet (never a FAILURE):%s\n' "$miss" >&2
+	fi
+	return 0
+}
+
 exp_capture() {
 	local dir="$EVID"
 	local plist="/tmp/omo-$MODNAME"
@@ -391,6 +434,8 @@ ls -l $EXP_CAPTURE_TAR"
 		exp_get "$EXP_CAPTURE_TAR" "$dir/"
 		printf '$ tar -xzf %s/%s -C %s\n' "$dir" "$(basename "$EXP_CAPTURE_TAR")" "$dir"
 		printf '$ ( cd %s && tar --exclude=./evidence.tar.gz -czf evidence.tar.gz . )\n' "$dir"
+		printf '$ bash %s/pack-evidence.sh %s   # default required set -> PACKED.txt\n' "$EXP_DIR" "$dir"
+		exp_note "pack-evidence inventories the dir; MISSING is a WARNING here, never a FAILURE"
 		exp_note "evidence dir: $dir   (raw files + evidence.tar.gz)"
 		return 0
 	fi
@@ -416,6 +461,7 @@ ls -l $EXP_CAPTURE_TAR"
 	fi
 	( cd "$dir" && tar --exclude='./evidence.tar.gz' -czf evidence.tar.gz . ) 2>/dev/null || true
 	printf '  evidence: %s\n' "$dir"
+	exp_pack_evidence "$dir"
 	return 0
 }
 
@@ -523,6 +569,7 @@ exp_summary() {
 }
 
 exp_plan() {
+	exp_preflight_remote
 	exp_arm_recovery
 	exp_stage
 	exp_reboot_wait
@@ -544,6 +591,10 @@ exp_run() {
 	EVID="$EXP_ROOT/build/register-dumps/exp/$TS$EXP_EVID_SUFFIX"
 	if ! exp_preflight; then
 		FAILURE="preflight: $EXP_PREFLIGHT_ERR"
+		exp_summary
+		return 1
+	fi
+	if ! exp_preflight_remote; then
 		exp_summary
 		return 1
 	fi
