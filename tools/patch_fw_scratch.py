@@ -103,6 +103,18 @@ Builds two patched copies of the pinned firmware blob:
              (trigger2.md section 4): TRIGNAT-COMPLETE / RING-PENDING-NOT-TAKEN / GLUE-ONLY /
              NOTHING.  NEVER writes 0x400392f0; NEVER writes 0x21; NEVER reads 0x4016010c or
              0x10161000.
+  trigcons - padb.md section 3 option (a): trignat with Pad B MOVED from the announce routine's
+             exit (file 0x86F7E, behind the `*(0x4000010C) == 0xcece` handshake wait) to the
+             wait's OWN instruction `movw r3,#0xcece` at file 0x86F74 - immediately before the
+             loop head 0x86F78, so the pad is guaranteed to RUN (the salvage proved the wait never
+             completes this boot, so trignat's Pad B never ran).  Pad B takes the same four
+             consumption witnesses B_D0..B_D3 + the B_P3 sentinel, then RE-EMITS the replaced
+             `movw r3,#0xcece` and branches to the loop head 0x86F78, so the loop's `cmp r2,r3`
+             still sees 0xcece.  Pad A, the thunk/bring-up/post pads and every cell are byte-
+             identical to trignat's.  Because the read is now PRE-wait the expected row is
+             RING-PENDING-NOT-TAKEN (B_D0 = 8, B_D2 bit 12 SET) - the residual gate is named as the
+             CPU-interface take/enable, past the wire.  NEVER writes 0x400392f0; NEVER writes 0x21;
+             NEVER reads 0x4016010c or 0x10161000.
 
 S1/S2 (and the gicview/gicsend C*/D* cells) are chosen by rule from barmap_ep0_bar0.bin: a
 4-byte aligned firmware runtime address whose 4-byte word is 0x00000000 at BAR0 offset ==
@@ -113,7 +125,7 @@ The input blob is only ever read; every artifact is written under --out.
 
 usage:
   patch_fw_scratch.py --fw <FIRMWARE.bin> --out <variant.bin>
-                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking|gicunmask|trigring|trignat
+                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking|gicunmask|trigring|trignat|trigcons
   patch_fw_scratch.py --selftest [--fw <FIRMWARE.bin>] [--barmap <barmap.bin>]
 
 exit codes: 0 ok, 2 usage/refusal, 3 patch or verification failure
@@ -145,6 +157,7 @@ GICKING_MD5 = "0f2e431f8e32c040b8ad7e7001f8ab57"   # frozen gicking-variant outp
 GICUNMASK_MD5 = "a68d5fed68b3015ab97c63ca7a394c28"  # frozen gicunmask-variant output (selftest regression)
 TRIGRING_MD5 = "0769eed122c0506d3afca6b5a8bd8ae9"             # frozen trigring-variant output (selftest regression)
 TRIGNAT_MD5 = "845188343f70cff9de29e77aea464021"             # frozen trignat-variant output (selftest regression)
+TRIGCONS_MD5 = "5fb51acd68c62699435d2e1fd823d900"             # frozen trigcons-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -727,6 +740,51 @@ NOTE_TRIGNAT_BRANCHES = (
     "NOTHING = A_S3 bit 12 CLEAR and A_S7/A_S8 bit 0 = 0 with sentinels present.  A_S5 = 8 with "
     "row 1 holding means the ISR did not preempt Pad A and Pad B caught the consumption; A_S5 = 0 "
     "means the ISR preempted the pad mid-way."
+)
+
+# ---- trigcons: the pad-B MOVE past the 0xcece gate (variant "trigcons")
+# Implements padb.md section 3 option (a) - the chosen build-node fix.  trignat's Pad B sits at the
+# announce routine's EXIT (file 0x86F7E), behind the `*(0x4000010C) == 0xcece` handshake wait
+# (0x86F74..0x86F7C); nothing in this image (or any held `.ko`) writes 0xcece, so the loop never
+# exits and Pad B never ran (the salvage's B_P3 ABSENT, row "-").  trigcons MOVES the pad onto the
+# wait's own instruction: the site is now file 0x86F74, the `movw r3,#0xcece` (stock bytes
+# 4cf6ce63), and the continuation is the loop head 0x86F78 (`ldr r2,[r1]`, r1 = CA 0x4000010c).
+# The pad takes the SAME B_D0..B_D3 samples + the B_P3 sentinel and then re-emits
+# `movw r3,#0xcece` (the instruction it replaced) before branching to 0x86F78, so the loop's
+# `cmp r2,r3` still compares against 0xcece.  Pad A, the thunk/bring-up/post pads and every cell
+# keep trignat's addresses (the drain pad's length is unchanged), so S1/S2/C0..C5/E0..E3 and A_*
+# stay directly comparable.  Because the read is now PRE-wait, the expected row is
+# RING-PENDING-NOT-TAKEN (B_D0 = 8, B_D2 bit 12 SET) - the residual gate named as the CPU-interface
+# take/enable; only the (c) host write can reach the post-handshake instant.  NEVER writes
+# 0x400392f0; NEVER writes 0x21; NEVER reads 0x4016010c or 0x10161000.
+TRIGCONS_SITE_B = 0x86F74                  # Pad B's moved site: the announce gate `movw r3,#0xcece`
+TRIGCONS_CONT_B = 0x86F78                  # continuation: the spin loop head `ldr r2,[r1]`
+TRIGCONS_SITE_B_BYTES = bytes.fromhex("4cf6ce63")   # the replaced `movw r3,#0xcece` (stock 0x86F74)
+NOTE_TRIGCONS_A = NOTE_TRIGNAT_A           # Pad A is byte-identical to trignat's
+NOTE_TRIGCONS_B = (
+    "Pad B is MOVED from trignat's announce-exit site (file 0x86F7E, behind the 0xcece wait that "
+    "never completes this boot) to the wait's OWN `movw r3,#0xcece` at file 0x86F74 - the "
+    "instruction immediately before the only blocking instruction, so the pad is guaranteed to "
+    "run.  It takes the same four samples B_D0 (out[0], CA 0x40039010), B_D1 (out[1]), B_D2 "
+    "(ISPENDR2 word 2, CA 0x40161208), B_D3 (GICC HPPIR) and arms B_P3, then RE-EMITS the replaced "
+    "`movw r3,#0xcece` (so the loop's `cmp r2,r3` at 0x86F7A still compares against 0xcece) and "
+    "branches to the loop head 0x86F78.  The read is PRE-wait: the expected outcome is "
+    "RING-PENDING-NOT-TAKEN (B_D0 = 8, B_D2 bit 12 SET), naming the CPU-interface take/enable as "
+    "the residual gate past the wire.  r1 (the CA 0x4000010c spin pointer) and r5 (the 0xbe0 "
+    "message object) are preserved by PAD_SAVE; only r3 is re-set, AFTER the pop (row order: "
+    "pop(PAD_SAVE), movw r3,#0xcece, msr_apsr(12), b.w 0x86F78).  The replaced site's own lr "
+    "clobber is inert: the pad never returns through lr - it ends in a `b.w` to 0x86F78."
+)
+NOTE_TRIGCONS_BRANCHES = (
+    "Pad B now runs BEFORE the 0xcece wait, so the branch table differs from trignat's: "
+    "TRIGCONS-COMPLETE = A_S3 bit 12 SET, A_S4 = 0x4C, B_D0 = 0 and B_D2 bit 12 CLEAR (with B_P3 = "
+    "sentinel) - the ringed event reached the GIC AND the id-0x4c interrupt was taken/consumed "
+    "across the tiny Pad A -> Pad B window; RING-PENDING-NOT-TAKEN (the EXPECTED row for this "
+    "placement, padb.md section 2a) = A_S3 bit 12 SET, A_S4 = 0x4C and (B_D0 = 8 or B_D2 bit 12 "
+    "SET) - the wire/GIC step landed but the CPU-side take did not, naming the residual gate; "
+    "GLUE-ONLY = A_S3 bit 12 CLEAR and (A_S7 or A_S8 bit 0 = 1); NOTHING = A_S3 bit 12 CLEAR with "
+    "A_S7/A_S8 bit 0 = 0 and the sentinels present.  A_S5 = 8 with a pending row means the ISR did "
+    "not preempt Pad A; A_S5 = 0 means it did."
 )
 
 PROBE_WALK_LO = 0xE2C00
@@ -1968,6 +2026,35 @@ def pad_drain_trignat(pad: int, b_cells: list[int]) -> bytes:
     return head + tail + b_w(back, TRIGNAT_CONT_B)
 
 
+def pad_drain_trigcons(pad: int, b_cells: list[int]) -> bytes:
+    """The trigcons Pad B (padb.md section 3 option (a)): the SAME four consumption witnesses
+    B_D0..B_D3 + the B_P3 sentinel as trignat, but MOVED to file 0x86F74, the announce wait's own
+    `movw r3,#0xcece` - immediately before the loop head 0x86F78, so it is guaranteed to run even
+    though nothing completes the 0xcece handshake this boot.  The tail restores r0-r5, RE-EMITS the
+    replaced `movw r3,#0xcece` (AFTER the pop, so it survives PAD_SAVE), restores the saved flags
+    and branches to 0x86F78 (`ldr r2,[r1]`, the loop head).  r0-r5 (r1 = the CA 0x4000010c spin
+    pointer, r5 = the 0xbe0 message object) are saved/restored; only r3 is re-set.  The `bl` at the
+    site installs lr = 0x86F78, but the pad ends in a `b.w` to the same address and never returns
+    through lr, so the clobber is inert."""
+    b_d, b_p = b_cells[0:4], b_cells[4]
+    head = b"".join([
+        mrs_apsr(12),                                            # +0  save the condition flags
+        push(PAD_SAVE),                                          # +4  24 bytes, SP stays 8-aligned
+        gic_read_store_block(TRIGNAT_B_READS[0], b_d[0]),        # B_D0 out[0] (8 = still pending)
+        gic_read_store_block(TRIGNAT_B_READS[1], b_d[1]),        # B_D1 out[1]
+        gic_read_store_block(TRIGNAT_B_READS[2], b_d[2]),        # B_D2 ISPENDR2 w2 (bit 12 = taken)
+        gic_read_store_block(TRIGNAT_B_READS[3], b_d[3]),        # B_D3 HPPIR
+        _store_imm_block(TRIGNAT_SENTINEL, b_p),                 # B_P3 page-10 sentinel (Pad B)
+    ])
+    tail = b"".join([
+        pop(PAD_SAVE),
+        movw(3, 0xcece),                                         # reproduce `movw r3,#0xcece`
+        msr_apsr(12),                                            # restore the saved flags
+    ])
+    back = pad + len(head) + len(tail)
+    return head + tail + b_w(back, TRIGCONS_CONT_B)
+
+
 def _store_ip_block(cell: int) -> bytes:
     """movw/movt the cell address into r0 and `str.w ip,[r0]`.  ip (r12) is where the gate pad
     parks the APSR it captured, and ip is not a low register, so the 32-bit store form is used."""
@@ -2052,7 +2139,8 @@ def pad_bringup(pad: int, s2: int, gic_cells: list[int] | None = None) -> bytes:
 # ---------------------------------------------------------------- guards / verify
 
 def patch_sites(data: bytes, pad_i: int, pad_b: int, pad_s: int | None = None,
-                pad_p: int | None = None, pad_d: int | None = None) -> bytes:
+                pad_p: int | None = None, pad_d: int | None = None,
+                drain_site: int | None = None) -> bytes:
     buf = bytearray(data)
     buf[SITE_THUNK:SITE_THUNK + 4] = bl(SITE_THUNK, pad_i)
     buf[BRINGUP_SITE:BRINGUP_SITE + 4] = bl(BRINGUP_SITE, pad_b)
@@ -2061,7 +2149,8 @@ def patch_sites(data: bytes, pad_i: int, pad_b: int, pad_s: int | None = None,
     if pad_p is not None:
         buf[POST_SITE:POST_SITE + 4] = bl(POST_SITE, pad_p)
     if pad_d is not None:
-        buf[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] = bl(TRIGNAT_SITE_B, pad_d)
+        site = TRIGNAT_SITE_B if drain_site is None else drain_site
+        buf[site:site + 4] = bl(site, pad_d)
     return bytes(buf)
 
 
@@ -2755,6 +2844,140 @@ def verify_disasm_trignat(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p
         "trignat": {
             "site_a": hex(TRIGNAT_SITE_A), "cont_a": hex(TRIGNAT_CONT_A),
             "site_b": hex(TRIGNAT_SITE_B), "cont_b": hex(TRIGNAT_CONT_B),
+            "ring_ca": hex(TRIGNAT_RING_CA), "ring_value": hex(TRIGNAT_RING_VAL),
+            "submit_ca": hex(TRIGNAT_OUT0_CA), "submit_value": hex(TRIGNAT_SUBMIT_VAL),
+            "out1_ca": hex(TRIGNAT_OUT1_CA),
+            "mask_open": hex(TRIGNAT_MASK_OPEN),
+            "pre_reads": [hex(x) for x in TRIGNAT_PRE_READS],
+            "post_reads": [hex(x) for x in TRIGNAT_POST_READS],
+            "b_reads": [hex(x) for x in TRIGNAT_B_READS],
+            "a_cells": [hex(c) for c in a_cells],
+            "b_cells": [hex(c) for c in b_cells],
+            "send_pad_len": len(code_s), "drain_pad_len": len(code_d),
+        },
+    }
+    return seen
+
+
+def verify_disasm_trigcons(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int,
+                           pad_d: int, s1: int, s2: int, gic_cells: list[int],
+                           e_cells: list[int], a_cells: list[int], b_cells: list[int]) -> dict:
+    """Byte-equality of the five pads against their reconstruction PLUS the Pad A / Pad B block
+    orders: Pad A (byte-identical to trignat's) = entry reads A_E0/A_E1 -> post-reproduce ->
+    mask-open -> submit -> A_S0..A_S2 -> ring -> A_S3..A_S8 -> A_P1 -> A_P2; Pad B (MOVED, padb.md
+    section 3 option (a)) = B_D0..B_D3 -> B_P3 -> pop(PAD_SAVE) -> reproduce `movw r3,#0xcece` and
+    branch to the loop head 0x86F78 - it must NOT reproduce the old announce-exit `pop.w`.  The
+    ring appears exactly once in Pad A and nowhere in Pad B, the masked word 0x21 must NOT be
+    written, the dispatcher-consumption submit (out[0] <= 8) must be present, and no pad may
+    address a forbidden CA (0x400392f0 write, 0x4016010c read, 0x10161000 read/write)."""
+    if len(a_cells) != TRIGNAT_A_NCELLS:
+        raise PatchError(f"trigcons expected {TRIGNAT_A_NCELLS} A cells, got {len(a_cells)}")
+    if len(b_cells) != TRIGNAT_B_NCELLS:
+        raise PatchError(f"trigcons expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
+    every = [s1, s2] + gic_cells + e_cells + a_cells + b_cells
+    if len(set(every)) != len(every):
+        raise PatchError("trigcons cells are not all distinct")
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+
+    def dis(off: int, size: int) -> list[str]:
+        return [f"{i.mnemonic} {i.op_str}".strip() for i in md.disasm(data[off:off + size], off)]
+
+    code_i = pad_thunk(pad_i, s1, gic_cells, apsr_cell=e_cells[3], req_cell=e_cells[2])
+    code_b = pad_bringup(pad_b, s2, gic_cells)
+    code_s = pad_send_trignat(pad_s, a_cells)
+    code_p = pad_post(pad_p, e_cells)
+    code_d = pad_drain_trigcons(pad_d, b_cells)
+    for name, off, code in (("thunk", pad_i, code_i), ("bringup", pad_b, code_b),
+                            ("send", pad_s, code_s), ("post", pad_p, code_p),
+                            ("drain", pad_d, code_d)):
+        if data[off:off + len(code)] != code:
+            raise PatchError(f"the trigcons {name} pad at {off:#x} is not the intended bytes")
+
+    blk_mask_open = write_ca_block(TRIGNAT_GLUE_MASK, TRIGNAT_MASK_OPEN)
+    blk_submit = write_ca_block(TRIGNAT_OUT0_CA, TRIGNAT_SUBMIT_VAL)
+    blk_ring = write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL)
+    for nm, blk in (("mask-open", blk_mask_open), ("H2D submission", blk_submit), ("ring", blk_ring)):
+        if blk not in code_s:
+            raise PatchError(f"the trigcons Pad A is missing the {nm} store")
+    if code_s.count(blk_ring) != 1:
+        raise PatchError("the trigcons Pad A must ring the doorbell exactly once")
+    if write_ca_block(TRIGNAT_GLUE_MASK, GICK_MASK_MASKED) in code_s:
+        raise PatchError("the trigcons Pad A must NOT write the masked word 0x21")
+
+    for ca, cell, nm in ((TRIGNAT_OUT0_CA, a_cells[5], "A_E0 out[0] entry"),
+                         (TRIGNAT_OUT1_CA, a_cells[6], "A_E1 out[1] entry"),
+                         (TRIGNAT_OUT0_CA, a_cells[0], "A_S0 out[0]"),
+                         (GICD_ISPENDR2, a_cells[1], "A_S1 ISPENDR2"),
+                         (GICC_HPPIR, a_cells[2], "A_S2 HPPIR"),
+                         (GICD_ISPENDR2, a_cells[3], "A_S3 ISPENDR2"),
+                         (GICC_HPPIR, a_cells[7], "A_S4 HPPIR"),
+                         (TRIGNAT_OUT0_CA, a_cells[8], "A_S5 out[0]"),
+                         (TRIGNAT_OUT1_CA, a_cells[9], "A_S6 out[1]"),
+                         (TRIGNAT_GLUE_RAW, a_cells[10], "A_S7 glue raw"),
+                         (TRIGNAT_GLUE_STATUS, a_cells[11], "A_S8 glue status")):
+        if gic_read_store_block(ca, cell) not in code_s:
+            raise PatchError(f"the trigcons Pad A is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    for cell, nm in ((a_cells[4], "A_P1"), (a_cells[12], "A_P2")):
+        if _store_imm_block(TRIGNAT_SENTINEL, cell) not in code_s:
+            raise PatchError(f"the trigcons Pad A is missing the {nm} page sentinel")
+
+    order = [code_s.index(gic_read_store_block(TRIGNAT_OUT0_CA, a_cells[5])),          # A_E0
+             code_s.index(gic_read_store_block(TRIGNAT_OUT1_CA, a_cells[6])),          # A_E1
+             code_s.index(str_imm(2, 3, 0)),                                           # post reproduce
+             code_s.index(blk_mask_open),                                              # mask open
+             code_s.index(blk_submit),                                                 # submit
+             code_s.index(gic_read_store_block(GICD_ISPENDR2, a_cells[1])),            # A_S1
+             code_s.index(blk_ring),                                                   # ring
+             code_s.index(gic_read_store_block(GICD_ISPENDR2, a_cells[3])),            # A_S3
+             code_s.index(_store_imm_block(TRIGNAT_SENTINEL, a_cells[4])),             # A_P1
+             code_s.index(_store_imm_block(TRIGNAT_SENTINEL, a_cells[12]))]            # A_P2
+    if order != sorted(order) or len(set(order)) != len(order):
+        raise PatchError("the trigcons Pad A order is not entry-reads -> post -> mask-open -> submit "
+                         "-> A_S0..A_S2 -> ring -> A_S3..A_S8 -> A_P1 -> A_P2")
+
+    for ca, cell, nm in ((TRIGNAT_OUT0_CA, b_cells[0], "B_D0 out[0]"),
+                         (TRIGNAT_OUT1_CA, b_cells[1], "B_D1 out[1]"),
+                         (GICD_ISPENDR2, b_cells[2], "B_D2 ISPENDR2"),
+                         (GICC_HPPIR, b_cells[3], "B_D3 HPPIR")):
+        if gic_read_store_block(ca, cell) not in code_d:
+            raise PatchError(f"the trigcons Pad B is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    if _store_imm_block(TRIGNAT_SENTINEL, b_cells[4]) not in code_d:
+        raise PatchError("the trigcons Pad B is missing the B_P3 page sentinel")
+    if movw(3, 0xcece) not in code_d:
+        raise PatchError("the trigcons Pad B must re-emit the replaced `movw r3,#0xcece`")
+    if TRIGNAT_DRAIN_POP in code_d:
+        raise PatchError("the trigcons Pad B must NOT reproduce the old announce-exit pop.w")
+    if b_w(pad_d + len(code_d) - 4, TRIGCONS_CONT_B) != code_d[-4:]:
+        raise PatchError("the trigcons Pad B return is not a b.w to the loop head 0x86F78")
+    if blk_ring in code_d:
+        raise PatchError("the trigcons Pad B must not ring the doorbell")
+    order_d = [code_d.index(gic_read_store_block(TRIGNAT_B_READS[i], b_cells[i])) for i in range(4)]
+    order_d.append(code_d.index(_store_imm_block(TRIGNAT_SENTINEL, b_cells[4])))
+    order_d.append(code_d.index(pop(PAD_SAVE)))
+    order_d.append(code_d.index(movw(3, 0xcece)))
+    if order_d != sorted(order_d) or len(set(order_d)) != len(order_d):
+        raise PatchError("the trigcons Pad B order is not B_D0..B_D3 -> B_P3 -> pop -> "
+                         "reproduce `movw r3,#0xcece`")
+
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s),
+                       ("post", code_p), ("drain", code_d)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            if bad in code:
+                raise PatchError(f"the trigcons {name} pad addresses a forbidden CA: {bad.hex()}")
+
+    seen = {
+        "thunk_pad": dis(pad_i, len(code_i)),
+        "bringup_pad": dis(pad_b, len(code_b)),
+        "send_pad": dis(pad_s, len(code_s)),
+        "post_pad": dis(pad_p, len(code_p)),
+        "drain_pad": dis(pad_d, len(code_d)),
+        "trigcons": {
+            "site_a": hex(TRIGNAT_SITE_A), "cont_a": hex(TRIGNAT_CONT_A),
+            "site_b": hex(TRIGCONS_SITE_B), "cont_b": hex(TRIGCONS_CONT_B),
+            "old_site_b": hex(TRIGNAT_SITE_B),
+            "site_b_replaced": TRIGCONS_SITE_B_BYTES.hex(),
             "ring_ca": hex(TRIGNAT_RING_CA), "ring_value": hex(TRIGNAT_RING_VAL),
             "submit_ca": hex(TRIGNAT_OUT0_CA), "submit_value": hex(TRIGNAT_SUBMIT_VAL),
             "out1_ca": hex(TRIGNAT_OUT1_CA),
@@ -4204,6 +4427,327 @@ def make_trignat(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+def make_trigcons(data: bytes, barmap: bytes, refs: set[int]):
+    """padb.md section 3 option (a): trignat's instrument with Pad B MOVED past the 0xcece gate.
+    Pad A (the firmware's OWN natural post, file 0x86F5A) is byte-identical to trignat's - it
+    reproduces the out[1] <= 4 post, opens the glue mask, performs the H2D submission out[0] <= 8
+    and rings CA 0x400392d4 <= 1 - and the thunk/bring-up/post pads keep their cells, so S1/S2/
+    C0..C5/E0..E3 and the A_* samples stay directly comparable to trignat's.  Pad B now sits at
+    file 0x86F74 (the announce wait's own `movw r3,#0xcece`, stock bytes 4cf6ce63), takes the same
+    B_D0..B_D3 + B_P3 samples, re-emits `movw r3,#0xcece` and branches to the loop head 0x86F78 -
+    so it runs even though nothing writes 0xcece, at the price of the PRE-wait instant (expected
+    row RING-PENDING-NOT-TAKEN).  The OLD announce-exit site 0x86F7E stays stock `pop.w`."""
+    cells, sel = select_cells_trignat(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    bc = cells[off_a + TRIGNAT_A_NCELLS:off_a + TRIGNAT_A_NCELLS + TRIGNAT_B_NCELLS]
+    if len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS:
+        raise PatchError("internal error: trigcons cells were not selected")
+
+    need_s = len(pad_send_trignat(0, ac))
+    need_i = len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))
+    need_b = len(pad_bringup(0, s2, gc))
+    need_p = len(pad_post(0, ec))
+    need_d = len(pad_drain_trigcons(0, bc))
+    pads = alloc_pads(data, refs, [("send", need_s), ("thunk", need_i), ("bringup", need_b),
+                                   ("post", need_p), ("drain", need_d)])
+    (pad_s, len_s), (pad_i, len_i) = pads["send"], pads["thunk"]
+    (pad_b, len_b), (pad_p, len_p) = pads["bringup"], pads["post"]
+    (pad_d, len_d) = pads["drain"]
+
+    code_i = pad_thunk(pad_i, s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pad_b, s2, gc)
+    code_s = pad_send_trignat(pad_s, ac)
+    code_p = pad_post(pad_p, ec)
+    code_d = pad_drain_trigcons(pad_d, bc)
+    out = bytearray(patch_sites(data, pad_i, pad_b, pad_s, pad_p, pad_d,
+                                drain_site=TRIGCONS_SITE_B))
+    for off, code in ((pad_i, code_i), (pad_b, code_b), (pad_s, code_s), (pad_p, code_p),
+                      (pad_d, code_d)):
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the patch changed the image size")
+    for site, pad in ((SITE_THUNK, pad_i), (BRINGUP_SITE, pad_b), (SEND_SITE, pad_s),
+                      (POST_SITE, pad_p), (TRIGCONS_SITE_B, pad_d)):
+        if out[site:site + 4] != bl(site, pad):
+            raise PatchError(f"internal error: site {site:#x} bytes are not the intended bl")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+    if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
+        raise PatchError("the trigcons Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+    if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("the trigcons Pad B site is not `movw r3,#0xcece` (4cf6ce63)")
+    if movw(3, 0xcece) != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("internal error: the encoder does not re-emit `movw r3,#0xcece`")
+    if data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] != TRIGNAT_DRAIN_POP:
+        raise PatchError("the stock old announce-exit site is not `pop.w {r3,r4,r5,r6,r7,r8,sb,lr}`")
+    if out[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] != data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4]:
+        raise PatchError("internal error: trigcons altered the old announce-exit site 0x86F7E")
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s),
+                       ("post", code_p), ("drain", code_d)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            if bad in code:
+                raise PatchError(f"internal error: the trigcons {name} pad addresses a forbidden CA")
+
+    check_original_gic_write(out)
+    seen = verify_disasm_trigcons(out, pad_i, pad_b, pad_s, pad_p, pad_d, s1, s2, gc, ec, ac, bc)
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ac[:4]):
+        records[f"A_S{i}"] = cell_record(barmap, a)
+    records["A_P1"] = cell_record(barmap, ac[4])
+    records["A_E0"] = cell_record(barmap, ac[5])
+    records["A_E1"] = cell_record(barmap, ac[6])
+    for i, a in enumerate(ac[7:12]):
+        records[f"A_S{4 + i}"] = cell_record(barmap, a)
+    records["A_P2"] = cell_record(barmap, ac[12])
+    for i, a in enumerate(bc[:4]):
+        records[f"B_D{i}"] = cell_record(barmap, a)
+    records["B_P3"] = cell_record(barmap, bc[4])
+
+    a_read_map = {
+        "A_E0": {"ca": hex(TRIGNAT_OUT0_CA), "register": "out[0] H2D pending bitmap",
+                 "point": "Pad A entry, BEFORE the post is reproduced (next-visit consumption read)"},
+        "A_E1": {"ca": hex(TRIGNAT_OUT1_CA), "register": "out[1] D2H pending bitmap",
+                 "point": "Pad A entry, BEFORE the post is reproduced (next-visit read; 4 = a prior post ran)"},
+        "A_S0": {"ca": hex(TRIGNAT_OUT0_CA), "register": "out[0]",
+                 "point": "Pad A, after the submission, PRE-ring (expected 8)"},
+        "A_S1": {"ca": hex(GICD_ISPENDR2), "register": "GICD_ISPENDR2 word 2 (bit 12 = id 0x4c)",
+                 "point": "Pad A, PRE-ring (expected bit 12 clear)"},
+        "A_S2": {"ca": hex(GICC_HPPIR), "register": "GICC HPPIR (0x3ff = nothing pending)",
+                 "point": "Pad A, PRE-ring"},
+        "A_S3": {"ca": hex(GICD_ISPENDR2), "register": "GICD_ISPENDR2 word 2",
+                 "point": "Pad A, POST-ring (expected bit 12 SET)"},
+        "A_S4": {"ca": hex(GICC_HPPIR), "register": "GICC HPPIR",
+                 "point": "Pad A, POST-ring (expected 0x4c)"},
+        "A_S5": {"ca": hex(TRIGNAT_OUT0_CA), "register": "out[0] - the latency datum",
+                 "point": "Pad A, POST-ring (8 = not yet consumed; 0 = the ISR preempted the pad)"},
+        "A_S6": {"ca": hex(TRIGNAT_OUT1_CA), "register": "out[1] (the reproduced natural post)",
+                 "point": "Pad A, POST-ring (expected 4)"},
+        "A_S7": {"ca": hex(TRIGNAT_GLUE_RAW), "register": "glue HOST_INTR_RAW_STATUS (+0x2e4)",
+                 "point": "Pad A, POST-ring (bit 0 latch)"},
+        "A_S8": {"ca": hex(TRIGNAT_GLUE_STATUS), "register": "glue HOST_INTR_STATUS (+0x2ec, post-mask)",
+                 "point": "Pad A, POST-ring (bit 0 passes)"},
+        "A_P1": {"ca": "none", "register": f"sentinel 0x{TRIGNAT_SENTINEL:08x}, page 9",
+                 "point": "Pad A, after A_S0..A_S8"},
+        "A_P2": {"ca": "none", "register": f"sentinel 0x{TRIGNAT_SENTINEL:08x}, page 10",
+                 "point": "Pad A, after A_S0..A_S8"},
+    }
+    b_read_map = {
+        "B_D0": {"ca": hex(TRIGNAT_OUT0_CA), "register": "out[0] H2D pending bitmap",
+                 "point": "Pad B (MOVED to 0x86F74, PRE-wait): expected 8 = still pending"},
+        "B_D1": {"ca": hex(TRIGNAT_OUT1_CA), "register": "out[1] D2H pending bitmap / handler effect",
+                 "point": "Pad B (MOVED, PRE-wait)"},
+        "B_D2": {"ca": hex(GICD_ISPENDR2), "register": "GICD_ISPENDR2 word 2",
+                 "point": "Pad B (MOVED, PRE-wait): expected bit 12 SET (the id-0x4c interrupt not yet taken)"},
+        "B_D3": {"ca": hex(GICC_HPPIR), "register": "GICC HPPIR", "point": "Pad B (MOVED, PRE-wait)"},
+        "B_P3": {"ca": "none", "register": f"sentinel 0x{TRIGNAT_SENTINEL:08x}, page 10 (Pad B)",
+                 "point": "Pad B, after B_D0..B_D3"},
+    }
+
+    manifest = {
+        "variant": "trigcons",
+        "selection": sel,
+        "cells": records,
+        "gic_map": {
+            "GICD_base": "0x40161000",
+            "GICC_base": "0x40160100",
+            "GICD_ISPENDR2": hex(GICD_ISPENDR2),
+            "GICD_ISENABLER2": hex(GICD_ISENABLER2),
+            "GICC_HPPIR": hex(GICC_HPPIR),
+            "never_read": "0x4016010c (GICC IAR - acknowledging; a read acknowledges) and "
+                          "0x10161000 (RC misc, a read panics)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, write-to-clear) and the masked glue "
+                             "word 0x21 (the mask stays OPEN)",
+            "ring": {"ca": hex(TRIGNAT_RING_CA), "value": hex(TRIGNAT_RING_VAL),
+                     "register": "ctrl-rb +0x2d4 = HOST2DEVICE_INTR_SET (out[2]); value 1 = bit 0 "
+                                 "host2device_tx, NEVER 8 (the dispatcher's own re-arm constant, "
+                                 "file 0x818c4)",
+                     "note": NOTE_TRIGCONS_A},
+            "submit": {"ca": hex(TRIGNAT_OUT0_CA), "value": hex(TRIGNAT_SUBMIT_VAL),
+                       "register": "out[0] - the H2D pending bitmap 0x818AC reads then clears",
+                       "note": "the load-bearing correction to trigger.md section 3: that post writes "
+                               "out[1] (0x40039014), not this word, so Pad A also stores out[0] <= 8 "
+                               "- the store `pcie_msg_send` makes (`.ko` file 0x1619c); without it "
+                               "0x818AC reads out[0] = 0 and dispatches no handler"},
+            "out1": {"ca": hex(TRIGNAT_OUT1_CA),
+                     "register": "out[1] - the natural post's D2H pending bitmap (reproduced <= 4)"},
+            "gate": {"ca": "0x4000010c", "wait_value": "0x0000cece",
+                     "site": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                     "old_site": hex(TRIGNAT_SITE_B),
+                     "note": "padb.md section 1: the announce routine waits on *(CA 0x4000010c) == "
+                             "0x0000cece (movw r3,#0xcece at 0x86F74; the same value is awaited in "
+                             "the cpsid-i helper 0x820F8).  NOTHING in the image writes it, so the "
+                             "loop never exits; trigcons moves Pad B onto the wait's own movw so "
+                             "the B cells have a producer.  (This CA is 0x4000010c, NOT the "
+                             "forbidden 0x4016010c.)"},
+            "glue": {"raw": hex(TRIGNAT_GLUE_RAW), "mask": hex(TRIGNAT_GLUE_MASK),
+                     "status": hex(TRIGNAT_GLUE_STATUS), "mask_open": hex(TRIGNAT_MASK_OPEN)},
+            "dispatcher": {"entry": "fn_array[0x4C] -> stub 0x294 -> file 0x818AC",
+                           "ack": "CA 0x400392f0 <= 1 (file 0x818b8) - written by the FIRMWARE only",
+                           "consume": "ldr r5,[r2] / str r1,[r2] with r1 = 0 (file 0x818bc/0x818be): "
+                                      "reads then CLEARS out[0] (CA 0x40039010)",
+                           "rearm": "CA 0x400392d4 <= 8 (file 0x818c4) - the dispatcher's own re-arm, "
+                                    "NEVER written by this variant"},
+            "a_read_order": a_read_map,
+            "b_read_order": b_read_map,
+            "pad_a_note": NOTE_TRIGCONS_A,
+            "pad_b_note": NOTE_TRIGCONS_B,
+            "cells_note": NOTE_TRIGNAT_CELLS,
+            "verification": {
+                "method": "every CA re-derived from the image on disk (capstone, Thumb) plus the "
+                            "verified vendor-module quotes in the record",
+                "post_site_0x86f5a": "stock bytes 1a600122 = `str r2,[r3]` (r2 = 4 set at 0x86f54, "
+                                     "r3 = literal file 0x86fbc = 0x40039014) + `movs r2,#1`; the "
+                                     "continuation 0x86f5e is `add.w r3,r3,#0xc8000`",
+                "drain_site_0x86f74": "stock bytes 4cf6ce63 = `movw r3,#0xcece`, the announce wait's "
+                                      "own instruction (padb.md section 1); the continuation "
+                                      "0x86f78 = `ldr r2,[r1]` (r1 = literal file 0x86fa0 = "
+                                      "0x4000010c), the spin loop head",
+                "old_drain_site_0x86f7e": "stock bytes bde8f843 = `pop.w {r3,r4,r5,r6,r7,r8,sb,lr}`, "
+                                          "the announce routine's exit; UNTOUCHED by trigcons",
+                "out0_0x40039010": "literal file 0x97e0; out[0] = ctx+0x04, the word 0x818ac reads "
+                                   "then clears",
+                "out1_0x40039014": "literal file 0x86fbc (and 0x97dc) - the natural post's target",
+                "gate_0x4000010c": "literal file 0x86fa0 (and 0x82110 for the cpsid-i helper); "
+                                   "ZERO occurrences of 0xcece as a literal in the image",
+                "ring_value_0x1": "ring.md section 0 / trigger2.md section 1: `pcie_msg_send` ORs "
+                                  "bit 0 into comm+0x34 (= CA 0x400392d4, `.ko` file 0x161b0); bit 3 "
+                                  "(0x8) is the dispatcher's re-arm (file 0x818c4), NEVER written",
+                "GICD_ISPENDR2_0x40161208": "GICD base 0x40161000 (firmware literal file 0x716c) + "
+                                             "0x200 + 4*2",
+                "GICC_page_0x40160100": "firmware literal file 0x8309c; IAR 0x4016010c = literal "
+                                        "file 0x83010, EoI 0x40160110 = literal 0x83020 -> HPPIR = "
+                                        "base+0x18",
+                "glue_base_0x40039000": "firmware literal file 0x86fb4 (and 0xcf2ac); the ctrl-rb "
+                                        "+0x2d4/+0x2e4/+0x2e8/+0x2ec offsets are the sibling header's "
+                                        "HOST2DEVICE_INTR_SET / HOST_INTR_RAW_STATUS / HOST_INTR_MASK "
+                                        "/ HOST_INTR_STATUS, measured live in phase 46/47",
+            },
+        },
+        "classification": {
+            "instrument": "Pad A (the firmware's OWN natural post, file 0x86F5A) entry-reads "
+                           "out[0]/out[1], reproduces the natural out[1] <= 4, opens the glue mask "
+                           "(0x400392e8 <= 0x20), performs the H2D submission out[0] <= 8, samples "
+                           "A_S0..A_S2 PRE-ring, RINGS the doorbell (0x400392d4 <= 0x1, once), samples "
+                           "A_S3..A_S8 POST-ring, arms A_P1/A_P2 and returns to 0x86F5E so the natural "
+                           "D2H notify still runs.  Pad B is MOVED (padb.md section 3 option (a)) to "
+                           "0x86F74, the announce wait's own `movw r3,#0xcece`, so it runs ahead of "
+                           "the never-exiting 0xcece loop: it reads B_D0..B_D3, arms B_P3, re-emits "
+                           "`movw r3,#0xcece` and branches to the loop head 0x86F78.  The old "
+                           "announce-exit site 0x86F7E stays stock.",
+            "branch_TRIGCONS_COMPLETE": "A_S3 bit 12 SET, A_S4 = 0x4C, B_D0 = 0, B_D2 bit 12 CLEAR "
+                                        "(with B_P3 = sentinel) -> the ringed event reached the GIC "
+                                        "AND the id-0x4c interrupt was taken/consumed across the tiny "
+                                        "Pad A -> Pad B window.",
+            "branch_RING_PENDING_NOT_TAKEN": "A_S3 bit 12 SET, A_S4 = 0x4C and (B_D0 = 8 or B_D2 bit 12 "
+                                              "SET) -> the ringed event REACHES the GIC (pending) but "
+                                              "the id-0x4c interrupt is never taken; the gate is the "
+                                              "CPU-side IRQ take/enable.  THE EXPECTED ROW for this "
+                                              "pre-wait placement (padb.md section 2a).",
+            "branch_GLUE_ONLY": "A_S3 bit 12 CLEAR and (A_S7 bit 0 = 1 or A_S8 bit 0 = 1) -> the glue "
+                                 "latched/passed but the GIC did not see it.",
+            "branch_NOTHING": "A_S3 bit 12 CLEAR and A_S7/A_S8 bit 0 = 0 with sentinels present -> the "
+                               "ring did not land (or did not reach the glue) - a bounded negative, "
+                               "not a proof.",
+            "pad_did_not_run": "A_P1/A_P2/B_P3 sentinel missing -> the record is void for the affected "
+                                "cells.  Unlike trignat, Pad B is NOT behind the 0xcece wait, so a "
+                                "missing B_P3 would be a patch defect, not the runtime gate.",
+            "latency_datum": "A_S5 = 8 with a pending row means the ISR did not preempt Pad A and only "
+                              "the (c) host write can reach the post-handshake instant; A_S5 = 0 means "
+                              "the ISR preempted the pad mid-way.",
+            "branches_note": NOTE_TRIGCONS_BRANCHES,
+            "host_side": "The capture hook ALSO runs the hostisr.md section 2 read-only host witness, "
+                          "so /proc/interrupts 207:/209: with an omo-drv1 action and a nonzero counter "
+                          "lands in capture-cmd.txt next to the device-side cells (only meaningful "
+                          "once the wifidrv1.c IRQ port change rides CI).",
+            "sanities": "S1/S1+4/S2/S2+4/C0..C5 and E0..E3 are byte-identical to gicpost's pads; "
+                         "E0 = 0x1001 (ISENABLER2 word-2 POST-write, bit 12 set) proves the firmware's "
+                         "own id-0x4c enable store landed in this boot.  Pad A and the A_* cells are "
+                         "byte-identical to trignat's.",
+            "bounds": "one-shot latched samples, not a timing window; the ring is rung once per Pad A "
+                      "run; the mask is driven to and left at the vendor-live 0x20.  Pad B forfeits "
+                      "the post-handshake instant (padb.md section 2a/4): option (c)'s host write of "
+                      "0x0000cece to BAR0+0x3b810c is the companion that restores it.",
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pad_i), "runtime_addr": hex(pad_i + BIAS),
+                      "run_length": hex(len_i), "code_length": len(code_i), "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pad_b), "runtime_addr": hex(pad_b + BIAS),
+                        "run_length": hex(len_b), "code_length": len(code_b), "code_hex": code_b.hex()},
+            "send_a": {"file_offset": hex(pad_s), "runtime_addr": hex(pad_s + BIAS),
+                       "run_length": hex(len_s), "code_length": len(code_s), "code_hex": code_s.hex()},
+            "post": {"file_offset": hex(pad_p), "runtime_addr": hex(pad_p + BIAS),
+                     "run_length": hex(len_p), "code_length": len(code_p), "code_hex": code_p.hex()},
+            "drain_b": {"file_offset": hex(pad_d), "runtime_addr": hex(pad_d + BIAS),
+                        "run_length": hex(len_d), "code_length": len(code_d), "code_hex": code_d.hex()},
+        },
+        "sites": {
+            "send_a": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(TRIGNAT_CONT_A),
+                       "replaced_bytes": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
+                       "replaced": "str r2,[r3] (out[1] <= 4) + movs r2,#1",
+                       "after": bl(TRIGNAT_SITE_A, pad_s).hex()},
+            "drain_b": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                        "replaced_bytes": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
+                        "replaced": "movw r3,#0xcece (the announce wait's gate constant)",
+                        "after": bl(TRIGCONS_SITE_B, pad_d).hex()},
+            "old_drain_b": {"file_offset": hex(TRIGNAT_SITE_B),
+                            "bytes": data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4].hex(),
+                            "unchanged": out[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] ==
+                                         data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4]},
+        },
+        "patches": [
+            {"kind": "trampoline-entry", "region": "enable thunk 0x86ff4", "file_offset": hex(SITE_THUNK),
+             "before": data[SITE_THUNK:SITE_THUNK + 4].hex(),
+             "after": bl(SITE_THUNK, pad_i).hex(), "note": NOTE_GICVIEW_I},
+            {"kind": "trampoline-entry", "region": "distributor bring-up 0x6e5c-0x6ed4",
+             "file_offset": hex(BRINGUP_SITE), "before": data[BRINGUP_SITE:BRINGUP_SITE + 4].hex(),
+             "after": bl(BRINGUP_SITE, pad_b).hex(), "note": NOTE_GICVIEW_II},
+            {"kind": "trampoline-entry", "region": "firmware out[1] post 0x86F5A (ETE bring-up 0x86E14)",
+             "file_offset": hex(TRIGNAT_SITE_A), "before": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
+             "after": bl(TRIGNAT_SITE_A, pad_s).hex(), "note": NOTE_TRIGCONS_A},
+            {"kind": "trampoline-entry", "region": "announce 0xcece gate 0x86F74 (MOVED; padb.md option (a))",
+             "file_offset": hex(TRIGCONS_SITE_B), "before": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
+             "after": bl(TRIGCONS_SITE_B, pad_d).hex(), "note": NOTE_TRIGCONS_B},
+            {"kind": "trampoline-entry", "region": "enable-thunk post-store boundary 0x87036",
+             "file_offset": hex(POST_SITE), "before": data[POST_SITE:POST_SITE + 4].hex(),
+             "after": bl(POST_SITE, pad_p).hex(),
+             "note": "the firmware's own `bl #0xbdf50`; the pad samples ISENABLER2/ISPENDR2 "
+                     "post-write (E0/E1) and reproduces the call as a `b.w` with lr untouched"},
+        ],
+        "preserved": {
+            "original_gic_write": {
+                "file_offset": "0x8702c",
+                "instruction": "strlo.w r4, [r3, r2, lsl #2]",
+                "ca": "0x40161100 + (id/32)*4",
+                "verified_present": True,
+                "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030],
+            },
+            "itet_block": {"file_offset": "0x8702a..0x87035",
+                           "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+            "natural_post_continuation": {"file_offset": "0x86f5e..0x86f74",
+                                           "bytes_identical": out[0x86F5E:0x86F74] == data[0x86F5E:0x86F74]},
+            "announce_loop_body": {"file_offset": "0x86f78..0x86f7e",
+                                   "bytes_identical": out[0x86F78:0x86F7E] == data[0x86F78:0x86F7E]},
+            "old_announce_exit_continuation": {"file_offset": "0x86f7e..",
+                                               "bytes_identical": out[0x86F7E:0x86F92] == data[0x86F7E:0x86F92]},
+        },
+    }
+    return out, manifest
+
+
 def make_gicview(data: bytes, barmap: bytes, refs: set[int]):
     """scratch + six device-side GIC reads deposited into fresh cells C0..C5 (see NOTE_GIC_MAP)."""
     cells, sel = select_cells_gicview(barmap)
@@ -5187,6 +5731,97 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert gtnm["gic_map"]["b_read_order"]["B_P3"]["ca"] == "none"
     assert md5(gtn) == TRIGNAT_MD5, f"trignat output changed: {md5(gtn)} != {TRIGNAT_MD5}"
 
+    # ---- trigcons: the Pad-B MOVE past the 0xcece gate (padb.md section 3 option (a))
+    gcn, gcnm = make_trigcons(data, barmap, refs)
+    assert len(gcn) == len(data), "trigcons changed the size"
+    gcn2, gcnm2 = make_trigcons(data, barmap, refs)
+    assert gcn == gcn2, "trigcons patch is not deterministic"
+    assert json.dumps(gcnm, sort_keys=True) == json.dumps(gcnm2, sort_keys=True), \
+        "trigcons manifest is not deterministic"
+    for nm in (["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)]
+               + [f"E{i}" for i in range(GICP_NCELLS)] + a_names + b_names):
+        assert gcnm["cells"][nm]["addr"] == gtnm["cells"][nm]["addr"], f"trigcons moved cell {nm}"
+    acn_c = [int(gcnm["cells"][nm]["addr"], 16) for nm in a_names]
+    bcn_c = [int(gcnm["cells"][nm]["addr"], 16) for nm in b_names]
+    assert acn_c == acn and bcn_c == bcn, "trigcons changed the A/B cell addresses"
+
+    pad_i_c = int(gcnm["padding"]["thunk"]["file_offset"], 16)
+    pad_b_c = int(gcnm["padding"]["bringup"]["file_offset"], 16)
+    pad_s_c = int(gcnm["padding"]["send_a"]["file_offset"], 16)
+    pad_p_c = int(gcnm["padding"]["post"]["file_offset"], 16)
+    pad_d_c = int(gcnm["padding"]["drain_b"]["file_offset"], 16)
+    # Pad A + the thunk/bring-up/post pads are byte-identical to trignat's (same addresses too)
+    for key_c, off_c, code_p3 in (("thunk", pad_i_c, code_i_n), ("bringup", pad_b_c, code_b_n),
+                                  ("send_a", pad_s_c, code_s_n), ("post", pad_p_c, code_p_n)):
+        assert off_c == int(gtnm["padding"][key_c]["file_offset"], 16), \
+            f"trigcons moved the {key_c} pad"
+        assert gcn[off_c:off_c + len(code_p3)] == code_p3, f"the trigcons {key_c} pad changed"
+    assert pad_d_c == pad_d_n, "trigcons moved the drain pad"
+    code_d_c = pad_drain_trigcons(pad_d_c, bcn)
+    assert gcn[pad_d_c:pad_d_c + len(code_d_c)] == code_d_c, "the trigcons drain pad is not in the image"
+
+    # the MOVED site: 0x86F74 (`movw r3,#0xcece`) -> bl; the OLD site 0x86F7E stays STOCK
+    assert TRIGCONS_SITE_B == 0x86F74 and TRIGCONS_CONT_B == 0x86F78
+    assert TRIGCONS_SITE_B_BYTES == bytes.fromhex("4cf6ce63") == data[0x86F74:0x86F78], \
+        "the trigcons site is not `movw r3,#0xcece`"
+    assert movw(3, 0xcece) == TRIGCONS_SITE_B_BYTES, "the encoder does not re-emit `movw r3,#0xcece`"
+    assert data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] == TRIGNAT_DRAIN_POP, \
+        "the stock old announce-exit site is not pop.w"
+    assert gcn[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] == bl(TRIGCONS_SITE_B, pad_d_c), \
+        "the trigcons drain site is not the intended bl"
+    assert gcn[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] == data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4], \
+        "trigcons altered the old announce-exit site 0x86F7E (must stay stock)"
+    assert gcnm["sites"]["drain_b"]["file_offset"] == hex(TRIGCONS_SITE_B)
+    assert gcnm["sites"]["drain_b"]["cont"] == hex(TRIGCONS_CONT_B) == "0x86f78"
+    assert gcnm["sites"]["drain_b"]["replaced_bytes"] == "4cf6ce63"
+    assert gcnm["sites"]["old_drain_b"]["unchanged"] is True
+
+    # Pad B: re-emits the replaced movw, does NOT reproduce the old pop.w, returns to the loop head
+    assert movw(3, 0xcece) in code_d_c, "trigcons Pad B lost the reproduced `movw r3,#0xcece`"
+    assert TRIGNAT_DRAIN_POP not in code_d_c, "trigcons Pad B must not reproduce the old pop.w"
+    assert b_w(pad_d_c + len(code_d_c) - 4, TRIGCONS_CONT_B) == code_d_c[-4:], \
+        "trigcons Pad B does not return to the loop head 0x86F78"
+    assert blk_ring_n not in code_d_c, "trigcons Pad B must not ring"
+    for i, ca_n in enumerate(TRIGNAT_B_READS):
+        assert gic_read_store_block(ca_n, bcn_c[i]) in code_d_c, f"trigcons Pad B missing B_D{i}"
+    assert _store_imm_block(TRIGNAT_SENTINEL, bcn_c[4]) in code_d_c, "trigcons Pad B missing B_P3"
+    for code_n in (code_d_c,):
+        for bad_n in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                      write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            assert bad_n not in code_n, "the trigcons drain pad addresses a forbidden CA"
+
+    allowed_c = set()
+    for site_c in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B):
+        allowed_c |= set(range(site_c, site_c + 4))
+    for key_c in ("thunk", "bringup", "send_a", "post", "drain_b"):
+        off_c = int(gcnm["padding"][key_c]["file_offset"], 16)
+        allowed_c |= set(range(off_c, off_c + int(gcnm["padding"][key_c]["code_length"])))
+    changed_c = [i for i in range(len(data)) if gcn[i] != data[i]]
+    assert changed_c and all(c in allowed_c for c in changed_c), \
+        "trigcons changed bytes outside its regions"
+    assert gcn[0x8702C:0x87030] == data[0x8702C:0x87030], "trigcons altered the ISENABLER store"
+    assert gcn[0x87030:0x87036] == data[0x87030:0x87036], "trigcons altered the itet block"
+    assert gcn[SEND_CONT:TRIGCONS_SITE_B] == data[SEND_CONT:TRIGCONS_SITE_B], \
+        "trigcons altered the byte stream between the two sites"
+    assert gcn[TRIGCONS_CONT_B:TRIGNAT_SITE_B + 4] == data[TRIGCONS_CONT_B:TRIGNAT_SITE_B + 4], \
+        "trigcons altered the announce loop body 0x86F78..0x86F82"
+    assert gcn[TRIGNAT_SITE_B:0x86F92] == data[TRIGNAT_SITE_B:0x86F92], \
+        "trigcons altered the byte stream after the old drain site"
+    check_original_gic_write(gcn)
+    verify_disasm_trigcons(gcn, pad_i_c, pad_b_c, pad_s_c, pad_p_c, pad_d_c, s1, s2, gc, ec, acn_c, bcn_c)
+    assert gcnm["classification"]["branch_TRIGCONS_COMPLETE"].startswith("A_S3 bit 12 SET")
+    assert "branch_RING_PENDING_NOT_TAKEN" in gcnm["classification"]
+    assert "branch_GLUE_ONLY" in gcnm["classification"]
+    assert "branch_NOTHING" in gcnm["classification"]
+    assert gcnm["gic_map"]["ring"]["ca"] == hex(TRIGNAT_RING_CA) == "0x400392d4"
+    assert gcnm["gic_map"]["gate"]["ca"] == "0x4000010c"
+    assert gcnm["gic_map"]["gate"]["wait_value"] == "0x0000cece"
+    assert gcnm["gic_map"]["dispatcher"]["consume"].startswith("ldr r5,[r2]")
+    assert gcnm["gic_map"]["b_read_order"]["B_D2"]["ca"] == "0x40161208"
+    assert gcnm["preserved"]["announce_loop_body"]["bytes_identical"] is True
+    assert gcnm["preserved"]["old_announce_exit_continuation"]["bytes_identical"] is True
+    assert md5(gcn) == TRIGCONS_MD5, f"trigcons output changed: {md5(gcn)} != {TRIGCONS_MD5}"
+
     # ---- input untouched
     assert rd(fw_path) == data, "the input file changed during the run"
 
@@ -5280,6 +5915,18 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f" POST A_S3..A_S8={[hex(x) for x in TRIGNAT_POST_READS]}"
           f" B={[hex(x) for x in TRIGNAT_B_READS]}")
     print(f"  trignat md5       : {md5(gtn)}")
+    print(f"  trigcons cells    : " + " ".join(f"{n}={gcnm['cells'][n]['addr']}"
+                                               for n in (["A_S0", "A_S1", "A_S2", "A_S3", "A_P1",
+                                                          "A_E0", "A_E1", "A_S4", "A_S5", "A_S6", "A_S7",
+                                                          "A_S8", "A_P2"]
+                                                         + ["B_D0", "B_D1", "B_D2", "B_D3", "B_P3"]))
+          + f" (Pad A @ file {gcnm['padding']['send_a']['file_offset']}, site {hex(TRIGNAT_SITE_A)}; "
+            f"Pad B MOVED @ file {gcnm['padding']['drain_b']['file_offset']}, site {hex(TRIGCONS_SITE_B)} "
+            f"cont {hex(TRIGCONS_CONT_B)}; old site {hex(TRIGNAT_SITE_B)} STOCK)")
+    print(f"  trigcons gate     : CA {gcnm['gic_map']['gate']['ca']} == {gcnm['gic_map']['gate']['wait_value']}; "
+          f"Pad B re-emits movw r3,#0xcece ({TRIGCONS_SITE_B_BYTES.hex()}) and b.w {hex(TRIGCONS_CONT_B)}"
+          f" (expect RING-PENDING-NOT-TAKEN)")
+    print(f"  trigcons md5      : {md5(gcn)}")
     return 0
 
 
@@ -5292,7 +5939,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="normal-op BAR0 baseline used for S1/S2 selection")
     ap.add_argument("--out", help="output blob (never the input)")
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
-                                          "gicmask", "gicking", "gicunmask", "trigring", "trignat"),
+                                          "gicmask", "gicking", "gicunmask", "trigring", "trignat",
+                                          "trigcons"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -5327,7 +5975,13 @@ def main(argv: list[str] | None = None) -> int:
                          "plus the next-visit entry reads A_E0/A_E1 and the page sentinels A_P1/A_P2, "
                          "and a second pad at the announce routine's exit (0x86F7E, after the 0xcece "
                          "handshake wait) reads the device-dispatcher consumption witnesses B_D0 "
-                         "(out[0] = 0) / B_D2 (ISPENDR2 bit 12 clear) into the B cells with B_P3")
+                         "(out[0] = 0) / B_D2 (ISPENDR2 bit 12 clear) into the B cells with B_P3; "
+                         "trigcons: padb.md section 3 option (a) - trignat with Pad B MOVED to the "
+                         "announce wait's own `movw r3,#0xcece` at file 0x86F74 (before the loop head "
+                         "0x86F78, which never exits), taking the same B_D0..B_D3 + B_P3 cells, then "
+                         "re-emitting `movw r3,#0xcece` and branching to 0x86F78; Pad A, the other "
+                         "pads and every cell are identical to trignat's, and the old announce-exit "
+                         "site 0x86F7E stays stock")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -5355,6 +6009,7 @@ def main(argv: list[str] | None = None) -> int:
                          else make_gicking(data, barmap, refs) if args.variant == "gicking"
                          else make_trigring(data, barmap, refs) if args.variant == "trigring"
                          else make_trignat(data, barmap, refs) if args.variant == "trignat"
+                         else make_trigcons(data, barmap, refs) if args.variant == "trigcons"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
