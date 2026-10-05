@@ -160,6 +160,7 @@ TRIGNAT_MD5 = "845188343f70cff9de29e77aea464021"             # frozen trignat-va
 TRIGCONS_MD5 = "5fb51acd68c62699435d2e1fd823d900"             # frozen trigcons-variant output (selftest regression)
 INTA_MD5 = "bcf14dbeefe45bcfce8df279c06776bd"                 # frozen inta-variant output (selftest regression)
 INTA2_MD5 = "545e77a5b12b4e0da8a6923eea29672c"                # frozen inta2-variant output (selftest regression)
+INTA3_MD5 = "eee1f67370b56eca42316f6eeb490c45"              # frozen inta3-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -6041,6 +6042,88 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     else:
         raise PatchError("a blob with the wrong size was accepted")
 
+    # ---- inta3: the inta2 take with the N cells on the RETENTION-VERIFIED page (witness2.md FLAW 2)
+    g3, g3m = make_inta3(data, barmap, refs)
+    assert len(g3) == len(data), "inta3 changed the size"
+    g3b, g3mb = make_inta3(data, barmap, refs)
+    assert g3 == g3b, "inta3 patch is not deterministic"
+    assert json.dumps(g3m, sort_keys=True) == json.dumps(g3mb, sort_keys=True), \
+        "inta3 manifest is not deterministic"
+    # every kept cell keeps its inta2 address
+    for nm in (["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)]
+               + [f"E{i}" for i in range(GICP_NCELLS)] + a_names + b_names
+               + ["B_D4", "B_D5", "B_D6", "B_D7", "B_P4"] + list(INTA2_F_NAMES)):
+        assert g3m["cells"][nm]["addr"] == g2m["cells"][nm]["addr"], f"inta3 moved cell {nm}"
+    # THE FIX: the six N cells are on page 10, the verified-retaining band, at the first free slots
+    assert pages[INTA3_N_PAGE_IDX] == pages[TRIGNAT_B_PAGE_IDX] == 0x150000, \
+        "inta3's N page is not page 10"
+    assert INTA3_N_PAGE_IDX != INTA2_N_PAGE_IDX and pages[INTA2_N_PAGE_IDX] == 0x157000, \
+        "inta2's non-retaining page 14 is not 0x157000"
+    nc3 = [int(g3m["cells"][nm]["addr"], 16) for nm in INTA2_N_NAMES]
+    assert nc3 == [INTA3_N_FIRST + 8 * i for i in range(INTA3_N_NCELLS)], \
+        f"the inta3 N cells are not the page-10 walk: {[hex(c) for c in nc3]}"
+    assert all((c & ~0xFFF) == pages[TRIGNAT_B_PAGE_IDX] for c in nc3), \
+        "an inta3 N cell left page 10"
+    assert all(nc3[i + 1] - nc3[i] >= 8 for i in range(len(nc3) - 1)), \
+        "the inta3 N cells are not >= 8 bytes apart"
+    assert all(g3m["cells"][nm]["barmap_value"] == "0x0"
+               and g3m["cells"][nm]["barmap_alias_value"] == "0x0" for nm in INTA2_N_NAMES), \
+        "an inta3 N cell is not zero in barmap at both views"
+    assert g3m["selection"]["inta3_n_page"] == "0x150000" \
+        and g3m["selection"]["inta3_n_page_idx"] == INTA3_N_PAGE_IDX \
+        and g3m["selection"]["inta3_n_cells"] == [hex(c) for c in nc3], \
+        "the inta3 selection does not name the page-10 N cells"
+    assert g3m["selection"]["inta3_f_page"] == hex(pages[INTA2_F_PAGE_IDX]) == "0x155000", \
+        "inta3 did not keep Site F on page 13"
+    # the pads have inta2's shapes; the ONLY byte changes vs inta2 are the six N-cell movw immediates
+    ac3 = [int(g3m["cells"][nm]["addr"], 16) for nm in a_names] + nc3
+    assert len(ac3) == INTA2_A_NCELLS, "the inta3 Pad A cell count changed"
+    pad_s3 = int(g3m["padding"]["send_n"]["file_offset"], 16)
+    pad_f3 = int(g3m["padding"]["fallthrough_f"]["file_offset"], 16)
+    fc3 = [int(g3m["cells"][nm]["addr"], 16) for nm in INTA2_F_NAMES]
+    code_s3 = pad_send_inta2(pad_s3, ac3)
+    code_f3 = pad_fallthrough_inta2(pad_f3, fc3)
+    assert g3[pad_s3:pad_s3 + len(code_s3)] == code_s3, "the inta3 Pad A(N) is not in the image"
+    assert g3[pad_f3:pad_f3 + len(code_f3)] == code_f3, "the inta3 Site F pad is not in the image"
+    assert g3[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] == bl(TRIGNAT_SITE_A, pad_s3), \
+        "the inta3 Pad A site is not the intended bl"
+    assert g3[INTA2_SITE_F:INTA2_SITE_F + 4] == bl(INTA2_SITE_F, pad_f3), \
+        "the inta3 Site F site is not the intended bl"
+    assert g3[INTA_SITE_L:INTA_SITE_L + 4] == data[INTA_SITE_L:INTA_SITE_L + 4], \
+        "inta3 altered the dropped Pad-L site 0x86F78"
+    pad_d3 = int(g3m["padding"]["drain_b2"]["file_offset"], 16)
+    pad_m3 = int(g3m["padding"]["drain_extra"]["file_offset"], 16)
+    code_d3 = pad_drain_inta(pad_d3, [int(g3m["cells"][nm]["addr"], 16) for nm in b_names], pad_m3)
+    code_m3 = pad_drain_extra_inta(pad_m3, [int(g3m["cells"][nm]["addr"], 16)
+                                            for nm in ("B_D4", "B_D5", "B_D6", "B_D7", "B_P4")])
+    assert g3[pad_d3:pad_d3 + len(code_d3)] == code_d3, "the inta3 Pad B2 is not in the image"
+    assert g3[pad_m3:pad_m3 + len(code_m3)] == code_m3, "the inta3 drain companion is not in the image"
+    assert g3[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] == bl(TRIGCONS_SITE_B, pad_d3), \
+        "the inta3 Pad B2 site is not the intended bl"
+    assert g3[TRIGCONS_CONT_B:TRIGCONS_CONT_B + 4] == data[TRIGCONS_CONT_B:TRIGCONS_CONT_B + 4], \
+        "inta3 altered the stock loop head 0x86F78"
+    allowed_3 = set()
+    for site_3 in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B, INTA2_SITE_F):
+        allowed_3 |= set(range(site_3, site_3 + 4))
+    for key_3 in ("thunk", "bringup", "send_n", "post", "drain_b2", "drain_extra",
+                  "fallthrough_f"):
+        off_3 = int(g3m["padding"][key_3]["file_offset"], 16)
+        allowed_3 |= set(range(off_3, off_3 + int(g3m["padding"][key_3]["code_length"])))
+    changed_3 = [i for i in range(len(data)) if g3[i] != data[i]]
+    assert changed_3 and all(c in allowed_3 for c in changed_3), \
+        "inta3 changed bytes outside its regions"
+    diff_23 = [i for i in range(len(data)) if g2[i] != g3[i]]
+    assert diff_23, "inta3 is byte-identical to inta2 - the N cells did not move"
+    assert all(pad_s3 <= i < pad_s3 + len(code_s3) for i in diff_23), \
+        f"inta3 differs from inta2 outside the Pad A(N) program: {[hex(i) for i in diff_23[:8]]}"
+    for name_3, code_3 in (("send_n", code_s3), ("fallthrough_f", code_f3)):
+        for bad_3 in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                      write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            assert bad_3 not in code_3, f"the inta3 {name_3} pad addresses a forbidden CA"
+    assert g3[0x8702C:0x87030] == data[0x8702C:0x87030], \
+        "inta3 altered the original ISENABLER store"
+    assert md5(g3) == INTA3_MD5, f"inta3 output changed: {md5(g3)} != {INTA3_MD5}"
+
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
           f"{pm['patches'][0]['before']} -> {pm['patches'][0]['after']} "
@@ -6138,6 +6221,14 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"{g2m['padding']['fallthrough_f']['file_offset']}, site {hex(INTA2_SITE_F)} "
           f"cont {hex(INTA2_CONT_F)}; 0x86f78 STOCK (Pad L dropped)")
     print(f"  inta2 md5         : {md5(g2)}")
+    print(f"  inta3 cells       : " + " ".join(f"{n}={g3m['cells'][n]['addr']}" for n in INTA2_N_NAMES)
+          + f" (page 10 = {g3m['selection']['inta3_n_page']} - the retention-VERIFIED band; "
+            f"inta2's page 14 = {hex(pages[INTA2_N_PAGE_IDX])} did not retain)")
+    print(f"  inta3 pads        : Pad A(N) @ file {g3m['padding']['send_n']['file_offset']}, site "
+          f"{hex(TRIGNAT_SITE_A)}; Site F @ {g3m['padding']['fallthrough_f']['file_offset']}, site "
+          f"{hex(INTA2_SITE_F)} cont {hex(INTA2_CONT_F)}; only {len(diff_23)} bytes differ from "
+          f"inta2 (the six N-cell movw immediates)")
+    print(f"  inta3 md5         : {md5(g3)}")
     return 0
 
 
@@ -6801,6 +6892,83 @@ def select_cells_inta2(barmap: bytes):
     return cells + b2 + fc + nc, sel
 
 
+# ---- inta3: the inta2 take with the N cells on the RETENTION-VERIFIED page (witness2.md FLAW 2)
+# The inta2 run's Site N deposited NOTHING: all six N_* read 0x00000000 - including the constant
+# sentinel N_SNT (0x50AA7E49) and the live CPSR, values that cannot legitimately be zero - while the
+# SAME send pad's A_* deposits all landed.  So page 14 (runtime 0x157000) simply did not retain;
+# in the same boot pages 9-13 DID.  inta3 is therefore inta2 with ONE change: the six N cells move
+# to page 10 (runtime 0x150000, alias 0x40808000) - the pair verified retained across the last two
+# runs' barmap reads - at the next free 8-byte slots after the page-10 cells already taken
+# (A_S4..A_S8/A_P2/B_D0..B_D3/B_P3 end at 0x150050), i.e. 0x150058..0x150080.  Every pad PROGRAM is
+# byte-identical to inta2's (only the N cell addresses move); Site F keeps page 13 (0x155000).
+# NEVER writes 0x400392f0 or the masked word 0x21; NEVER reads the IAR 0x4016010c or 0x10161000.
+INTA3_N_PAGE_IDX = TRIGNAT_B_PAGE_IDX       # all_zero_pages[10] = 0x150000 (the retaining band)
+INTA3_N_NCELLS = INTA2_N_NCELLS             # 6: N_ACT/N_ISP/N_HPP/N_OU0/N_PSR/N_SNT
+INTA3_N_FIRST = 0x150058                    # the first free 8-byte slot after B_P3 (0x150050)
+
+NOTE_INTA3_N = (
+    "Site N is inta2's (Pad A's widened entry at file 0x86F5A, the firmware's own out[1] post), "
+    "depositing N_ACT (ISACTIVER2 w2, CA 0x40161308) / N_ISP (ISPENDR2 w2, CA 0x40161208) / "
+    "N_HPP (GICC HPPIR, CA 0x40160118) / N_OU0 (out[0], CA 0x40039010) / N_PSR (the full CPSR) and "
+    "the sentinel N_SNT.  ONLY the six cell addresses changed vs inta2: they now sit on page 10 "
+    "(0x150058..0x150080), the retention-VERIFIED band (witness2.md FLAW 2), instead of page 14."
+)
+NOTE_INTA3_CELLS = (
+    "trignat/inta cells (IDENTICAL addresses) plus all_zero_pages[11] (B_D4..B_D7/B_P4, kept) "
+    "and all_zero_pages[13] (F_ACT..F_SNT, kept), and - THE FIX - the six N cells on "
+    "all_zero_pages[10] = 0x150000 instead of inta2's all_zero_pages[14] = 0x157000.  They take "
+    "0x150058..0x150080, the next free 8-byte slots after A_S4..A_S8/A_P2/B_D0..B_D3/B_P3 (which "
+    "end at 0x150050).  witness2.md FLAW 2: page 14 did NOT retain the inta2 run's deposits "
+    "(N_SNT/N_PSR read 0x0) while pages 9-13 did, so the fresh cells now sit in the verified band.  "
+    "Every cell is 0x00000000 at BOTH the BAR0 and the ACP-alias offsets in barmap_ep0_bar0.bin, "
+    "4-byte aligned, >= 8 bytes apart, outside the four excluded tables and distinct."
+)
+
+
+def select_cells_inta3(barmap: bytes):
+    """witness2.md FLAW 2 fix: inta2's cells with the six N cells on all_zero_pages[10] """
+    cells, sel = select_cells_trignat(barmap)
+    ok = _cell_ok(barmap)
+    pages = _zero_page_spans(barmap)
+    if len(pages) < INTA2_F_PAGE_IDX + 1:
+        raise PatchError(f"inta3 selection failed: fewer than {INTA2_F_PAGE_IDX + 1} all-zero 4 KB "
+                         "pages in the band")
+    p_b2, p_f, p_n = pages[INTA_B2_PAGE_IDX], pages[INTA2_F_PAGE_IDX], pages[INTA3_N_PAGE_IDX]
+    if p_n != pages[TRIGNAT_B_PAGE_IDX]:
+        raise PatchError(f"inta3 selection failed: the N page is not the retaining page 10 ({p_n:#x})")
+    b2 = _take_cells(p_b2, INTA_B2_NCELLS, ok, cells)
+    if len(b2) < INTA_B2_NCELLS:
+        raise PatchError(f"inta3 selection failed: page {p_b2:#x} has fewer than {INTA_B2_NCELLS} "
+                         "usable cells")
+    fc = _take_cells(p_f, INTA2_F_NCELLS, ok, b2)
+    if len(fc) < INTA2_F_NCELLS:
+        raise PatchError(f"inta3 selection failed: page {p_f:#x} has fewer than {INTA2_F_NCELLS} "
+                         "usable cells")
+    # the retention fix: the N walk continues from the LAST page-10 cell already taken (B_P3 at
+    # 0x150050), so its candidates below that address are rejected and it lands at 0x150058.
+    nc = _take_cells(p_n, INTA3_N_NCELLS, ok, cells)
+    if len(nc) < INTA3_N_NCELLS:
+        raise PatchError(f"inta3 selection failed: page {p_n:#x} has fewer than {INTA3_N_NCELLS} "
+                         "free slots after the trignat cells")
+    if nc[0] != INTA3_N_FIRST:
+        raise PatchError(f"inta3 selection failed: the first N cell is {nc[0]:#x}, not the first "
+                         f"free slot {INTA3_N_FIRST:#x}")
+    sel = dict(sel)
+    sel.update({
+        "inta3_rule": "trignat's cells + all_zero_pages[11] (B_D4..B_D7/B_P4, kept) + "
+                      "all_zero_pages[13] (F_*, kept) + the N cells on all_zero_pages[10] "
+                      "(0x150000, the retention-verified band) - witness2.md FLAW 2 fix",
+        "inta3_b2_page": hex(p_b2), "inta3_f_page": hex(p_f), "inta3_n_page": hex(p_n),
+        "inta3_b2_page_idx": INTA_B2_PAGE_IDX, "inta3_f_page_idx": INTA2_F_PAGE_IDX,
+        "inta3_n_page_idx": INTA3_N_PAGE_IDX,
+        "inta3_b2_cells": [hex(a) for a in b2], "inta3_f_cells": [hex(a) for a in fc],
+        "inta3_n_cells": [hex(a) for a in nc], "inta3_note": NOTE_INTA3_CELLS,
+        "inta3_n_first": hex(INTA3_N_FIRST),
+        "inta3_dropped": "inta2's page-14 N cells (0x157000 did not retain) - Pad L stays dropped",
+    })
+    return cells + b2 + fc + nc, sel
+
+
 def pad_send_inta2(pad: int, a_cells: list[int]) -> bytes:
     """take2.md section 2.2: trignat/inta's Pad A (the natural out[1] post at 0x86F5A) with its
     ENTRY block widened into the take set.  Order: A_E0/A_E1 (unchanged) -> N_ACT/N_ISP/N_HPP/
@@ -6985,11 +7153,14 @@ def verify_disasm_inta2(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: 
     }
 
 
-def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
-    """take2.md sections 2/3: trigcons/inta's thunk + bring-up + post pads, Pad A's entry widened
-    with the N_* take reads, the inta Pad B2 + drain companion kept, Pad L dropped (0x86F78 stock)
-    and the NEW Site F pad at 0x86F7E."""
-    cells, sel = select_cells_inta2(barmap)
+def _make_inta_like(data: bytes, barmap: bytes, refs: set[int], select_fn, variant: str,
+                    n_note: str, cells_note: str):
+    """The shared body of the inta2/inta3 instruments: trigcons/inta's thunk + bring-up + post
+    pads, Pad A's entry widened with the N_* take reads, the inta Pad B2 + drain companion kept,
+    Pad L dropped (0x86F78 stock) and the NEW Site F pad at 0x86F7E.  `select_fn` supplies the
+    cells (the ONLY difference between inta2 and inta3 is the N cells' page); `variant`,
+    `n_note` and `cells_note` name the output and its notes."""
+    cells, sel = select_fn(barmap)
     s1, s2 = cells[0], cells[1]
     gc = cells[2:2 + GICV_NCELLS]
     ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
@@ -7099,7 +7270,7 @@ def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
         records[nm] = cell_record(barmap, a)
 
     manifest = {
-        "variant": "inta2",
+        "variant": variant,
         "selection": sel,
         "cells": records,
         "gic_map": {
@@ -7114,9 +7285,9 @@ def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
                      "site_b2": hex(TRIGCONS_SITE_B), "cont_b2": hex(TRIGCONS_CONT_B),
                      "note": NOTE_TRIGCONS_B},
             "site_f_note": NOTE_INTA2_F,
-            "site_n_note": NOTE_INTA2_N,
+            "site_n_note": n_note,
             "pad_l_dropped_note": NOTE_INTA2_DROP,
-            "cells_note": NOTE_INTA2_CELLS,
+            "cells_note": cells_note,
         },
         "classification": {
             "instrument": "the POST-EXIT take sample: Pad B2 (the pre-exit drain baseline at "
@@ -7176,7 +7347,7 @@ def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
                                             "bytes_identical": out[INTA2_CONT_F:0x86F92] ==
                                                                data[INTA2_CONT_F:0x86F92]},
         },
-        "inta2": {
+        variant: {
             "site_n": hex(INTA2_SITE_N), "cont_n": hex(TRIGNAT_CONT_A),
             "site_b2": hex(TRIGCONS_SITE_B), "cont_b2": hex(TRIGCONS_CONT_B),
             "site_f": hex(INTA2_SITE_F), "cont_f": hex(INTA2_CONT_F),
@@ -7190,6 +7361,26 @@ def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+def make_inta2(data: bytes, barmap: bytes, refs: set[int]):
+    """take2.md sections 2/3: trigcons/inta's thunk + bring-up + post pads, Pad A's entry widened
+    with the N_* take reads, the inta Pad B2 + drain companion kept, Pad L dropped (0x86F78 stock)
+    and the NEW Site F pad at 0x86F7E; the F cells on all_zero_pages[13], the N cells on
+    all_zero_pages[14] (take2.md section 3)."""
+    return _make_inta_like(data, barmap, refs, select_cells_inta2, "inta2", NOTE_INTA2_N,
+                           NOTE_INTA2_CELLS)
+
+
+def make_inta3(data: bytes, barmap: bytes, refs: set[int]):
+    """witness2.md FLAW 2 fix: inta2 byte-for-byte EXCEPT the six N cell addresses, which move
+    from page 14 (runtime 0x157000 - which did NOT retain the inta2 run's deposits while pages
+    9-13 did) to page 10 (0x150000), the pair verified retained across the last two runs' barmap
+    reads.  The N cells land at 0x150058..0x150080 - the next free 8-byte slots after the page-10
+    cells the trignat Pad A already uses (A_S4..A_S8/A_P2/B_D0..B_D3/B_P3 end at 0x150050).  Every
+    pad program is byte-identical to inta2's; Site F keeps its page-13 cells (0x155000)."""
+    return _make_inta_like(data, barmap, refs, select_cells_inta3, "inta3", NOTE_INTA3_N,
+                           NOTE_INTA3_CELLS)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="patch_fw_scratch.py", description=__doc__.splitlines()[0])
     ap.add_argument("--fw", default="build/tmp/FIRMWARE.bin", help="input blob (READ-ONLY)")
@@ -7198,7 +7389,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="output blob (never the input)")
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
-                                          "trigcons", "inta", "inta2"),
+                                          "trigcons", "inta", "inta2", "inta3"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -7250,7 +7441,12 @@ def main(argv: list[str] | None = None) -> int:
                          "Pad B2 + drain companion kept (the pre-exit baseline), the NEW Site F pad at "
                          "the 0xcece gate's own fall-through 0x86F7E (pop.w -> the take reads -> b.w "
                          "0x86F82) and Pad L DROPPED (0x86F78 back to the stock loop head); the F_* "
-                         "cells sit on all_zero_pages[13] and the N_* cells on all_zero_pages[14]")
+                         "cells sit on all_zero_pages[13] and the N_* cells on all_zero_pages[14]; "
+                         "inta3: witness2.md FLAW 2 fix - inta2 byte-for-byte EXCEPT the six N cell "
+                         "addresses, which move from page 14 (0x157000 did not retain the inta2 run's "
+                         "deposits) to page 10 (0x150000, the retention-verified band) at "
+                         "0x150058..0x150080, the first free 8-byte slots after the trignat Pad A/B "
+                         "cells (B_P3 = 0x150050); Site F keeps page 13, every pad program unchanged")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -7281,6 +7477,7 @@ def main(argv: list[str] | None = None) -> int:
                          else make_trigcons(data, barmap, refs) if args.variant == "trigcons"
                          else make_inta(data, barmap, refs) if args.variant == "inta"
                          else make_inta2(data, barmap, refs) if args.variant == "inta2"
+                         else make_inta3(data, barmap, refs) if args.variant == "inta3"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
