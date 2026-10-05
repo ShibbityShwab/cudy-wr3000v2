@@ -158,6 +158,7 @@ GICUNMASK_MD5 = "a68d5fed68b3015ab97c63ca7a394c28"  # frozen gicunmask-variant o
 TRIGRING_MD5 = "0769eed122c0506d3afca6b5a8bd8ae9"             # frozen trigring-variant output (selftest regression)
 TRIGNAT_MD5 = "845188343f70cff9de29e77aea464021"             # frozen trignat-variant output (selftest regression)
 TRIGCONS_MD5 = "5fb51acd68c62699435d2e1fd823d900"             # frozen trigcons-variant output (selftest regression)
+INTA_MD5 = "bcf14dbeefe45bcfce8df279c06776bd"                 # frozen inta-variant output (selftest regression)
 BIAS = 0x40000                         # runtime address = file offset + BIAS
 BARMAP_MD5 = "40a1da524539c3392d3c04694ffafb4d"
 ALIAS_OFF = 0x6b8000                   # ACP alias: BAR0 offset 0x6b8000+addr == BAR0 addr
@@ -865,6 +866,13 @@ def movt(rd: int, imm16: int) -> bytes:
 
 def cmp_reg(rn: int, rm: int) -> bytes:
     return struct.pack("<H", 0x4500 | ((rm & 0xF) << 3) | (rn & 0x7))
+
+
+def cmp_reg_t2(rn: int, rm: int) -> bytes:
+    """CMP (register) T2: `010000 1010 Rm Rn` - the encoding the firmware's own announce loop uses
+    at file 0x86f7a (stock 9a42 = `cmp r2,r3`).  Semantically identical to cmp_reg() (T1); the loop
+    pair is re-emitted byte-for-byte with this form."""
+    return struct.pack("<H", 0x4280 | ((rm & 7) << 3) | (rn & 7))
 
 
 def mov_reg(rd: int, rm: int) -> bytes:
@@ -2140,7 +2148,8 @@ def pad_bringup(pad: int, s2: int, gic_cells: list[int] | None = None) -> bytes:
 
 def patch_sites(data: bytes, pad_i: int, pad_b: int, pad_s: int | None = None,
                 pad_p: int | None = None, pad_d: int | None = None,
-                drain_site: int | None = None) -> bytes:
+                drain_site: int | None = None, loop_pad: int | None = None,
+                loop_site: int | None = None) -> bytes:
     buf = bytearray(data)
     buf[SITE_THUNK:SITE_THUNK + 4] = bl(SITE_THUNK, pad_i)
     buf[BRINGUP_SITE:BRINGUP_SITE + 4] = bl(BRINGUP_SITE, pad_b)
@@ -2151,6 +2160,9 @@ def patch_sites(data: bytes, pad_i: int, pad_b: int, pad_s: int | None = None,
     if pad_d is not None:
         site = TRIGNAT_SITE_B if drain_site is None else drain_site
         buf[site:site + 4] = bl(site, pad_d)
+    if loop_pad is not None:
+        site = INTA_SITE_L if loop_site is None else loop_site
+        buf[site:site + 4] = bl(site, loop_pad)
     return bytes(buf)
 
 
@@ -5822,6 +5834,89 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert gcnm["preserved"]["old_announce_exit_continuation"]["bytes_identical"] is True
     assert md5(gcn) == TRIGCONS_MD5, f"trigcons output changed: {md5(gcn)} != {TRIGCONS_MD5}"
 
+    # ---- inta: the DEVCPU drain + delayed cells (devcpu.md sections 4.1/4.2)
+    gi, gim = make_inta(data, barmap, refs)
+    assert len(gi) == len(data), "inta changed the size"
+    gi2, gim2 = make_inta(data, barmap, refs)
+    assert gi == gi2, "inta patch is not deterministic"
+    assert json.dumps(gim, sort_keys=True) == json.dumps(gim2, sort_keys=True), \
+        "inta manifest is not deterministic"
+    # every trigcons cell keeps its address (the sanities stay directly comparable)
+    for nm in (["S1", "S2"] + [f"C{i}" for i in range(GICV_NCELLS)]
+               + [f"E{i}" for i in range(GICP_NCELLS)] + a_names + b_names):
+        assert gim["cells"][nm]["addr"] == gcnm["cells"][nm]["addr"], f"inta moved cell {nm}"
+    pages = _zero_page_spans(barmap)
+    p_b2, p_l = pages[INTA_B2_PAGE_IDX], pages[INTA_L_PAGE_IDX]
+    b2c_i = [int(gim["cells"][nm]["addr"], 16) for nm in ("B_D4", "B_D5", "B_D6", "B_D7", "B_P4")]
+    assert b2c_i == [p_b2 + 8 * i for i in range(INTA_B2_NCELLS)], \
+        f"the inta B2 cells are not the page-11 walk: {[hex(c) for c in b2c_i]}"
+    l_names_i = ["L1_ISP", "L1_ACT", "L1_HPP", "L1_OU0", "L1_PSR",
+                 "L2_ISP", "L2_ACT", "L2_HPP", "L2_OU0", "L2_PSR", "L_CNT", "L_SNT"]
+    lc_i = [int(gim["cells"][nm]["addr"], 16) for nm in l_names_i]
+    assert lc_i == [p_l + 8 * i for i in range(INTA_L_NCELLS)], \
+        f"the inta Pad L cells are not the page-12 walk: {[hex(c) for c in lc_i]}"
+    for nm in ("B_D4", "B_P4", "L1_PSR", "L2_PSR", "L_CNT", "L_SNT"):
+        assert gim["cells"][nm]["barmap_value"] == "0x0" \
+            and gim["cells"][nm]["barmap_alias_value"] == "0x0", f"inta cell {nm} is not zero"
+    assert gim["selection"]["inta_b2_page"] == hex(p_b2) and gim["selection"]["inta_l_page"] == hex(p_l)
+
+    pad_i_i = int(gim["padding"]["thunk"]["file_offset"], 16)
+    pad_b_i = int(gim["padding"]["bringup"]["file_offset"], 16)
+    pad_s_i = int(gim["padding"]["send_a"]["file_offset"], 16)
+    pad_p_i = int(gim["padding"]["post"]["file_offset"], 16)
+    pad_d_i = int(gim["padding"]["drain_b2"]["file_offset"], 16)
+    pad_m_i = int(gim["padding"]["drain_extra"]["file_offset"], 16)
+    pad_l_i = int(gim["padding"]["loop_l"]["file_offset"], 16)
+    # the thunk/bring-up/send/post pads are the trigcons programs (same instruction stream; the
+    # branch operands differ only because the pads moved to fresh addresses)
+    for key_i in ("thunk", "bringup", "send_a", "post"):
+        off_i = int(gim["padding"][key_i]["file_offset"], 16)
+        n_i = int(gim["padding"][key_i]["code_length"])
+        off_c4 = int(gcnm["padding"][key_i]["file_offset"], 16)
+        assert norm_stream(off_i, gi[off_i:off_i + n_i]) == \
+            norm_stream(off_c4, gcn[off_c4:off_c4 + n_i]), \
+            f"the inta {key_i} pad is not the same program as trigcons's"
+    # Pad B2 = trigcons's drain program with only its tail branch retargeted to the companion
+    code_d_i = pad_drain_inta(pad_d_i, bcn, pad_m_i)
+    assert gi[pad_d_i:pad_d_i + len(code_d_i)] == code_d_i, "the inta Pad B2 is not in the image"
+    assert movw(3, 0xcece) in code_d_i and b_w(pad_d_i + len(code_d_i) - 4, pad_m_i) == code_d_i[-4:]
+    code_m_i = pad_drain_extra_inta(pad_m_i, b2c_i)
+    code_l_i = pad_loop_inta(pad_l_i, lc_i)
+    assert gi[pad_m_i:pad_m_i + len(code_m_i)] == code_m_i, "the inta companion pad is not in the image"
+    assert gi[pad_l_i:pad_l_i + len(code_l_i)] == code_l_i, "the inta Pad L is not in the image"
+    # the sites: 0x86F74 -> Pad B2, 0x86F78 -> Pad L, the old exit 0x86F7E stays STOCK
+    assert gi[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] == bl(TRIGCONS_SITE_B, pad_d_i)
+    assert gi[INTA_SITE_L:INTA_SITE_L + 4] == bl(INTA_SITE_L, pad_l_i)
+    assert gi[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] == data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4], \
+        "inta altered the old announce-exit site 0x86F7E"
+    assert INTA_SITE_L_BYTES == bytes.fromhex("0a689a42") == data[INTA_SITE_L:INTA_SITE_L + 4]
+    assert gim["sites"]["loop_l"]["replaced_bytes"] == "0a689a42"
+    assert gim["sites"]["old_drain_b"]["unchanged"] is True
+    assert gim["preserved"]["original_gic_write"]["bytes_identical"] is True
+    assert gim["preserved"]["itet_block"]["bytes_identical"] is True
+
+    allowed_i = set()
+    for site_i in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B, INTA_SITE_L):
+        allowed_i |= set(range(site_i, site_i + 4))
+    for key_i in ("thunk", "bringup", "send_a", "post", "drain_b2", "drain_extra", "loop_l"):
+        off_i = int(gim["padding"][key_i]["file_offset"], 16)
+        allowed_i |= set(range(off_i, off_i + int(gim["padding"][key_i]["code_length"])))
+    changed_i = [i for i in range(len(data)) if gi[i] != data[i]]
+    assert changed_i and all(c in allowed_i for c in changed_i), \
+        "inta changed bytes outside its regions"
+    assert gi[0x8702C:0x87030] == data[0x8702C:0x87030], "inta altered the ISENABLER store"
+    assert gi[0x87030:0x87036] == data[0x87030:0x87036], "inta altered the itet block"
+    assert gi[TRIGCONS_CONT_B:INTA_SITE_L] == data[TRIGCONS_CONT_B:INTA_SITE_L], \
+        "inta altered the byte stream between 0x86F78 and the old exit"
+    assert gi[TRIGNAT_SITE_B:0x86F92] == data[TRIGNAT_SITE_B:0x86F92], \
+        "inta altered the byte stream after the old drain site"
+    assert gim["classification"]["ROW_1_or_2"].startswith("devcpu.md section 5")
+    assert gim["gic_map"]["ISACTIVER2"] == hex(GICD_ISACTIVER2) == "0x40161308"
+    assert gim["gic_map"]["GICC_CTLR"] == hex(INTA_GICC_CTLR) == "0x40160100"
+    assert gim["gic_map"]["GICC_PMR"] == hex(INTA_GICC_PMR) == "0x40160104"
+    assert gim["sites"]["loop_l"]["cont"] == hex(INTA_CONT_L) == "0x86f7c"
+    assert md5(gi) == INTA_MD5, f"inta output changed: {md5(gi)} != {INTA_MD5}"
+
     # ---- input untouched
     assert rd(fw_path) == data, "the input file changed during the run"
 
@@ -5927,10 +6022,572 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"Pad B re-emits movw r3,#0xcece ({TRIGCONS_SITE_B_BYTES.hex()}) and b.w {hex(TRIGCONS_CONT_B)}"
           f" (expect RING-PENDING-NOT-TAKEN)")
     print(f"  trigcons md5      : {md5(gcn)}")
+    print(f"  inta cells        : B_D4={gim['cells']['B_D4']['addr']} B_D5={gim['cells']['B_D5']['addr']} "
+          f"B_D6={gim['cells']['B_D6']['addr']} B_D7={gim['cells']['B_D7']['addr']} "
+          f"B_P4={gim['cells']['B_P4']['addr']} L1_ISP={gim['cells']['L1_ISP']['addr']} "
+          f"L2_ISP={gim['cells']['L2_ISP']['addr']} L_CNT={gim['cells']['L_CNT']['addr']} "
+          f"L_SNT={gim['cells']['L_SNT']['addr']}")
+    print(f"  inta pads         : Pad B2 @ file {gim['padding']['drain_b2']['file_offset']}, "
+          f"companion @ {gim['padding']['drain_extra']['file_offset']} "
+          f"(B_D4 ISACTIVER2 0x40161308 / B_D5 CPSR / B_D6 0x40160100 / B_D7 0x40160104 + B_P4); "
+          f"Pad L @ file {gim['padding']['loop_l']['file_offset']}, site 0x86f78 cont 0x86f7c")
+    print(f"  inta md5          : {md5(gi)}")
     return 0
 
 
 # ---------------------------------------------------------------- main
+
+def _take_cells(page: int, n: int, ok, prev: list[int]) -> list[int]:
+    """The selection walk's page rule: from the page base upward, take `n` 4-byte-aligned cells
+    that are ok() and >= 8 bytes from the previous accepted cell."""
+    out: list[int] = []
+    a = page
+    while a + 8 <= page + 0x1000 and len(out) < n:
+        last = out[-1] if out else prev[-1]
+        if ok(a) and a - last >= 8:
+            out.append(a)
+        a += 4
+    return out
+
+
+# ---- inta: the DEVCPU drain + delayed cells (devcpu.md sections 4.1/4.2, variant "inta")
+# devcpu.md names the variant "devcpu"; the task's chosen name here is "inta".  It is trigcons
+# (Pad A = the firmware's own natural post at 0x86F5A; Pad B at 0x86F74 = the announce wait's own
+# `movw r3,#0xcece`) PLUS:
+#   * Pad B2 = trigcons's Pad B EXTENDED with the drain cells B_D4 (ISACTIVER2 word 2),
+#     B_D5 (the full CPSR), B_D6 (GICC_CTLR) and B_D7 (GICC_PMR), plus the page-11 sentinel B_P4;
+#   * Pad L = a NEW pad at file 0x86F78, the announce wait's own spin head (`ldr r2,[r1]` +
+#     `cmp r2,r3`, stock 0a689a42) - the ONLY site re-visited while the CPU is parked: it counts its
+#     iterations in L_CNT, samples the GIC/CPSR set L1_* once (iteration 1) and once per 2^24
+#     iterations (L2_*), then re-emits the replaced pair and branches to 0x86F7C.
+# The B2 cells keep trigcons's B_D0..B_D3 + B_P3 addresses; B_D4..B_P4 sit on all_zero_pages[11] =
+# 0x153000 and Pad L's cells on all_zero_pages[12] = 0x154000.  NEVER writes 0x400392f0 or the
+# masked word 0x21; NEVER reads the IAR 0x4016010c or 0x10161000 (the gate register 0x4000010c is a
+# DIFFERENT address); every added GIC read (ISPENDR2/ISACTIVER2/HPPIR) is non-acknowledging.
+INTA_B2_PAGE_IDX = TRIGNAT_B_PAGE_IDX + 1     # all_zero_pages[11] = 0x153000 (B_D4..B_D7, B_P4)
+INTA_L_PAGE_IDX = TRIGNAT_B_PAGE_IDX + 2      # all_zero_pages[12] = 0x154000 (Pad L cells)
+INTA_GICC_CTLR = 0x40160100                   # GICC_CTLR (firmware literal file 0x8309c)
+INTA_GICC_PMR = 0x40160104                    # GICC_PMR (firmware literal file 0x83098)
+INTA_B2_NSAMPLES = 4                          # B_D4 (ISACTIVER2), B_D5 (CPSR), B_D6 (CTLR), B_D7 (PMR)
+INTA_B2_NCELLS = 5                            # + the B_P4 sentinel
+INTA_L_NSAMPLES = 10                          # L1_ISP..L1_PSR, L2_ISP..L2_PSR
+INTA_L_NCELLS = 12                            # + L_CNT + L_SNT
+INTA_L_READS = (GICD_ISPENDR2, GICD_ISACTIVER2, GICC_HPPIR, TRIGNAT_OUT0_CA)  # 4 reads + the CPSR
+INTA_SITE_L = 0x86F78                         # Pad L's site: the 0xcece spin head
+INTA_CONT_L = 0x86F7C                         # continuation: the loop's own `bne 0x86F78`
+INTA_LOOP_PAIR = ldr_imm(2, 1, 0) + cmp_reg_t2(2, 3)   # the replaced `ldr r2,[r1]` + `cmp r2,r3`
+INTA_SITE_L_BYTES = INTA_LOOP_PAIR                     # == the stock bytes 0a689a42
+INTA_SENTINEL = MARKER                        # 0x50aa7e49 - the page-12 presence proof
+COND_EQ = 0
+
+NOTE_INTA_B2 = (
+    "Pad B2 (devcpu.md section 4.1) is trigcons's Pad B at file 0x86F74 - the announce wait's own "
+    "`movw r3,#0xcece`, guaranteed to run before the never-exiting 0xcece loop - EXTENDED with the "
+    "drain cells: B_D4 (CA 0x40161308 ISACTIVER2 word 2; bit 12 SET = the CPU read the IAR, i.e. "
+    "the id-0x4c interrupt is ACTIVE), B_D5 (the full CPSR via `mrs r0,<PSR>` = F3EF 8000, the form "
+    "the firmware's own I-bit test at 0x8706a proves reads the whole CPSR - bit 7 = I), B_D6 (CA "
+    "0x40160100 GICC_CTLR, expect bit 0 = 1) and B_D7 (CA 0x40160104 GICC_PMR, expect >= 0x50), "
+    "plus the page-11 sentinel B_P4.  It keeps the B_D0..B_D3 + B_P3 cells on page 10 at trigcons's "
+    "exact addresses and then re-emits `movw r3,#0xcece` and branches to 0x86F78 (the loop head, "
+    "now Pad L's site).  r0-r5 are saved/restored; only r3 is re-set, AFTER the pop."
+)
+NOTE_INTA_L = (
+    "Pad L (devcpu.md section 4.2) is the DELAYED sample: the 0xcece spin head at file 0x86F78 "
+    "(`ldr r2,[r1]` + `cmp r2,r3`, stock 0a689a42) is replaced with a `bl` to the pad, so the pad "
+    "runs on the FIRST revisit (immediately after Pad B2) and on EVERY loop iteration thereafter.  "
+    "It increments a persistent counter (L_CNT) and gates its samples with `cmp r3,#1` (iteration "
+    "1, the L1 block, which also arms the page-12 sentinel L_SNT) and `lsls r2,r3,#8 ; cmp r2,#0"
+    " ; bne tail` (a nonzero multiple of 2^24 iterations, the L2 block).  Both blocks read "
+    "ISPENDR2 (CA 0x40161208; bit 12 = pending), ISACTIVER2 (CA 0x40161308; bit 12 = active), "
+    "HPPIR (CA 0x40160118) and out[0] (CA 0x40039010) and store the CPSR.  The tail restores "
+    "r0-r5, re-emits the replaced `ldr r2,[r1]` and `cmp r2,r3` and branches to 0x86F7C (`bne "
+    "0x86F78`); r3 is restored by the pop, so it still holds 0xcece for the re-emitted `cmp`.  No "
+    "pad ever returns through lr (they all end in `b.w`), so the `bl`'s lr clobber is inert.  Cost "
+    "is bounded: the sampling blocks run once and once per 2^24 iterations; per-iteration overhead "
+    "is the counter update, one shift and one compare."
+)
+NOTE_INTA_CELLS = (
+    "trignat/trigcons cells (IDENTICAL addresses: S1/S2, C0..C5, E0..E3, A_S0..A_S8/A_P1/A_E0/"
+    "A_E1/A_P2, B_D0..B_D3/B_P3) plus the two fresh all-zero 4 KB pages after them: "
+    "all_zero_pages[11] = 0x153000 carries B_D4..B_D7 + B_P4 (5); all_zero_pages[12] = 0x154000 "
+    "carries L1_ISP/L1_ACT/L1_HPP/L1_OU0/L1_PSR, L2_ISP/L2_ACT/L2_HPP/L2_OU0/L2_PSR, L_CNT and "
+    "L_SNT (12).  Every cell is 0x00000000 at BOTH the BAR0 and the ACP-alias offsets in "
+    "barmap_ep0_bar0.bin, 4-byte aligned, >= 8 bytes apart, outside the four excluded tables and "
+    "distinct from every earlier cell."
+)
+
+
+def adds_imm(rd: int, rn: int, imm3: int) -> bytes:
+    """ADDS (immediate) T1: `adds Rd, Rn, #imm3`, low registers, imm3 in 0..7."""
+    if not 0 <= imm3 <= 7:
+        raise PatchError(f"adds immediate out of range: {imm3}")
+    return struct.pack("<H", 0x1C00 | (imm3 << 6) | ((rn & 7) << 3) | (rd & 7))
+
+
+def cmp_imm(rn: int, imm8: int) -> bytes:
+    """CMP (immediate) T1: `cmp Rn, #imm8`, low register, imm8 in 0..255."""
+    if not 0 <= imm8 <= 255:
+        raise PatchError(f"cmp immediate out of range: {imm8}")
+    return struct.pack("<H", 0x2800 | ((rn & 7) << 8) | imm8)
+
+
+def lsls_imm(rd: int, rm: int, imm5: int) -> bytes:
+    """LSLS (immediate) T1: `lsls Rd, Rm, #imm5`, imm5 in 0..31."""
+    if not 0 <= imm5 <= 31:
+        raise PatchError(f"lsls immediate out of range: {imm5}")
+    return struct.pack("<H", (imm5 << 6) | ((rm & 7) << 3) | (rd & 7))
+
+
+def _store_cpsr_block(cell: int) -> bytes:
+    """`mrs r0,<PSR>` then movw/movt the cell into r1 and `str r0,[r1]`.  The F3EF 8rd0 form is
+    the FULL-CPSR read (not a flags-only APSR read): the firmware's own I-bit test at file 0x8706a
+    (`mrs r3,<PSR> ; lsls r3,r3,#0x18 ; bpl`) depends on bit 7 moving to N, which no flags-only
+    read would supply.  Reading the CPSR does not change the mask; r0/r1 are saved by push/pop."""
+    return b"".join([
+        mrs_apsr(0),
+        movw(1, cell & 0xFFFF),
+        movt(1, cell >> 16),
+        str_imm(0, 1, 0),
+    ])
+
+
+def select_cells_inta(barmap: bytes):
+    """trignat's cells (IDENTICAL addresses) plus all_zero_pages[11] (B_D4..B_D7 + B_P4) and
+    all_zero_pages[12] (L1_*/L2_*/L_CNT/L_SNT), by the same rule."""
+    cells, sel = select_cells_trignat(barmap)
+    ok = _cell_ok(barmap)
+    pages = _zero_page_spans(barmap)
+    if len(pages) < INTA_L_PAGE_IDX + 1:
+        raise PatchError(f"inta selection failed: fewer than {INTA_L_PAGE_IDX + 1} all-zero 4 KB "
+                         "pages in the band")
+    p_b2, p_l = pages[INTA_B2_PAGE_IDX], pages[INTA_L_PAGE_IDX]
+    b2 = _take_cells(p_b2, INTA_B2_NCELLS, ok, cells)
+    if len(b2) < INTA_B2_NCELLS:
+        raise PatchError(f"inta selection failed: page {p_b2:#x} has fewer than {INTA_B2_NCELLS} "
+                         "usable cells")
+    lc = _take_cells(p_l, INTA_L_NCELLS, ok, b2)
+    if len(lc) < INTA_L_NCELLS:
+        raise PatchError(f"inta selection failed: page {p_l:#x} has fewer than {INTA_L_NCELLS} "
+                         "usable cells")
+    sel = dict(sel)
+    sel.update({
+        "inta_rule": "trignat's cells (identical addresses) plus all_zero_pages[11] (B_D4..B_D7 + "
+                     "B_P4) and all_zero_pages[12] (L1_*/L2_*/L_CNT/L_SNT), by the same rule",
+        "inta_b2_page": hex(p_b2), "inta_l_page": hex(p_l),
+        "inta_b2_page_idx": INTA_B2_PAGE_IDX, "inta_l_page_idx": INTA_L_PAGE_IDX,
+        "inta_b2_cells": [hex(a) for a in b2], "inta_l_cells": [hex(a) for a in lc],
+        "inta_note": NOTE_INTA_CELLS,
+    })
+    return cells + b2 + lc, sel
+
+
+def pad_drain_inta(pad: int, b_cells: list[int], next_pad: int) -> bytes:
+    """The inta Pad B2 (devcpu.md section 4.1): EXACTLY trigcons's Pad B (site 0x86F74, the
+    announce wait's own `movw r3,#0xcece`) - B_D0..B_D3 + the B_P3 sentinel, pop, re-emit
+    `movw r3,#0xcece`, restore flags - except that its tail branches to the companion pad `next_pad`
+    (which carries the added cells) instead of straight to the loop head.  Splitting the extended
+    drum into two pads is a build-node necessity: the loaded image holds only one 0x00 run >= 157
+    bytes, so a single 210-byte pad cannot be placed; the program (and the sampled instant) is
+    identical."""
+    b_d, b_p = b_cells[0:4], b_cells[4]
+    head = b"".join([
+        mrs_apsr(12),                                            # +0  save the condition flags
+        push(PAD_SAVE),                                          # +4  24 bytes, SP stays 8-aligned
+        gic_read_store_block(TRIGNAT_B_READS[0], b_d[0]),        # B_D0 out[0] (8 = still pending)
+        gic_read_store_block(TRIGNAT_B_READS[1], b_d[1]),        # B_D1 out[1]
+        gic_read_store_block(TRIGNAT_B_READS[2], b_d[2]),        # B_D2 ISPENDR2 w2
+        gic_read_store_block(TRIGNAT_B_READS[3], b_d[3]),        # B_D3 HPPIR
+        _store_imm_block(TRIGNAT_SENTINEL, b_p),                 # B_P3 page-10 sentinel
+    ])
+    tail = b"".join([
+        pop(PAD_SAVE),
+        movw(3, 0xcece),                                         # reproduce `movw r3,#0xcece`
+        msr_apsr(12),                                            # restore the saved flags
+    ])
+    back = pad + len(head) + len(tail)
+    return head + tail + b_w(back, next_pad)
+
+
+def pad_drain_extra_inta(pad: int, b2_cells: list[int]) -> bytes:
+    """The inta drain companion (devcpu.md section 4.1's added cells): entered by the `b.w` at the
+    tail of Pad B2, so it samples at the SAME instant.  B_D4 (ISACTIVER2 word 2, CA 0x40161308),
+    B_D5 (the full CPSR via `mrs r0,<PSR>`), B_D6 (GICC_CTLR, CA 0x40160100), B_D7 (GICC_PMR, CA
+    0x40160104) and the page-11 sentinel B_P4; then pop and `b.w 0x86F78` (the loop head, Pad L's
+    site).  r0-r5 are saved/restored, so r1 (the 0x4000010c spin pointer) and r3 (0xcece) survive."""
+    b2 = b"".join([
+        push(PAD_SAVE),                                          # r0-r5 are clobbered by the reads
+        gic_read_store_block(GICD_ISACTIVER2, b2_cells[0]),      # B_D4 ISACTIVER2 w2 (active)
+        _store_cpsr_block(b2_cells[1]),                          # B_D5 the full CPSR (I bit)
+        gic_read_store_block(INTA_GICC_CTLR, b2_cells[2]),       # B_D6 GICC_CTLR
+        gic_read_store_block(INTA_GICC_PMR, b2_cells[3]),        # B_D7 GICC_PMR
+        _store_imm_block(TRIGNAT_SENTINEL, b2_cells[4]),         # B_P4 page-11 sentinel
+        pop(PAD_SAVE),
+    ])
+    back = pad + len(b2)
+    return b2 + b_w(back, TRIGCONS_CONT_B)
+
+
+def pad_loop_inta(pad: int, l_cells: list[int]) -> bytes:
+    """The inta Pad L (devcpu.md section 4.2): the delayed sample at the 0xcece spin head
+    (file 0x86F78).  L_CNT++ each visit; the L1 block (iteration 1) and the L2 block (a nonzero
+    multiple of 2^24 iterations) sample ISPENDR2/ISACTIVER2/HPPIR/out[0] + the CPSR; the tail
+    re-emits the replaced `ldr r2,[r1]`/`cmp r2,r3` and branches to 0x86F7C."""
+    l1, l2, cnt, snt = l_cells[0:5], l_cells[5:10], l_cells[10], l_cells[11]
+
+    def gic_block(cells: list[int], sentinel: bool) -> bytes:
+        b = b"".join([
+            gic_read_store_block(INTA_L_READS[0], cells[0]),   # ISPENDR2 (bit 12 = pending)
+            gic_read_store_block(INTA_L_READS[1], cells[1]),   # ISACTIVER2 (bit 12 = active)
+            gic_read_store_block(INTA_L_READS[2], cells[2]),   # HPPIR
+            gic_read_store_block(INTA_L_READS[3], cells[3]),   # out[0]
+            _store_cpsr_block(cells[4]),                       # the CPSR
+        ])
+        if sentinel:
+            b += _store_imm_block(INTA_SENTINEL, snt)          # L_SNT (page 12)
+        return b
+
+    head = b"".join([
+        mrs_apsr(12),                                            # save the condition flags
+        push(PAD_SAVE),                                          # 24 bytes, SP stays 8-aligned
+        movw(0, cnt & 0xFFFF), movt(0, cnt >> 16),               # r0 = &L_CNT
+        ldr_imm(3, 0, 0),                                        # r3 = counter
+        adds_imm(3, 3, 1),                                       # r3++
+        str_imm(3, 0, 0),                                        # L_CNT = r3
+        cmp_imm(3, 1),                                           # iteration 1?
+    ])
+    beq_addr = pad + len(head)
+    mid = lsls_imm(2, 3, 8) + cmp_imm(2, 0)                      # (r3 & 0xFFFFFF) == 0 ?
+    bne_addr = beq_addr + 2 + len(mid)
+    l2b = gic_block(l2, False)
+    tail_body = pop(PAD_SAVE) + INTA_LOOP_PAIR
+    l2_start = bne_addr + 2
+    tail_start = l2_start + len(l2b)
+    tail = tail_body + b_w(tail_start + len(tail_body), INTA_CONT_L)
+    l1_start = tail_start + len(tail)
+    l1b = gic_block(l1, True)
+    l1 = l1b + b_w(l1_start + len(l1b), tail_start)
+    return (head + b_cond(beq_addr, l1_start, COND_EQ) + mid + b_cond(bne_addr, tail_start, COND_NE)
+            + l2b + tail + l1)
+
+
+def verify_disasm_inta(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int, pad_d: int,
+                       pad_m: int, pad_l: int, s1: int, s2: int, gic_cells: list[int],
+                       e_cells: list[int], a_cells: list[int], b_cells: list[int],
+                       b2_cells: list[int], l_cells: list[int]) -> dict:
+    """Byte-equality of the six pads against their reconstruction PLUS the block orders: Pad A/B
+    (byte-identical to trigcons's, B extended), Pad L's counter/L1/L2/tail structure, the site
+    bytes and the forbidden-CA absence."""
+    if len(a_cells) != TRIGNAT_A_NCELLS:
+        raise PatchError(f"inta expected {TRIGNAT_A_NCELLS} A cells, got {len(a_cells)}")
+    if len(b_cells) != TRIGNAT_B_NCELLS:
+        raise PatchError(f"inta expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
+    if len(b2_cells) != INTA_B2_NCELLS:
+        raise PatchError(f"inta expected {INTA_B2_NCELLS} B2 cells, got {len(b2_cells)}")
+    if len(l_cells) != INTA_L_NCELLS:
+        raise PatchError(f"inta expected {INTA_L_NCELLS} L cells, got {len(l_cells)}")
+    every = [s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + l_cells
+    if len(set(every)) != len(every):
+        raise PatchError("inta cells are not all distinct")
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+
+    def dis(off: int, size: int) -> list[str]:
+        return [f"{i.mnemonic} {i.op_str}".strip() for i in md.disasm(data[off:off + size], off)]
+
+    code_i = pad_thunk(pad_i, s1, gic_cells, apsr_cell=e_cells[3], req_cell=e_cells[2])
+    code_b = pad_bringup(pad_b, s2, gic_cells)
+    code_s = pad_send_trignat(pad_s, a_cells)
+    code_p = pad_post(pad_p, e_cells)
+    code_d = pad_drain_inta(pad_d, b_cells, pad_m)
+    code_m = pad_drain_extra_inta(pad_m, b2_cells)
+    code_l = pad_loop_inta(pad_l, l_cells)
+    for name, off, code in (("thunk", pad_i, code_i), ("bringup", pad_b, code_b),
+                            ("send", pad_s, code_s), ("post", pad_p, code_p),
+                            ("drain", pad_d, code_d), ("drain_extra", pad_m, code_m),
+                            ("loop", pad_l, code_l)):
+        if data[off:off + len(code)] != code:
+            raise PatchError(f"the inta {name} pad at {off:#x} is not the intended bytes")
+
+    # Pad A: identical to trigcons's (the natural post + the H2D ring), byte-compared above.
+    if write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL) not in code_s:
+        raise PatchError("the inta Pad A lost the H2D ring")
+
+    # Pad B2 (trigcons's program) + the drain companion (the added cells, entered by B2's b.w).
+    for ca, cell, nm in ((TRIGNAT_OUT0_CA, b_cells[0], "B_D0"), (TRIGNAT_OUT1_CA, b_cells[1], "B_D1"),
+                         (GICD_ISPENDR2, b_cells[2], "B_D2"), (GICC_HPPIR, b_cells[3], "B_D3")):
+        if gic_read_store_block(ca, cell) not in code_d:
+            raise PatchError(f"inta Pad B2 is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    if _store_imm_block(TRIGNAT_SENTINEL, b_cells[4]) not in code_d:
+        raise PatchError("inta Pad B2 is missing the B_P3 sentinel")
+    if movw(3, 0xcece) not in code_d:
+        raise PatchError("inta Pad B2 must re-emit `movw r3,#0xcece`")
+    if b_w(pad_d + len(code_d) - 4, pad_m) != code_d[-4:]:
+        raise PatchError("inta Pad B2 does not branch to its drain companion")
+    order_d = [code_d.index(gic_read_store_block(TRIGNAT_B_READS[i], b_cells[i])) for i in range(4)]
+    order_d += [code_d.index(_store_imm_block(TRIGNAT_SENTINEL, b_cells[4])),
+                code_d.index(pop(PAD_SAVE)), code_d.index(movw(3, 0xcece))]
+    if order_d != sorted(order_d) or len(set(order_d)) != len(order_d):
+        raise PatchError("the inta Pad B2 order is not B_D0..B_D3 -> B_P3 -> pop -> movw r3,#0xcece")
+
+    # the drain companion: push, B_D4..B_D7 + B_P4, pop, b.w to the loop head.
+    for ca, cell, nm in ((GICD_ISACTIVER2, b2_cells[0], "B_D4"), (INTA_GICC_CTLR, b2_cells[2], "B_D6"),
+                         (INTA_GICC_PMR, b2_cells[3], "B_D7")):
+        if gic_read_store_block(ca, cell) not in code_m:
+            raise PatchError(f"inta drain companion is missing {nm}: CA {ca:#x} -> {cell:#x}")
+    if _store_cpsr_block(b2_cells[1]) not in code_m:
+        raise PatchError("inta drain companion is missing the B_D5 CPSR read")
+    if _store_imm_block(TRIGNAT_SENTINEL, b2_cells[4]) not in code_m:
+        raise PatchError("inta drain companion is missing the B_P4 sentinel")
+    if code_m.count(push(PAD_SAVE)) != 1 or code_m.count(pop(PAD_SAVE)) != 1:
+        raise PatchError("inta drain companion must save/restore r0-r5 exactly once")
+    if b_w(pad_m + len(code_m) - 4, TRIGCONS_CONT_B) != code_m[-4:]:
+        raise PatchError("inta drain companion does not return to the loop head 0x86F78")
+    order_m = [code_m.index(push(PAD_SAVE)),
+               code_m.index(gic_read_store_block(GICD_ISACTIVER2, b2_cells[0])),
+               code_m.index(_store_cpsr_block(b2_cells[1])),
+               code_m.index(gic_read_store_block(INTA_GICC_CTLR, b2_cells[2])),
+               code_m.index(gic_read_store_block(INTA_GICC_PMR, b2_cells[3])),
+               code_m.index(_store_imm_block(TRIGNAT_SENTINEL, b2_cells[4])),
+               code_m.index(pop(PAD_SAVE))]
+    if order_m != sorted(order_m) or len(set(order_m)) != len(order_m):
+        raise PatchError("the inta drain companion order is not push -> B_D4..B_D7 -> B_P4 -> pop")
+
+    # Pad L: the counter, the two sample blocks, the gating branches and the tail.
+    counter = (movw(0, l_cells[10] & 0xFFFF) + movt(0, l_cells[10] >> 16) + ldr_imm(3, 0, 0)
+               + adds_imm(3, 3, 1) + str_imm(3, 0, 0) + cmp_imm(3, 1))
+    if counter not in code_l:
+        raise PatchError("inta Pad L is missing the L_CNT counter update")
+    if lsls_imm(2, 3, 8) + cmp_imm(2, 0) not in code_l:
+        raise PatchError("inta Pad L is missing the 2^24 gating (`lsls r2,r3,#8` + `cmp r2,#0`)")
+    for read_ca, c1, c2, nm in ((GICD_ISPENDR2, l_cells[0], l_cells[5], "L_ISP"),
+                                (GICD_ISACTIVER2, l_cells[1], l_cells[6], "L_ACT"),
+                                (GICC_HPPIR, l_cells[2], l_cells[7], "L_HPP"),
+                                (TRIGNAT_OUT0_CA, l_cells[3], l_cells[8], "L_OU0")):
+        if gic_read_store_block(read_ca, c1) not in code_l:
+            raise PatchError(f"inta Pad L is missing L1 {nm}")
+        if gic_read_store_block(read_ca, c2) not in code_l:
+            raise PatchError(f"inta Pad L is missing L2 {nm}")
+    for cell, nm in ((l_cells[4], "L1_PSR"), (l_cells[9], "L2_PSR")):
+        if _store_cpsr_block(cell) not in code_l:
+            raise PatchError(f"inta Pad L is missing {nm}")
+    if _store_imm_block(INTA_SENTINEL, l_cells[11]) not in code_l:
+        raise PatchError("inta Pad L is missing the L_SNT sentinel")
+    if pop(PAD_SAVE) not in code_l or INTA_LOOP_PAIR not in code_l:
+        raise PatchError("inta Pad L is missing the pop / re-emitted `ldr r2,[r1]` / `cmp r2,r3`")
+    if not any(b_w(pad_l + i, INTA_CONT_L) == code_l[i:i + 4]
+               for i in range(0, len(code_l) - 3, 2)):
+        raise PatchError("inta Pad L has no `b.w` to the loop's `bne` at 0x86F7C")
+
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s),
+                       ("post", code_p), ("drain", code_d), ("drain_extra", code_m),
+                       ("loop", code_l)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            if bad in code:
+                raise PatchError(f"the inta {name} pad addresses a forbidden CA: {bad.hex()}")
+
+    return {
+        "thunk_pad": dis(pad_i, len(code_i)),
+        "bringup_pad": dis(pad_b, len(code_b)),
+        "send_pad": dis(pad_s, len(code_s)),
+        "post_pad": dis(pad_p, len(code_p)),
+        "drain_pad": dis(pad_d, len(code_d)),
+        "drain_extra_pad": dis(pad_m, len(code_m)),
+        "loop_pad": dis(pad_l, len(code_l)),
+        "inta": {
+            "site_a": hex(TRIGNAT_SITE_A), "cont_a": hex(TRIGNAT_CONT_A),
+            "site_b": hex(TRIGCONS_SITE_B), "cont_b": hex(TRIGCONS_CONT_B),
+            "site_l": hex(INTA_SITE_L), "cont_l": hex(INTA_CONT_L),
+            "site_l_replaced": INTA_SITE_L_BYTES.hex(),
+            "b2_reads": [hex(GICD_ISACTIVER2), "CPSR", hex(INTA_GICC_CTLR), hex(INTA_GICC_PMR)],
+            "l_reads": [hex(x) for x in INTA_L_READS] + ["CPSR"],
+            "b2_cells": [hex(c) for c in b2_cells], "l_cells": [hex(c) for c in l_cells],
+            "send_pad_len": len(code_s), "drain_pad_len": len(code_d), "loop_pad_len": len(code_l),
+        },
+    }
+
+
+def make_inta(data: bytes, barmap: bytes, refs: set[int]):
+    """devcpu.md sections 4.1/4.2: trigcons plus the extended drain pad (B_D4..B_D7 + B_P4) and
+    the delayed Pad L at the 0xcece spin head 0x86F78."""
+    cells, sel = select_cells_inta(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    off_b = off_a + TRIGNAT_A_NCELLS
+    bc = cells[off_b:off_b + TRIGNAT_B_NCELLS]
+    off_b2 = off_b + TRIGNAT_B_NCELLS
+    b2c = cells[off_b2:off_b2 + INTA_B2_NCELLS]
+    off_l = off_b2 + INTA_B2_NCELLS
+    lc = cells[off_l:off_l + INTA_L_NCELLS]
+    if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
+            or len(b2c) != INTA_B2_NCELLS or len(lc) != INTA_L_NCELLS):
+        raise PatchError("internal error: inta cells were not selected")
+
+    need_s = len(pad_send_trignat(0, ac))
+    need_i = len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))
+    need_b = len(pad_bringup(0, s2, gc))
+    need_p = len(pad_post(0, ec))
+    need_d = len(pad_drain_inta(0, bc, 0))          # length is independent of the branch target
+    need_m = len(pad_drain_extra_inta(0, b2c))
+    need_l = len(pad_loop_inta(0, lc))
+    pads = alloc_pads(data, refs, [("send", need_s), ("thunk", need_i), ("bringup", need_b),
+                                   ("post", need_p), ("drain", need_d), ("drain_extra", need_m),
+                                   ("loop", need_l)])
+    (pad_s, len_s), (pad_i, len_i) = pads["send"], pads["thunk"]
+    (pad_b, len_b), (pad_p, len_p) = pads["bringup"], pads["post"]
+    (pad_d, len_d), (pad_m, len_m) = pads["drain"], pads["drain_extra"]
+    (pad_l, len_l) = pads["loop"]
+
+    code_i = pad_thunk(pad_i, s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pad_b, s2, gc)
+    code_s = pad_send_trignat(pad_s, ac)
+    code_p = pad_post(pad_p, ec)
+    code_d = pad_drain_inta(pad_d, bc, pad_m)
+    code_m = pad_drain_extra_inta(pad_m, b2c)
+    code_l = pad_loop_inta(pad_l, lc)
+    out = bytearray(patch_sites(data, pad_i, pad_b, pad_s, pad_p, pad_d,
+                                drain_site=TRIGCONS_SITE_B, loop_pad=pad_l))
+    for off, code in ((pad_i, code_i), (pad_b, code_b), (pad_s, code_s), (pad_p, code_p),
+                      (pad_d, code_d), (pad_m, code_m), (pad_l, code_l)):
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the patch changed the image size")
+    for site, pad in ((SITE_THUNK, pad_i), (BRINGUP_SITE, pad_b), (SEND_SITE, pad_s),
+                      (POST_SITE, pad_p), (TRIGCONS_SITE_B, pad_d), (INTA_SITE_L, pad_l)):
+        if out[site:site + 4] != bl(site, pad):
+            raise PatchError(f"internal error: site {site:#x} bytes are not the intended bl")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+    if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
+        raise PatchError("the inta Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+    if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("the inta Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
+    if data[INTA_SITE_L:INTA_SITE_L + 4] != INTA_SITE_L_BYTES:
+        raise PatchError("the inta Pad L site is not `ldr r2,[r1]`+`cmp r2,r3` (0a689a42)")
+    if INTA_LOOP_PAIR != INTA_SITE_L_BYTES:
+        raise PatchError("internal error: the encoder does not re-emit the loop pair")
+    if data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] != TRIGNAT_DRAIN_POP:
+        raise PatchError("the stock old announce-exit site is not `pop.w {r3..sb,lr}`")
+    if out[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] != data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4]:
+        raise PatchError("internal error: inta altered the old announce-exit site 0x86F7E")
+    for name, code in (("thunk", code_i), ("bringup", code_b), ("send", code_s),
+                       ("post", code_p), ("drain", code_d), ("drain_extra", code_m),
+                       ("loop", code_l)):
+        for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
+                    write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0)):
+            if bad in code:
+                raise PatchError(f"internal error: the inta {name} pad addresses a forbidden CA")
+
+    check_original_gic_write(out)
+    verify_disasm_inta(out, pad_i, pad_b, pad_s, pad_p, pad_d, pad_m, pad_l, s1, s2, gc, ec, ac, bc,
+                       b2c, lc)
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ac[:4]):
+        records[f"A_S{i}"] = cell_record(barmap, a)
+    records["A_P1"] = cell_record(barmap, ac[4])
+    records["A_E0"] = cell_record(barmap, ac[5])
+    records["A_E1"] = cell_record(barmap, ac[6])
+    for i, a in enumerate(ac[7:12]):
+        records[f"A_S{4 + i}"] = cell_record(barmap, a)
+    records["A_P2"] = cell_record(barmap, ac[12])
+    for i, a in enumerate(bc[:4]):
+        records[f"B_D{i}"] = cell_record(barmap, a)
+    records["B_P3"] = cell_record(barmap, bc[4])
+    for i, a in enumerate(b2c[:4]):
+        records[f"B_D{4 + i}"] = cell_record(barmap, a)
+    records["B_P4"] = cell_record(barmap, b2c[4])
+    for i, a in enumerate(lc[:5]):
+        records[f"L1_{['ISP', 'ACT', 'HPP', 'OU0', 'PSR'][i]}"] = cell_record(barmap, a)
+    for i, a in enumerate(lc[5:10]):
+        records[f"L2_{['ISP', 'ACT', 'HPP', 'OU0', 'PSR'][i]}"] = cell_record(barmap, a)
+    records["L_CNT"] = cell_record(barmap, lc[10])
+    records["L_SNT"] = cell_record(barmap, lc[11])
+
+    manifest = {
+        "variant": "inta",
+        "selection": sel,
+        "cells": records,
+        "gic_map": {
+            "GICD_base": "0x40161000", "GICC_base": "0x40160100",
+            "ISACTIVER2": hex(GICD_ISACTIVER2), "GICC_CTLR": hex(INTA_GICC_CTLR),
+            "GICC_PMR": hex(INTA_GICC_PMR),
+            "never_read": "0x4016010c (GICC IAR - acknowledging) and 0x10161000 (RC misc, panics)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, W1C) and the masked glue word 0x21",
+            "ring": {"ca": hex(TRIGNAT_RING_CA), "value": hex(TRIGNAT_RING_VAL),
+                     "note": NOTE_TRIGCONS_A},
+            "gate": {"ca": "0x4000010c", "wait_value": "0x0000cece",
+                     "site": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                     "pad_l_site": hex(INTA_SITE_L), "pad_l_cont": hex(INTA_CONT_L),
+                     "note": NOTE_TRIGCONS_B},
+            "pad_b2_note": NOTE_INTA_B2,
+            "pad_l_note": NOTE_INTA_L,
+            "cells_note": NOTE_INTA_CELLS,
+        },
+        "classification": {
+            "instrument": "trigcons Pad A (the natural post at 0x86F5A + the H2D ring) and Pad B2 "
+                           "(the extended drain at 0x86F74: out[0]/out[1]/ISPENDR2/HPPIR + "
+                           "ISACTIVER2/CPSR/GICC_CTLR/GICC_PMR), plus Pad L (the delayed sample at "
+                           "the 0xcece spin head 0x86F78: ISPENDR2/ISACTIVER2/HPPIR/out[0]/CPSR "
+                           "at iteration 1 and at the latest 2^24-multiple revisit, with the "
+                           "persistent L_CNT).",
+            "ROW_1_or_2": "devcpu.md section 5: B_D4 bit 12 SET or L2_ACT bit 12 SET => "
+                          "DEVCPU-TOOK; B_D2 bit 12 SET and L2_ISP bit 12 SET with B_D4 = L2_ACT = "
+                          "0 => DEVCPU-MASKED/never-took, split by the CPSR I bit (B_D5/L2_PSR).",
+            "branches_note": NOTE_TRIGCONS_BRANCHES,
+            "bounds": "one-shot latched samples; the L2 block is the latest periodic snapshot of a "
+                      "parked loop, not a trace; Pad L does not touch I/F (it saves/restores flags "
+                      "only), so the mask it observes is the firmware's.",
+        },
+        "padding": {
+            "thunk": {"file_offset": hex(pad_i), "code_length": len(code_i), "code_hex": code_i.hex()},
+            "bringup": {"file_offset": hex(pad_b), "code_length": len(code_b), "code_hex": code_b.hex()},
+            "send_a": {"file_offset": hex(pad_s), "code_length": len(code_s), "code_hex": code_s.hex()},
+            "post": {"file_offset": hex(pad_p), "code_length": len(code_p), "code_hex": code_p.hex()},
+            "drain_b2": {"file_offset": hex(pad_d), "code_length": len(code_d), "code_hex": code_d.hex()},
+            "drain_extra": {"file_offset": hex(pad_m), "code_length": len(code_m), "code_hex": code_m.hex()},
+            "loop_l": {"file_offset": hex(pad_l), "code_length": len(code_l), "code_hex": code_l.hex()},
+        },
+        "sites": {
+            "send_a": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(TRIGNAT_CONT_A),
+                       "replaced_bytes": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
+                       "after": bl(TRIGNAT_SITE_A, pad_s).hex()},
+            "drain_b2": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                         "replaced_bytes": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
+                         "after": bl(TRIGCONS_SITE_B, pad_d).hex()},
+            "loop_l": {"file_offset": hex(INTA_SITE_L), "cont": hex(INTA_CONT_L),
+                       "replaced_bytes": data[INTA_SITE_L:INTA_SITE_L + 4].hex(),
+                       "after": bl(INTA_SITE_L, pad_l).hex()},
+            "old_drain_b": {"file_offset": hex(TRIGNAT_SITE_B),
+                            "bytes": data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4].hex(),
+                            "unchanged": out[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4] ==
+                                         data[TRIGNAT_SITE_B:TRIGNAT_SITE_B + 4]},
+        },
+        "preserved": {
+            "original_gic_write": {"file_offset": "0x8702c",
+                                   "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030]},
+            "itet_block": {"file_offset": "0x8702a..0x87035",
+                           "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+            "announce_loop_body": {"file_offset": "0x86f7c..0x86f7e",
+                                   "bytes_identical": out[0x86F7C:0x86F7E] == data[0x86F7C:0x86F7E]},
+            "old_announce_exit_continuation": {"file_offset": "0x86f7e..",
+                                               "bytes_identical": out[0x86F7E:0x86F92] ==
+                                                                  data[0x86F7E:0x86F92]},
+        },
+    }
+    return out, manifest
+
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="patch_fw_scratch.py", description=__doc__.splitlines()[0])
@@ -5940,7 +6597,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="output blob (never the input)")
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
-                                          "trigcons"),
+                                          "trigcons", "inta"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -5981,7 +6638,11 @@ def main(argv: list[str] | None = None) -> int:
                          "0x86F78, which never exits), taking the same B_D0..B_D3 + B_P3 cells, then "
                          "re-emitting `movw r3,#0xcece` and branching to 0x86F78; Pad A, the other "
                          "pads and every cell are identical to trignat's, and the old announce-exit "
-                         "site 0x86F7E stays stock")
+                         "site 0x86F7E stays stock; inta: devcpu.md sections 4.1/4.2 - trigcons plus "
+                         "the extended drain pad (B_D4 ISACTIVER2 / B_D5 CPSR / B_D6 GICC_CTLR / "
+                         "B_D7 GICC_PMR + the B_P4 sentinel, all on all_zero_pages[11]) and the "
+                         "delayed Pad L at the 0xcece spin head 0x86F78 (L1_*/L2_*/L_CNT/L_SNT on "
+                         "all_zero_pages[12]), which re-emits the loop pair and returns to 0x86F7C")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     args = ap.parse_args(argv)
@@ -6010,6 +6671,7 @@ def main(argv: list[str] | None = None) -> int:
                          else make_trigring(data, barmap, refs) if args.variant == "trigring"
                          else make_trignat(data, barmap, refs) if args.variant == "trignat"
                          else make_trigcons(data, barmap, refs) if args.variant == "trigcons"
+                         else make_inta(data, barmap, refs) if args.variant == "inta"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
