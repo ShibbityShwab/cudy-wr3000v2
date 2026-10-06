@@ -125,10 +125,11 @@ The input blob is only ever read; every artifact is written under --out.
 
 usage:
   patch_fw_scratch.py --fw <FIRMWARE.bin> --out <variant.bin>
-                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking|gicunmask|trigring|trignat|trigcons|inta|inta2|inta3|take1|gicv2|take2|take3
+                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking|gicunmask|trigring|trignat|trigcons|inta|inta2|inta3|take1|gicv2|take2|take4
   patch_fw_scratch.py --selftest [--fw <FIRMWARE.bin>] [--barmap <barmap.bin>]
+  patch_fw_scratch.py --check-emitted <blob.bin>   # the emitted-bytes check, standalone
 
-exit codes: 0 ok, 2 usage/refusal, 3 patch or verification failure
+exit codes: 0 ok, 1 emitted-bytes check failed, 2 usage/refusal, 3 patch or verification failure
 """
 
 from __future__ import annotations
@@ -164,11 +165,17 @@ INTA3_MD5 = "eee1f67370b56eca42316f6eeb490c45"              # frozen inta3-varia
 TAKE1_MD5 = "0c681650de28488ab75fb5755684f0c7"              # frozen take1-variant output (selftest regression)
 GICV2_MD5 = "d98189ceff6e15582dc6261299cb3477"              # frozen gicv2-variant output (selftest regression)
 TAKE2_MD5 = "eeeb252f20392f2b0cb861336feb6411"              # frozen take2-variant output (selftest regression)
-TAKE3_MD5 = "072de986879bdbad00f339b2ad21ebd7"              # frozen take3-variant output (selftest regression)
-# ^ take3 = take2 + tiebreak.md section 3's SYNCHRONIZED flip (ICENABLER/ICPENDR the competitor
-#   0x1D/0x40/0x45 out of the ENABLED set, then disable -> IPRIORITYR 0x4C = 0x00 -> enable, all
-#   ordered by `dsb sy`) + section 4's END-STATE E block.  The pin is re-derived from the two
-#   byte-identical regenerations and asserted in the selftest.
+TAKE3_FROZEN_MD5 = "072de986879bdbad00f339b2ad21ebd7"  # the pre-fix ADDENDUM-19 blob - NEGATIVE FIXTURE
+# ^ the take3 artifact whose 0x1D competitor-disable never landed (the emitter dropped the `movt`
+#   half of the mask 0x20000000).  It cannot be regenerated any more - the emitter is fixed - so it
+#   is frozen here on purpose: the selftest asserts the emitted-bytes check REJECTS it.
+TAKE4_MD5 = "000a26af4d7b12e84d4191ae51dbad6d"              # frozen take4-variant output (selftest regression)
+# ^ take4 = take3's program (take2 + tiebreak.md section 3's SYNCHRONIZED flip - ICENABLER/ICPENDR
+#   the competitor 0x1D/0x40/0x45 out of the ENABLED set, then 0x4C disable -> IPRIORITYR 0x4C =
+#   0x00 -> enable, all ordered by `dsb sy` - + section 4's END-STATE E block) with the ADDENDUM-20
+#   emitter defect FIXED: write_ca_block() now emits the `movt` half of the stored value, so the
+#   0x1D mask 0x20000000 reaches ICENABLER0/ICPENDR0 instead of 0x00000000.  The pin is re-derived
+#   from two byte-identical regenerations and asserted in the selftest.
 # ^ gicv2 = take1 + the IAR-SOURCE canary (the v2 pad on the stock `ubfx` at file 0x82f08); take2 =
 #   gicv2 + select.md section 5's priority flip and its ten readback cells.  Both are pinned from
 #   two byte-identical regenerations.  NOTE: gicv2.md section 4 quotes V2_MD5 =
@@ -1777,16 +1784,78 @@ def gic_read_store_block(read_ca: int, cell: int) -> bytes:
 
 
 def write_ca_block(ca: int, value: int) -> bytes:
-    """A device-side store of a constant to a mapped CA: movw/movt the CA into r1, movw the
-    constant into r0, then `str r0,[r1]`.  r0/r1 are saved by the pad's push.  Used by the gicking
+    """A device-side store of the FULL 32-bit constant to a mapped CA: movw/movt the CA into r1,
+    movw the value's low half into r0 and - only when the value has a non-zero high half - `movt`
+    r0 with it, then `str r0,[r1]`.  r0/r1 are saved by the pad's push.  Used by the gicking
     variant to ring the H2D doorbell (CA 0x400392d4 <= 1) and to drive the glue mask
-    (CA 0x400392e8 <= 0x21, then <= 0x20).  NEVER used on the intr-clear CA 0x400392f0."""
-    return b"".join([
-        movw(1, ca & 0xFFFF),
-        movt(1, ca >> 16),
-        movw(0, value & 0xFFFF),
-        str_imm(0, 1, 0),
-    ])
+    (CA 0x400392e8 <= 0x21, then <= 0x20).  NEVER used on the intr-clear CA 0x400392f0.
+
+    FIX (ADDENDUM 20, the take3 emitter bug): the pre-fix form emitted ONLY `movw r0, value &
+    0xFFFF` - the high half of any value above 0xFFFF was never materialised, so the take3 0x1D
+    competitor mask 0x20000000 was assembled as a store of 0x00000000 to GICD_ICENABLER0 /
+    ICPENDR0 (a W1C no-op: `E_EN0` bit29 stayed SET and the disable never landed).  The `movt` is
+    skipped for 16-bit values so every earlier caller keeps its exact bytes and its frozen md5.
+    The emitted-bytes check below (check_emitted_ops) is the guard that would have caught it."""
+    body = movw(1, ca & 0xFFFF) + movt(1, ca >> 16) + movw(0, value & 0xFFFF)
+    if value >> 16:
+        body += movt(0, (value >> 16) & 0xFFFF)
+    return body + str_imm(0, 1, 0)
+
+
+def op_store_bytes(ca: int, value: int, kind: str = "word") -> bytes:
+    """The instruction bytes a CORRECT emitter must produce for one intended device-side store:
+    the whole CA in r1, the WHOLE 32-bit value in r0, then the store (`str r0,[r1]` for "word",
+    `strb r0,[r1]` for "byte").  Built from the primitives and deliberately NOT from
+    write_ca_block(), so a defect in the emitter cannot hide behind a shared bug here - which is
+    exactly how take3 shipped: its assertion re-ran the same buggy encoder and agreed with it."""
+    out = movw(1, ca & 0xFFFF) + movt(1, ca >> 16)
+    if kind == "byte":
+        return out + movs_imm8(0, value & 0xFF) + strb_imm(0, 1, 0)
+    if kind != "word":
+        raise PatchError(f"unknown store kind {kind!r}")
+    out += movw(0, value & 0xFFFF)
+    if value >> 16:
+        out += movt(0, (value >> 16) & 0xFFFF)
+    return out + str_imm(0, 1, 0)
+
+
+def check_emitted_ops(blob: bytes, ops, spans=None, label: str = "blob") -> list[dict]:
+    """THE EMITTED-BYTES CHECK (added after ADDENDUM 19, so a silent non-emission can never ship
+    again).  For EVERY intended store it rebuilds the exact instruction bytes with op_store_bytes()
+    and requires exactly one match inside the given spans (the pad that carries the op), in op
+    order.  An op the emitter skipped, mis-encoded (a dropped `movt` half) or aimed at another
+    window has no such match and fails here - the ADDENDUM-19 take3 blob holds a store of
+    0x00000000 to ICENABLER0 and a store of 0x20000000 NOWHERE, so the check names it.
+
+    ops entries: (name, ca, value, kind), kind "word" or "byte".
+    spans: the (start, end) file ranges the ops must fall inside (None = the whole blob).
+    Returns one evidence row per op; raises PatchError when the op set does not hold."""
+    rows: list[dict] = []
+    bad: list[str] = []
+    prev = -1
+    for name, ca, value, kind in ops:
+        want = op_store_bytes(ca, value, kind)
+        hits, at = [], blob.find(want)
+        while at >= 0:
+            hits.append(at)
+            at = blob.find(want, at + 1)
+        inside = [h for h in hits
+                  if spans is None or any(s <= h and h + len(want) <= e for s, e in spans)]
+        ok = len(inside) == 1 and inside[0] > prev
+        rows.append({"op": name, "ca": hex(ca), "value": hex(value), "kind": kind,
+                     "store_bytes": want.hex(), "file_offset": hex(inside[0]) if inside else None,
+                     "matches_in_blob": len(hits), "matches_in_pad": len(inside), "ok": ok})
+        if ok:
+            prev = inside[0]
+        else:
+            bad.append(f"{name} (CA {hex(ca)} <= {hex(value)}): "
+                       + ("absent from the pad" if not inside else
+                          f"present {len(inside)}x in the pad" if len(inside) != 1 else
+                          "present but out of op order"))
+    if bad:
+        raise PatchError(f"EMITTED-BYTES CHECK FAILED on {label}: {len(bad)}/{len(ops)} intended "
+                         f"store(s) not emitted as intended - " + "; ".join(bad))
+    return rows
 
 
 def pad_thunk(pad: int, s1: int, gic_cells: list[int] | None = None,
@@ -6413,95 +6482,107 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert md5(g5) == GICV2_MD5, f"gicv2 output changed: {md5(g5)} != {GICV2_MD5}"
     assert md5(g6) == TAKE2_MD5, f"take2 output changed: {md5(g6)} != {TAKE2_MD5}"
 
-    # ---- take3: the SYNCHRONIZED flip + the END-STATE sampler (tiebreak.md sections 3/4) ----
-    g7, g7m = make_take3(data, barmap, refs)
-    assert len(g7) == len(data), "take3 changed the size"
-    g7b, g7mb = make_take3(data, barmap, refs)
-    assert g7 == g7b, "the take3 patch is not deterministic"
+    # ---- take4: the SYNCHRONIZED flip + the END-STATE sampler (tiebreak.md sections 3/4) ----
+    g7, g7m = make_take4(data, barmap, refs)
+    assert len(g7) == len(data), "take4 changed the size"
+    g7b, g7mb = make_take4(data, barmap, refs)
+    assert g7 == g7b, "the take4 patch is not deterministic"
     assert json.dumps(g7m, sort_keys=True) == json.dumps(g7mb, sort_keys=True), \
-        "the take3 manifest is not deterministic"
+        "the take4 manifest is not deterministic"
     # every take2 cell keeps its address; the twelve E cells are new and zero at both views
     for nm in g6m["cells"]:
-        assert g7m["cells"][nm]["addr"] == g6m["cells"][nm]["addr"], f"take3 moved cell {nm}"
+        assert g7m["cells"][nm]["addr"] == g6m["cells"][nm]["addr"], f"take4 moved cell {nm}"
     for nm in TI_E_NAMES:
-        assert nm not in g6m["cells"], f"take3 E cell {nm} collides with a take2 cell name"
-    assert g7m["aliases"] == g6m["aliases"], "take3 changed the aliases"
+        assert nm not in g6m["cells"], f"take4 E cell {nm} collides with a take2 cell name"
+    assert g7m["aliases"] == g6m["aliases"], "take4 changed the aliases"
     assert [g7m["cells"][nm]["addr"] for nm in TI_E_NAMES] == \
         ["0x150114", "0x150118", "0x15011c", "0x150120", "0x150124", "0x150128",
          "0x15012c", "0x150130", "0x150134", "0x150138", "0x15013c", "0x150140"], \
-        "the take3 E cells are not tiebreak.md section 4's words"
+        "the take4 E cells are not tiebreak.md section 4's words"
     assert all((int(g7m["cells"][nm]["addr"], 16) & ~0xFFF) == 0x150000 for nm in TI_E_NAMES), \
-        "a take3 E cell left page 10"
+        "a take4 E cell left page 10"
     assert all(g7m["cells"][nm]["barmap_value"] == "0x0"
                and g7m["cells"][nm]["barmap_alias_value"] == "0x0" for nm in TI_E_NAMES), \
-        "a take3 E cell is not zero in barmap at both views"
+        "a take4 E cell is not zero in barmap at both views"
     # the flip pad: take2's 0x1D/0x40 byte stores are GONE; the mask/clear/enable ops and the two
     # `dsb sy` are present in tiebreak.md section 3's order
     pre7 = bytes.fromhex(g7m["padding"]["selpre"]["code_hex"])
+    rd7 = bytes.fromhex(g7m["padding"]["selread"]["code_hex"])
     post7 = bytes.fromhex(g7m["padding"]["selpost"]["code_hex"])
     poste7 = bytes.fromhex(g7m["padding"]["selpost_e"]["code_hex"])
-    assert pre7.count(TI_DSB_SY) == 2, "take3: the flip must carry exactly two `dsb sy`"
+    # the P_ID pre-read moved into its own companion pad when the emitter fix made the flip 8 bytes
+    # longer (the two `movt` halves of the 0x1D mask); the read itself is unchanged and still runs
+    # before every store (the selread -> selpre chain asserted below)
+    p_id7 = gic_read_store_block(SEL_PRE_READS[0][0], SEL_PRE_READS[0][1])
+    assert rd7.count(p_id7) == 1 and p_id7 not in pre7, \
+        "take4: the P_ID read must live in the selread pad and nowhere else"
+    assert rd7[-4:] == b_w(int(g7m["padding"]["selread"]["file_offset"], 16) + len(rd7) - 4,
+                          int(g7m["padding"]["selpre"]["file_offset"], 16)), \
+        "take4: the selread pad does not branch into the flip pad"
+    assert len(rd7) <= 156 and len(pre7) <= 156, \
+        f"take4: a pre-half pad exceeds the 156-byte class ({len(rd7)}/{len(pre7)})"
+    assert pre7.count(TI_DSB_SY) == 2, "take4: the flip must carry exactly two `dsb sy`"
     _mdc = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
     assert [f"{i.mnemonic} {i.op_str}" for i in _mdc.disasm(TI_DSB_SY, 0)] == ["dsb sy"], \
-        "take3: TI_DSB_SY does not disassemble to `dsb sy` (byte order / opcode)"
+        "take4: TI_DSB_SY does not disassemble to `dsb sy` (byte order / opcode)"
     assert TI_MASK_1D == 0x20000000 and TI_MASK_40 == 1 and TI_MASK_45 == 0x20 \
-        and TI_MASK_4C == 0x1000, "take3: the id masks are wrong"
+        and TI_MASK_4C == 0x1000, "take4: the id masks are wrong"
     for ca, val in TI_FLIP_OPS:
-        assert pre7.count(write_ca_block(ca, val)) == 1, f"take3 lost the flip op {ca:#x}"
+        assert pre7.count(write_ca_block(ca, val)) == 1, f"take4 lost the flip op {ca:#x}"
     for ca, val in SEL_PRIO_WRITES:
         if ca == TI_PRIO_4C:
             continue
         assert write_ca_byte_block(ca, val) not in pre7, \
-            f"take3 must not re-store the {ca:#x} priority byte (tiebreak.md A.4)"
+            f"take4 must not re-store the {ca:#x} priority byte (tiebreak.md A.4)"
     prio_blk7 = write_ca_byte_block(TI_PRIO_4C, TI_PRIO_4C_VAL)
-    assert prio_blk7 in pre7, "take3 lost the 0x4C IPRIORITYR store"
+    assert prio_blk7 in pre7, "take4 lost the 0x4C IPRIORITYR store"
     d7a = pre7.index(TI_DSB_SY)
     d7b = pre7.index(TI_DSB_SY, d7a + 4)
     assert pre7.index(prio_blk7) < d7a < pre7.index(write_ca_block(TI_ISENABLER2, TI_MASK_4C)) \
-        < d7b, "take3: the 0x4C disable -> priority -> enable -> dsb order is wrong"
+        < d7b, "take4: the 0x4C disable -> priority -> enable -> dsb order is wrong"
     assert max(pre7.index(write_ca_block(ca, val)) for ca, val in TI_FLIP_OPS[:4]) \
         < min(pre7.index(write_ca_block(ca, val)) for ca, val in TI_FLIP_OPS[4:]), \
-        "take3: the competitor mask/clear ops must precede the 0x4C triple"
+        "take4: the competitor mask/clear ops must precede the 0x4C triple"
     # the E pad: the shared-base deposits in spec order + E_PSR + E_SNT, inside the 156-byte class
     assert movw(2, TI_E_P1D & 0xFFFF) + movt(2, TI_E_P1D >> 16) in poste7, \
-        "take3: the E pad lost the shared cell base in r2"
+        "take4: the E pad lost the shared cell base in r2"
     e_body = [_gic_read_into_base(ca, 4 * i) for i, (ca, _c) in enumerate(TI_E_READS)]
     e_body += [_store_cpsr_into_base(40), _store_imm_into_base(INTA_SENTINEL, 44)]
     e_idx = [poste7.index(b) for b in e_body]
     assert e_idx == sorted(e_idx) and len(set(e_idx)) == len(e_idx), \
-        "take3: the E block is not in tiebreak.md section 4's order"
-    assert e_idx[-1] == max(e_idx), "take3: E_SNT must be the last E deposit"
-    assert len(poste7) <= 156, f"take3: the E pad ({len(poste7)} B) exceeds the 156-byte class"
+        "take4: the E block is not in tiebreak.md section 4's order"
+    assert e_idx[-1] == max(e_idx), "take4: E_SNT must be the last E deposit"
+    assert len(poste7) <= 156, f"take4: the E pad ({len(poste7)} B) exceeds the 156-byte class"
     # the chain: send -> selpre -> Pad A(N) -> selpost -> selpost_e -> 0x86f5e
     assert g7[SEND_SITE:SEND_SITE + 4] == \
-        bl(SEND_SITE, int(g7m["padding"]["selpre"]["file_offset"], 16)), "take3: bad send site"
+        bl(SEND_SITE, int(g7m["padding"]["selread"]["file_offset"], 16)), "take4: bad send site"
     assert pre7[-4:] == b_w(int(g7m["padding"]["selpre"]["file_offset"], 16) + len(pre7) - 4,
                             int(g7m["padding"]["send_n"]["file_offset"], 16)), \
-        "take3: selpre does not branch into Pad A(N)"
+        "take4: selpre does not branch into Pad A(N)"
     assert post7[-4:] == b_w(int(g7m["padding"]["selpost"]["file_offset"], 16) + len(post7) - 4,
                              int(g7m["padding"]["selpost_e"]["file_offset"], 16)), \
-        "take3: the selpost pad does not branch into the E pad"
+        "take4: the selpost pad does not branch into the E pad"
     assert poste7[-4:] == \
         b_w(int(g7m["padding"]["selpost_e"]["file_offset"], 16) + len(poste7) - 4, TRIGNAT_CONT_A), \
-        "take3: the E pad does not return to 0x86f5e"
+        "take4: the E pad does not return to 0x86f5e"
     for site, key in ((SITE_THUNK, "thunk"), (BRINGUP_SITE, "bringup"), (POST_SITE, "post"),
                       (TRIGCONS_SITE_B, "drain_b2"), (INTA2_SITE_F, "fallthrough_f"),
                       (GICV2_SITE, "v2")):
         assert g7[site:site + 4] == bl(site, int(g7m["padding"][key]["file_offset"], 16)), \
-            f"take3: bad site {site:#x}"
+            f"take4: bad site {site:#x}"
     assert g7[TAKE1_V_SITE:TAKE1_V_SITE + 4] == \
-        b_w(TAKE1_V_SITE, int(g7m["padding"]["vec"]["file_offset"], 16)), "take3: bad vec site"
+        b_w(TAKE1_V_SITE, int(g7m["padding"]["vec"]["file_offset"], 16)), "take4: bad vec site"
     # the inherited take2 pads keep their exact programs (only the moved tails differ); Pad A(N)
     # differs ONLY in its final branch target
     for key in ("thunk", "bringup", "post", "drain_b2", "drain_extra", "giccpu",
                 "fallthrough_f", "vec", "m1", "m2", "v2", "selpost"):
         c2 = bytes.fromhex(g6m["padding"][key]["code_hex"])
         c7 = bytes.fromhex(g7m["padding"][key]["code_hex"])
-        assert len(c2) == len(c7) and c2[:-4] == c7[:-4], f"take3 changed the {key} pad program"
+        assert len(c2) == len(c7) and c2[:-4] == c7[:-4], f"take4 changed the {key} pad program"
     c2s = bytes.fromhex(g6m["padding"]["send_n"]["code_hex"])
     c7s = bytes.fromhex(g7m["padding"]["send_n"]["code_hex"])
     assert len(c2s) == len(c7s) and c2s[:-4] == c7s[:-4], \
-        "take3 changed Pad A(N)'s program (only its final branch target may move)"
+        "take4 changed Pad A(N)'s program (only its final branch target may move)"
     # the untouched bodies and the allowed-change set
     allowed7 = set()
     for site in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B, INTA2_SITE_F,
@@ -6512,12 +6593,13 @@ def selftest(fw_path: str, barmap_path: str) -> int:
         allowed7 |= set(range(off7, off7 + int(v["code_length"])))
     changed7 = [i for i in range(len(data)) if g7[i] != data[i]]
     assert changed7 and all(c in allowed7 for c in changed7), \
-        "take3 changed bytes outside its regions"
-    for name7, code7 in (("selpre", pre7), ("selpost", post7), ("selpost_e", poste7)):
+        "take4 changed bytes outside its regions"
+    for name7, code7 in (("selread", rd7), ("selpre", pre7), ("selpost", post7),
+                         ("selpost_e", poste7)):
         for bad in (write_ca_block(0x400392F0, 1), gic_read_store_block(0x4016010C, 0),
                     write_ca_block(0x10161000, 0), gic_read_store_block(0x10161000, 0),
                     gic_read_store_block(0x40160120, 0), write_ca_block(0x40039AF0, 1)):
-            assert bad not in code7, f"the take3 {name7} pad addresses a forbidden CA"
+            assert bad not in code7, f"the take4 {name7} pad addresses a forbidden CA"
     for a, b_, what in ((TAKE1_V_CONT, GICV2_SITE, "0x82f00..0x82f08"),
                         (GICV2_CONT, TAKE1_M1_SITE, "0x82f0c..0x82f4a"),
                         (TAKE1_M1_CONT, 0x82F78, "0x82f4e..0x82f78"),
@@ -6525,12 +6607,48 @@ def selftest(fw_path: str, barmap_path: str) -> int:
                         (TAKE1_M2_CONT, 0x82730, "0x8270e..0x82730"),
                         (INTA_SITE_L, 0x86F7E, "0x86f78..0x86f7e"),
                         (INTA2_CONT_F, 0x86F92, "0x86f82..0x86f92")):
-        assert g7[a:b_] == data[a:b_], f"take3 altered {what}"
+        assert g7[a:b_] == data[a:b_], f"take4 altered {what}"
     assert g7[0x8702C:0x87030] == data[0x8702C:0x87030] \
-        and g7[0x87030:0x87036] == data[0x87030:0x87036], "take3 altered the enable thunk"
-    assert g7m["take3"]["dsb_sy"] == TI_DSB_SY.hex() \
-        and g7m["take3"]["prio_4c"]["value"] == "0x0"
-    assert md5(g7) == TAKE3_MD5, f"take3 output changed: {md5(g7)} != {TAKE3_MD5}"
+        and g7[0x87030:0x87036] == data[0x87030:0x87036], "take4 altered the enable thunk"
+    assert g7m["take4"]["dsb_sy"] == TI_DSB_SY.hex() \
+        and g7m["take4"]["prio_4c"]["value"] == "0x0"
+    assert md5(g7) == TAKE4_MD5, f"take4 output changed: {md5(g7)} != {TAKE4_MD5}"
+    # ---- THE EMITTED-BYTES CHECK (the ADDENDUM-20 lesson) ---------------------------------
+    # every intended store of the flip must be present, in op order, inside the selpre pad of the
+    # generated blob.  This is the assertion take3 lacked: it re-ran the buggy encoder instead.
+    pad7 = int(g7m["padding"]["selpre"]["file_offset"], 16)
+    emitted7 = check_emitted_ops(g7, TI_WRITE_OPS, spans=[(pad7, pad7 + len(pre7))],
+                                 label="the regenerated take4 blob")
+    assert [r["op"] for r in emitted7] == [o[0] for o in TI_WRITE_OPS], \
+        "the emitted-bytes check did not report every intended store"
+    assert all(r["ok"] for r in emitted7), "an intended store is not present in the take4 blob"
+    assert [int(r["file_offset"], 16) for r in emitted7] == sorted(
+        int(r["file_offset"], 16) for r in emitted7), "the take4 stores are not in op order"
+    assert any(r["value"] == "0x20000000" for r in emitted7), \
+        "the emitted-bytes check must carry the 0x1D mask 0x20000000 as a full 32-bit store"
+    # and the SAME check must REJECT the frozen pre-fix artifact (the ADDENDUM-19 take3 blob); the
+    # fixture lives in gitignored build/ state, so this runs whenever it is present.
+    frozen3 = os.path.join("build", "tmp", "fw-patched", "take3.bin")
+    if os.path.exists(frozen3):
+        f3 = rd(frozen3)
+        assert md5(f3) == TAKE3_FROZEN_MD5, \
+            f"the frozen take3 fixture moved: {md5(f3)} != {TAKE3_FROZEN_MD5}"
+        spans3 = None
+        if os.path.exists(frozen3 + ".manifest.json"):
+            with open(frozen3 + ".manifest.json", encoding="utf-8") as fh3:
+                m3 = json.load(fh3)
+            pv = m3.get("padding", {}).get("selpre")
+            if pv:
+                p30 = int(pv["file_offset"], 16)
+                spans3 = [(p30, p30 + int(pv["code_length"]))]
+        try:
+            check_emitted_ops(f3, TI_WRITE_OPS, spans=spans3, label="the frozen take3 fixture")
+        except PatchError as exc:
+            assert "ICENABLER0_1D" in str(exc) and "ICPENDR0_1D" in str(exc), \
+                f"the emitted-bytes check rejected take3 for the wrong reason: {exc}"
+        else:
+            raise PatchError("the emitted-bytes check PASSED the known-broken take3 blob "
+                             "(ADDENDUM 19) - the check does not bite")
 
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
@@ -6661,17 +6779,17 @@ def selftest(fw_path: str, barmap_path: str) -> int:
                                                for ca, val in SEL_PRIO_WRITES)
           + " (the GIC-priority MUTATION: register state only, reboot restores)")
     print(f"  take2 md5         : {md5(g6)}")
-    print(f"  take3 cells       : " + " ".join(f"{nm}={g7m['cells'][nm]['addr']}"
+    print(f"  take4 cells       : " + " ".join(f"{nm}={g7m['cells'][nm]['addr']}"
                                                for nm in TI_E_NAMES)
           + f" (take2's cells RETAINED at their addresses; E block on page 10; selpre @ file "
             f"{g7m['padding']['selpre']['file_offset']} ({len(bytes.fromhex(g7m['padding']['selpre']['code_hex']))} B), "
             f"selpost_e @ {g7m['padding']['selpost_e']['file_offset']} "
             f"({len(bytes.fromhex(g7m['padding']['selpost_e']['code_hex']))} B))")
-    print(f"  take3 flip        : " + ", ".join(f"{ca:#x} <= {val:#010x}"
+    print(f"  take4 flip        : " + ", ".join(f"{ca:#x} <= {val:#010x}"
                                                for ca, val in TI_FLIP_OPS)
           + f" + strb {TI_PRIO_4C:#x} <= {TI_PRIO_4C_VAL:#04x} + `dsb sy` x2"
             " (the competitor leaves the ENABLED set - register state only)")
-    print(f"  take3 md5         : {md5(g7)}")
+    print(f"  take4 md5         : {md5(g7)}")
     return 0
 
 
@@ -9247,12 +9365,23 @@ def make_take2(data: bytes, barmap: bytes, refs: set[int], select_ops: bool = Tr
     return out, manifest
 
 
-# ---- take3: the SYNCHRONIZED flip (tiebreak.md section 3) + the END-STATE sampler (section 4) --
+# ---- take4: the SYNCHRONIZED flip (tiebreak.md section 3) + the END-STATE sampler (section 4) --
+# THE FIX (2026-10-06, ADDENDUM 20 -> this variant).  take3 - this same program - SHIPPED BROKEN:
+# write_ca_block() emitted only `movw r0, value & 0xFFFF`, so the 0x1D competitor mask 0x20000000
+# was assembled as a store of 0x00000000 to ICENABLER0/ICPENDR0 (a W1C no-op) and the disable never
+# landed (`E_EN0` bit29 read SET).  write_ca_block() now emits the value's `movt` half and the
+# emitted-bytes check (check_emitted_ops over TI_WRITE_OPS) scans the GENERATED BLOB for every
+# intended store, so the same silent non-emission cannot ship again.  The pre-fix artifact stays
+# frozen at build/tmp/fw-patched/take3.bin (md5 072de986879bdbad00f339b2ad21ebd7) as the check's
+# negative fixture; the tool no longer builds it (--variant take4 is the fixed build of it).  The
+# 8 extra bytes no longer fit the 156-byte padding class the allocator offers, so the pre-half is
+# now TWO chained pads: selread (the retained P_ID read, unchanged in value and instant) -> selpre
+# (the eight stores + the two `dsb sy`) -> Pad A(N).
 # The take2 priority FLIP LANDED (P_4C byte0 0x00 post-write) and the take NEVER moved: 0x4C was
 # OUT-RANKED, not blocked (ADDENDUM 18 / tiebreak.md R1).  The rule is priority-first-then-LOWEST-id,
 # 0x40/0x45/0x4C all sat at the SAME priority 0x50 (so 0x4C lost every tie), and after the flip
 # 0x4C's new 0x00 only TIED the SGI bank (ids 0/2 at 0x00 by the firmware's own set_prio) and the
-# banked PPI 0x1D - a tie goes to the LOWER id.  take3 therefore removes the competitor from the
+# banked PPI 0x1D - a tie goes to the LOWER id.  take4 therefore removes the competitor from the
 # ENABLED set (ICENABLER + ICPENDR: binary and bank-independent) instead of demoting it, orders the
 # 0x4C store with `dsb sy` (R4), and samples the true END state (tiebreak.md section 4's E block).
 # Every take2 cell/pad/site is RETAINED; only the selpre slot's ops change and a new E pad is added.
@@ -9296,8 +9425,29 @@ TI_FLIP_OPS = ((TI_GICD_ICENABLER0, TI_COMPETITOR_MASK_0), (TI_GICD_ICENABLER2, 
                (TI_GICD_ICPENDR0, TI_COMPETITOR_MASK_0), (TI_GICD_ICPENDR2, TI_COMPETITOR_MASK_2),
                (TI_GICD_ICENABLER2, TI_MASK_4C), (TI_GICD_ICPENDR2, TI_MASK_4C),
                (TI_ISENABLER2, TI_MASK_4C))
-NOTE_TAKE3_FLIP = (
-    "take3 replaces take2's three IPRIORITYR stores with tiebreak.md section 3's SYNCHRONIZED "
+# THE EMITTED-BYTES OP LIST: every device-side store the take4 boot MUST emit, in the exact order
+# pad_sel_pre_take4 emits them.  This is the list check_emitted_ops() scans the generated blob for.
+TI_WRITE_OPS = (
+    ("ICENABLER0_1D", TI_GICD_ICENABLER0, TI_COMPETITOR_MASK_0, "word"),
+    ("ICENABLER2_40_45", TI_GICD_ICENABLER2, TI_COMPETITOR_MASK_2, "word"),
+    ("ICPENDR0_1D", TI_GICD_ICPENDR0, TI_COMPETITOR_MASK_0, "word"),
+    ("ICPENDR2_40_45", TI_GICD_ICPENDR2, TI_COMPETITOR_MASK_2, "word"),
+    ("ICENABLER2_4C", TI_GICD_ICENABLER2, TI_MASK_4C, "word"),
+    ("ICPENDR2_4C", TI_GICD_ICPENDR2, TI_MASK_4C, "word"),
+    ("IPRIORITYR_4C", TI_PRIO_4C, TI_PRIO_4C_VAL, "byte"),
+    ("ISENABLER2_4C", TI_ISENABLER2, TI_MASK_4C, "word"),
+)
+NOTE_EMITTED_OPS = (
+    "The emitted-bytes check (ADDENDUM 20): take3's selftest counted write_ca_block() calls and "
+    "re-asserted its constants through the SAME encoder, so it agreed with a blob in which the "
+    "0x1D disable had been assembled as a store of 0x00000000.  take4 therefore rebuilds every "
+    "intended store's exact instruction bytes INDEPENDENTLY of the emitter (op_store_bytes) and "
+    "requires each one to appear exactly once, in op order, inside the selpre pad of the generated "
+    "blob.  It runs in the build (make_take4) and in --selftest, and --check-emitted runs it "
+    "standalone against an already-built blob; the frozen pre-fix take3 blob must be REJECTED."
+)
+NOTE_TAKE4_FLIP = (
+    "take4 replaces take2's three IPRIORITYR stores with tiebreak.md section 3's SYNCHRONIZED "
     "sequence at the same send-site instant (the selpre slot, before Pad A(N)'s H2D ring): (1) "
     "competitor-disable - GICD_ICENABLER word 0 <= 0x20000000 (id 0x1D) and word 2 <= 0x21 (ids "
     "0x40, 0x45); (2) competitor pending-clear - GICD_ICPENDR word 0 / word 2 with the same masks; "
@@ -9308,7 +9458,7 @@ NOTE_TAKE3_FLIP = (
     "priority bytes are NOT re-stored (R1/R5).  Register state only - a reboot restores it; NO "
     "flash write, no forbidden CA."
 )
-NOTE_TAKE3_E = (
+NOTE_TAKE4_E = (
     "The END-STATE sampler: twelve cells on page 10 (0x150114..0x150140, immediately above take2's "
     "X_SNT 0x150110), read by the new selpost_e pad which the retained selpost pad chains into, "
     "still in the selpre -> Pad A(N) -> selpost -> selpost_e -> 0x86f5e chain - i.e. at the ring's "
@@ -9321,7 +9471,7 @@ NOTE_TAKE3_E = (
     "E_SNT = 0x50aa7e49 proves the pad ran.  All reads are non-acknowledging; the firmware's own "
     "IAR is never re-read by the tool and never read by the host."
 )
-NOTE_TAKE3_CHOICE = (
+NOTE_TAKE4_CHOICE = (
     "DESIGN CHOICE (stated): the task's VERIFIED CONTEXT and the named protocol source are "
     "tiebreak.md (the file the task lists first; tieval.md predates it and records that gap).  "
     "tieval.md's alternative - re-asserting the priority flip from the ISR-entry pad and adding a "
@@ -9332,15 +9482,35 @@ NOTE_TAKE3_CHOICE = (
 )
 
 
-def pad_sel_pre_take3(pad: int, sel_cells: list[int], next_pad: int) -> bytes:
-    """take3's selpre: take2's PRE-write P_ID read (retained) followed by tiebreak.md section 3's
-    synchronized flip - the competitor-disable/pending-clear, the 0x4C disable -> priority ->
-    enable with the two `dsb sy` barriers - then the tail `b.w` into Pad A(N) (which rings the H2D
-    doorbell).  The flags and r0-r3/r5/r6 are saved; r0/r1 carry the movw/movt pairs."""
+def pad_sel_read_take4(pad: int, next_pad: int) -> bytes:
+    """take4's selread: the PRE-write P_ID read (CA 0x4016141c = GICD_IPRIORITYR w7; byte 1 is id
+    0x1D's authored priority byte, the one input the disassembly and the record disagree on) as its
+    OWN companion pad, chained into the flip pad.  It is split out of the flip because the fixed
+    emitter made the flip 8 bytes longer (the two `movt` halves of the 0x1D mask 0x20000000) and
+    the flip must still fit the 156-byte padding class the allocator offers; value and instant are
+    unchanged - it still runs before every store, at the send-site instant.  Flags and r0-r3/r5/r6
+    are saved/restored."""
     body = b"".join([
         mrs_apsr(12),
         push([0, 1, 2, 3, 5, 6]),
-        gic_read_store_block(SEL_PRE_READS[0][0], sel_cells[0]),
+        gic_read_store_block(SEL_PRE_READS[0][0], SEL_PRE_READS[0][1]),
+        pop([0, 1, 2, 3, 5, 6]),
+        msr_apsr(12),
+    ])
+    return body + b_w(pad + len(body), next_pad)
+
+
+def pad_sel_pre_take4(pad: int, next_pad: int) -> bytes:
+    """take4's selpre: tiebreak.md section 3's synchronized flip - the competitor-disable /
+    pending-clear, then the 0x4C disable -> priority -> enable, with the two `dsb sy` barriers -
+    then the tail `b.w` into Pad A(N) (which rings the H2D doorbell).  The PRE-write P_ID read runs
+    in the companion selread pad immediately before this one.  The flags and r0-r3/r5/r6 are saved;
+    r0/r1 carry the movw/movt pairs.  Every store goes through write_ca_block(), whose ADDENDUM-20
+    fix materialises the WHOLE 32-bit value: the 0x1D mask 0x20000000 needs its `movt` half, and
+    dropping it is exactly the take3 defect the emitted-bytes check now guards against."""
+    body = b"".join([
+        mrs_apsr(12),
+        push([0, 1, 2, 3, 5, 6]),
         write_ca_block(TI_GICD_ICENABLER0, TI_COMPETITOR_MASK_0),
         write_ca_block(TI_GICD_ICENABLER2, TI_COMPETITOR_MASK_2),
         write_ca_block(TI_GICD_ICPENDR0, TI_COMPETITOR_MASK_0),
@@ -9375,8 +9545,8 @@ def _store_imm_into_base(value: int, off: int) -> bytes:
     return movw(1, value & 0xFFFF) + movt(1, value >> 16) + str_imm(1, 2, off)
 
 
-def pad_sel_post_e_take3(pad: int, e_cells: list[int], cont: int) -> bytes:
-    """take3's new E pad (chained after the retained selpost): the ten register reads of
+def pad_sel_post_e_take4(pad: int, e_cells: list[int], cont: int) -> bytes:
+    """take4's new E pad (chained after the retained selpost): the ten register reads of
     tiebreak.md section 4's E block in spec order (E_P1D, E_P40, E_P4C, E_HPP, E_ISP, E_ACT,
     E_OU0, E_EN0, E_EN2, E_CTLR), then the full-CPSR E_PSR and the E_SNT sentinel, then `b.w` back
     to the firmware's continuation 0x86f5e.  The twelve E cells are contiguous, so r2 holds their
@@ -9386,10 +9556,10 @@ def pad_sel_post_e_take3(pad: int, e_cells: list[int], cont: int) -> bytes:
     no-flags ADD.W/STR/LDR/ORR/MOVW) - the shape the take2 selpost pad already relies on."""
     base = e_cells[0]
     if list(e_cells) != [base + 4 * i for i in range(len(e_cells))]:
-        raise PatchError("take3: the E cells must be twelve contiguous words")
+        raise PatchError("take4: the E cells must be twelve contiguous words")
     offs = [4 * i for i in range(len(e_cells))]
     if offs[-1] > 124:
-        raise PatchError("take3: the E-cell base displacement exceeds the STR T1 range")
+        raise PatchError("take4: the E-cell base displacement exceeds the STR T1 range")
     body = b"".join([
         push(PAD_SAVE),
         movw(2, base & 0xFFFF), movt(2, base >> 16),
@@ -9402,7 +9572,7 @@ def pad_sel_post_e_take3(pad: int, e_cells: list[int], cont: int) -> bytes:
     return body + b_w(pad + len(body), cont)
 
 
-def select_cells_take3(barmap: bytes):
+def select_cells_take4(barmap: bytes):
     """take2's cells (IDENTICAL addresses - every inherited cell keeps its take1/take2 address)
     plus the twelve END-STATE E cells 0x150114..0x150140 (tiebreak.md section 4)."""
     cells, v2c, selc, sel = select_cells_take2(barmap, True)
@@ -9410,54 +9580,54 @@ def select_cells_take3(barmap: bytes):
     ec3 = list(TI_E_CELLS)
     for nm, addr in zip(TI_E_NAMES, ec3):
         if not ok(addr):
-            raise PatchError(f"take3 cell {nm} at {addr:#x} is not a zero cell at both barmap "
+            raise PatchError(f"take4 cell {nm} at {addr:#x} is not a zero cell at both barmap "
                              "views (tiebreak.md section 4)")
     if set(ec3) & (set(v2c) | set(selc) | set(cells)) or len(set(ec3)) != len(ec3):
-        raise PatchError("take3 E cells are not distinct from the take2 cells")
+        raise PatchError("take4 E cells are not distinct from the take2 cells")
     if ec3 != [0x150114, 0x150118, 0x15011C, 0x150120, 0x150124, 0x150128, 0x15012C, 0x150130,
                0x150134, 0x150138, 0x15013C, 0x150140]:
-        raise PatchError("internal error: the take3 E-cell addresses changed")
+        raise PatchError("internal error: the take4 E-cell addresses changed")
     if ec3 != [ec3[0] + 4 * i for i in range(len(ec3))]:
-        raise PatchError("internal error: the take3 E cells must be twelve contiguous words")
+        raise PatchError("internal error: the take4 E cells must be twelve contiguous words")
     sel = dict(sel)
     sel.update({
-        "take3_rule": "take2's cells (IDENTICAL addresses) + the twelve END-STATE E cells "
+        "take4_rule": "take2's cells (IDENTICAL addresses) + the twelve END-STATE E cells "
                       "0x150114..0x150140 on page 10 (tiebreak.md section 4)",
-        "take3_e_cells": [hex(a) for a in ec3],
-        "take3_note": NOTE_TAKE3_E,
+        "take4_e_cells": [hex(a) for a in ec3],
+        "take4_note": NOTE_TAKE4_E,
     })
     return cells, v2c, selc, ec3, sel
 
 
-def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
+def verify_disasm_take4(data: bytes, pads: dict[str, int], s1: int, s2: int,
                         gic_cells: list[int], e_cells: list[int], a_cells: list[int],
                         b_cells: list[int], b2_cells: list[int], f_cells: list[int],
                         v_cells: list[int], cp_cells: list[int], v2_cells: list[int],
                         sel_cells: list[int], e3_cells: list[int]) -> dict:
-    """Byte-equality of the fifteen take3 pads against their independent reconstructions PLUS the
+    """Byte-equality of the SIXTEEN take4 pads against their independent reconstructions PLUS the
     block structure: every inherited take2 pad byte-identical (only the selpost tail target moves),
-    the take3 flip's op order and its two `dsb sy`, the E pad's read order + E_PSR/E_SNT, the ten
-    sites, the untouched bodies and the forbidden-CA absence."""
+    the selread pad's single P_ID read, the take4 flip's op order and its two `dsb sy`, the E pad's
+    read order + E_PSR/E_SNT, the ten sites, the untouched bodies and the forbidden-CA absence."""
     if len(a_cells) != INTA2_A_NCELLS:
-        raise PatchError(f"take3 expected {INTA2_A_NCELLS} A cells, got {len(a_cells)}")
+        raise PatchError(f"take4 expected {INTA2_A_NCELLS} A cells, got {len(a_cells)}")
     if len(b_cells) != TRIGNAT_B_NCELLS:
-        raise PatchError(f"take3 expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
+        raise PatchError(f"take4 expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
     if len(b2_cells) != INTA_B2_NCELLS:
-        raise PatchError(f"take3 expected {INTA_B2_NCELLS} B2 cells, got {len(b2_cells)}")
+        raise PatchError(f"take4 expected {INTA_B2_NCELLS} B2 cells, got {len(b2_cells)}")
     if len(f_cells) != INTA2_F_NCELLS:
-        raise PatchError(f"take3 expected {INTA2_F_NCELLS} F cells, got {len(f_cells)}")
+        raise PatchError(f"take4 expected {INTA2_F_NCELLS} F cells, got {len(f_cells)}")
     if len(v_cells) != len(TAKE1_V_CELLS) or len(cp_cells) != len(TAKE1_CP_CELLS):
-        raise PatchError("take3 expected take1's V/M and giccpu cells")
+        raise PatchError("take4 expected take1's V/M and giccpu cells")
     if len(v2_cells) != len(GICV2_CELLS):
-        raise PatchError(f"take3 expected {len(GICV2_CELLS)} gicv2 cells, got {len(v2_cells)}")
+        raise PatchError(f"take4 expected {len(GICV2_CELLS)} gicv2 cells, got {len(v2_cells)}")
     if len(sel_cells) != len(SEL_CELLS):
-        raise PatchError(f"take3 expected {len(SEL_CELLS)} select cells, got {len(sel_cells)}")
+        raise PatchError(f"take4 expected {len(SEL_CELLS)} select cells, got {len(sel_cells)}")
     if len(e3_cells) != len(TI_E_CELLS):
-        raise PatchError(f"take3 expected {len(TI_E_CELLS)} E cells, got {len(e3_cells)}")
+        raise PatchError(f"take4 expected {len(TI_E_CELLS)} E cells, got {len(e3_cells)}")
     every = ([s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + f_cells + v_cells
              + cp_cells + v2_cells + sel_cells + e3_cells)
     if len(set(every)) != len(every):
-        raise PatchError("take3 cells are not all distinct")
+        raise PatchError("take4 cells are not all distinct")
 
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
 
@@ -9479,33 +9649,34 @@ def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
         "m1": pad_m1_take1(pads["m1"], v_cells[3], TAKE1_M1_CONT),
         "m2": pad_m2_take1(pads["m2"], v_cells[4], TAKE1_M2_CONT),
         "v2": pad_vec_gicv2(pads["v2"], v2_cells, GICV2_CONT),
-        "selpre": pad_sel_pre_take3(pads["selpre"], sel_cells, pads["send"]),
+        "selread": pad_sel_read_take4(pads["selread"], pads["selpre"]),
+        "selpre": pad_sel_pre_take4(pads["selpre"], pads["send"]),
         "selpost": pad_sel_post(pads["selpost"], sel_cells, pads["selpost_e"]),
-        "selpost_e": pad_sel_post_e_take3(pads["selpost_e"], e3_cells, TRIGNAT_CONT_A),
+        "selpost_e": pad_sel_post_e_take4(pads["selpost_e"], e3_cells, TRIGNAT_CONT_A),
     }
     pad_of = {"send_n": "send", "drain_b2": "drain", "fallthrough_f": "fallthrough"}
     for name, c in code.items():
         off = pads[pad_of.get(name, name)]
         if data[off:off + len(c)] != c:
-            raise PatchError(f"the take3 {name} pad at {off:#x} is not the intended bytes")
+            raise PatchError(f"the take4 {name} pad at {off:#x} is not the intended bytes")
 
     # the inherited structural invariants (unchanged programs, moved tail targets only)
     if write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL) not in code["send_n"]:
-        raise PatchError("the take3 Pad A(N) lost the H2D ring")
+        raise PatchError("the take4 Pad A(N) lost the H2D ring")
     if movw(3, 0xcece) not in code["drain_b2"]:
-        raise PatchError("take3 Pad B2 must re-emit `movw r3,#0xcece`")
+        raise PatchError("take4 Pad B2 must re-emit `movw r3,#0xcece`")
     if _store_cpsr_block(f_cells[4]) not in code["fallthrough_f"]:
-        raise PatchError("the take3 Site F is missing the F_PSR CPSR read")
+        raise PatchError("the take4 Site F is missing the F_PSR CPSR read")
     if code["fallthrough_f"].count(TRIGNAT_DRAIN_POP) != 1:
-        raise PatchError("the take3 Site F must re-emit the replaced pop.w exactly once")
+        raise PatchError("the take4 Site F must re-emit the replaced pop.w exactly once")
     if b_w(pads["fallthrough"] + len(code["fallthrough_f"]) - 4, INTA2_CONT_F) != \
             code["fallthrough_f"][-4:]:
-        raise PatchError("the take3 Site F has no `b.w` to 0x86f82")
+        raise PatchError("the take4 Site F has no `b.w` to 0x86f82")
     if b_w(pads["drain"] + len(code["drain_b2"]) - 4, pads["drain_extra"]) != \
             code["drain_b2"][-4:]:
-        raise PatchError("the take3 Pad B2 does not branch to the drain companion")
+        raise PatchError("the take4 Pad B2 does not branch to the drain companion")
     if b_w(pads["giccpu"] + len(code["giccpu"]) - 4, TRIGCONS_CONT_B) != code["giccpu"][-4:]:
-        raise PatchError("the take3 giccpu pad does not return to the loop head 0x86f78")
+        raise PatchError("the take4 giccpu pad does not return to the loop head 0x86f78")
 
     # the v2 pad: the exact block order, the re-emitted stock ubfx, the tail and the ring store
     vd = dis(pads["v2"], len(code["v2"]))
@@ -9513,94 +9684,97 @@ def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
                  "str.w r7, [r1, r5]", "pop {r0, r1, r2, r3, r5, r6}",
                  "ubfx r8, r7, #0, #0xa"):
         if want not in vd:
-            raise PatchError(f"the take3 v2 pad lost `{want}`: {vd!r}")
+            raise PatchError(f"the take4 v2 pad lost `{want}`: {vd!r}")
     if sum(1 for s in vd if s.startswith("ubfx")) != 1:
-        raise PatchError(f"the take3 v2 pad must re-emit the stock ubfx exactly once: {vd!r}")
+        raise PatchError(f"the take4 v2 pad must re-emit the stock ubfx exactly once: {vd!r}")
     if b_w(pads["v2"] + len(code["v2"]) - 4, GICV2_CONT) != code["v2"][-4:]:
-        raise PatchError("the take3 v2 pad has no `b.w` to 0x82f0c")
+        raise PatchError("the take4 v2 pad has no `b.w` to 0x82f0c")
 
-    # take3's synchronized flip: the exact op order, the two `dsb sy`, and no demotion of the
+    # take4's synchronized flip: the exact op order, the two `dsb sy`, and no demotion of the
     # 0x1D/0x40 priority bytes (tiebreak.md R1/R5)
     pre = code["selpre"]
+    rdr = code["selread"]
     if pre.count(TI_DSB_SY) != 2:
-        raise PatchError("the take3 selpre pad must carry exactly two `dsb sy`")
+        raise PatchError("the take4 selpre pad must carry exactly two `dsb sy`")
     p_id = gic_read_store_block(SEL_PRE_READS[0][0], SEL_PRE_READS[0][1])
     flip_blocks = [write_ca_block(ca, val) for ca, val in TI_FLIP_OPS]
     prio_blk = write_ca_byte_block(TI_PRIO_4C, TI_PRIO_4C_VAL)
-    if pre.count(p_id) != 1:
-        raise PatchError("take3: the P_ID read must appear exactly once")
+    if rdr.count(p_id) != 1 or p_id in pre:
+        raise PatchError("take4: the P_ID read must live in the companion selread pad, exactly "
+                         "once, and nowhere else")
     for b in flip_blocks + [prio_blk]:
         if pre.count(b) != 1:
-            raise PatchError(f"take3: a flip op block is not exactly once: {b.hex()}")
-    if pre.index(p_id) >= min(pre.index(b) for b in flip_blocks):
-        raise PatchError("take3: the P_ID pre-read must precede every flip op")
+            raise PatchError(f"take4: a flip op block is not exactly once: {b.hex()}")
     first_dsb = pre.index(TI_DSB_SY)
     second_dsb = pre.index(TI_DSB_SY, first_dsb + 4)
     en4c = pre.index(write_ca_block(TI_ISENABLER2, TI_MASK_4C))
     if not pre.index(prio_blk) < first_dsb < en4c < second_dsb:
-        raise PatchError("take3: the op order must be 0x4C byte store -> `dsb sy` -> re-enable -> "
+        raise PatchError("take4: the op order must be 0x4C byte store -> `dsb sy` -> re-enable -> "
                          "`dsb sy` (tiebreak.md section 3 A.3/A.4)")
     if max(pre.index(b) for b in flip_blocks[:4]) >= min(pre.index(b) for b in flip_blocks[4:]):
-        raise PatchError("take3: the competitor-disable/clear ops must precede the 0x4C triple")
+        raise PatchError("take4: the competitor-disable/clear ops must precede the 0x4C triple")
     for ca, val in SEL_PRIO_WRITES:
         if ca == TI_PRIO_4C:
             continue
         if write_ca_byte_block(ca, val) in pre:
-            raise PatchError("take3 must NOT re-store the 0x1D/0x40 priority bytes (tiebreak.md "
+            raise PatchError("take4 must NOT re-store the 0x1D/0x40 priority bytes (tiebreak.md "
                              "section 3 A.4 / R1-R5)")
     if pre.count(mrs_apsr(12)) != 1 or pre.count(msr_apsr(12)) != 1:
-        raise PatchError("take3: the selpre pad must save/restore the flags exactly once")
+        raise PatchError("take4: the selpre pad must save/restore the flags exactly once")
     if pre.count(push([0, 1, 2, 3, 5, 6])) != 1 or pre.count(pop([0, 1, 2, 3, 5, 6])) != 1:
-        raise PatchError("take3: the selpre pad must save/restore r0-r3/r5/r6 exactly once")
+        raise PatchError("take4: the selpre pad must save/restore r0-r3/r5/r6 exactly once")
 
     # the retained selpost (take2's X block) and the new E pad
     post = code["selpost"]
     for ca, cell in SEL_POST_READS:
         if gic_read_store_block(ca, cell) not in post:
-            raise PatchError(f"take3 lost a retained select readback {ca:#x}")
+            raise PatchError(f"take4 lost a retained select readback {ca:#x}")
     if _store_imm_block(INTA_SENTINEL, SEL_X_SNT) not in post:
-        raise PatchError("take3 lost the retained X_SNT sentinel")
+        raise PatchError("take4 lost the retained X_SNT sentinel")
     poste = code["selpost_e"]
     e_base = e3_cells[0]
     if movw(2, e_base & 0xFFFF) + movt(2, e_base >> 16) not in poste:
-        raise PatchError("take3: the E pad lost the shared cell base in r2")
+        raise PatchError("take4: the E pad lost the shared cell base in r2")
     ereads = [_gic_read_into_base(ca, 4 * i) for i, (ca, _cell) in enumerate(TI_E_READS)]
     for i, (ca, cell) in enumerate(TI_E_READS):
         if _gic_read_into_base(ca, 4 * i) not in poste:
-            raise PatchError(f"take3 E pad is missing the read {ca:#x} -> {cell:#x}")
+            raise PatchError(f"take4 E pad is missing the read {ca:#x} -> {cell:#x}")
         if gic_read_store_block(ca, 0) in poste:
-            raise PatchError("take3: the E pad must use the shared-base deposits, not the "
+            raise PatchError("take4: the E pad must use the shared-base deposits, not the "
                              "per-read base form")
     e_cpsr = _store_cpsr_into_base(4 * 10)
     e_snt = _store_imm_into_base(INTA_SENTINEL, 4 * 11)
     if e_cpsr not in poste:
-        raise PatchError("take3 E pad is missing the E_PSR CPSR read")
+        raise PatchError("take4 E pad is missing the E_PSR CPSR read")
     if e_snt not in poste:
-        raise PatchError("take3 E pad is missing the E_SNT sentinel")
+        raise PatchError("take4 E pad is missing the E_SNT sentinel")
     e_order = [poste.index(b) for b in ereads] + [poste.index(e_cpsr), poste.index(e_snt)]
     if e_order != sorted(e_order) or len(set(e_order)) != len(e_order):
-        raise PatchError("take3: the E block reads are not in tiebreak.md section 4's order")
+        raise PatchError("take4: the E block reads are not in tiebreak.md section 4's order")
     if e_order[-1] != max(e_order):
-        raise PatchError("take3: E_SNT must be the last E deposit")
+        raise PatchError("take4: E_SNT must be the last E deposit")
     if poste.count(push(PAD_SAVE)) != 1 or poste.count(pop(PAD_SAVE)) != 1:
-        raise PatchError("take3: the E pad must save/restore r0-r5 exactly once")
+        raise PatchError("take4: the E pad must save/restore r0-r5 exactly once")
 
     # the chain: send -> selpre -> Pad A(N) -> selpost -> selpost_e -> 0x86f5e
+    # the chain: send -> selread -> selpre -> Pad A(N) -> selpost -> selpost_e -> 0x86f5e
+    if b_w(pads["selread"] + len(rdr) - 4, pads["selpre"]) != rdr[-4:]:
+        raise PatchError("take4: the selread pad does not branch into the flip pad")
     if b_w(pads["selpre"] + len(pre) - 4, pads["send"]) != pre[-4:]:
-        raise PatchError("take3: the selpre pad does not branch into Pad A(N)")
+        raise PatchError("take4: the selpre pad does not branch into Pad A(N)")
     if b_w(pads["send"] + len(code["send_n"]) - 4, pads["selpost"]) != code["send_n"][-4:]:
-        raise PatchError("take3: Pad A(N) does not branch to the retained selpost pad")
+        raise PatchError("take4: Pad A(N) does not branch to the retained selpost pad")
     if b_w(pads["selpost"] + len(post) - 4, pads["selpost_e"]) != post[-4:]:
-        raise PatchError("take3: the selpost pad does not branch to the E pad")
+        raise PatchError("take4: the selpost pad does not branch to the E pad")
     if b_w(pads["selpost_e"] + len(poste) - 4, TRIGNAT_CONT_A) != poste[-4:]:
-        raise PatchError("take3: the E pad does not return to 0x86f5e")
+        raise PatchError("take4: the E pad does not return to 0x86f5e")
     if code["send_n"].count(write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL)) != 1:
-        raise PatchError("take3: Pad A(N) must ring the H2D doorbell exactly once")
+        raise PatchError("take4: Pad A(N) must ring the H2D doorbell exactly once")
 
     # the ten sites
     sites = ((SITE_THUNK, pads["thunk"], bl(SITE_THUNK, pads["thunk"])),
              (BRINGUP_SITE, pads["bringup"], bl(BRINGUP_SITE, pads["bringup"])),
-             (SEND_SITE, pads["selpre"], bl(SEND_SITE, pads["selpre"])),
+             (SEND_SITE, pads["selread"], bl(SEND_SITE, pads["selread"])),
              (POST_SITE, pads["post"], bl(POST_SITE, pads["post"])),
              (TRIGCONS_SITE_B, pads["drain"], bl(TRIGCONS_SITE_B, pads["drain"])),
              (INTA2_SITE_F, pads["fallthrough"], bl(INTA2_SITE_F, pads["fallthrough"])),
@@ -9610,7 +9784,7 @@ def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
              (GICV2_SITE, pads["v2"], bl(GICV2_SITE, pads["v2"])))
     for site, _pad, want_bytes in sites:
         if data[site:site + 4] != want_bytes:
-            raise PatchError(f"take3 site {site:#x} is not the intended branch: "
+            raise PatchError(f"take4 site {site:#x} is not the intended branch: "
                              f"{data[site:site + 4].hex()} != {want_bytes.hex()}")
 
     # forbidden CAs: the W1C clears, the RC misc window, the aliased acknowledging AIAR, and ANY
@@ -9622,7 +9796,7 @@ def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
     for name, c in code.items():
         for bad in forbidden_blocks:
             if bad in c:
-                raise PatchError(f"the take3 {name} pad addresses a forbidden CA: {bad.hex()}")
+                raise PatchError(f"the take4 {name} pad addresses a forbidden CA: {bad.hex()}")
 
     return {
         "thunk_pad": dis(pads["thunk"], len(code["thunk"])),
@@ -9640,7 +9814,7 @@ def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
         "selpre_pad": dis(pads["selpre"], len(pre)),
         "selpost_pad": dis(pads["selpost"], len(post)),
         "selpost_e_pad": dis(pads["selpost_e"], len(poste)),
-        "take3": {
+        "take4": {
             "v2_site": hex(GICV2_SITE), "v2_cont": hex(GICV2_CONT),
             "v2_cells": [hex(c) for c in v2_cells], "sel_cells": [hex(c) for c in sel_cells],
             "e_cells": [hex(c) for c in e3_cells],
@@ -9653,13 +9827,14 @@ def verify_disasm_take3(data: bytes, pads: dict[str, int], s1: int, s2: int,
     }
 
 
-def make_take3(data: bytes, barmap: bytes, refs: set[int]):
+def make_take4(data: bytes, barmap: bytes, refs: set[int]):
     """take2's instrument (byte-for-byte: the IAR-source canary, the v1 canary, the CPSR
     milestones, the giccpu cells, Pad A(N), Pad B2 + companion, Site F and select.md's retained
     readbacks) PLUS tiebreak.md section 3's synchronized flip in the selpre slot and section 4's
-    END-STATE E pad chained after the retained selpost.  The chain is
-    send -> selpre(flip) -> Pad A(N)(ring) -> selpost(X block) -> selpost_e(E block) -> 0x86f5e."""
-    cells, v2c, selc, ec3, sel = select_cells_take3(barmap)
+    END-STATE E pad chained after the retained selpost.  The chain is send -> selread (the PRE-write
+    P_ID read) -> selpre (the flip) -> Pad A(N) (ring) -> selpost (X block) -> selpost_e (E block)
+    -> 0x86f5e."""
+    cells, v2c, selc, ec3, sel = select_cells_take4(barmap)
     s1, s2 = cells[0], cells[1]
     gc = cells[2:2 + GICV_NCELLS]
     ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
@@ -9679,7 +9854,7 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
     if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
             or len(b2c) != INTA_B2_NCELLS or len(fc) != INTA2_F_NCELLS
             or len(nc) != INTA2_N_NCELLS or len(ac2) != INTA2_A_NCELLS):
-        raise PatchError("internal error: take3 inta3 cells were not selected")
+        raise PatchError("internal error: take4 inta3 cells were not selected")
 
     needs = [("send", len(pad_send_inta2(0, ac2, 0))),
              ("thunk", len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))),
@@ -9690,9 +9865,10 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
              ("giccpu", len(pad_giccpu_take1(0, cpc, 0))), ("vec", len(pad_vec_take1(0, vc, 0))),
              ("m1", len(pad_m1_take1(0, vc[3], 0))), ("m2", len(pad_m2_take1(0, vc[4], 0))),
              ("v2", len(pad_vec_gicv2(0, v2c, 0))),
-             ("selpre", len(pad_sel_pre_take3(0, selc, 0))),
+             ("selpre", len(pad_sel_pre_take4(0, 0))),
+             ("selread", len(pad_sel_read_take4(0, 0))),
              ("selpost", len(pad_sel_post(0, selc, 0))),
-             ("selpost_e", len(pad_sel_post_e_take3(0, ec3, 0)))]
+             ("selpost_e", len(pad_sel_post_e_take4(0, ec3, 0)))]
     alloc = alloc_pads(data, refs, needs)
     pads = {name: off for name, (off, _run) in alloc.items()}
 
@@ -9708,11 +9884,12 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
     code_1 = pad_m1_take1(pads["m1"], vc[3], TAKE1_M1_CONT)
     code_2 = pad_m2_take1(pads["m2"], vc[4], TAKE1_M2_CONT)
     code_v2 = pad_vec_gicv2(pads["v2"], v2c, GICV2_CONT)
-    code_ps = pad_sel_pre_take3(pads["selpre"], selc, pads["send"])
+    code_ps = pad_sel_pre_take4(pads["selpre"], pads["send"])
+    code_rd = pad_sel_read_take4(pads["selread"], pads["selpre"])
     code_qs = pad_sel_post(pads["selpost"], selc, pads["selpost_e"])
-    code_es = pad_sel_post_e_take3(pads["selpost_e"], ec3, TRIGNAT_CONT_A)
+    code_es = pad_sel_post_e_take4(pads["selpost_e"], ec3, TRIGNAT_CONT_A)
 
-    out = bytearray(patch_sites(data, pads["thunk"], pads["bringup"], pads["selpre"],
+    out = bytearray(patch_sites(data, pads["thunk"], pads["bringup"], pads["selread"],
                                 pads["post"], pads["drain"], drain_site=TRIGCONS_SITE_B,
                                 loop_pad=pads["fallthrough"], loop_site=INTA2_SITE_F))
     out[TAKE1_V_SITE:TAKE1_V_SITE + 4] = b_w(TAKE1_V_SITE, pads["vec"])
@@ -9723,26 +9900,27 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
                (pads["post"], code_p), (pads["drain"], code_d),
                (pads["drain_extra"], code_m), (pads["giccpu"], code_g),
                (pads["fallthrough"], code_f), (pads["vec"], code_v), (pads["m1"], code_1),
-               (pads["m2"], code_2), (pads["v2"], code_v2), (pads["selpre"], code_ps),
+               (pads["m2"], code_2), (pads["v2"], code_v2), (pads["selread"], code_rd),
+               (pads["selpre"], code_ps),
                (pads["selpost"], code_qs), (pads["selpost_e"], code_es))
     for off, code in written:
         out[off:off + len(code)] = code
     out = bytes(out)
 
     if len(out) != len(data):
-        raise PatchError("internal error: the take3 patch changed the image size")
+        raise PatchError("internal error: the take4 patch changed the image size")
     for site, stock, nm in ((TAKE1_V_SITE, TAKE1_V_SITE_STOCK, "the ISR entry push.w"),
                             (TAKE1_M1_SITE, TAKE1_M1_SITE_STOCK, "blx r5 + cpsid i"),
                             (TAKE1_M2_SITE, TAKE1_M2_SITE_STOCK, "mrs r2, apsr"),
                             (GICV2_SITE, GICV2_SITE_STOCK, "ubfx r8,r7,#0,#0xa")):
         if data[site:site + 4] != stock:
-            raise PatchError(f"the take3 stock bytes at {site:#x} are not {nm} ({stock.hex()})")
+            raise PatchError(f"the take4 stock bytes at {site:#x} are not {nm} ({stock.hex()})")
     if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
-        raise PatchError("the take3 Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+        raise PatchError("the take4 Pad A site is not `str r2,[r3]`+`movs r2,#1`")
     if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
-        raise PatchError("the take3 Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
+        raise PatchError("the take4 Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
     if data[INTA2_SITE_F:INTA2_SITE_F + 4] != TRIGNAT_DRAIN_POP:
-        raise PatchError("the take3 Site F site is not the stock `pop.w {r3..sb,lr}` (bde8f843)")
+        raise PatchError("the take4 Site F site is not the stock `pop.w {r3..sb,lr}` (bde8f843)")
     for a, b_, nm in ((TAKE1_V_CONT, GICV2_SITE, "the ISR entry up to the v2 site"),
                       (GICV2_CONT, TAKE1_M1_SITE, "the ISR body after the v2 site"),
                       (TAKE1_M1_CONT, 0x82F78, "the ISR body after M1_SITE"),
@@ -9751,15 +9929,20 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
                       (INTA2_CONT_F, 0x86F92, "the announce-exit continuation"),
                       (INTA_SITE_L, 0x86F7E, "the announce loop head")):
         if out[a:b_] != data[a:b_]:
-            raise PatchError(f"take3 altered {nm} ({a:#x}..{b_:#x})")
+            raise PatchError(f"take4 altered {nm} ({a:#x}..{b_:#x})")
     if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
         raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
     if out[0x87030:0x87036] != data[0x87030:0x87036]:
         raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
 
     check_original_gic_write(out)
-    verify = verify_disasm_take3(out, pads, s1, s2, gc, ec, ac2, bc, b2c, fc, vc, cpc, v2c, selc,
+    verify = verify_disasm_take4(out, pads, s1, s2, gc, ec, ac2, bc, b2c, fc, vc, cpc, v2c, selc,
                                  ec3)
+    # THE EMITTED-BYTES CHECK: every intended store present, in op order, inside the selpre pad of
+    # the blob JUST GENERATED (not merely "the emitter was called with the right arguments").
+    emitted = check_emitted_ops(out, TI_WRITE_OPS,
+                                spans=[(pads["selpre"], pads["selpre"] + len(code_ps))],
+                                label="take4 selpre pad")
 
     records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
     for i, a in enumerate(gc):
@@ -9797,17 +9980,19 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
     aliases = {"C_PSR": "B_D5", "F_CTLR": "B_D6", "F_PMR": "B_D7"}
 
     manifest = {
-        "variant": "take3",
+        "variant": "take4",
         "spec": ("build/tmp/inta-spec/tiebreak.md sections 3/4 (the SYNCHRONIZED flip + the "
                  "END-STATE sampler) on top of gicv2.md sections 1-4 and select.md section 5"),
         "selection": sel,
         "cells": records,
         "aliases": aliases,
-        "take3": {
-            "sites": {"selpre": hex(pads["selpre"]), "selpost": hex(pads["selpost"]),
+        "take4": {
+            "sites": {"selread": hex(pads["selread"]), "selpre": hex(pads["selpre"]),
+                      "selpost": hex(pads["selpost"]),
                       "selpost_e": hex(pads["selpost_e"]), "send_n": hex(pads["send"])},
-            "chain": "send -> selpre (synchronized flip) -> Pad A(N) (H2D ring) -> selpost "
-                     "(take2's X block) -> selpost_e (the E block) -> 0x86f5e",
+            "chain": "send -> selread (the PRE-write P_ID read) -> selpre (the synchronized flip) "
+                     "-> Pad A(N) (H2D ring) -> selpost (take2's X block) -> selpost_e (the E "
+                     "block) -> 0x86f5e",
             "flip_ops": [{"ca": hex(ca), "value": hex(val)} for ca, val in TI_FLIP_OPS],
             "prio_4c": {"ca": hex(TI_PRIO_4C), "value": hex(TI_PRIO_4C_VAL)},
             "dsb_sy": TI_DSB_SY.hex(),
@@ -9820,7 +10005,7 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
             "iar_reads": "none added - V2_ID is the word the handler's own `ldr r7,[r3]` at file "
                          "0x82f04 returned",
             "never_read": GICV2_NEVER_READ + "; the host never reads the IAR either",
-            "flip_note": NOTE_TAKE3_FLIP, "e_note": NOTE_TAKE3_E, "design_note": NOTE_TAKE3_CHOICE,
+            "flip_note": NOTE_TAKE4_FLIP, "e_note": NOTE_TAKE4_E, "design_note": NOTE_TAKE4_CHOICE,
         },
         "take2_retained": {
             "select_ops": True,
@@ -9829,7 +10014,7 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
             "sel_post_reads": [{"ca": hex(ca), "cell": hex(cl)} for ca, cl in SEL_POST_READS],
             "take1_cells": [hex(c) for c in vc + cpc],
         },
-        "take3_cells_note": NOTE_TAKE3_E,
+        "take4_cells_note": NOTE_TAKE4_E,
         "gicv2_note": NOTE_TAKE2_V2,
         "select_note": NOTE_TAKE2_SEL,
         "gic_map": {
@@ -9870,10 +10055,11 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
         },
         "padding": {},
         "sites": {
-            "send_n": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(pads["selpre"]),
+            "send_n": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(pads["selread"]),
                        "replaced_bytes": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
-                       "after": bl(TRIGNAT_SITE_A, pads["selpre"]).hex(),
-                       "chain": "send -> selpre -> Pad A(N) -> selpost -> selpost_e -> 0x86f5e"},
+                       "after": bl(TRIGNAT_SITE_A, pads["selread"]).hex(),
+                       "chain": "send -> selread (P_ID read) -> selpre (flip) -> Pad A(N) -> "
+                                "selpost -> selpost_e -> 0x86f5e"},
             "drain_b2": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
                          "replaced_bytes": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
                          "after": bl(TRIGCONS_SITE_B, pads["drain"]).hex()},
@@ -9928,11 +10114,14 @@ def make_take3(data: bytes, barmap: bytes, refs: set[int]):
                    ("giccpu", "giccpu", code_g), ("fallthrough_f", "fallthrough", code_f),
                    ("vec", "vec", code_v), ("m1", "m1", code_1), ("m2", "m2", code_2),
                    ("v2", "v2", code_v2), ("selpre", "selpre", code_ps),
+                   ("selread", "selread", code_rd),
                    ("selpost", "selpost", code_qs), ("selpost_e", "selpost_e", code_es))
     for name, pkey, code in region_spec:
         manifest["padding"][name] = {"file_offset": hex(pads[pkey]), "code_length": len(code),
                                      "code_hex": code.hex()}
-    manifest["take3"].update(verify["take3"])
+    manifest["take4"].update(verify["take4"])
+    manifest["take4"]["emitted_ops"] = {"check": NOTE_EMITTED_OPS, "ops": emitted,
+                                        "pad": hex(pads["selpre"]), "pad_length": len(code_ps)}
     return out, manifest
 
 
@@ -9945,7 +10134,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
                                           "trigcons", "inta", "inta2", "inta3", "take1", "gicv2",
-                                          "take2", "take3"),
+                                          "take2", "take4"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -10017,19 +10206,55 @@ def main(argv: list[str] | None = None) -> int:
                          "select.md section 5's discriminator - three 8-bit GICD_IPRIORITYR "
                          "stores (0x4C -> 0x00, 0x1D/0x40 -> 0xF0) before the H2D ring plus the "
                          "P_ID/P_40/P_4C/G_GRP0/N_EN0/X_HPP/X_ISP/X_ACT/X_OU0/X_SNT readbacks at "
-                         "the send site (a GIC-priority MUTATION, register state only); take3: tiebreak.md sections 3/4 - "
+                         "the send site (a GIC-priority MUTATION, register state only); take4: tiebreak.md sections 3/4 - "
                          "take2 PLUS the SYNCHRONIZED flip (ICENABLER/ICPENDR the competitor "
                          "0x1D/0x40/0x45 out of the ENABLED set, then 0x4C disable -> priority "
                          "0x00 -> enable, all ordered by `dsb sy`) in the selpre slot and the "
                          "END-STATE E block (0x150114..0x150140) in a new selpost_e pad; every "
-                         "take2 cell/pad/site retained")
+                         "take2 cell/pad/site retained - plus the ADDENDUM-20 emitter fix (the "
+                         "`movt` half of the stored value, so the 0x1D mask 0x20000000 actually "
+                         "reaches ICENABLER0/ICPENDR0) and the emitted-bytes check that scans the "
+                         "generated blob for every intended store; take3 is the same program with "
+                         "the defect (frozen as that check's negative fixture, not buildable)")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
+    ap.add_argument("--check-emitted", metavar="BLOB",
+                    help="run ONLY the emitted-bytes check (every intended store present, in op "
+                         "order, inside its pad) against an already-built blob and exit; exit 1 "
+                         "when it does not hold.  Uses <blob>.manifest.json for the pad span.")
     args = ap.parse_args(argv)
 
     try:
         if args.selftest:
             return selftest(args.fw, args.barmap)
+        if args.check_emitted:
+            blob = rd(args.check_emitted)
+            spans = None
+            mpath = args.check_emitted + ".manifest.json"
+            if os.path.exists(mpath):
+                with open(mpath, encoding="utf-8") as fh:
+                    pv = json.load(fh).get("padding", {}).get("selpre")
+                if pv:
+                    p0 = int(pv["file_offset"], 16)
+                    spans = [(p0, p0 + int(pv["code_length"]))]
+            try:
+                rows = check_emitted_ops(blob, TI_WRITE_OPS, spans=spans, label=args.check_emitted)
+            except PatchError as exc:
+                print(f"EMITTED-BYTES CHECK: FAIL on {args.check_emitted}", file=sys.stderr)
+                print(f"  {exc}", file=sys.stderr)
+                for nm, ca, val, kind in TI_WRITE_OPS:
+                    want = op_store_bytes(ca, val, kind)
+                    hit = blob.find(want)
+                    print(f"  {nm:<16} {hex(ca)} <= {hex(val):<12} "
+                          + (f"present @ {hex(hit)}" if hit >= 0 else "MISSING from the blob")
+                          + f"  ({want.hex()})", file=sys.stderr)
+                return 1
+            print(f"EMITTED-BYTES CHECK: PASS on {args.check_emitted} "
+                  f"({len(rows)}/{len(TI_WRITE_OPS)} intended stores present, in op order)")
+            for r in rows:
+                print(f"  {r['op']:<16} {r['ca']} <= {r['value']:<12} @ {r['file_offset']}"
+                      f"  ({r['store_bytes']})")
+            return 0
         if not (args.out and args.variant):
             ap.error("--out and --variant are required (or use --selftest)")
         if os.path.abspath(args.out) == os.path.abspath(args.fw):
@@ -10059,8 +10284,8 @@ def main(argv: list[str] | None = None) -> int:
                          if args.variant == "gicv2"
                          else make_take2(data, barmap, refs, select_ops=True)
                          if args.variant == "take2"
-                         else make_take3(data, barmap, refs)
-                         if args.variant == "take3"
+                         else make_take4(data, barmap, refs)
+                         if args.variant == "take4"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
