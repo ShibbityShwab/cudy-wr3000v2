@@ -170,6 +170,18 @@ TAKE3_FROZEN_MD5 = "072de986879bdbad00f339b2ad21ebd7"  # the pre-fix ADDENDUM-19
 #   half of the mask 0x20000000).  It cannot be regenerated any more - the emitter is fixed - so it
 #   is frozen here on purpose: the selftest asserts the emitted-bytes check REJECTS it.
 TAKE4_MD5 = "000a26af4d7b12e84d4191ae51dbad6d"              # frozen take4-variant output (selftest regression)
+TAKE5_MD5 = "a5143c84a10b8e9182be70ba48a634a3"              # frozen take5-variant output (selftest regression)
+# ^ take5 = take4 byte-for-byte (the synchronized flip + the END-STATE E block) PLUS the READ-ONLY
+#   time-variance bracket of build/tmp/inta-spec/{bracket,sgi3,brk3}.md: the same words - GICC_RPR
+#   0x40160114 and the SGI/PPI pending bank GICD_ISPENDR0 0x40161200 at every instant, plus id
+#   0x4C's group bit GICD_IGROUPR2 0x40161088 at the ring and post-gate instants - deposited with
+#   the page sentinel at THREE instants of one boot (E5 at the ring, chained after the retained E
+#   pad; I5 inside the ISR right after the EOI, a new `bl` site at file 0x82f58 that re-emits the
+#   two instructions it replaces; F5 at the 0xcece gate's fall-through, chained after the retained
+#   Site F pad).  NO device-side write is added - the new pads hold no store op at all and every
+#   inherited cell/pad address is unchanged, so the two retargeted tails, the new site and the
+#   three new pads are the whole delta.  Pinned from two byte-identical regenerations (the test
+#   also re-asserts the emitted-bytes check over the retained flip).
 # ^ take4 = take3's program (take2 + tiebreak.md section 3's SYNCHRONIZED flip - ICENABLER/ICPENDR
 #   the competitor 0x1D/0x40/0x45 out of the ENABLED set, then 0x4C disable -> IPRIORITYR 0x4C =
 #   0x00 -> enable, all ordered by `dsb sy` - + section 4's END-STATE E block) with the ADDENDUM-20
@@ -922,6 +934,15 @@ def ldr_imm(rt: int, rn: int, imm: int) -> bytes:
     if imm % 4 or not 0 <= imm <= 124:
         raise PatchError(f"ldr immediate out of range: {imm}")
     return struct.pack("<H", 0x6800 | ((imm // 4) << 6) | ((rn & 0x7) << 3) | (rt & 0x7))
+
+
+def ldr_imm_w(rt: int, rn: int, imm: int) -> bytes:
+    """LDR (immediate) T3: `ldr.w Rt, [Rn, #imm12]` - the wide form the take5 sampler needs to
+    reach the GICD words (+0x88 / +0x200) off the ONE page base register.  Mirrors str_imm_w
+    (T3); the narrow ldr_imm() is T1-only (imm <= 124)."""
+    if not 0 <= imm <= 0xFFF:
+        raise PatchError(f"ldr.w immediate out of range: {imm}")
+    return struct.pack("<HH", 0xF8D0 | rn, ((rt & 0xF) << 12) | (imm & 0xFFF))
 
 
 def push(regs: list[int]) -> bytes:
@@ -4954,6 +4975,8 @@ def _encoder_roundtrip() -> None:
     one("str", str_imm(4, 0, 0), "str r4, [r0]")
     one("str4", str_imm(5, 0, 4), "str r5, [r0, #4]")
     one("strw", str_imm_w(10, 7, 0), "str.w sl, [r7]")
+    one("ldrw", ldr_imm_w(1, 4, 0x200), "ldr.w r1, [r4, #0x200]")
+    one("ldrw114", ldr_imm_w(1, 4, 0x114), "ldr.w r1, [r4, #0x114]")
     one("ldr", ldr_imm(1, 1, 0), "ldr r1, [r1]")
     one("ldr4", ldr_imm(0, 5, 4), "ldr r0, [r5, #4]")
     one("push", push(PAD_SAVE), "push {r0, r1, r2, r3, r4, r5}")
@@ -6650,6 +6673,132 @@ def selftest(fw_path: str, barmap_path: str) -> int:
             raise PatchError("the emitted-bytes check PASSED the known-broken take3 blob "
                              "(ADDENDUM 19) - the check does not bite")
 
+    # ---- take5: the READ-ONLY time-variance bracket (the same words at THREE instants) ----------
+    g8, g8m = make_take5(data, barmap, refs)
+    assert len(g8) == len(data), "take5 changed the size"
+    g8b, g8mb = make_take5(data, barmap, refs)
+    assert g8 == g8b, "the take5 patch is not deterministic"
+    assert json.dumps(g8m, sort_keys=True) == json.dumps(g8mb, sort_keys=True), \
+        "the take5 manifest is not deterministic"
+    # every take4 cell keeps its address; the eleven take5 cells are new, pinned and zero at both views
+    for nm in g7m["cells"]:
+        assert g8m["cells"][nm]["addr"] == g7m["cells"][nm]["addr"], f"take5 moved cell {nm}"
+    for nm in TK_NAMES:
+        assert nm not in g7m["cells"], f"take5 cell {nm} collides with a take4 cell name"
+    assert [g8m["cells"][nm]["addr"] for nm in TK_NAMES] == [hex(a) for a in TK_CELLS], \
+        "the take5 cells are not the pinned page-10 words"
+    assert all((int(g8m["cells"][nm]["addr"], 16) & ~0xFFF) == 0x150000 for nm in TK_NAMES), \
+        "a take5 cell left page 10"
+    assert all(g8m["cells"][nm]["barmap_value"] == "0x0"
+               and g8m["cells"][nm]["barmap_alias_value"] == "0x0" for nm in TK_NAMES), \
+        "a take5 cell is not zero in barmap at both views"
+    # the three pads: the sizes, the per-instant read order, the sentinel, and NO device write at all
+    te = bytes.fromhex(g8m["padding"]["tk_e"]["code_hex"])
+    ti = bytes.fromhex(g8m["padding"]["tk_i"]["code_hex"])
+    tf = bytes.fromhex(g8m["padding"]["tk_f"]["code_hex"])
+    assert (len(te), len(ti), len(tf)) == (58, 56, 58), \
+        f"the take5 pads are not the intended sizes ({len(te)}/{len(ti)}/{len(tf)})"
+    for nm8, code8, reads8, cells8, cont8, reem8 in (
+            ("tk_e", te, TK_READS, TK_E_CELLS, TRIGNAT_CONT_A, b""),
+            ("tk_i", ti, TK_I_READS, TK_I_CELLS, TK_CONT_I, TK_I_REEMIT),
+            ("tk_f", tf, TK_READS, TK_F_CELLS, INTA2_CONT_F, b"")):
+        off8 = int(g8m["padding"][nm8]["file_offset"], 16)
+        assert code8 == pad_take5_sample(off8, cells8, cont8, reads=reads8, reemit=reem8), \
+            f"the take5 {nm8} pad is not its independent reconstruction"
+        idx8 = [code8.index(_tk_read_into_base(ca, 4 * i))
+                for i, (ca, _n8) in enumerate(reads8)]
+        assert idx8 == sorted(idx8) and len(set(idx8)) == len(idx8), \
+            f"take5 {nm8}: the reads are not in TK_READS order"
+        snt8 = code8.index(_store_imm_into_base(TK_SENTINEL, 4 * len(reads8)))
+        assert idx8[-1] < snt8, f"take5 {nm8}: the sentinel is not the last deposit"
+        for nmw, caw, valw, kindw in TI_WRITE_OPS:
+            assert op_store_bytes(caw, valw, kindw) not in code8, \
+                f"take5 {nm8} carries a DEVICE WRITE ({nmw}) - the contract is read-only"
+        for caw, valw in TI_FLIP_OPS:
+            assert write_ca_block(caw, valw) not in code8, f"take5 {nm8} is not read-only"
+        assert write_ca_byte_block(TI_PRIO_4C, TI_PRIO_4C_VAL) not in code8, \
+            f"take5 {nm8} carries the priority store"
+        for bad_ca in (0x4016010C, 0x40160120, 0x10161000, 0x400392F0, 0x40039AF0, 0x40161F00):
+            for badb in _ca_ref_bytes(bad_ca):
+                assert badb not in code8, f"take5 {nm8} references the forbidden CA {bad_ca:#x}"
+    assert TK_I_REEMIT == TK_SITE_I_STOCK and TK_I_REEMIT in ti, \
+        "the take5 I pad does not re-emit the two replaced instructions byte-exact"
+    # the two retargeted tails and the new site: take4's programs, only the tail target moved
+    s7e = bytes.fromhex(g7m["padding"]["selpost_e"]["code_hex"])
+    s8e = bytes.fromhex(g8m["padding"]["selpost_e"]["code_hex"])
+    assert len(s7e) == len(s8e) and s7e[:-4] == s8e[:-4], \
+        "take5 changed the retained E pad body"
+    assert s8e[-4:] == b_w(int(g8m["padding"]["selpost_e"]["file_offset"], 16) + len(s8e) - 4,
+                           int(g8m["padding"]["tk_e"]["file_offset"], 16)), \
+        "take5: the retained E pad does not branch to the E5 instant"
+    assert te[-4:] == b_w(int(g8m["padding"]["tk_e"]["file_offset"], 16) + len(te) - 4,
+                          TRIGNAT_CONT_A), "take5: the E5 instant does not return to 0x86f5e"
+    f7e = bytes.fromhex(g7m["padding"]["fallthrough_f"]["code_hex"])
+    f8e = bytes.fromhex(g8m["padding"]["fallthrough_f"]["code_hex"])
+    assert len(f7e) == len(f8e) and f7e[:-4] == f8e[:-4], \
+        "take5 changed the retained Site F pad body"
+    assert f8e[-4:] == b_w(int(g8m["padding"]["fallthrough_f"]["file_offset"], 16) + len(f8e) - 4,
+                           int(g8m["padding"]["tk_f"]["file_offset"], 16)), \
+        "take5: the retained Site F pad does not branch to the F5 instant"
+    assert tf[-4:] == b_w(int(g8m["padding"]["tk_f"]["file_offset"], 16) + len(tf) - 4,
+                          INTA2_CONT_F), "take5: the F5 instant does not return to 0x86f82"
+    assert ti[-4:] == b_w(int(g8m["padding"]["tk_i"]["file_offset"], 16) + len(ti) - 4,
+                          TK_CONT_I), "take5: the I5 instant does not branch to 0x82f5c"
+    # every other inherited pad keeps take4's program AND take4's address
+    for key8 in ("thunk", "bringup", "send_n", "post", "drain_b2", "drain_extra", "giccpu",
+                 "vec", "m1", "m2", "v2", "selread", "selpre", "selpost"):
+        assert g8m["padding"][key8]["file_offset"] == g7m["padding"][key8]["file_offset"], \
+            f"take5 moved the {key8} pad"
+        assert g8m["padding"][key8]["code_hex"] == g7m["padding"][key8]["code_hex"], \
+            f"take5 changed the {key8} pad program"
+    # the sites: take4's ten are unchanged, plus the new ISR site (stock bytes asserted first)
+    for key8 in ("thunk", "bringup", "send_n", "post", "drain_b2", "fallthrough_f", "vec", "m1",
+                 "m2", "v2"):
+        site8 = int(g8m["sites"][key8]["file_offset"], 16)
+        assert g8[site8:site8 + 4] == bytes.fromhex(g8m["sites"][key8]["after"]), \
+            f"take5: bad site {key8}"
+    assert data[TK_SITE_I:TK_SITE_I + 4] == TK_SITE_I_STOCK, \
+        "the take5 ISR site's stock bytes are not 636f0546"
+    assert g8[TK_SITE_I:TK_SITE_I + 4] == \
+        bl(TK_SITE_I, int(g8m["padding"]["tk_i"]["file_offset"], 16)), \
+        "take5: the new ISR site is not the intended `bl`"
+    # the allowed-change set and the take5-vs-take4 delta
+    allowed8 = set()
+    for site8 in (SITE_THUNK, BRINGUP_SITE, SEND_SITE, POST_SITE, TRIGCONS_SITE_B, INTA2_SITE_F,
+                  TAKE1_V_SITE, TAKE1_M1_SITE, TAKE1_M2_SITE, GICV2_SITE, TK_SITE_I):
+        allowed8 |= set(range(site8, site8 + 4))
+    for key8, v8 in g8m["padding"].items():
+        off8 = int(v8["file_offset"], 16)
+        allowed8 |= set(range(off8, off8 + int(v8["code_length"])))
+    changed8 = [i8 for i8 in range(len(data)) if g8[i8] != data[i8]]
+    assert changed8 and all(c8 in allowed8 for c8 in changed8), \
+        "take5 changed bytes outside its regions"
+    delta85 = [i8 for i8 in range(len(data)) if g8[i8] != g7[i8]]
+    only85 = set(range(int(g8m["padding"]["tk_e"]["file_offset"], 16),
+                       int(g8m["padding"]["tk_e"]["file_offset"], 16) + len(te)))
+    only85 |= set(range(int(g8m["padding"]["tk_i"]["file_offset"], 16),
+                        int(g8m["padding"]["tk_i"]["file_offset"], 16) + len(ti)))
+    only85 |= set(range(int(g8m["padding"]["tk_f"]["file_offset"], 16),
+                        int(g8m["padding"]["tk_f"]["file_offset"], 16) + len(tf)))
+    only85 |= set(range(TK_SITE_I, TK_SITE_I + 4))
+    only85 |= set(range(int(g8m["padding"]["selpost_e"]["file_offset"], 16) + len(s8e) - 4,
+                        int(g8m["padding"]["selpost_e"]["file_offset"], 16) + len(s8e)))
+    only85 |= set(range(int(g8m["padding"]["fallthrough_f"]["file_offset"], 16) + len(f8e) - 4,
+                        int(g8m["padding"]["fallthrough_f"]["file_offset"], 16) + len(f8e)))
+    assert delta85 and all(d8 in only85 for d8 in delta85), \
+        f"the take5 delta is not exactly the three pads, the ISR site and the two tails: " \
+        f"{[hex(d) for d in delta85 if d not in only85][:8]}"
+    assert g8[0x86F78:0x86F7E] == data[0x86F78:0x86F7E], "take5 altered the announce loop head"
+    # the emitted-bytes check still holds on the regenerated take5 blob
+    pad8 = int(g8m["padding"]["selpre"]["file_offset"], 16)
+    pre8 = bytes.fromhex(g8m["padding"]["selpre"]["code_hex"])
+    emitted8 = check_emitted_ops(g8, TI_WRITE_OPS, spans=[(pad8, pad8 + len(pre8))],
+                                 label="the regenerated take5 blob")
+    assert [r["op"] for r in emitted8] == [o[0] for o in TI_WRITE_OPS] \
+        and all(r["ok"] for r in emitted8), "the take5 emitted-bytes check did not hold"
+    assert g8m["take5"]["no_new_write"] is True, "the take5 manifest does not state the read-only rule"
+    assert md5(g8) == TAKE5_MD5, f"take5 output changed: {md5(g8)} != {TAKE5_MD5}"
+
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
           f"{pm['patches'][0]['before']} -> {pm['patches'][0]['after']} "
@@ -6790,6 +6939,17 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           + f" + strb {TI_PRIO_4C:#x} <= {TI_PRIO_4C_VAL:#04x} + `dsb sy` x2"
             " (the competitor leaves the ENABLED set - register state only)")
     print(f"  take4 md5         : {md5(g7)}")
+    print(f"  take5 cells       : " + " ".join(f"{nm}={g8m['cells'][nm]['addr']}"
+                                               for nm in TK_NAMES)
+          + " (READ-ONLY: GICC_RPR/GICD_ISPENDR0 at every instant + GICD_IGROUPR2 at E5/F5 + sentinel)")
+    print(f"  take5 instants    : E5 @ the ring (chained after the retained E pad "
+          f"{g8m['padding']['selpost_e']['file_offset']}); I5 @ the ISR post-EOI (new site "
+          f"{hex(TK_SITE_I)}, pad {g8m['padding']['tk_i']['file_offset']}, sizes "
+          f"{len(te)}/{len(ti)}/{len(tf)}); F5 @ the 0xcece gate's fall-through (chained after the "
+          f"retained Site F pad)")
+    print(f"  take5 reads       : E5/F5={[hex(x) for x, _ in TK_READS]} "
+          f"I5={[hex(x) for x, _ in TK_I_READS]} + sentinel 0x{TK_SENTINEL:08x} (NO device write added)")
+    print(f"  take5 md5         : {md5(g8)}")
     return 0
 
 
@@ -7609,11 +7769,12 @@ def pad_send_inta2(pad: int, a_cells: list[int], cont: int | None = None) -> byt
     return head + body + tail + b_w(back, TRIGNAT_CONT_A if cont is None else cont)
 
 
-def pad_fallthrough_inta2(pad: int, f_cells: list[int]) -> bytes:
+def pad_fallthrough_inta2(pad: int, f_cells: list[int], cont: int = INTA2_CONT_F) -> bytes:
     """take2.md section 2.1: the NEW Site F pad at file 0x86F7E (the 0xcece gate loop's own
     `pop.w {r3,r4,r5,r6,r7,r8,sb,lr}`).  Reads F_ACT (ISACTIVER2 w2) / F_ISP (ISPENDR2 w2) /
     F_HPP (GICC HPPIR) / F_OU0 (out[0]) / F_PSR (the full CPSR) + the page-13 sentinel F_SNT, then
-    re-emits the replaced pop.w and branches to 0x86F82.  r0-r5 and the flags are saved/restored."""
+    re-emits the replaced pop.w and branches to `cont` (0x86F82 by default; the take5 variant
+    chains the take5 F instant in between, which is the only difference to this pad's bytes)."""
     head = b"".join([
         mrs_apsr(12),
         push(PAD_SAVE),
@@ -7630,7 +7791,7 @@ def pad_fallthrough_inta2(pad: int, f_cells: list[int]) -> bytes:
         TRIGNAT_DRAIN_POP,                                       # reproduce pop.w {r3..sb,lr}
     ])
     back = pad + len(head) + len(tail)
-    return head + tail + b_w(back, INTA2_CONT_F)
+    return head + tail + b_w(back, cont)
 
 
 def verify_disasm_inta2(data: bytes, pad_i: int, pad_b: int, pad_s: int, pad_p: int, pad_d: int,
@@ -10125,6 +10286,815 @@ def make_take4(data: bytes, barmap: bytes, refs: set[int]):
     return out, manifest
 
 
+# ---- take5: the TIME-VARIANCE bracket - the SAME read set at THREE instants ------------------
+# THE QUESTION (the take4 boot exp/20261006-124348, ADDENDUM 20).  In ONE boot the ring's own
+# instant read E_HPP = 0x3FF while the post-gate fall-through read F_HPP = 0x0000004C, with 0x4C
+# pending (E_ISP/X_ISP/B_D2/F_ISP = 0x1021), enabled (E_EN2 bit12 SET), promoted (E_P4C byte0
+# 0x00) and never taken (E_ACT/X_ACT/F_ACT = 0; the four IAR reads named SGI ids - the ring
+# 0,1,2,0x402 = ids 0,1,2,2).  So 0x4C's SERVABILITY IS TIME-VARYING BETWEEN SAMPLE INSTANTS
+# (take3's exp/20261005-212711 reads the same shape), and take5 does not add a lever: it samples
+# the SAME three words at THREE instants in one boot, so the mover is SEEN, not inferred.
+#
+# THE THREE WORDS (all non-acknowledging; take5 adds NO device-side write of any kind):
+#   GICC_RPR      0x40160114 - the RUNNING PRIORITY.  A source is forwarded only when its priority
+#                             is STRICTLY higher than RPR, so RPR = 0x00 (an active priority-0
+#                             SGI/PPI) makes a pending 0x4C whose own priority was promoted to
+#                             0x00 un-signallable -> HPPIR 0x3FF with NOTHING changed at the
+#                             distributor, and 0x4C becomes signalable again the moment the ISR's
+#                             EOI drops RPR back to idle (the take4 F_HPP).  take4 read RPR once
+#                             (C_GRP0 = 0x00, the announce gate) and never at the ring or at F.
+#   GICD_ISPENDR0 0x40161200 - the SGI/PPI PENDING bank (byte 0 = SGI ids 0..7).  take4 NEVER read
+#                             it; "is an SGI pending at the instant 0x4C is pending and not
+#                             forwarded" is the one measurement that turns sginote.md section 4's
+#                             inference into a reading.
+#   GICD_IGROUPR2 0x40161088 - id 0x4C's OWN GROUP BIT (bit 12) - the "never read" bit bracket.md
+#                             names as the LEADING candidate: group 1 with EnableGrp1 = 0
+#                             (E_CTLR bit1 = 0) would make 0x4C un-signallable at EVERY instant, so
+#                             a 1 refutes nothing but a 0 refutes the group-enable gate outright
+#                             (an SPI-class source in group 0, EnableGrp0 = 1, must be forwarded).
+#
+# THE THREE INSTANTS (each pad = the same three reads + the page sentinel, 52 B; the I pad is a
+# SITE pad and re-emits the two instructions it replaces, 56 B):
+#   E5_* - the RING instant: chained after take4's retained selpost_e pad, i.e. the same instant
+#          as take4's E block (E_HPP/E_ISP/E_ACT/E_EN0/E_EN2/E_CTLR/E_PSR), then the firmware's
+#          doorbell + out[0] |= 8.  Its tail replaces selpost_e's own `b.w 0x86f5e` target.
+#   I5_* - the ISR's POST-EOI instant: a NEW site on the ISR body at file 0x82f58 (the stock
+#          `ldr r3,[r4,#0x74]` + `mov r5,r0`, 636f0546, immediately after the EOI
+#          `str r7,[r3]` at 0x82f52 and its `bl #0x82394`), so the pad reads RPR/SGI-pending
+#          right after the CPU interface was told to drop the running priority.  The pad re-emits
+#          both replaced instructions byte-exact and branches to 0x82f5c.  It is entered by `bl`,
+#          but lr is not live across the site (the following `bl #0x82730` sets its own, and the
+#          handler returns through its own `pop.w {...,pc}` at 0x82f7a), and the pad ends in
+#          `b.w` - the same argument the v2 pad relies on.
+#   F5_* - the POST-GATE instant: chained after take4's retained Site F pad (the fall-through
+#          inside the 0xcece gate that read F_HPP = 0x4C); its tail replaces the Site F pad's own
+#          `b.w 0x86f82` target.
+# Three instants x three reads + sentinel = TWELVE new cells, all on page 10 immediately above
+# take4's E block (0x150144..0x150170), zero at BOTH barmap views.  Every take4 cell, pad and site
+# is retained (the two retargeted tails and the new ISR site are the only inherited bytes that
+# change), so take5's readings are directly comparable with the take4 boot's.
+#
+# THE PADDING BUDGET (why the pads are three reads and not the specs' 27-word block set): take4's
+# sixteen pads leave the loaded image with 274 free bytes, fragmented as 10/4/14/14/24/38/50/54/
+# 56/62/6/76 - the LARGEST free run is 76 bytes and the two 76-byte runs must also hold take4's
+# v2 pad (70 B).  A pad of 52/56 B is therefore the most this instrument can add per instant, and
+# the read set was chosen for decisiveness under that budget (the specs' 150-400 B pads do not
+# fit; the simulation is in the manifest's take5.note).
+#
+# THE BRANCH TABLE (read from E5_*/I5_*/F5_* plus the retained take4 cells):
+#   1) E5_RPR != 0x3FF with E5_SGIP/E5_GRP2 unchanged and F5_RPR == 0x3FF -> the RUNNING PRIORITY
+#      is the mover: 0x4C at priority 0x00 cannot preempt an active source at 0x00 and becomes
+#      signalable only after the EOI - the residual is the take/EOI phase, not the priority.
+#   2) E5_SGIP byte0 non-zero while E_HPP == 0x3FF -> an SGI was pending at the same instant and was
+#      NOT forwarded either: the bank is not the comparator at that instant; RPR is.
+#   3) E5_GRP2 bit12 == 1 -> id 0x4C lives in group 1 while EnableGrp1 == 0 (E_CTLR bit1): the
+#      group gate is a real config blocker (bracket.md's lead) and the promotion is downstream.
+#      bit12 == 0 -> the group-enable candidate is REFUTED (EnableGrp0 = 1, so a group-0 SPI must
+#      be forwarded); report it as a refutation, not as a missing sample.
+#   4) E5_SNT/I5_SNT/F5_SNT != 0x50aa7e49 -> that instant is NO-SAMPLE (the pad did not run); do
+#      not read its two words.
+TK_GICC_BASE = 0x40160100  # the CPU-interface page base (r3): RPR = +0x14 (narrow LDR T1)
+TK_GICD_BASE = 0x40161000  # the distributor page base (r4): ISPENDR0 = +0x200, IGROUPR2 = +0x88
+TK_GICC_RPR = 0x40160114
+TK_GICD_ISPENDR0 = 0x40161200
+TK_GICD_IGROUPR2 = 0x40161088
+# The read set: the two DYNAMIC words (the running priority and the SGI/PPI pending bank) at every
+# instant, plus the config word (id 0x4C's group bit) at the two instants whose E/F comparison
+# bracket.md section 4 branch 1 needs.  The per-instant pad sizes are forced by the padding budget:
+# three reads + the sentinel is 58 B (two fragments >=58 remain after take4 + its 70-B v2 pad) and
+# two reads + the sentinel is 52 B, so the third instant carries the dynamic pair only.
+TK_READS = ((TK_GICC_RPR, "RPR"), (TK_GICD_ISPENDR0, "SGIP"), (TK_GICD_IGROUPR2, "GRP2"))
+TK_I_READS = ((TK_GICC_RPR, "RPR"), (TK_GICD_ISPENDR0, "SGIP"))
+TK_SENTINEL = INTA_SENTINEL          # 0x50aa7e49 - the same presence proof every other pad uses
+TK_CELLS = (0x150144, 0x150148, 0x15014C, 0x150150,      # E5_* - the ring (take4's E epoch)
+            0x150154, 0x150158, 0x15015C,                # I5_* - the ISR's post-EOI epoch
+            0x150160, 0x150164, 0x150168, 0x15016C)      # F5_* - the post-gate (take4's F epoch)
+TK_NAMES = ("E5_RPR", "E5_SGIP", "E5_GRP2", "E5_SNT",
+            "I5_RPR", "I5_SGIP", "I5_SNT",
+            "F5_RPR", "F5_SGIP", "F5_GRP2", "F5_SNT")
+TK_E_CELLS, TK_I_CELLS, TK_F_CELLS = TK_CELLS[0:4], TK_CELLS[4:7], TK_CELLS[7:11]
+TK_PAD_READS = {"tk_e": TK_READS, "tk_f": TK_READS, "tk_i": TK_I_READS}
+TK_PAD_CELLS = {"tk_e": TK_E_CELLS, "tk_f": TK_F_CELLS, "tk_i": TK_I_CELLS}
+TK_SITE_I = 0x82F58                      # the ISR's own `ldr r3,[r4,#0x74]` + `mov r5,r0`
+TK_SITE_I_STOCK = bytes.fromhex("636f0546")
+TK_CONT_I = 0x82F5C                      # continue at the handler's `cmp r3,#1`
+TK_I_REEMIT = ldr_imm(3, 4, 0x74) + mov_reg(5, 0)      # the replaced pair, byte-exact
+
+NOTE_TAKE5 = (
+    "take5 (build/tmp/inta-spec/{bracket,sgi3,brk3}.md) rides take4 byte-for-byte - the flips, "
+    "the v1/v2 canaries, the CPSR milestones, the giccpu cells, Pad A(N) with the H2D ring, Pad "
+    "B2 + companion, Site F and select.md's readbacks are all retained - and adds only READ-ONLY "
+    "samplers: the same words (GICC_RPR 0x40160114 and the SGI/PPI bank GICD_ISPENDR0 "
+    "0x40161200 at every instant, plus id 0x4C's group bit GICD_IGROUPR2 0x40161088 at the ring "
+    "and post-gate instants) and the page sentinel at THREE instants in one boot - E5_* at "
+    "the ring (chained after take4's selpost_e), I5_* inside the ISR right after the EOI (a new "
+    "site at file 0x82f58, entered by `bl`, re-emitting the replaced `ldr r3,[r4,#0x74]` + "
+    "`mov r5,r0` and branching to 0x82f5c) and F5_* at the 0xcece gate's fall-through (chained "
+    "after the retained Site F pad).  NO device-side write is added anywhere: the emitted-bytes "
+    "check still scans the take4 selpre flip and the new pads contain no store op.  "
+    "DEVIATIONS FROM THE SPECS, recorded: (1) the specs' sampler designs are 150-400 bytes each "
+    "and the loaded image has only 274 free padding bytes left in fragments of <=76 (take4's own "
+    "allocation; the two 76-byte runs must also host take4's 70-byte v2 pad), so each instant is "
+    "one pad of 52 or 58 bytes and the read set is the decisive words rather than the 27-word "
+    "block; (2) brk3.md's proposed early site is NOT used: file 0x82732 is "
+    "reachable (the ISR calls the 0x82730 wrapper at file 0x82f42/0x82f64) but the take4 boot "
+    "read M2_PSR = 0x00000000, i.e. the 0x826e0 path taken through 0x82730 returns before its "
+    "0x8270a guard pass, so an early sample there would be a different (and partly empty) epoch; "
+    "the post-EOI instant inside the ISR replaces it, which is the instant the RPR hypothesis "
+    "actually needs.  Hard rules held: no write of 0x400392f0/0x40039af0, never read the "
+    "acknowledging IAR 0x4016010c / the aliased AIAR 0x40160120 / 0x10161000, GICD_SGIR is never "
+    "read, every added read is non-acknowledging, and register state only (a reboot restores it)."
+)
+
+
+def _tk_read_into_base(ca: int, off: int) -> bytes:
+    """The take5 deposit off the two page base registers: the CPU-interface page (r3 = 0x40160100)
+    narrow `ldr r1,[r3,#ca-0x40160100]`, the distributor page (r4 = 0x40161000) wide
+    `ldr.w r1,[r4,#ca-0x40161000]`, then `str r1,[r2,#off]` with r2 = the instant's cell base
+    (4 bytes for a CPU-interface word, 6 for a distributor word)."""
+    if 0x40160000 <= ca < 0x40160200:
+        return ldr_imm(1, 3, ca - TK_GICC_BASE) + str_imm(1, 2, off)
+    if 0x40161000 <= ca < 0x40162000:
+        return ldr_imm_w(1, 4, ca - TK_GICD_BASE) + str_imm(1, 2, off)
+    raise PatchError(f"take5: {ca:#x} is outside the two sampled GIC pages")
+
+
+def pad_take5_sample(pad: int, cells: list[int], cont: int, reads=TK_READS,
+                     reemit: bytes = b"") -> bytes:
+    """One take5 instant: `reads` (TK_READS for the E5/F5 instants, TK_I_READS for I5) deposited
+    into `cells` (contiguous words) plus the page sentinel, then `b.w cont`.  `reemit` carries the
+    replaced instruction(s) of a SITE pad (the I pad re-emits the ISR's `ldr r3,[r4,#0x74]` +
+    `mov r5,r0` after restoring its own registers) and is empty for the two CHAINED pads (E5/F5).
+    r0-r4 are saved/restored; no instruction here writes the condition flags."""
+    base = cells[0]
+    if len(cells) != len(reads) + 1 or list(cells) != [base + 4 * i for i in range(len(cells))]:
+        raise PatchError(f"take5: an instant's cells must be contiguous words "
+                         f"({len(reads)} reads + sentinel)")
+    body = b"".join([
+        push([0, 1, 2, 3, 4]),
+        movw(2, base & 0xFFFF), movt(2, base >> 16),
+        movw(3, TK_GICC_BASE & 0xFFFF), movt(3, TK_GICC_BASE >> 16),
+        movw(4, TK_GICD_BASE & 0xFFFF), movt(4, TK_GICD_BASE >> 16),
+        *[_tk_read_into_base(ca, 4 * i) for i, (ca, _nm) in enumerate(reads)],
+        _store_imm_into_base(TK_SENTINEL, 4 * len(reads)),
+        pop([0, 1, 2, 3, 4]),
+        reemit,
+    ])
+    return body + b_w(pad + len(body), cont)
+
+
+def select_cells_take5(barmap: bytes):
+    """take4's cells (IDENTICAL addresses - every inherited cell keeps its take4 address) plus the
+    twelve take5 cells (three instants x the three reads + the sentinel) on page 10, immediately
+    above take4's E block."""
+    cells, v2c, selc, ec3, sel = select_cells_take4(barmap)
+    ok = _cell_ok(barmap)
+    tk = list(TK_CELLS)
+    for nm, addr in zip(TK_NAMES, tk):
+        if not ok(addr):
+            raise PatchError(f"take5 cell {nm} at {addr:#x} is not a zero cell at both barmap "
+                             "views")
+    if set(tk) & (set(v2c) | set(selc) | set(cells)) or len(set(tk)) != len(tk):
+        raise PatchError("the take5 cells are not distinct from the take4 cells")
+    if tk != [0x150144 + 4 * i for i in range(len(TK_CELLS))]:
+        raise PatchError("internal error: the take5 cell addresses changed")
+    sel = dict(sel)
+    sel.update({
+        "take5_rule": "take4's cells (IDENTICAL addresses) + eleven take5 cells "
+                      "0x150144..0x15016c (three instants: E5_RPR/E5_SGIP/E5_GRP2/E5_SNT, "
+                      "I5_RPR/I5_SGIP/I5_SNT, F5_RPR/F5_SGIP/F5_GRP2/F5_SNT)",
+        "take5_cells": [hex(a) for a in tk],
+        "take5_note": NOTE_TAKE5,
+    })
+    return cells, v2c, selc, ec3, tk, sel
+
+
+def verify_disasm_take5(data: bytes, pads: dict[str, int], s1: int, s2: int,
+                        gic_cells: list[int], e_cells: list[int], a_cells: list[int],
+                        b_cells: list[int], b2_cells: list[int], f_cells: list[int],
+                        v_cells: list[int], cp_cells: list[int], v2_cells: list[int],
+                        sel_cells: list[int], e3_cells: list[int],
+                        tk_cells: list[int]) -> dict:
+    """Byte-equality of the NINETEEN take5 pads against their independent reconstructions PLUS
+    the block structure: every inherited take4 pad byte-identical except the two retargeted tails
+    (selpost_e -> the take5 E pad, Site F -> the take5 F pad), the take5 I pad's re-emitted pair,
+    the three instants' read order + sentinels, the eleven sites, the untouched bodies and the
+    forbidden-CA absence WITH the no-new-write assertion the take5 contract requires."""
+    if len(a_cells) != INTA2_A_NCELLS:
+        raise PatchError(f"take5 expected {INTA2_A_NCELLS} A cells, got {len(a_cells)}")
+    if len(b_cells) != TRIGNAT_B_NCELLS:
+        raise PatchError(f"take5 expected {TRIGNAT_B_NCELLS} B cells, got {len(b_cells)}")
+    if len(b2_cells) != INTA_B2_NCELLS:
+        raise PatchError(f"take5 expected {INTA_B2_NCELLS} B2 cells, got {len(b2_cells)}")
+    if len(f_cells) != INTA2_F_NCELLS:
+        raise PatchError(f"take5 expected {INTA2_F_NCELLS} F cells, got {len(f_cells)}")
+    if len(v_cells) != len(TAKE1_V_CELLS) or len(cp_cells) != len(TAKE1_CP_CELLS):
+        raise PatchError("take5 expected take1's V/M and giccpu cells")
+    if len(v2_cells) != len(GICV2_CELLS):
+        raise PatchError(f"take5 expected {len(GICV2_CELLS)} gicv2 cells, got {len(v2_cells)}")
+    if len(sel_cells) != len(SEL_CELLS):
+        raise PatchError(f"take5 expected {len(SEL_CELLS)} select cells, got {len(sel_cells)}")
+    if len(e3_cells) != len(TI_E_CELLS):
+        raise PatchError(f"take5 expected {len(TI_E_CELLS)} E cells, got {len(e3_cells)}")
+    if len(tk_cells) != len(TK_CELLS):
+        raise PatchError(f"take5 expected {len(TK_CELLS)} take5 cells, got {len(tk_cells)}")
+    every = ([s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + f_cells + v_cells
+             + cp_cells + v2_cells + sel_cells + e3_cells + tk_cells)
+    if len(set(every)) != len(every):
+        raise PatchError("take5 cells are not all distinct")
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+
+    def dis(off: int, size: int) -> list[str]:
+        return [f"{i.mnemonic} {i.op_str}".strip() for i in md.disasm(data[off:off + size], off)]
+
+    if list(tk_cells) != list(TK_CELLS):
+        raise PatchError("take5: the selected take5 cells are not TK_CELLS")
+    tk_e, tk_i, tk_f = TK_E_CELLS, TK_I_CELLS, TK_F_CELLS
+    code = {
+        "thunk": pad_thunk(pads["thunk"], s1, gic_cells, apsr_cell=e_cells[3],
+                           req_cell=e_cells[2]),
+        "bringup": pad_bringup(pads["bringup"], s2, gic_cells),
+        "send_n": pad_send_inta2(pads["send"], a_cells, pads["selpost"]),
+        "post": pad_post(pads["post"], e_cells),
+        "drain_b2": pad_drain_inta(pads["drain"], b_cells, pads["drain_extra"]),
+        "drain_extra": pad_drain_extra_inta(pads["drain_extra"], b2_cells,
+                                            next_pad=pads["giccpu"]),
+        "giccpu": pad_giccpu_take1(pads["giccpu"], cp_cells, TRIGCONS_CONT_B),
+        "fallthrough_f": pad_fallthrough_inta2(pads["fallthrough"], f_cells, cont=pads["tk_f"]),
+        "vec": pad_vec_take1(pads["vec"], v_cells, TAKE1_V_CONT),
+        "m1": pad_m1_take1(pads["m1"], v_cells[3], TAKE1_M1_CONT),
+        "m2": pad_m2_take1(pads["m2"], v_cells[4], TAKE1_M2_CONT),
+        "v2": pad_vec_gicv2(pads["v2"], v2_cells, GICV2_CONT),
+        "selread": pad_sel_read_take4(pads["selread"], pads["selpre"]),
+        "selpre": pad_sel_pre_take4(pads["selpre"], pads["send"]),
+        "selpost": pad_sel_post(pads["selpost"], sel_cells, pads["selpost_e"]),
+        "selpost_e": pad_sel_post_e_take4(pads["selpost_e"], e3_cells, pads["tk_e"]),
+        "tk_e": pad_take5_sample(pads["tk_e"], tk_e, TRIGNAT_CONT_A),
+        "tk_i": pad_take5_sample(pads["tk_i"], tk_i, TK_CONT_I, reads=TK_I_READS,
+                                 reemit=TK_I_REEMIT),
+        "tk_f": pad_take5_sample(pads["tk_f"], tk_f, INTA2_CONT_F),
+    }
+    pad_of = {"send_n": "send", "drain_b2": "drain", "fallthrough_f": "fallthrough"}
+    for name, c in code.items():
+        off = pads[pad_of.get(name, name)]
+        if data[off:off + len(c)] != c:
+            raise PatchError(f"the take5 {name} pad at {off:#x} is not the intended bytes")
+    if (len(code["tk_e"]), len(code["tk_i"]), len(code["tk_f"])) != (58, 56, 58):
+        raise PatchError(f"the take5 pads are not the intended sizes "
+                         f"({len(code['tk_e'])}/{len(code['tk_i'])}/{len(code['tk_f'])})")
+
+    # the inherited structural invariants (unchanged programs, moved tail targets only)
+    if write_ca_block(TRIGNAT_RING_CA, TRIGNAT_RING_VAL) not in code["send_n"]:
+        raise PatchError("the take5 Pad A(N) lost the H2D ring")
+    if movw(3, 0xcece) not in code["drain_b2"]:
+        raise PatchError("take5 Pad B2 must re-emit `movw r3,#0xcece`")
+    if _store_cpsr_block(f_cells[4]) not in code["fallthrough_f"]:
+        raise PatchError("the take5 Site F is missing the F_PSR CPSR read")
+    if code["fallthrough_f"].count(TRIGNAT_DRAIN_POP) != 1:
+        raise PatchError("the take5 Site F must re-emit the replaced pop.w exactly once")
+    if b_w(pads["drain"] + len(code["drain_b2"]) - 4, pads["drain_extra"]) != \
+            code["drain_b2"][-4:]:
+        raise PatchError("the take5 Pad B2 does not branch to the drain companion")
+    if b_w(pads["giccpu"] + len(code["giccpu"]) - 4, TRIGCONS_CONT_B) != code["giccpu"][-4:]:
+        raise PatchError("the take5 giccpu pad does not return to the loop head 0x86f78")
+
+    # the v2 pad: the exact block order, the re-emitted stock ubfx, the tail and the ring store
+    vd = dis(pads["v2"], len(code["v2"]))
+    for want in ("push {r0, r1, r2, r3, r5, r6}", "str r7, [r0]", "mrc p15, #0, r0, c0, c0, #5",
+                 "str.w r7, [r1, r5]", "pop {r0, r1, r2, r3, r5, r6}",
+                 "ubfx r8, r7, #0, #0xa"):
+        if want not in vd:
+            raise PatchError(f"the take5 v2 pad lost `{want}`: {vd!r}")
+    if sum(1 for s in vd if s.startswith("ubfx")) != 1:
+        raise PatchError(f"the take5 v2 pad must re-emit the stock ubfx exactly once: {vd!r}")
+    if b_w(pads["v2"] + len(code["v2"]) - 4, GICV2_CONT) != code["v2"][-4:]:
+        raise PatchError("the take5 v2 pad has no `b.w` to 0x82f0c")
+
+    # take4's synchronized flip, byte-identical (take5 adds NO device-side write)
+    pre = code["selpre"]
+    rdr = code["selread"]
+    if pre.count(TI_DSB_SY) != 2:
+        raise PatchError("the take5 selpre pad must carry take4's exactly two `dsb sy`")
+    p_id = gic_read_store_block(SEL_PRE_READS[0][0], SEL_PRE_READS[0][1])
+    flip_blocks = [write_ca_block(ca, val) for ca, val in TI_FLIP_OPS]
+    prio_blk = write_ca_byte_block(TI_PRIO_4C, TI_PRIO_4C_VAL)
+    if rdr.count(p_id) != 1 or p_id in pre:
+        raise PatchError("take5: the retained P_ID read must live in the selread pad only")
+    for b in flip_blocks + [prio_blk]:
+        if pre.count(b) != 1:
+            raise PatchError(f"take5: a retained flip op block is not exactly once: {b.hex()}")
+    first_dsb = pre.index(TI_DSB_SY)
+    second_dsb = pre.index(TI_DSB_SY, first_dsb + 4)
+    en4c = pre.index(write_ca_block(TI_ISENABLER2, TI_MASK_4C))
+    if not pre.index(prio_blk) < first_dsb < en4c < second_dsb:
+        raise PatchError("take5: the retained 0x4C store -> dsb -> re-enable -> dsb order is wrong")
+    for ca, val in SEL_PRIO_WRITES:
+        if ca == TI_PRIO_4C:
+            continue
+        if write_ca_byte_block(ca, val) in pre:
+            raise PatchError("take5 must not re-store the 0x1D/0x40 priority bytes")
+
+    # the retained selpost (X block) and the retained take4 E block
+    post = code["selpost"]
+    for ca, cell in SEL_POST_READS:
+        if gic_read_store_block(ca, cell) not in post:
+            raise PatchError(f"take5 lost a retained select readback {ca:#x}")
+    poste = code["selpost_e"]
+    ereads = [_gic_read_into_base(ca, 4 * i) for i, (ca, _cell) in enumerate(TI_E_READS)]
+    e_cpsr = _store_cpsr_into_base(4 * 10)
+    e_snt = _store_imm_into_base(INTA_SENTINEL, 4 * 11)
+    e_order = [poste.index(b) for b in ereads] + [poste.index(e_cpsr), poste.index(e_snt)]
+    if e_order != sorted(e_order) or len(set(e_order)) != len(e_order):
+        raise PatchError("take5: the retained E block reads are out of order")
+    if poste.count(push(PAD_SAVE)) != 1 or poste.count(pop(PAD_SAVE)) != 1:
+        raise PatchError("take5: the retained E pad must save/restore r0-r5 exactly once")
+
+    # the three take5 instants: the per-instant read order, the sentinel last, push/pop once, and
+    # NO device write of any kind (the take5 contract: read-only sampling)
+    for name in ("tk_e", "tk_f", "tk_i"):
+        reads, cells, c = TK_PAD_READS[name], TK_PAD_CELLS[name], code[name]
+        tk_reads = [_tk_read_into_base(ca, 4 * i) for i, (ca, _nm) in enumerate(reads)]
+        idx = [c.index(b) for b in tk_reads]
+        snt = c.index(_store_imm_into_base(TK_SENTINEL, 4 * len(reads)))
+        if idx != sorted(idx) or len(set(idx)) != len(idx):
+            raise PatchError(f"take5: the {name} pad's reads are out of order")
+        if not idx[-1] < snt:
+            raise PatchError(f"take5: the {name} pad's sentinel is not the last deposit")
+        if c.count(push([0, 1, 2, 3, 4])) != 1 or c.count(pop([0, 1, 2, 3, 4])) != 1:
+            raise PatchError(f"take5: the {name} pad must save/restore r0-r4 exactly once")
+        if movw(2, cells[0] & 0xFFFF) + movt(2, cells[0] >> 16) not in c:
+            raise PatchError(f"take5: the {name} pad lost its cell base")
+        if movw(3, TK_GICC_BASE & 0xFFFF) + movt(3, TK_GICC_BASE >> 16) not in c:
+            raise PatchError(f"take5: the {name} pad lost the CPU-interface page base")
+        if movw(4, TK_GICD_BASE & 0xFFFF) + movt(4, TK_GICD_BASE >> 16) not in c:
+            raise PatchError(f"take5: the {name} pad lost the distributor page base")
+        if _store_imm_block(TK_SENTINEL, cells[len(reads)]) in c:
+            raise PatchError(f"take5: the {name} pad must use the shared-base sentinel")
+        for i, (ca, _nm) in enumerate(reads):
+            if gic_read_store_block(ca, cells[i]) in c:
+                raise PatchError(f"take5: the {name} pad must use the shared-base deposits")
+        for nm, ca, val, kind in TI_WRITE_OPS:
+            if op_store_bytes(ca, val, kind) in c:
+                raise PatchError(f"take5 adds a DEVICE WRITE in {name}: {nm} ({ca:#x})")
+        if any(write_ca_block(ca, val) in c for ca, val in TI_FLIP_OPS) or \
+                write_ca_byte_block(TI_PRIO_4C, TI_PRIO_4C_VAL) in c:
+            raise PatchError(f"take5: the {name} pad must be read-only")
+    if TK_I_REEMIT not in code["tk_i"] or TK_SITE_I_STOCK != TK_I_REEMIT:
+        raise PatchError("take5: the I pad does not re-emit the two replaced instructions "
+                         "byte-exact")
+
+    # the chain: send -> selread -> selpre -> Pad A(N) -> selpost -> selpost_e -> tk_e -> 0x86f5e
+    #            Site F -> tk_f -> 0x86f82 ;  0x82f58 -> tk_i -> 0x82f5c
+    if b_w(pads["selread"] + len(rdr) - 4, pads["selpre"]) != rdr[-4:]:
+        raise PatchError("take5: the selread pad does not branch into the flip pad")
+    if b_w(pads["selpre"] + len(pre) - 4, pads["send"]) != pre[-4:]:
+        raise PatchError("take5: the selpre pad does not branch into Pad A(N)")
+    if b_w(pads["send"] + len(code["send_n"]) - 4, pads["selpost"]) != code["send_n"][-4:]:
+        raise PatchError("take5: Pad A(N) does not branch to the retained selpost pad")
+    if b_w(pads["selpost"] + len(post) - 4, pads["selpost_e"]) != post[-4:]:
+        raise PatchError("take5: the selpost pad does not branch to the E pad")
+    if b_w(pads["selpost_e"] + len(poste) - 4, pads["tk_e"]) != poste[-4:]:
+        raise PatchError("take5: the retained E pad does not branch to the take5 E instant")
+    if b_w(pads["tk_e"] + len(code["tk_e"]) - 4, TRIGNAT_CONT_A) != code["tk_e"][-4:]:
+        raise PatchError("take5: the E instant does not return to 0x86f5e")
+    if b_w(pads["fallthrough"] + len(code["fallthrough_f"]) - 4, pads["tk_f"]) != \
+            code["fallthrough_f"][-4:]:
+        raise PatchError("take5: the retained Site F pad does not branch to the take5 F instant")
+    if b_w(pads["tk_f"] + len(code["tk_f"]) - 4, INTA2_CONT_F) != code["tk_f"][-4:]:
+        raise PatchError("take5: the F instant does not return to 0x86f82")
+    if b_w(pads["tk_i"] + len(code["tk_i"]) - 4, TK_CONT_I) != code["tk_i"][-4:]:
+        raise PatchError("take5: the I instant does not branch to 0x82f5c")
+
+    # the eleven sites
+    sites = ((SITE_THUNK, pads["thunk"], bl(SITE_THUNK, pads["thunk"])),
+             (BRINGUP_SITE, pads["bringup"], bl(BRINGUP_SITE, pads["bringup"])),
+             (SEND_SITE, pads["selread"], bl(SEND_SITE, pads["selread"])),
+             (POST_SITE, pads["post"], bl(POST_SITE, pads["post"])),
+             (TRIGCONS_SITE_B, pads["drain"], bl(TRIGCONS_SITE_B, pads["drain"])),
+             (INTA2_SITE_F, pads["fallthrough"], bl(INTA2_SITE_F, pads["fallthrough"])),
+             (TAKE1_V_SITE, pads["vec"], b_w(TAKE1_V_SITE, pads["vec"])),
+             (TAKE1_M1_SITE, pads["m1"], bl(TAKE1_M1_SITE, pads["m1"])),
+             (TAKE1_M2_SITE, pads["m2"], bl(TAKE1_M2_SITE, pads["m2"])),
+             (GICV2_SITE, pads["v2"], bl(GICV2_SITE, pads["v2"])),
+             (TK_SITE_I, pads["tk_i"], bl(TK_SITE_I, pads["tk_i"])))
+    for site, _pad, want_bytes in sites:
+        if data[site:site + 4] != want_bytes:
+            raise PatchError(f"take5 site {site:#x} is not the intended branch: "
+                             f"{data[site:site + 4].hex()} != {want_bytes.hex()}")
+
+    # forbidden CAs: the W1C clears, the RC misc window, the aliased acknowledging AIAR, the
+    # acknowledging IAR, the write-only SGIR - in every pad, read or write, any register
+    forbidden_blocks = [write_ca_block(0x400392F0, 1), write_ca_block(0x10161000, 0),
+                        gic_read_store_block(0x10161000, 0), gic_read_store_block(0x40160120, 0)]
+    forbidden_blocks += _ca_ref_bytes(0x4016010C) + _ca_ref_bytes(0x400392F0) + \
+        _ca_ref_bytes(0x10161000) + _ca_ref_bytes(0x40039AF0) + _ca_ref_bytes(0x40161F00)
+    for name, c in code.items():
+        for bad in forbidden_blocks:
+            if bad in c:
+                raise PatchError(f"the take5 {name} pad addresses a forbidden CA: {bad.hex()}")
+
+    return {
+        "thunk_pad": dis(pads["thunk"], len(code["thunk"])),
+        "bringup_pad": dis(pads["bringup"], len(code["bringup"])),
+        "send_pad": dis(pads["send"], len(code["send_n"])),
+        "post_pad": dis(pads["post"], len(code["post"])),
+        "drain_pad": dis(pads["drain"], len(code["drain_b2"])),
+        "drain_extra_pad": dis(pads["drain_extra"], len(code["drain_extra"])),
+        "giccpu_pad": dis(pads["giccpu"], len(code["giccpu"])),
+        "fallthrough_pad": dis(pads["fallthrough"], len(code["fallthrough_f"])),
+        "vec_pad": dis(pads["vec"], len(code["vec"])),
+        "m1_pad": dis(pads["m1"], len(code["m1"])),
+        "m2_pad": dis(pads["m2"], len(code["m2"])),
+        "v2_pad": dis(pads["v2"], len(code["v2"])),
+        "selpre_pad": dis(pads["selpre"], len(pre)),
+        "selread_pad": dis(pads["selread"], len(rdr)),
+        "selpost_pad": dis(pads["selpost"], len(post)),
+        "selpost_e_pad": dis(pads["selpost_e"], len(poste)),
+        "tk_e_pad": dis(pads["tk_e"], len(code["tk_e"])),
+        "tk_i_pad": dis(pads["tk_i"], len(code["tk_i"])),
+        "tk_f_pad": dis(pads["tk_f"], len(code["tk_f"])),
+        "take5": {
+            "instants": {
+                "E5": {"epoch": "the ring (chained after the retained E pad)",
+                       "site": None, "cont": hex(TRIGNAT_CONT_A),
+                       "cells": [hex(c) for c in tk_e]},
+                "I5": {"epoch": "the ISR post-EOI (entered by `bl` at file 0x82f58)",
+                       "site": hex(TK_SITE_I), "cont": hex(TK_CONT_I),
+                       "replaced_bytes": TK_SITE_I_STOCK.hex(),
+                       "reemitted_bytes": TK_I_REEMIT.hex(),
+                       "cells": [hex(c) for c in tk_i]},
+                "F5": {"epoch": "the 0xcece gate's fall-through (chained after the Site F pad)",
+                       "site": None, "cont": hex(INTA2_CONT_F),
+                       "cells": [hex(c) for c in tk_f]},
+            },
+            "reads": {seg: [{"ca": hex(ca), "cell": hex(cl)}
+                            for (ca, _n), cl in zip(TK_PAD_READS[k], TK_PAD_CELLS[k])]
+                           + [{"ca": "sentinel", "cell": hex(TK_SENTINEL)}]
+                      for seg, k in (("E5", "tk_e"), ("I5", "tk_i"), ("F5", "tk_f"))},
+            "read_cas": {"E5": [hex(ca) for ca, _n in TK_READS],
+                         "I5": [hex(ca) for ca, _n in TK_I_READS],
+                         "F5": [hex(ca) for ca, _n in TK_READS]},
+            "pad_lengths": {"E5": len(code["tk_e"]), "I5": len(code["tk_i"]),
+                            "F5": len(code["tk_f"])},
+            "no_new_write": True,
+            "iar_reads": "none added (V2_ID is still the word the handler's own `ldr r7,[r3]` at "
+                         "file 0x82f04 returned)",
+            "never_read": GICV2_NEVER_READ + ", 0x40160120 (the aliased AIAR), 0x10161000 (RC "
+                         "misc) and 0x40161f00 (GICD_SGIR, write-only)",
+            "note": NOTE_TAKE5,
+        },
+    }
+
+
+def make_take5(data: bytes, barmap: bytes, refs: set[int]):
+    """take4's instrument BYTE-FOR-BYTE (the synchronized flip, the v1/v2 canaries, the CPSR
+    milestones, the giccpu cells, Pad A(N) with the H2D ring, Pad B2 + companion, Site F and
+    select.md's readbacks) PLUS the take5 time-variance bracket: the same three read-only words
+    (GICC_RPR / GICD_ISPENDR0 / GICD_IGROUPR2) + the page sentinel at three instants - the ring
+    (E5, chained after the retained E pad), the ISR's post-EOI (I5, a new site at file 0x82f58)
+    and the 0xcece gate's fall-through (F5, chained after the retained Site F pad).  NO new device
+    write; only the two retargeted tails and the new site differ from take4's pads."""
+    cells, v2c, selc, ec3, tk, sel = select_cells_take5(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    off_b = off_a + TRIGNAT_A_NCELLS
+    bc = cells[off_b:off_b + TRIGNAT_B_NCELLS]
+    off_b2 = off_b + TRIGNAT_B_NCELLS
+    b2c = cells[off_b2:off_b2 + INTA_B2_NCELLS]
+    off_f = off_b2 + INTA_B2_NCELLS
+    fc = cells[off_f:off_f + INTA2_F_NCELLS]
+    off_n = off_f + INTA2_F_NCELLS
+    nc = cells[off_n:off_n + INTA2_N_NCELLS]
+    ac2 = ac + nc
+    vc = list(TAKE1_V_CELLS)
+    cpc = list(TAKE1_CP_CELLS)
+    if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
+            or len(b2c) != INTA_B2_NCELLS or len(fc) != INTA2_F_NCELLS
+            or len(nc) != INTA2_N_NCELLS or len(ac2) != INTA2_A_NCELLS):
+        raise PatchError("internal error: take5 inta3 cells were not selected")
+
+    needs = [("send", len(pad_send_inta2(0, ac2, 0))),
+             ("thunk", len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))),
+             ("bringup", len(pad_bringup(0, s2, gc))), ("post", len(pad_post(0, ec))),
+             ("drain", len(pad_drain_inta(0, bc, 0))),
+             ("drain_extra", len(pad_drain_extra_inta(0, b2c))),
+             ("fallthrough", len(pad_fallthrough_inta2(0, fc))),
+             ("giccpu", len(pad_giccpu_take1(0, cpc, 0))), ("vec", len(pad_vec_take1(0, vc, 0))),
+             ("m1", len(pad_m1_take1(0, vc[3], 0))), ("m2", len(pad_m2_take1(0, vc[4], 0))),
+             ("v2", len(pad_vec_gicv2(0, v2c, 0))),
+             ("selpre", len(pad_sel_pre_take4(0, 0))),
+             ("selread", len(pad_sel_read_take4(0, 0))),
+             ("selpost", len(pad_sel_post(0, selc, 0))),
+             ("selpost_e", len(pad_sel_post_e_take4(0, ec3, 0))),
+             ("tk_e", len(pad_take5_sample(0, TK_E_CELLS, 0))),
+             ("tk_f", len(pad_take5_sample(0, TK_F_CELLS, 0))),
+             ("tk_i", len(pad_take5_sample(0, TK_I_CELLS, 0, reads=TK_I_READS,
+                                           reemit=TK_I_REEMIT)))]
+    alloc = alloc_pads(data, refs, needs)
+    pads = {name: off for name, (off, _run) in alloc.items()}
+
+    code_i = pad_thunk(pads["thunk"], s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pads["bringup"], s2, gc)
+    code_s = pad_send_inta2(pads["send"], ac2, pads["selpost"])
+    code_p = pad_post(pads["post"], ec)
+    code_d = pad_drain_inta(pads["drain"], bc, pads["drain_extra"])
+    code_m = pad_drain_extra_inta(pads["drain_extra"], b2c, next_pad=pads["giccpu"])
+    code_g = pad_giccpu_take1(pads["giccpu"], cpc, TRIGCONS_CONT_B)
+    code_f = pad_fallthrough_inta2(pads["fallthrough"], fc, cont=pads["tk_f"])
+    code_v = pad_vec_take1(pads["vec"], vc, TAKE1_V_CONT)
+    code_1 = pad_m1_take1(pads["m1"], vc[3], TAKE1_M1_CONT)
+    code_2 = pad_m2_take1(pads["m2"], vc[4], TAKE1_M2_CONT)
+    code_v2 = pad_vec_gicv2(pads["v2"], v2c, GICV2_CONT)
+    code_ps = pad_sel_pre_take4(pads["selpre"], pads["send"])
+    code_rd = pad_sel_read_take4(pads["selread"], pads["selpre"])
+    code_qs = pad_sel_post(pads["selpost"], selc, pads["selpost_e"])
+    code_es = pad_sel_post_e_take4(pads["selpost_e"], ec3, pads["tk_e"])
+    code_te = pad_take5_sample(pads["tk_e"], TK_E_CELLS, TRIGNAT_CONT_A)
+    code_ti = pad_take5_sample(pads["tk_i"], TK_I_CELLS, TK_CONT_I, reads=TK_I_READS,
+                               reemit=TK_I_REEMIT)
+    code_tf = pad_take5_sample(pads["tk_f"], TK_F_CELLS, INTA2_CONT_F)
+
+    out = bytearray(patch_sites(data, pads["thunk"], pads["bringup"], pads["selread"],
+                                pads["post"], pads["drain"], drain_site=TRIGCONS_SITE_B,
+                                loop_pad=pads["fallthrough"], loop_site=INTA2_SITE_F))
+    out[TAKE1_V_SITE:TAKE1_V_SITE + 4] = b_w(TAKE1_V_SITE, pads["vec"])
+    out[TAKE1_M1_SITE:TAKE1_M1_SITE + 4] = bl(TAKE1_M1_SITE, pads["m1"])
+    out[TAKE1_M2_SITE:TAKE1_M2_SITE + 4] = bl(TAKE1_M2_SITE, pads["m2"])
+    out[GICV2_SITE:GICV2_SITE + 4] = bl(GICV2_SITE, pads["v2"])
+    out[TK_SITE_I:TK_SITE_I + 4] = bl(TK_SITE_I, pads["tk_i"])
+    written = ((pads["thunk"], code_i), (pads["bringup"], code_b), (pads["send"], code_s),
+               (pads["post"], code_p), (pads["drain"], code_d),
+               (pads["drain_extra"], code_m), (pads["giccpu"], code_g),
+               (pads["fallthrough"], code_f), (pads["vec"], code_v), (pads["m1"], code_1),
+               (pads["m2"], code_2), (pads["v2"], code_v2), (pads["selread"], code_rd),
+               (pads["selpre"], code_ps),
+               (pads["selpost"], code_qs), (pads["selpost_e"], code_es),
+               (pads["tk_e"], code_te), (pads["tk_i"], code_ti), (pads["tk_f"], code_tf))
+    for off, code in written:
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the take5 patch changed the image size")
+    for site, stock, nm in ((TAKE1_V_SITE, TAKE1_V_SITE_STOCK, "the ISR entry push.w"),
+                            (TAKE1_M1_SITE, TAKE1_M1_SITE_STOCK, "blx r5 + cpsid i"),
+                            (TAKE1_M2_SITE, TAKE1_M2_SITE_STOCK, "mrs r2, apsr"),
+                            (GICV2_SITE, GICV2_SITE_STOCK, "ubfx r8,r7,#0,#0xa"),
+                            (TK_SITE_I, TK_SITE_I_STOCK, "ldr r3,[r4,#0x74] + mov r5,r0")):
+        if data[site:site + 4] != stock:
+            raise PatchError(f"the take5 stock bytes at {site:#x} are not {nm} ({stock.hex()})")
+    if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
+        raise PatchError("the take5 Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+    if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("the take5 Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
+    if data[INTA2_SITE_F:INTA2_SITE_F + 4] != TRIGNAT_DRAIN_POP:
+        raise PatchError("the take5 Site F site is not the stock `pop.w {r3..sb,lr}` (bde8f843)")
+    for a, b_, nm in ((TAKE1_V_CONT, GICV2_SITE, "the ISR entry up to the v2 site"),
+                      (GICV2_CONT, TAKE1_M1_SITE, "the ISR body after the v2 site"),
+                      (TAKE1_M1_CONT, TK_SITE_I, "the ISR body between M1 and the take5 I site"),
+                      (TK_SITE_I + 4, 0x82F78, "the ISR body after the take5 I site"),
+                      (0x826E0, TAKE1_M2_SITE, "the release body up to the guard"),
+                      (TAKE1_M2_CONT, 0x82730, "the release spin after the guard"),
+                      (INTA2_CONT_F, 0x86F92, "the announce-exit continuation"),
+                      (INTA_SITE_L, 0x86F7E, "the announce loop head")):
+        if out[a:b_] != data[a:b_]:
+            raise PatchError(f"take5 altered {nm} ({a:#x}..{b_:#x})")
+    if out[0x8702C:0x87030] != data[0x8702C:0x87030]:
+        raise PatchError("internal error: the original ISENABLER store at file 0x8702c was altered")
+    if out[0x87030:0x87036] != data[0x87030:0x87036]:
+        raise PatchError("internal error: the itet block 0x87030..0x87035 was altered")
+
+    check_original_gic_write(out)
+    verify = verify_disasm_take5(out, pads, s1, s2, gc, ec, ac2, bc, b2c, fc, vc, cpc, v2c, selc,
+                                 ec3, tk)
+    # THE EMITTED-BYTES CHECK still guards every device-side store of the retained flip (take5 adds
+    # none, and verify_disasm_take5 asserts that no take5 pad carries a store op at all).
+    emitted = check_emitted_ops(out, TI_WRITE_OPS,
+                                spans=[(pads["selpre"], pads["selpre"] + len(code_ps))],
+                                label="take5 selpre pad")
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ac[:4]):
+        records[f"A_S{i}"] = cell_record(barmap, a)
+    records["A_P1"] = cell_record(barmap, ac[4])
+    records["A_E0"] = cell_record(barmap, ac[5])
+    records["A_E1"] = cell_record(barmap, ac[6])
+    for i, a in enumerate(ac[7:12]):
+        records[f"A_S{4 + i}"] = cell_record(barmap, a)
+    records["A_P2"] = cell_record(barmap, ac[12])
+    for i, a in enumerate(bc[:4]):
+        records[f"B_D{i}"] = cell_record(barmap, a)
+    records["B_P3"] = cell_record(barmap, bc[4])
+    for i, a in enumerate(b2c[:4]):
+        records[f"B_D{4 + i}"] = cell_record(barmap, a)
+    records["B_P4"] = cell_record(barmap, b2c[4])
+    for nm, a in zip(INTA2_F_NAMES, fc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(INTA2_N_NAMES, nc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TAKE1_V_NAMES, vc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TAKE1_CP_NAMES, cpc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(GICV2_CELL_NAMES, v2c):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(SEL_CELL_NAMES, selc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TI_E_NAMES, ec3):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TK_NAMES, tk):
+        records[nm] = cell_record(barmap, a)
+    aliases = {"C_PSR": "B_D5", "F_CTLR": "B_D6", "F_PMR": "B_D7"}
+
+    manifest = {
+        "variant": "take5",
+        "spec": ("build/tmp/inta-spec/{bracket,sgi3,brk3}.md - the read-only time-variance "
+                 "bracket (the same three words at three instants) on top of tiebreak.md "
+                 "sections 3/4 (take4, retained byte-for-byte except the two retargeted tails)"),
+        "selection": sel,
+        "cells": records,
+        "aliases": aliases,
+        "take5": {
+            "sites": {"tk_i": hex(TK_SITE_I), "selpre": hex(pads["selpre"]),
+                      "selread": hex(pads["selread"]), "selpost": hex(pads["selpost"]),
+                      "selpost_e": hex(pads["selpost_e"]), "fallthrough_f": hex(pads["fallthrough"]),
+                      "tk_e": hex(pads["tk_e"]), "tk_f": hex(pads["tk_f"])},
+            "chain": "send -> selread (P_ID) -> selpre (the retained flip) -> Pad A(N) (H2D ring) "
+                     "-> selpost (X block) -> selpost_e (the retained E block) -> tk_e (the E5 "
+                     "instant) -> 0x86f5e ; Site F (retained) -> tk_f (the F5 instant) -> 0x86f82 ; "
+                     "the new ISR site 0x82f58 -> tk_i (the I5 instant) -> 0x82f5c",
+            "instants": verify["take5"]["instants"],
+            "reads": verify["take5"]["reads"],
+            "read_cas": verify["take5"]["read_cas"],
+            "pad_lengths": verify["take5"]["pad_lengths"],
+            "no_new_write": True,
+            "retained": "every take4 cell/pad/site (the flip, the v1/v2 canaries, the CPSR "
+                        "milestones, the giccpu cells, Pad A(N), Pad B2 + companion, Site F, "
+                        "select.md's readbacks and the E block)",
+            "deviation_from_take4": "the retained E pad's tail and the retained Site F pad's tail "
+                                    "point at the take5 E5/F5 instants (their programs are "
+                                    "otherwise byte-identical), and one new site (0x82f58) is "
+                                    "added; every other inherited byte is take4's",
+            "branch_table": [
+                "1) E5_RPR != 0x3FF with F5_RPR == 0x3FF -> the RUNNING PRIORITY is the mover "
+                "(the EOI phase gates 0x4C's servability).",
+                "2) E5_SGIP byte0 != 0 while E_HPP == 0x3FF -> an SGI was pending at the same "
+                "instant and was not forwarded either: RPR, not the bank, is the comparator.",
+                "3) E5_GRP2 bit12 == 1 -> the group gate (EnableGrp1 == 0 at E_CTLR bit1) is a "
+                "real blocker; == 0 -> the group-enable candidate is REFUTED.",
+                "4) any of E5_SNT/I5_SNT/F5_SNT != 0x50aa7e49 -> that instant is NO-SAMPLE.",
+            ],
+            "emitted_ops": {"check": NOTE_EMITTED_OPS, "ops": emitted,
+                            "pad": hex(pads["selpre"]), "pad_length": len(code_ps)},
+            "note": NOTE_TAKE5,
+        },
+        "take4_retained": {
+            "select_ops": True,
+            "v2_site": hex(GICV2_SITE), "v2_cont": hex(GICV2_CONT),
+            "sel_cells": [hex(c) for c in selc],
+            "sel_post_reads": [{"ca": hex(ca), "cell": hex(cl)} for ca, cl in SEL_POST_READS],
+            "take1_cells": [hex(c) for c in vc + cpc],
+            "e_cells": [hex(c) for c in ec3],
+            "flip_ops": [{"ca": hex(ca), "value": hex(val)} for ca, val in TI_FLIP_OPS],
+            "dsb_sy": TI_DSB_SY.hex(),
+            "prio_4c": {"ca": hex(TI_PRIO_4C), "value": hex(TI_PRIO_4C_VAL)},
+        },
+        "take4_cells_note": NOTE_TAKE4_E,
+        "gicv2_note": NOTE_TAKE2_V2,
+        "select_note": NOTE_TAKE2_SEL,
+        "take5_note": NOTE_TAKE5,
+        "gic_map": {
+            "GICD_base": "0x40161000", "GICC_base": "0x40160100",
+            "take5_page_bases": {"GICC": hex(TK_GICC_BASE), "GICD": hex(TK_GICD_BASE)},
+            "GICC_RPR": hex(TK_GICC_RPR), "GICD_ISPENDR0": hex(TK_GICD_ISPENDR0),
+            "GICD_IGROUPR2": hex(TK_GICD_IGROUPR2),
+            "ISACTIVER2": hex(GICD_ISACTIVER2), "ISPENDR2": hex(GICD_ISPENDR2),
+            "HPPIR": hex(GICC_HPPIR), "GICD_CTLR": hex(TI_GICD_CTLR),
+            "ICENABLER0": hex(TI_GICD_ICENABLER0), "ICENABLER2": hex(TI_GICD_ICENABLER2),
+            "ICPENDR0": hex(TI_GICD_ICPENDR0), "ICPENDR2": hex(TI_GICD_ICPENDR2),
+            "ISENABLER0": hex(SEL_EN0), "ISENABLER2": hex(GICD_ISENABLER2),
+            "IPRIORITYR_4C": hex(TI_PRIO_4C),
+            "never_read": GICV2_NEVER_READ + ", 0x40160120 (the aliased acknowledging AIAR), "
+                          "0x10161000 (RC misc, panics) and 0x40161f00 (GICD_SGIR, write-only)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, W1C) and 0x40039af0 (copy-B W1C)",
+            "ring": {"ca": hex(TRIGNAT_RING_CA), "value": hex(TRIGNAT_RING_VAL)},
+            "gate": {"ca": "0x4000010c", "wait_value": "0x0000cece"},
+        },
+        "classification": {
+            "instrument": "take4 (byte-for-byte, the flip + the E block) + the take5 read-only "
+                          "time-variance bracket (GICC_RPR / GICD_ISPENDR0 / GICD_IGROUPR2 at "
+                          "three instants)",
+            "ROW_take5_1": "E5_RPR != 0x3FF with F5_RPR == 0x3FF: the RUNNING PRIORITY moved - "
+                           "0x4C at priority 0x00 cannot preempt an active priority-0 source and "
+                           "becomes signalable only after the EOI (the take4 E->F discrepancy).",
+            "ROW_take5_2": "E5_SGIP non-zero while E_HPP == 0x3FF: the SGI bank was pending at "
+                           "the same instant AND not forwarded - the bank is not the comparator.",
+            "ROW_take5_3": "E5_GRP2 bit12 == 1: id 0x4C is a group-1 source and EnableGrp1 == 0 "
+                           "(E_CTLR bit1) - a config gate, not arbitration; == 0 refutes the "
+                           "group-enable candidate.",
+            "ROW_take5_4": "a take5 sentinel absent (0x0): that instant did not run - NO-SAMPLE.",
+            "bounds": "one-shot latched samples (the LAST visit wins) at three instants of one "
+                      "boot; the cells are alias-only at capture; no new device write.",
+        },
+        "padding": {},
+        "sites": {},
+        "preserved": {},
+    }
+    region_spec = (("thunk", "thunk", code_i), ("bringup", "bringup", code_b),
+                   ("send_n", "send", code_s), ("post", "post", code_p),
+                   ("drain_b2", "drain", code_d), ("drain_extra", "drain_extra", code_m),
+                   ("giccpu", "giccpu", code_g), ("fallthrough_f", "fallthrough", code_f),
+                   ("vec", "vec", code_v), ("m1", "m1", code_1), ("m2", "m2", code_2),
+                   ("v2", "v2", code_v2), ("selpre", "selpre", code_ps),
+                   ("selread", "selread", code_rd),
+                   ("selpost", "selpost", code_qs), ("selpost_e", "selpost_e", code_es),
+                   ("tk_e", "tk_e", code_te), ("tk_i", "tk_i", code_ti),
+                   ("tk_f", "tk_f", code_tf))
+    for name, pkey, code in region_spec:
+        manifest["padding"][name] = {"file_offset": hex(pads[pkey]), "code_length": len(code),
+                                     "code_hex": code.hex()}
+    manifest["take5"].update({k: v for k, v in verify["take5"].items()
+                               if k in ("instants", "reads", "read_cas", "pad_lengths",
+                                        "no_new_write", "iar_reads", "never_read")})
+    manifest["sites"] = {
+        "thunk": {"file_offset": hex(SITE_THUNK), "cont": hex(CONT_THUNK),
+                  "replaced_bytes": data[SITE_THUNK:SITE_THUNK + 4].hex(),
+                  "after": bl(SITE_THUNK, pads["thunk"]).hex()},
+        "bringup": {"file_offset": hex(BRINGUP_SITE), "cont": hex(BRINGUP_CONT),
+                    "replaced_bytes": data[BRINGUP_SITE:BRINGUP_SITE + 4].hex(),
+                    "after": bl(BRINGUP_SITE, pads["bringup"]).hex()},
+        "post": {"file_offset": hex(POST_SITE), "cont": hex(POST_CONT),
+                 "replaced_bytes": data[POST_SITE:POST_SITE + 4].hex(),
+                 "after": bl(POST_SITE, pads["post"]).hex()},
+        "send_n": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(pads["selread"]),
+                    "replaced_bytes": data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4].hex(),
+                    "after": bl(TRIGNAT_SITE_A, pads["selread"]).hex()},
+        "drain_b2": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                      "replaced_bytes": data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4].hex(),
+                      "after": bl(TRIGCONS_SITE_B, pads["drain"]).hex()},
+        "fallthrough_f": {"file_offset": hex(INTA2_SITE_F), "cont": hex(pads["tk_f"]),
+                          "replaced_bytes": data[INTA2_SITE_F:INTA2_SITE_F + 4].hex(),
+                          "after": bl(INTA2_SITE_F, pads["fallthrough"]).hex()},
+        "tk_i": {"file_offset": hex(TK_SITE_I), "cont": hex(TK_CONT_I),
+                 "replaced_bytes": TK_SITE_I_STOCK.hex(),
+                 "after": bl(TK_SITE_I, pads["tk_i"]).hex()},
+        "vec": {"file_offset": hex(TAKE1_V_SITE), "cont": hex(TAKE1_V_CONT),
+                "replaced_bytes": data[TAKE1_V_SITE:TAKE1_V_SITE + 4].hex(),
+                "after": b_w(TAKE1_V_SITE, pads["vec"]).hex()},
+        "m1": {"file_offset": hex(TAKE1_M1_SITE), "cont": hex(TAKE1_M1_CONT),
+               "replaced_bytes": data[TAKE1_M1_SITE:TAKE1_M1_SITE + 4].hex(),
+               "after": bl(TAKE1_M1_SITE, pads["m1"]).hex()},
+        "m2": {"file_offset": hex(TAKE1_M2_SITE), "cont": hex(TAKE1_M2_CONT),
+               "replaced_bytes": data[TAKE1_M2_SITE:TAKE1_M2_SITE + 4].hex(),
+               "after": bl(TAKE1_M2_SITE, pads["m2"]).hex()},
+        "v2": {"file_offset": hex(GICV2_SITE), "cont": hex(GICV2_CONT),
+               "replaced_bytes": data[GICV2_SITE:GICV2_SITE + 4].hex(),
+               "after": bl(GICV2_SITE, pads["v2"]).hex()},
+        "loop_head_stock": {"file_offset": hex(INTA_SITE_L),
+                            "bytes": data[INTA_SITE_L:INTA_SITE_L + 4].hex(),
+                            "unchanged": out[INTA_SITE_L:INTA_SITE_L + 4] ==
+                                         data[INTA_SITE_L:INTA_SITE_L + 4]},
+    }
+    manifest["preserved"] = {
+        "original_gic_write": {"file_offset": "0x8702c",
+                               "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030]},
+        "itet_block": {"file_offset": "0x87030..0x87035",
+                       "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+        "announce_loop_head": {"file_offset": "0x86f78..0x86f7e",
+                               "bytes_identical": out[0x86F78:0x86F7E] == data[0x86F78:0x86F7E]},
+        "announce_exit_continuation": {"file_offset": "0x86f82..",
+                                        "bytes_identical": out[INTA2_CONT_F:0x86F92] ==
+                                                           data[INTA2_CONT_F:0x86F92]},
+        "isr_entry_before_v2": {"file_offset": "0x82f00..0x82f08",
+                                "bytes_identical": out[TAKE1_V_CONT:GICV2_SITE] ==
+                                                   data[TAKE1_V_CONT:GICV2_SITE]},
+        "isr_body_around_m1": {"file_offset": "0x82f0c..0x82f4a / 0x82f4e..0x82f58",
+                               "bytes_identical": out[GICV2_CONT:TAKE1_M1_SITE] ==
+                                                  data[GICV2_CONT:TAKE1_M1_SITE] and
+                                                  out[TAKE1_M1_CONT:TK_SITE_I] ==
+                                                  data[TAKE1_M1_CONT:TK_SITE_I]},
+        "isr_body_after_tk_i": {"file_offset": "0x82f5c..0x82f78",
+                                "bytes_identical": out[TK_SITE_I + 4:0x82F78] ==
+                                                   data[TK_SITE_I + 4:0x82F78]},
+        "release_body_around_m2": {"file_offset": "0x826e0..0x8270a / 0x8270e..0x82730",
+                                   "bytes_identical": out[0x826E0:TAKE1_M2_SITE] ==
+                                                      data[0x826E0:TAKE1_M2_SITE] and
+                                                      out[TAKE1_M2_CONT:0x82730] ==
+                                                      data[TAKE1_M2_CONT:0x82730]},
+    }
+    return out, manifest
+
+
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="patch_fw_scratch.py", description=__doc__.splitlines()[0])
     ap.add_argument("--fw", default="build/tmp/FIRMWARE.bin", help="input blob (READ-ONLY)")
@@ -10134,7 +11104,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
                                           "trigcons", "inta", "inta2", "inta3", "take1", "gicv2",
-                                          "take2", "take4"),
+                                          "take2", "take4", "take5"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -10215,7 +11185,17 @@ def main(argv: list[str] | None = None) -> int:
                          "`movt` half of the stored value, so the 0x1D mask 0x20000000 actually "
                          "reaches ICENABLER0/ICPENDR0) and the emitted-bytes check that scans the "
                          "generated blob for every intended store; take3 is the same program with "
-                         "the defect (frozen as that check's negative fixture, not buildable)")
+                         "the defect (frozen as that check's negative fixture, not buildable); "
+                         "take5: take4 byte-for-byte PLUS the READ-ONLY time-variance bracket "
+                         "(build/tmp/inta-spec/{bracket,sgi3,brk3}.md) - the SAME three words "
+                         "(GICC_RPR 0x40160114, GICD_ISPENDR0 0x40161200, GICD_IGROUPR2 "
+                         "0x40161088) + the page sentinel sampled at THREE instants of one boot: "
+                         "E5 at the ring (chained after the retained E pad), I5 in the ISR right "
+                         "after the EOI (a new site at file 0x82f58, re-emitting the two "
+                         "instructions it replaces) and F5 at the 0xcece gate's fall-through "
+                         "(chained after the retained Site F pad) - the only inherited bytes that "
+                         "change are those two tails and the new site, and NO device-side write "
+                         "is added (the emitted-bytes check still guards the retained flip)")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     ap.add_argument("--check-emitted", metavar="BLOB",
@@ -10286,6 +11266,8 @@ def main(argv: list[str] | None = None) -> int:
                          if args.variant == "take2"
                          else make_take4(data, barmap, refs)
                          if args.variant == "take4"
+                         else make_take5(data, barmap, refs)
+                         if args.variant == "take5"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
