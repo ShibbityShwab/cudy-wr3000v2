@@ -172,7 +172,11 @@ TAKE3_FROZEN_MD5 = "072de986879bdbad00f339b2ad21ebd7"  # the pre-fix ADDENDUM-19
 TAKE4_MD5 = "000a26af4d7b12e84d4191ae51dbad6d"              # frozen take4-variant output (selftest regression)
 TAKE5_MD5 = "a5143c84a10b8e9182be70ba48a634a3"              # frozen take5-variant output (selftest regression)
 TAKE6_MD5 = "18d8e2ff0eb6954aadc3ef2f24deec52"              # frozen take6-variant output (selftest regression)
-TAKE6F_MD5 = "894d41d16853c1f5792fcdef1383dc73"             # frozen take6f-variant output (selftest regression)
+TAKE6F_MD5 = "2c1ae79f892e922d0df0583f87fb1a2c"             # frozen take6f-variant output (selftest regression)
+                                                             # ^ SUPERSEDES the 54-B as-built
+                                                             #   894d41d16853c1f5792fcdef1383dc73
+                                                             #   (layoutdiff.md section 4's fixed
+                                                             #   66-B EOIR pad: + the HPPIR deposit)
 TAKE6F_SELFTEST_EOIR_ID = 0x2                                # build-regression id ONLY (eoir.md sec 0)
                                                              # is a hypothesis; the runner uses take6)
 # ^ take5 = take4 byte-for-byte (the synchronized flip + the END-STATE E block) PLUS the READ-ONLY
@@ -1844,6 +1848,29 @@ def op_store_bytes(ca: int, value: int, kind: str = "word") -> bytes:
     return out + str_imm(0, 1, 0)
 
 
+def op_read_bytes(ca: int, cell: int, disp: int = 0) -> bytes:
+    """The instruction bytes a CORRECT emitter must produce for one intended device-side READ
+deposited into a WRAM cell whose base is ALREADY in r0: movw/movt the CA into r1, `ldr r1,[r1]`,
+then `str r1,[r0,#disp]`.  Built from the primitives and deliberately NOT from
+gic_read_store_block() (which re-materialises the cell in r0) - the same independence rule
+op_store_bytes() follows, so an emitter defect cannot hide behind a shared bug.  Used by take6f's
+EOIR pad: the post-force HPPIR deposit reuses r0 = STK_RPR1 and stores at [r0,#4] = STK_HPP1."""
+    return (movw(1, ca & 0xFFFF) + movt(1, ca >> 16) + ldr_imm(1, 1, 0)
+            + str_imm(1, 0, disp))
+
+
+def op_bytes(entry) -> bytes:
+    """The exact instruction bytes ONE intended op must appear as.  An op entry is
+    (name, ca, value, kind[, disp]): kind "word"/"byte" = a store of `value` to CA `ca`
+    (op_store_bytes); kind "read" = a read of CA `ca` deposited at WRAM cell `value` + `disp`
+    (op_read_bytes).  Shared by check_emitted_ops() and the --check-emitted failure dump so the
+    check and its diagnosis can never disagree about what was intended."""
+    kind = entry[3]
+    if kind == "read":
+        return op_read_bytes(entry[1], entry[2], entry[4] if len(entry) > 4 else 0)
+    return op_store_bytes(entry[1], entry[2], kind)
+
+
 def check_emitted_ops(blob: bytes, ops, spans=None, label: str = "blob") -> list[dict]:
     """THE EMITTED-BYTES CHECK (added after ADDENDUM 19, so a silent non-emission can never ship
     again).  For EVERY intended store it rebuilds the exact instruction bytes with op_store_bytes()
@@ -1852,14 +1879,18 @@ def check_emitted_ops(blob: bytes, ops, spans=None, label: str = "blob") -> list
     window has no such match and fails here - the ADDENDUM-19 take3 blob holds a store of
     0x00000000 to ICENABLER0 and a store of 0x20000000 NOWHERE, so the check names it.
 
-    ops entries: (name, ca, value, kind), kind "word" or "byte".
+    ops entries: (name, ca, value, kind[, disp]).  kind "word"/"byte" = a store of `value` to CA
+    `ca`; kind "read" = a read of CA `ca` deposited at WRAM cell `value` + `disp` (op_read_bytes -
+    the take6f post-force HPPIR deposit).  Every op is rebuilt with op_bytes() and must match
+    exactly once, inside the given spans, in op order.
     spans: the (start, end) file ranges the ops must fall inside (None = the whole blob).
     Returns one evidence row per op; raises PatchError when the op set does not hold."""
     rows: list[dict] = []
     bad: list[str] = []
     prev = -1
-    for name, ca, value, kind in ops:
-        want = op_store_bytes(ca, value, kind)
+    for entry in ops:
+        name, ca, value, kind = entry[0], entry[1], entry[2], entry[3]
+        want = op_bytes(entry)
         hits, at = [], blob.find(want)
         while at >= 0:
             hits.append(at)
@@ -1868,6 +1899,7 @@ def check_emitted_ops(blob: bytes, ops, spans=None, label: str = "blob") -> list
                   if spans is None or any(s <= h and h + len(want) <= e for s, e in spans)]
         ok = len(inside) == 1 and inside[0] > prev
         rows.append({"op": name, "ca": hex(ca), "value": hex(value), "kind": kind,
+                     "disp": entry[4] if len(entry) > 4 else 0,
                      "store_bytes": want.hex(), "file_offset": hex(inside[0]) if inside else None,
                      "matches_in_blob": len(hits), "matches_in_pad": len(inside), "ok": ok})
         if ok:
@@ -1879,7 +1911,7 @@ def check_emitted_ops(blob: bytes, ops, spans=None, label: str = "blob") -> list
                           "present but out of op order"))
     if bad:
         raise PatchError(f"EMITTED-BYTES CHECK FAILED on {label}: {len(bad)}/{len(ops)} intended "
-                         f"store(s) not emitted as intended - " + "; ".join(bad))
+                         f"op(s) not emitted as intended - " + "; ".join(bad))
     return rows
 
 
@@ -6881,27 +6913,43 @@ def selftest(fw_path: str, barmap_path: str) -> int:
         "the take6f manifest is not deterministic"
     for i, nm in enumerate(STK6_NAMES):
         assert g10m["cells"][nm]["addr"] == hex(STK_FAST_CELLS[i]), f"take6f moved cell {nm}"
-    assert g10m["cells"]["STK_RPR1"]["addr"] == hex(STK_RPR1), "take6f STK_RPR1 is not pinned"
+    for nm, a in zip(STK6F_NAMES, (STK_RPR1, STK_HPP1)):
+        assert g10m["cells"][nm]["addr"] == hex(a), f"take6f {nm} is not pinned"
+    assert all(g10m["cells"][nm]["barmap_value"] == "0x0"
+               and g10m["cells"][nm]["barmap_alias_value"] == "0x0" for nm in STK6F_NAMES), \
+        "a take6f cell is not zero in barmap at both views"
     eo10 = bytes.fromhex(g10m["padding"]["stk_eoir"]["code_hex"])
     off10 = int(g10m["padding"]["stk_eoir"]["file_offset"], 16)
     assert eo10 == pad_stk_eoir(off10, STK_RPR1, TRIGNAT_CONT_A, TAKE6F_SELFTEST_EOIR_ID), \
         "the take6f EOIR pad is not its independent reconstruction"
+    assert len(eo10) == 66, f"the take6f EOIR pad is not the fixed 66-byte layout ({len(eo10)})"
     op10 = op_store_bytes(0x40160110, TAKE6F_SELFTEST_EOIR_ID, "word")
     assert eo10.count(op10) == 1 and TI_DSB_SY in eo10, \
         "take6f: the EOIR op + its `dsb sy` must appear exactly once"
     assert g10.count(op10) == 1, "take6f: the EOIR op must appear exactly once in the whole blob"
     assert op10 not in g9, "take6 (read-only) must not contain the EOIR op"
+    hpp10 = op_read_bytes(STK_GICC_HPPIR, STK_HPP1, STK_HPP1 - STK_RPR1)
+    assert eo10.count(hpp10) == 1, "take6f: the post-force HPPIR deposit is not exactly once"
+    assert eo10.index(op10) < eo10.index(hpp10), \
+        "take6f: the HPPIR deposit must follow the EOIR force"
+    assert g10.count(hpp10) == 1, "take6f: the HPPIR deposit must appear exactly once in the blob"
+    assert hpp10 not in g9, \
+        "take6 (read-only) must not carry the post-force HPPIR deposit"
     assert g10[TK_SITE_I:TK_SITE_I + 4] == data[TK_SITE_I:TK_SITE_I + 4], \
         "take6f must leave the dropped tk_i site 0x82f58 stock"
     pad10 = int(g10m["padding"]["selpre"]["file_offset"], 16)
     emitted10 = check_emitted_ops(g10, TI_WRITE_OPS + (("EOIR_ID", 0x40160110,
-                                                        TAKE6F_SELFTEST_EOIR_ID, "word"),),
+                                                        TAKE6F_SELFTEST_EOIR_ID, "word"),
+                                                       ("EOIR_HPP", STK_GICC_HPPIR, STK_HPP1,
+                                                        "read", STK_HPP1 - STK_RPR1),),
                                   spans=[(pad10, pad10 + len(pre9)), (off10, off10 + len(eo10))],
                                   label="the regenerated take6f blob")
-    assert [r["op"] for r in emitted10] == [o[0] for o in TI_WRITE_OPS] + ["EOIR_ID"] \
-        and all(r["ok"] for r in emitted10), "the take6f emitted-bytes check did not hold"
-    assert g10m["take6f"]["no_new_write"] is False and g10m["take6f"]["eoir"]["id"] == "0x2", \
-        "the take6f manifest does not record the force"
+    assert [r["op"] for r in emitted10] == [o[0] for o in TI_WRITE_OPS] + ["EOIR_ID", "EOIR_HPP"] \
+        and len(emitted10) == 10 and all(r["ok"] for r in emitted10), \
+        "the take6f emitted-bytes check did not hold (10/10 expected)"
+    assert g10m["take6f"]["no_new_write"] is False and g10m["take6f"]["eoir"]["id"] == "0x2" \
+        and g10m["take6f"]["eoir"]["hpp1_cell"] == hex(STK_HPP1), \
+        "the take6f manifest does not record the force + its HPPIR deposit"
     # the two variants differ ONLY by the EOIR pad and the sampler's retargeted tail (never share a
     # verdict): take6 -> 0x86f5e, take6f -> the EOIR pad -> 0x86f5e
     sf10 = int(g10m["padding"]["stk_fast"]["file_offset"], 16)
@@ -7076,8 +7124,10 @@ def selftest(fw_path: str, barmap_path: str) -> int:
             f"E block {g9m['padding']['selpost_e']['file_offset']}; dropped pads {list(STK6_DROPPED_PADS)})")
     print(f"  take6 md5         : {md5(g9)}")
     print(f"  take6f cells      : STK_RPR1={g10m['cells']['STK_RPR1']['addr']} "
+          f"STK_HPP1={g10m['cells']['STK_HPP1']['addr']} "
           f"(the ranked EOIR force: GICC_EOIR 0x40160110 <= 0x{TAKE6F_SELFTEST_EOIR_ID:x}, "
-          f"pad @ {g10m['padding']['stk_eoir']['file_offset']} ({len(eo10)} B), md5-pinned apart from take6)")
+          f"pad @ {g10m['padding']['stk_eoir']['file_offset']} ({len(eo10)} B: RPR + HPPIR "
+          f"by transition), md5-pinned apart from take6)")
     print(f"  take6f md5        : {md5(g10)}")
     return 0
 
@@ -11246,10 +11296,12 @@ def make_take5(data: bytes, barmap: bytes, refs: set[int]):
 #
 # take6f (the RANKED EOIR force, eoir.md section 3 rank 1): ONE 32-bit write to GICC_EOIR
 # (0x40160110) with the stuck id drops one level of the running-priority stack; the pad then re-reads
-# RPR (STK_RPR1) so the capping proof is one single-boot transition (RPR 0x00 -> 0xFF, then HPPIR
-# 0x3FF -> 0x4C).  Its id is UNMEASURED (eoir.md sec 0 is a hypothesis), so take6f is GATED: the
-# builder REFUSES to run without an explicit --eoir-id, and take6 (the shipped runner) carries NO
-# device write at all.
+# BOTH RPR (STK_RPR1 = 0x1501c0) and HPPIR (STK_HPP1 = 0x1501c4, `str r1,[r0,#4]`), so the capping
+# proof is one single-boot transition measured BY TRANSITION (RPR 0x00 -> 0xFF and HPPIR
+# 0x3FF -> 0x4C) - eoir.md rank 1 condition (ii), realized as layoutdiff.md section 4's FIXED pad
+# layout (54 B as first built -> 66 B).  Its id is UNMEASURED (eoir.md sec 0 is a hypothesis), so
+# take6f is GATED: the builder REFUSES to run without an explicit --eoir-id, and take6 (the shipped
+# runner) carries NO device write at all.
 STK_BASE = 0x150170                     # the fast-sampler block (page 10, zero at BOTH barmap views)
 STK_N = 16                              # ring-instant samples (stuck.md's 16-instant sampler)
 STK_GICC_RPR = 0x40160114               # GICC_RPR - the RUNNING PRIORITY (narrow LDR off r3)
@@ -11263,10 +11315,12 @@ STK_ACT = STK_STICKY + 4                # 0x1501b4 - ISACTIVER0 word 0 (the hold
 STK_HPP = STK_STICKY + 8                # 0x1501b8 - HPPIR
 STK_SNT = STK_STICKY + 12               # 0x1501bc - the page-10 sentinel
 STK_RPR1 = STK_SNT + 4                  # 0x1501c0 - take6f: RPR AFTER the EOIR force
+STK_HPP1 = STK_RPR1 + 4                 # 0x1501c4 - take6f: HPPIR after the force (the [r0,#4]
+                                        #           deposit: STK_HPP1 - STK_RPR1 == 4)
 STK_FAST_CELLS = STK_SAMPLES + (STK_STICKY, STK_ACT, STK_HPP, STK_SNT)
 STK6_NAMES = tuple(f"STK_{i}" for i in range(STK_N)) + ("STK_STICKY", "STK_ACT", "STK_HPP",
                                                          "STK_SNT")
-STK6F_NAMES = ("STK_RPR1",)
+STK6F_NAMES = ("STK_RPR1", "STK_HPP1")
 STK6_DROPPED_PADS = ("tk_e", "tk_i", "tk_f", "selpost")
 
 NOTE_TAKE6 = (
@@ -11286,7 +11340,8 @@ NOTE_TAKE6 = (
     "holder.  take6 adds NO device write (the emitted-bytes check still guards the retained flip).  "
     "take6f (a SEPARATE, md5-pinned variant) adds ONE pad_stk_eoir: a single GICC_EOIR 0x40160110 "
     "write of the stuck id (the ranked force, eoir.md sec 3 rank 1) followed by a re-read of RPR "
-    "into STK_RPR1, so the capping proof is one single-boot transition.  Its id is UNMEASURED, so "
+    "into STK_RPR1 AND of HPPIR into STK_HPP1, so the capping proof is one single-boot transition "
+    "measured BY TRANSITION (layoutdiff.md section 4's fixed pad layout; 66 B).  Its id is UNMEASURED, so "
     "take6f refuses to build without an explicit --eoir-id and take6 carries no such write.  Hard "
     "rules held: no write of CA 0x400392f0/0x40039af0, never read 0x10161000 / the ack IAR "
     "0x4016010c / the aliased AIAR 0x40160120 / GICD_SGIR 0x40161f00, every added read is "
@@ -11327,14 +11382,20 @@ def pad_stk_fast(pad: int, cells: list[int], cont: int, n: int = STK_N) -> bytes
     return bytes(b) + b_w(pad + len(b), cont)
 
 
-def pad_stk_eoir(pad: int, cell_rpr1: int, cont: int, eoir_id: int) -> bytes:
-    """take6f ONLY (eoir.md sec 1/3 rank 1): the ranked EOIR force.  Save the flags and r0-r3, write
-    the bare 10-bit stuck id to GICC_EOIR 0x40160110 (ONE 32-bit store, `dsb sy`-ordered) so the
-    running-priority stack drops one level, then re-read GICC_RPR into STK_RPR1 - so a single boot
-    shows RPR 0x00 -> 0xFF and HPPIR 0x3FF -> 0x4C (the capping proof).  `eoir_id` is the id the
-    ISR's own EOI named; the caller must supply it (there is no default)."""
+def pad_stk_eoir(pad: int, cell_rpr1: int, cont: int, eoir_id: int,
+                 cell_hpp1: int = STK_HPP1) -> bytes:
+    """take6f ONLY (eoir.md sec 1/3 rank 1, layoutdiff.md section 4's FIXED pad layout): the ranked
+    EOIR force.  Save the flags and r0-r3, write the bare 10-bit stuck id to GICC_EOIR 0x40160110
+    (ONE 32-bit store, `dsb sy`-ordered) so the running-priority stack drops one level, then re-read
+    BOTH GICC_RPR into STK_RPR1 AND GICC_HPPIR into STK_HPP1 (`str r1,[r0,#4]`, reusing the cell
+    base already in r0) - so eoir.md rank 1 condition (ii) is verified BY TRANSITION in one boot
+    (RPR 0x00 -> 0xFF, then HPPIR 0x3FF -> 0x4C), never by trust.  `eoir_id` is the id the ISR's own
+    EOI named; the caller must supply it (there is no default).  66 B, inside the 76-byte 0x00 run
+    at 0xcb8e4 the dropped take5 pads freed."""
     if cell_rpr1 != STK_RPR1:
         raise PatchError("take6f: the EOIR pad's post-force cell must be STK_RPR1")
+    if cell_hpp1 != STK_HPP1 or cell_hpp1 - cell_rpr1 != 4:
+        raise PatchError("take6f: the EOIR pad's HPPIR cell must be STK_HPP1 = STK_RPR1 + 4")
     if not 0 <= eoir_id <= 0x3FF:
         raise PatchError(f"take6f: the EOIR id must be a bare 10-bit id (0..0x3ff), got {eoir_id:#x}")
     b = bytearray()
@@ -11344,8 +11405,11 @@ def pad_stk_eoir(pad: int, cell_rpr1: int, cont: int, eoir_id: int) -> bytes:
     b += TI_DSB_SY
     b += movw(1, STK_GICC_RPR & 0xFFFF) + movt(1, STK_GICC_RPR >> 16)
     b += ldr_imm(1, 1, 0)                            # RPR after the force
-    b += movw(0, STK_RPR1 & 0xFFFF) + movt(0, STK_RPR1 >> 16)
+    b += movw(0, cell_rpr1 & 0xFFFF) + movt(0, cell_rpr1 >> 16)
     b += str_imm(1, 0, 0)                            # STK_RPR1
+    b += movw(1, STK_GICC_HPPIR & 0xFFFF) + movt(1, STK_GICC_HPPIR >> 16)
+    b += ldr_imm(1, 1, 0)                            # HPPIR after the force
+    b += str_imm(1, 0, cell_hpp1 - cell_rpr1)        # STK_HPP1 (the post-force HPPIR deposit)
     b += pop([0, 1, 2, 3])
     b += msr_apsr(12)
     return bytes(b) + b_w(pad + len(b), cont)
@@ -11353,10 +11417,10 @@ def pad_stk_eoir(pad: int, cell_rpr1: int, cont: int, eoir_id: int) -> bytes:
 
 def select_cells_take6(barmap: bytes, with_eoir: bool = False):
     """take4's cells (IDENTICAL addresses) plus the take6 fast-sampler block on page 10 (zero at
-    both barmap views) and, for take6f, STK_RPR1."""
+    both barmap views) and, for take6f, STK_RPR1 + STK_HPP1."""
     cells, v2c, selc, ec3, sel = select_cells_take4(barmap)
     ok = _cell_ok(barmap)
-    stk = list(STK_FAST_CELLS) + ([STK_RPR1] if with_eoir else [])
+    stk = list(STK_FAST_CELLS) + ([STK_RPR1, STK_HPP1] if with_eoir else [])
     names = STK6_NAMES + (STK6F_NAMES if with_eoir else ())
     for nm, addr in zip(names, stk):
         if not ok(addr):
@@ -11369,7 +11433,7 @@ def select_cells_take6(barmap: bytes, with_eoir: bool = False):
     sel.update({
         "take6_rule": "take4's cells (IDENTICAL addresses) + the take6 fast-sampler block "
                       "0x150170..0x1501bc (16 RPR samples + STK_STICKY/ACT/HPP/Snt)"
-                      + (" + STK_RPR1 0x1501c0 (take6f)" if with_eoir else ""),
+                      + (" + STK_RPR1 0x1501c0 and STK_HPP1 0x1501c4 (take6f)" if with_eoir else ""),
         "take6_cells": [hex(a) for a in stk],
         "take6_dropped_pads": list(STK6_DROPPED_PADS),
         "take6_note": NOTE_TAKE6,
@@ -11440,7 +11504,7 @@ def verify_disasm_take6(data: bytes, pads: dict[str, int], s1: int, s2: int,
         off = pads[pad_of.get(name, name)]
         if data[off:off + len(c)] != c:
             raise PatchError(f"the take6 {name} pad at {off:#x} is not the intended bytes")
-    if len(code["stk_fast"]) != 172 or (eoir_id is not None and len(code["stk_eoir"]) != 54):
+    if len(code["stk_fast"]) != 172 or (eoir_id is not None and len(code["stk_eoir"]) != 66):
         raise PatchError(f"the take6 pads are not the intended sizes "
                          f"({len(code['stk_fast'])}/{len(code.get('stk_eoir', b''))})")
 
@@ -11485,6 +11549,11 @@ def verify_disasm_take6(data: bytes, pads: dict[str, int], s1: int, s2: int,
     else:
         if code["stk_eoir"].count(eoir_op) != 1 or TI_DSB_SY not in code["stk_eoir"]:
             raise PatchError("take6f: the EOIR op + its `dsb sy` must appear exactly once")
+        hpp_op = op_read_bytes(STK_GICC_HPPIR, STK_HPP1, STK_HPP1 - STK_RPR1)
+        if code["stk_eoir"].count(hpp_op) != 1:
+            raise PatchError("take6f: the post-force HPPIR deposit is not exactly once in the pad")
+        if code["stk_eoir"].index(hpp_op) < code["stk_eoir"].index(eoir_op):
+            raise PatchError("take6f: the HPPIR deposit must follow the EOIR force")
         for other, c in code.items():
             if other == "stk_eoir":
                 continue
@@ -11554,7 +11623,9 @@ def verify_disasm_take6(data: bytes, pads: dict[str, int], s1: int, s2: int,
         "read_cas": [hex(STK_GICC_RPR), hex(STK_GICD_ACT0), hex(STK_GICC_HPPIR)],
         "sticky_cell": hex(STK_STICKY), "act_cell": hex(STK_ACT), "hpp_cell": hex(STK_HPP),
         "rpr1_cell": hex(STK_RPR1) if eoir_id is not None else None,
-        "eoir": {"ca": hex(STK_GICC_EOIR), "id": hex(eoir_id) if eoir_id is not None else None},
+        "hpp1_cell": hex(STK_HPP1) if eoir_id is not None else None,
+        "eoir": {"ca": hex(STK_GICC_EOIR), "id": hex(eoir_id) if eoir_id is not None else None,
+                 "hpp1_cell": hex(STK_HPP1) if eoir_id is not None else None},
         "no_new_write": eoir_id is None,
         "variant": "take6f" if eoir_id is not None else "take6",
     }
@@ -11690,7 +11761,9 @@ def make_take6(data: bytes, barmap: bytes, refs: set[int], eoir_id: int | None =
                                     spans=[(pads["selpre"], pads["selpre"] + len(code_ps))],
                                     label="take6 selpre pad")
     else:
-        emitted = check_emitted_ops(out, TI_WRITE_OPS + (("EOIR_ID", STK_GICC_EOIR, eoir_id, "word"),),
+        emitted = check_emitted_ops(out, TI_WRITE_OPS + (("EOIR_ID", STK_GICC_EOIR, eoir_id, "word"),
+                                                        ("EOIR_HPP", STK_GICC_HPPIR, STK_HPP1,
+                                                         "read", STK_HPP1 - STK_RPR1),),
                                     spans=[(pads["selpre"], pads["selpre"] + len(code_ps)),
                                            (pads["stk_eoir"], pads["stk_eoir"] + len(code_eo))],
                                     label="take6f selpre + EOIR pads")
@@ -11754,6 +11827,8 @@ def make_take6(data: bytes, barmap: bytes, refs: set[int], eoir_id: int | None =
                                                      "sticky_cell", "act_cell", "hpp_cell",
                                                      "stk_fast_len")},
             "eoir": verify["eoir"],
+            "stk_eoir_len": verify["stk_eoir_len"],
+            "stk_eoir_pad": verify["stk_eoir_pad"],
             "no_new_write": verify["no_new_write"],
             "dropped_pads": list(STK6_DROPPED_PADS),
             "branch_table": [
@@ -11762,8 +11837,10 @@ def make_take6(data: bytes, barmap: bytes, refs: set[int], eoir_id: int | None =
                 "RPR=0x00 through the forward attempt, so a promoted 0x4C fails the strict `>` test.",
                 "2) STK_STICKY == 0xFFFFFFFF (no sample read 0x00) AND E5/F5 idle -> RPR is NOT the "
                 "blocker at that instant; the SGI bank owns the window (the take5 residual).",
-                "3) take6f ONLY: STK_15 == 0x00 and STK_RPR1 == 0xFF -> the EOIR force DROPPED the "
-                "running priority (the capping proof); STK_RPR1 == STK_15 -> FORCE MISSED (wrong id).",
+                "3) take6f ONLY: STK_15 == 0x00 with STK_RPR1 == 0xFF AND STK_HPP1 == 0x4C (against "
+                "STK_HPP == 0x3FF) -> the EOIR force DROPPED the running priority and 0x4C became "
+                "top-pending in the SAME boot (the capping proof, verified by TRANSITION); "
+                "STK_RPR1 == STK_15 -> FORCE MISSED (wrong id).",
                 "4) STK_SNT != 0x50aa7e49 -> NO-SAMPLE (the pad did not run).",
             ],
             "emitted_ops": {"check": NOTE_EMITTED_OPS, "ops": emitted},
@@ -11802,7 +11879,8 @@ def make_take6(data: bytes, barmap: bytes, refs: set[int], eoir_id: int | None =
             "ROW_take6_1": "STK_STICKY == 0x00000000 -> an RPR=0x00 epoch overlapped the ring's "
                            "forward attempt; STK_ACT names the word-0 holder.",
             "ROW_take6_2": "STK_STICKY == 0xFFFFFFFF -> RPR is not the blocker; the bank is.",
-            "ROW_take6_3": "take6f: STK_15 0x00 -> STK_RPR1 0xFF proves the force dropped RPR.",
+            "ROW_take6_3": "take6f: STK_15 0x00 -> STK_RPR1 0xFF and STK_HPP1 0x4C (vs STK_HPP "
+                           "0x3FF) proves the force dropped RPR and 0x4C became signalable.",
             "ROW_take6_4": "STK_SNT == 0 -> NO-SAMPLE.",
             "bounds": "the sampler's STK_ACT/HPPIR are read once at the window's end, so a "
                       "sub-dsb transient that opens AND closes is caught only by STK_STICKY, not a "
@@ -11976,7 +12054,9 @@ def main(argv: list[str] | None = None) -> int:
                          "take6f: the SAME instrument PLUS the ranked EOIR force (eoir.md sec 3 rank "
                          "1) - ONE GICC_EOIR 0x40160110 write of a REQUIRED --eoir-id (the id is "
                          "unmeasured, so there is no default) followed by a re-read of RPR into "
-                         "STK_RPR1; take6f is md5-pinned apart from take6")
+                         "STK_RPR1 AND of HPPIR into STK_HPP1 (layoutdiff.md section 4's fixed 66-byte "
+                         "pad: the capping proof is verified BY TRANSITION, RPR 0x00 -> 0xFF then "
+                         "HPPIR 0x3FF -> 0x4C); take6f is md5-pinned apart from take6")
     ap.add_argument("--eoir-id", type=lambda s: int(s, 0), default=None,
                     help="take6f ONLY: the bare 10-bit stuck id (0..0x3ff) GICC_EOIR is forced "
                          "with - the id the ISR's own EOI named; REQUIRED for --variant take6f")
@@ -12003,27 +12083,33 @@ def main(argv: list[str] | None = None) -> int:
                 if pv:
                     p0 = int(pv["file_offset"], 16)
                     spans = [(p0, p0 + int(pv["code_length"]))]
-                # take6f: the standing check ALSO guards the ranked EOIR force (its own pad)
+                # take6f: the standing check ALSO guards the ranked EOIR force (its own pad) AND
+                # its post-force HPPIR deposit (layoutdiff.md section 4)
                 eo = mj.get("padding", {}).get("stk_eoir")
-                eo_id = (mj.get("take6f", {}).get("eoir", {}) or {}).get("id")
+                eoir = mj.get("take6f", {}).get("eoir", {}) or {}
+                eo_id = eoir.get("id")
                 if eo and eo_id:
                     e0 = int(eo["file_offset"], 16)
                     spans = (spans or []) + [(e0, e0 + int(eo["code_length"]))]
                     ops = ops + [("EOIR_ID", STK_GICC_EOIR, int(eo_id, 16), "word")]
+                    if eoir.get("hpp1_cell"):
+                        hpp1 = int(eoir["hpp1_cell"], 16)
+                        ops = ops + [("EOIR_HPP", STK_GICC_HPPIR, hpp1, "read", hpp1 - STK_RPR1)]
             try:
                 rows = check_emitted_ops(blob, ops, spans=spans, label=args.check_emitted)
             except PatchError as exc:
                 print(f"EMITTED-BYTES CHECK: FAIL on {args.check_emitted}", file=sys.stderr)
                 print(f"  {exc}", file=sys.stderr)
-                for nm, ca, val, kind in ops:
-                    want = op_store_bytes(ca, val, kind)
+                for entry in ops:
+                    nm, ca, val, kind = entry[:4]
+                    want = op_bytes(entry)
                     hit = blob.find(want)
                     print(f"  {nm:<16} {hex(ca)} <= {hex(val):<12} "
                           + (f"present @ {hex(hit)}" if hit >= 0 else "MISSING from the blob")
                           + f"  ({want.hex()})", file=sys.stderr)
                 return 1
             print(f"EMITTED-BYTES CHECK: PASS on {args.check_emitted} "
-                  f"({len(rows)}/{len(ops)} intended stores present, in op order)")
+                  f"({len(rows)}/{len(ops)} intended op(s) present, in op order)")
             for r in rows:
                 print(f"  {r['op']:<16} {r['ca']} <= {r['value']:<12} @ {r['file_offset']}"
                       f"  ({r['store_bytes']})")
