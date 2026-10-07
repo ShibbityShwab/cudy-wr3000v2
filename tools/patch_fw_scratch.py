@@ -125,7 +125,7 @@ The input blob is only ever read; every artifact is written under --out.
 
 usage:
   patch_fw_scratch.py --fw <FIRMWARE.bin> --out <variant.bin>
-                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking|gicunmask|trigring|trignat|trigcons|inta|inta2|inta3|take1|gicv2|take2|take4
+                      --variant probe|scratch|gicview|gicsend|gicpost|gicmask|gicking|gicunmask|trigring|trignat|trigcons|inta|inta2|inta3|take1|gicv2|take2|take4|take6f|take7|take7b|take7c
   patch_fw_scratch.py --selftest [--fw <FIRMWARE.bin>] [--barmap <barmap.bin>]
   patch_fw_scratch.py --check-emitted <blob.bin>   # the emitted-bytes check, standalone
 
@@ -181,6 +181,13 @@ TAKE7_MD5 = "b41b0aacfbd46bd8619d71f197431f49"                  # frozen take7-v
 TAKE7B_MD5 = "f5f5309fab9ae76518b9e1368a9ca768"            # frozen take7b-variant output
                                                              # (selftest regression; take7 with the
                                                              # self-gate polarity fixed)
+TAKE7C_MD5 = "60e0af1cb7fb32ea9e58178f754dfbf3"            # frozen take7c-variant output
+                                                             # (selftest regression; take7b with the
+                                                             # evidence-carrying, cross-interface-
+                                                             # ordered force pad - padstruct.md)
+TAKE7C_SELFTEST_EOIR_ID = 0x402                              # the FULL GICC_IAR word (same as
+                                                             # take7/take7b: take7c restructures
+                                                             # the PAD, not the value)
 TAKE7B_SELFTEST_EOIR_ID = 0x402                              # the FULL GICC_IAR word (id 2 +
                                                              # source PE 1) - the corrected value,
                                                              # same as take7's (TAKE7B fixes the
@@ -1871,6 +1878,46 @@ def write_ca_block(ca: int, value: int) -> bytes:
     return body + str_imm(0, 1, 0)
 
 
+def base_setup_bytes(base_reg: int, base_ca: int) -> bytes:
+    """The bytes that materialise a base register: `movw rbase, ca&0xffff ; movt rbase, ca>>16`.
+    take7c's emitted-bytes check rebuilds it independently (op_bytes kind "page_base") so the
+    page-relative store can never pass on a pad whose base register holds another address."""
+    return movw(base_reg, base_ca & 0xFFFF) + movt(base_reg, base_ca >> 16)
+
+
+def write_page_block(ca: int, value: int, base_reg: int, base_ca: int) -> bytes:
+    """A device-side store of the FULL 32-bit constant through the PAGE base a pad ALREADY holds:
+    `movw r0, value` [+ `movt r0` when the high half is non-zero], then `str r0, [rbase, #ca -
+    base_ca]` (T1: the offset must be a multiple of 4 in 0..124).  take7c only (padstruct.md): its
+    force pad materialises r2 = GICC_PAGE 0x40160100 for the guard's `GICC_RPR` read and the
+    post-force reads, so the EOIR address needs no second `movw/movt` pair - the 8 bytes that fund
+    the pre-state deposits (TG_PRERPR/TG_PREACT) and the distributor -> CPU-interface `dsb sy`.
+    op_store_page_bytes() rebuilds the same bytes independently for the emitted-bytes check, and
+    never calls this function (the ADDENDUM-20 rule: the check must not share the emitter's bug)."""
+    off = ca - base_ca
+    if off % 4 or not 0 <= off <= 124:
+        raise PatchError(f"page-relative store offset out of range: {ca:#x} - {base_ca:#x}")
+    body = movw(0, value & 0xFFFF)
+    if value >> 16:
+        body += movt(0, (value >> 16) & 0xFFFF)
+    return body + str_imm(0, base_reg, off)
+
+
+def op_store_page_bytes(ca: int, value: int, base_reg: int, base_ca: int) -> bytes:
+    """The instruction bytes a CORRECT emitter must produce for take7c's ONE device store: the
+    WHOLE 32-bit value in r0, then a page-relative store through `base_reg` (which the pad set to
+    `base_ca` in its prologue).  Built from the primitives and deliberately NOT from
+    write_page_block(), so a defect in the emitter cannot hide behind a shared bug here - the same
+    independence rule op_store_bytes() follows."""
+    off = ca - base_ca
+    if off % 4 or not 0 <= off <= 124:
+        raise PatchError(f"page-relative store offset out of range: {ca:#x} - {base_ca:#x}")
+    out = movw(0, value & 0xFFFF)
+    if value >> 16:
+        out += movt(0, (value >> 16) & 0xFFFF)
+    return out + str_imm(0, base_reg, off)
+
+
 def op_store_bytes(ca: int, value: int, kind: str = "word") -> bytes:
     """The instruction bytes a CORRECT emitter must produce for one intended device-side store:
     the whole CA in r1, the WHOLE 32-bit value in r0, then the store (`str r0,[r1]` for "word",
@@ -1903,11 +1950,21 @@ def op_bytes(entry) -> bytes:
     """The exact instruction bytes ONE intended op must appear as.  An op entry is
     (name, ca, value, kind[, disp]): kind "word"/"byte" = a store of `value` to CA `ca`
     (op_store_bytes); kind "read" = a read of CA `ca` deposited at WRAM cell `value` + `disp`
-    (op_read_bytes).  Shared by check_emitted_ops() and the --check-emitted failure dump so the
+    (op_read_bytes); kind "page" = a PAGE-RELATIVE store of `value` to CA `ca` through the base
+    register named in `disp` (entry[4] = the base's own CA) - the take7c form, rebuilt by
+    op_store_page_bytes(); kind "page_base" = the base register's own setup bytes (entry[1] = the
+    base CA, entry[2] = the register).  take7c's ops are TWO entries - the page-relative store AND
+    the base setup - so a pad that stores through a register it never set to that CA FAILS here,
+    exactly as a dropped `movt` half does for every other variant.
+    Shared by check_emitted_ops() and the --check-emitted failure dump so the
     check and its diagnosis can never disagree about what was intended."""
     kind = entry[3]
     if kind == "read":
         return op_read_bytes(entry[1], entry[2], entry[4] if len(entry) > 4 else 0)
+    if kind == "page":
+        return op_store_page_bytes(entry[1], entry[2], entry[4][0], entry[4][1])
+    if kind == "page_base":
+        return base_setup_bytes(entry[2], entry[1])
     return op_store_bytes(entry[1], entry[2], kind)
 
 
@@ -7198,6 +7255,111 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert md5(g11c) != TAKE7_MD5, "take7b must differ from take7 (the gate byte changed)"
     assert md5(g11c) == TAKE7B_MD5, f"take7b output changed: {md5(g11c)} != {TAKE7B_MD5}"
 
+    # ---- take7c: take7b with the EVIDENCE-CARRYING, cross-interface-ordered force pad ----------
+    g11d, g11dm = make_take7c(data, barmap, refs, TAKE7C_SELFTEST_EOIR_ID)
+    assert len(g11d) == len(data), "take7c changed the size"
+    g11db, g11dmb = make_take7c(data, barmap, refs, TAKE7C_SELFTEST_EOIR_ID)
+    assert g11d == g11db, "the take7c patch is not deterministic"
+    assert g11dm == g11dmb, "the take7c manifest is not deterministic"
+    assert g11dm["variant"] == "take7c" and "take7c" in g11dm and "take7b" not in g11dm, \
+        "the take7c manifest mislabels the variant"
+    off11d = int(g11dm["padding"]["stk_eoir"]["file_offset"], 16)
+    boff11d = int(g11dm["padding"]["stk_bank"]["file_offset"], 16)
+    sp11d = int(g11dm["padding"]["selpre"]["file_offset"], 16)
+    eo11d = bytes.fromhex(g11dm["padding"]["stk_eoir"]["code_hex"])
+    bk11d = bytes.fromhex(g11dm["padding"]["stk_bank"]["code_hex"])
+    pre11d = bytes.fromhex(g11dm["padding"]["selpre"]["code_hex"])
+    # the SLOT AND SIZE are untouched, so nothing else in the layout can have moved
+    assert off11d == off11b and boff11d == boff11b, "take7c moved a pad slot"
+    assert eo11d == pad_stk_eoir_take7c(off11d, TG_RPR, boff11d, TAKE7C_SELFTEST_EOIR_ID), \
+        "the take7c force pad is not its independent reconstruction"
+    assert bk11d == pad_stk_bank_take7b(boff11d, list(TG_CELLS), TRIGNAT_CONT_A), \
+        "take7c moved or changed the bank pad"
+    assert pre11d == pre11b, "take7c changed the retained selpre pad"
+    assert len(eo11d) == 76 and len(bk11d) == 112, \
+        f"the take7c pads are not the 76/112-byte layout ({len(eo11d)}/{len(bk11d)})"
+    # THE FOUR DELTAS vs take7b, each at its OWN offset (the only bytes that may differ).  The
+    # two guard opcodes are RE-ENCODED for take7c's own layout (a short forward branch's imm5
+    # depends on the distance), so each is rebuilt from the primitives instead of copied - and
+    # BOTH must land on byte 54, which IS this pad's post-store `dsb sy`: that is the direct
+    # refutation of the "the guard branches PAST the store" candidate.
+    assert eo11d[:24] == eo11b[:24], "take7c changed the force pad's prologue"
+    assert eo11d[24:26] == str_imm(5, 6, TG_PRERPR_OFF), "take7c lost the TG_PRERPR deposit"
+    assert eo11d[26:28] == cbnz(5, off11d + 26, off11d + 54), \
+        "take7c's guard-1 opcode is not the cbnz of its own layout"
+    assert eo11d[28:38] == eo11b[26:36], "take7c changed the ISACTIVER0 read block"
+    assert eo11d[38:40] == str_imm(1, 6, TG_PREACT_OFF), "take7c lost the TG_PREACT deposit"
+    assert eo11d[40:42] == lsls_imm(5, 1, 30) and eo11d[42:44] == b_cond(off11d + 42, off11d + 54,
+                                                                        COND_CC), \
+        "take7c's guard-2 term is not the lsls/bcc of its own layout"
+    assert eo11d[44:48] == TI_DSB_SY, "take7c lost the distributor -> CPU-interface `dsb sy`"
+    assert eo11d[48:54] == write_page_block(STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID, 2, GICC_PAGE), \
+        "take7c does not emit the page-relative EOIR store at the fixed offset"
+    assert eo11d[54:58] == TI_DSB_SY, "take7c: byte 54 is not the post-store `dsb sy`"
+    assert eo11d[54:] == eo11b[54:], \
+        "take7c changed the post-force tail (or moved its dsb_at off byte 54)"
+    assert eo11d.count(TI_DSB_SY) == 2, "take7c must carry exactly two `dsb sy`"
+    assert eo11d.count(str_imm(5, 6, TG_PRERPR_OFF)) == 1 \
+        and eo11d.count(str_imm(1, 6, TG_PREACT_OFF)) == 1, \
+        "the take7c pre-state deposits are not exactly once"
+    assert base_setup_bytes(2, GICC_PAGE) in eo11d, "take7c does not set r2 to the GICC page"
+    # ONE device write - the corrected EOIR, now ONLY in the page-relative form
+    assert op_store_page_bytes(STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID, 2, GICC_PAGE) in eo11d
+    assert op_store_bytes(STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID, "word") not in g11d, \
+        "take7c must not carry the canonical EOIR materialisation anywhere"
+    assert write_ca_block(STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID) not in g11d
+    assert op_store_bytes(0x40160114, 0, "word") not in eo11d, \
+        "take7c must not write a GICC CA back"
+    # the emitted-bytes check holds with the PAGE-RELATIVE form, and REJECTS the same blob when it
+    # is checked in the CANONICAL form (the two forms can never be confused)
+    emitted11d = check_emitted_ops(g11d, TI_WRITE_OPS + (
+        ("EOIR_PAGE", GICC_PAGE, 2, "page_base"),
+        ("EOIR_ID", STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID, "page", (2, GICC_PAGE))),
+        spans=[(sp11d, sp11d + len(pre11d)), (off11d, off11d + len(eo11d))],
+        label="the regenerated take7c blob")
+    assert len(emitted11d) == 10 and all(r["ok"] for r in emitted11d), \
+        "the take7c emitted-bytes check did not hold (10/10 expected)"
+    try:
+        check_emitted_ops(g11d, TI_WRITE_OPS + (("EOIR_ID", STK_GICC_EOIR,
+                                                 TAKE7C_SELFTEST_EOIR_ID, "word"),),
+                          spans=[(sp11d, sp11d + len(pre11d)), (off11d, off11d + len(eo11d))],
+                          label="the take7c blob in the CANONICAL form")
+    except PatchError:
+        pass
+    else:
+        raise PatchError("the take7c blob passed the canonical-form check - the forms are "
+                         "confused, so the page-relative store is not actually verified")
+    # the pre-state record + the delta confinement
+    ps = g11dm["take7c"]["pre_state"]
+    assert "SHIPPED INVERTED" not in g11dm["take7c"]["eoir"]["gate"] \
+        and "cbnz" in g11dm["take7c"]["eoir"]["gate"] \
+        and "TG_PRERPR" in g11dm["take7c"]["eoir"]["gate"], \
+        "the take7c manifest's gate record is take7b's stale text (the vrun24 D4 class)"
+    assert g11dm["take7c"]["eoir"]["id"] == hex(TAKE7C_SELFTEST_EOIR_ID) \
+        and g11dm["take7c"]["eoir"]["rpr_cell"] == hex(TG_RPR) \
+        and g11dm["take7c"]["eoir"]["hpp_cell"] == hex(TG_HPP) \
+        and "page-relative" in g11dm["take7c"]["eoir"]["gate"], \
+        "the take7c manifest's eoir record is not this build's"
+    assert ps["cells"] == {"TG_PRERPR": hex(TG_PRERPR), "TG_PREACT": hex(TG_PREACT)}, \
+        "the take7c manifest does not record the pre-state cells"
+    assert g11dm["cells"]["TG_PRERPR"]["addr"] == hex(TG_PRERPR) \
+        and g11dm["cells"]["TG_PREACT"]["addr"] == hex(TG_PREACT), \
+        "the take7c manifest does not pin the pre-state cell addresses"
+    assert g11dm["cells"]["TG_PRERPR"]["barmap_value"] == "0x0" \
+        and g11dm["cells"]["TG_PRERPR"]["barmap_alias_value"] == "0x0" \
+        and g11dm["cells"]["TG_PREACT"]["barmap_value"] == "0x0" \
+        and g11dm["cells"]["TG_PREACT"]["barmap_alias_value"] == "0x0", \
+        "a take7c pre-state cell is not zero in barmap at both views"
+    assert g11dm["take7c"]["stk_eoir_len"] == 76 \
+        and g11dm["take7c"]["emitted_ops"]["scope"].startswith("10/10") \
+        and len(g11dm["take7c"]["stk_eoir_pad"]) == 26, \
+        "the take7c manifest does not record the restructured force pad (26 disassembled ops)"
+    diff = [i for i in range(len(g11d)) if g11d[i] != g11c[i]]
+    assert diff and min(diff) >= off11d and max(diff) < off11d + 76, \
+        "the take7c-vs-take7b delta is not confined to the force pad"
+    assert md5(g11d) != TAKE7B_MD5, "take7c must differ from take7b (the pad was restructured)"
+    assert md5(g11d) == TAKE7C_MD5, f"take7c output changed: {md5(g11d)} != {TAKE7C_MD5}"
+
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
           f"{pm['patches'][0]['before']} -> {pm['patches'][0]['after']} "
@@ -7376,6 +7538,13 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"({eo11[24:26].hex()} -> {eo11b[24:26].hex()}): fire on RPR == 0x00 (vrun23 fix); "
           f"only byte 24..26 of the 76-B force pad change")
     print(f"  take7b md5        : {md5(g11c)}")
+    print(f"  take7c cells      : TG_PRERPR={hex(TG_PRERPR)} TG_PREACT={hex(TG_PREACT)} "
+          f"(the gate's OWN pre-state: RPR 0x{STK_GICC_RPR:08x} / ISACTIVER0 0x{STK_GICD_ACT0:08x}, "
+          f"deposited before the guard / inside the fall-through)")
+    print(f"  take7c force pad  : 76 B @ {hex(off11d)} - the guard's operands deposited + a "
+          f"`dsb sy` between the GICD read and the page-relative GICC_EOIR store "
+          f"(0x{STK_GICC_EOIR:08x} <= 0x{TAKE7C_SELFTEST_EOIR_ID:x} via r2)")
+    print(f"  take7c md5        : {md5(g11d)}")
     return 0
 
 
@@ -12253,6 +12422,47 @@ TG_SENTINEL = STK_SENTINEL               # 0x50aa7e49 - the presence proof TG_SN
 STK7_DROPPED_PADS = STK6_DROPPED_PADS + ("selpost_e",)
 TAKE7_EOIR_MAX = 0x1FFF                  # the full GICC_IAR word: id[9:0] + source PE[12:10]
 
+# ---- take7c: the force pad's own PRE-STATE pair + the cross-interface barrier (padstruct.md) ---
+# WHY: take7/take7b's gate is the ONE element of the chain that leaves no evidence - it reads
+# GICC_RPR (a GICC read) and GICD_ISACTIVER0 (a GICD read) and then writes GICC_EOIR (a GICC
+# write) with the pad's only `dsb sy` AFTER the store, so (i) a skipped store cannot be told from
+# a store that did not land, and (ii) the guard introduces the first Distributor-read ->
+# CPU-interface-write pair in the chain - the one access pattern the FIRING take6f pad never had.
+# take7c deposits what the guard itself read (both regenerations of the gate's operands) and puts
+# a `dsb sy` between the GICD read and the GICC store.  Both additions and the barrier are funded
+# by storing through the GICC page base the pad already holds (write_page_block), so the pad stays
+# EXACTLY 76 B and the slot layout, the chain, the bank pad and the frozen take7/take7b blobs are
+# all untouched.  4 B apart, above bankgate.md sec 5's 15-word block; zero at BOTH barmap views
+# (asserted at build time).
+TG2_BASE = TG_BASE + 4 * 15              # 0x150204
+TG2_CELLS = (TG2_BASE, TG2_BASE + 4)     # TG_PRERPR, TG_PREACT
+(TG_PRERPR, TG_PREACT) = TG2_CELLS
+TG2_NAMES = ("TG_PRERPR", "TG_PREACT")
+TG_PRERPR_OFF = TG_PRERPR - TG_RPR       # 0x3c - the pad's `str r5,[r6,#0x3c]` (T1 reach <= 124)
+TG_PREACT_OFF = TG_PREACT - TG_RPR       # 0x40 - the pad's `str r1,[r6,#0x40]`
+TAKE7C_STORE_OFF = STK_GICC_EOIR - GICC_PAGE   # 0x10 - the page-relative `str r0,[r2,#0x10]`
+NOTE_TAKE7C = (
+    "take7c (build/tmp/inta-spec/padstruct.md) - take7b's ENTIRE instrument and slot layout with "
+    "the 76-byte force pad RESTRUCTURED so its gate is EVIDENCE-CARRYING and its cross-interface "
+    "access pair is ordered: (1) TG_PRERPR 0x150204 <- the GICC_RPR 0x40160114 word the guard "
+    "ITSELF read (deposited BEFORE the `cbnz`, so it is recorded whether or not the guard skips); "
+    "(2) TG_PREACT 0x150208 <- the GICD_ISACTIVER0 0x40161300 word the guard ITSELF read "
+    "(deposited INSIDE the fall-through, so TG_PREACT == 0 proves guard 1 skipped and a non-zero "
+    "word carries guard 2's operand verbatim); (3) a `dsb sy` between the guard's DISTRIBUTOR read "
+    "and the CPU-interface store - the access pair the firing take6f pad never had, and take7/"
+    "take7b's first gate to depend on a GICD read; (4) the store is PAGE-RELATIVE through r2 (the "
+    "GICC page the pad already holds): `str r0,[r2,#0x10]`, 8 B cheaper than the canonical "
+    "`write_ca_block` re-materialisation, which funds (1)-(3) and keeps the pad at exactly 76 B.  "
+    "The post-force RPR/HPPIR deposits keep their instant (immediately after the pad's own `dsb "
+    "sy`), so TG_RPR == 0x00 still pins the PRE-store RPR; both guards still land on that "
+    "post-store `dsb sy`, so a gated-off boot deposits TG_PRERPR/TG_PREACT and nothing else.  "
+    "THE BRANCH TABLE the pair closes (padding-free): TG_PRERPR != 0 -> guard 1 (RPR) skipped; "
+    "TG_PRERPR == 0 and TG_PREACT bit 2 CLEAR -> guard 2 (the TOGGLING SGI-2 ACTIVE bit) skipped, "
+    "cell-proven for the first time; TG_PRERPR == 0 and TG_PREACT bit 2 SET -> the store WAS "
+    "reached, so TG_RPR == 0x00 means the 0x402 EOIR did not land (the barrier's target) or the "
+    "epoch re-formed inside the window."
+)
+
 NOTE_TAKE7 = (
     "take7 (build/tmp/inta-spec/{bankgate,bg2}.md on ADDENDUM 25a, exp/20261007-010906) - the "
     "CORRECTED EOIR force plus the post-force BANK/GROUP read block.  It rides take6f's instrument "
@@ -12371,6 +12581,69 @@ def pad_stk_eoir_take7b(pad: int, cell_rpr: int, cont: int, eoir_id: int,
     return bytes(b) + b_w(pad + len(b), cont)
 
 
+def pad_stk_eoir_take7c(pad: int, cell_rpr: int, cont: int, eoir_id: int,
+                        cell_hpp: int = TG_HPP) -> bytes:
+    """take7c ONLY (build/tmp/inta-spec/padstruct.md) - the take7b force pad RESTRUCTURED so its
+    gate is EVIDENCE-CARRYING and its Distributor-read -> CPU-interface-write pair is ORDERED.
+    Every emitted byte is take7b's except four deltas, and the pad stays EXACTLY 76 B (so the slot
+    layout, the chain, the bank pad and the frozen take7/take7b blobs are all untouched):
+
+      1. `str r5,[r6,#0x3c]` - TG_PRERPR <- the GICC_RPR 0x40160114 word the guard ITSELF read,
+         deposited BEFORE the `cbnz`, so it is recorded whether or not guard 1 skips (2 B).
+      2. `str r1,[r6,#0x40]` - TG_PREACT <- the GICD_ISACTIVER0 0x40161300 word the guard ITSELF
+         read, deposited INSIDE the fall-through: TG_PREACT == 0 proves guard 1 skipped, and a
+         non-zero word is guard 2's operand verbatim (2 B).
+      3. a `dsb sy` between the guard's DISTRIBUTOR read and the CPU-interface store - the access
+         pair the FIRING take6f pad never had, and take7/take7b's first gate that depends on a
+         GICD read (4 B).
+      4. the store is PAGE-RELATIVE through r2, the GICC page the pad already holds:
+         `str r0,[r2,#0x10]` - 8 B cheaper than `write_ca_block`'s second address
+         materialisation, which funds (1)-(3) and keeps the pad at 76 B.
+
+    The post-force RPR/HPPIR deposits keep their instant (immediately after the pad's own `dsb sy`),
+    so TG_RPR == 0x00 still pins the PRE-store RPR to 0x00 and take7b's own D1 argument survives;
+    both guards still land on that post-store `dsb sy`, so a gated-off boot deposits TG_PRERPR and
+    TG_PREACT and nothing else.  The guard POLARITY is take7b's corrected `cbnz r5, dsb_at` (fire
+    on RPR == 0x00); the ISACTIVER0 / `lsls #30` / `bcc` term (bit 2 SET) is unchanged."""
+    if cell_rpr != TG_RPR:
+        raise PatchError("take7c: the EOIR pad's post-force cell must be TG_RPR")
+    if cell_hpp != TG_HPP or cell_hpp - cell_rpr != 4:
+        raise PatchError("take7c: the EOIR pad's HPPIR cell must be TG_HPP = TG_RPR + 4")
+    if not 0 <= eoir_id <= TAKE7_EOIR_MAX:
+        raise PatchError(f"take7c: the EOIR value must be a full GICC_IAR word "
+                         f"(0..0x{TAKE7_EOIR_MAX:x}), got {eoir_id:#x}")
+    if (TG_PRERPR_OFF, TG_PREACT_OFF) != (0x3C, 0x40):
+        raise PatchError("take7c: the pre-state cells must sit at TG_RPR + 0x3c / + 0x40")
+    b = bytearray()
+    b += mrs_apsr(12)
+    b += push([0, 1, 2, 3, 4, 5, 6, 7])
+    b += movw(2, GICC_PAGE & 0xFFFF) + movt(2, GICC_PAGE >> 16)       # r2 = the GICC page
+    b += movw(6, TG_RPR & 0xFFFF) + movt(6, TG_RPR >> 16)             # r6 = the TG cell base
+    b += ldr_imm(5, 2, TG_GICC_RPR - GICC_PAGE)                       # r5 = GICC_RPR (PRE-force)
+    b += str_imm(5, 6, TG_PRERPR_OFF)                                 # TG_PRERPR <- the guard's RPR
+    # the guard: the ISACTIVER0 read + its deposit, `lsls`/`bcc`, the cross-interface `dsb sy`
+    gate_len = 4 + 4 + 2 + 2 + 2 + 2 + 4      # ACT0 movw/movt + ldr + the ACT0 deposit + lsls +
+                                              # bcc + the distributor -> CPU-interface barrier
+    store_len = len(write_page_block(STK_GICC_EOIR, eoir_id, 2, GICC_PAGE))
+    dsb_at = pad + len(b) + 2 + gate_len + store_len
+    b += cbnz(5, pad + len(b), dsb_at)                                # RPR != 0 -> NOFORCE
+    b += movw(1, STK_GICD_ACT0 & 0xFFFF) + movt(1, STK_GICD_ACT0 >> 16)
+    b += ldr_imm(1, 1, 0)                                             # GICD_ISACTIVER0 word 0
+    b += str_imm(1, 6, TG_PREACT_OFF)                                 # TG_PREACT <- the guard's word
+    b += lsls_imm(5, 1, 30)                                           # carry = bit 2
+    b += b_cond(pad + len(b), dsb_at, COND_CC)                        # bit 2 clear -> NOFORCE
+    b += TI_DSB_SY                                                    # GICD read -> GICC store
+    b += write_page_block(STK_GICC_EOIR, eoir_id, 2, GICC_PAGE)        # GICC_EOIR <= the IAR word
+    b += TI_DSB_SY
+    b += ldr_imm(1, 2, TG_GICC_RPR - GICC_PAGE) + str_imm(1, 6, TG_RPR - TG_RPR)
+    b += ldr_imm(1, 2, GICC_HPPIR - GICC_PAGE) + str_imm(1, 6, TG_HPP - TG_RPR)
+    b += pop([0, 1, 2, 3, 4, 5, 6, 7])
+    b += msr_apsr(12)
+    if len(b) + 4 != 76:
+        raise PatchError(f"take7c: the force pad is not the fixed 76-byte layout ({len(b) + 4})")
+    return bytes(b) + b_w(pad + len(b), cont)
+
+
 def pad_stk_bank_take7b(pad: int, cells: list[int], cont: int) -> bytes:
     """take7b's bank pad - byte-identical to take7's (the fix touches ONLY the force gate, which
     sits in the force pad; the ranked bank/group read block is unchanged).  Kept as its own name
@@ -12437,7 +12710,8 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
                         b_cells: list[int], b2_cells: list[int], f_cells: list[int],
                         v_cells: list[int], cp_cells: list[int], v2_cells: list[int],
                         sel_cells: list[int], e3_cells: list[int], stk_cells: list[int],
-                        tg_cells: list[int], eoir_id: int, *, fixed_gate: bool = False) -> dict:
+                        tg_cells: list[int], eoir_id: int, *, fixed_gate: bool = False,
+                        pre_state: bool = False) -> dict:
     """Byte-equality of every take7 pad against its independent reconstruction PLUS the block
     structure: the retained take6 sampler (byte-identical but for its tail), the corrected-
     force pad's SELF-GATE (cbz + lsls #30 + bcc) and canonical EOIR op, the post-force RPR/HPPIR
@@ -12446,7 +12720,12 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
     stk_bank -> 0x86f5e), selpost_e's absence, the sites, and the forbidden-CA scan.
 
     `fixed_gate=True` (take7b) checks the POLARITY-CORRECTED guard `cbnz r5, dsb_at` instead of
-    the shipped inverted `cbz`; everything else is identical."""
+    the shipped inverted `cbz`; everything else is identical.  `pre_state=True` (take7c) checks
+    the RESTRUCTURED pad instead: the same corrected guard, the TWO new deposits of the gate's
+    own operands (TG_PRERPR before the guard, TG_PREACT inside the fall-through), the
+    distributor -> CPU-interface `dsb sy` between the ISACTIVER0 read and the store, and the
+    PAGE-RELATIVE store through the r2 GICC page the pad itself sets."""
+    want_tg = list(TG_CELLS) + (list(TG2_CELLS) if pre_state else [])
     if len(a_cells) != INTA2_A_NCELLS or len(b_cells) != TRIGNAT_B_NCELLS:
         raise PatchError("take7: the inherited A/B cells are not the take4 counts")
     if len(b2_cells) != INTA_B2_NCELLS or len(f_cells) != INTA2_F_NCELLS:
@@ -12457,13 +12736,13 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
         raise PatchError("take7: the inherited v2/sel cells are not take4's")
     if len(e3_cells) != len(TI_E_CELLS):
         raise PatchError("take7: the inherited E cells are not take4's")
-    if len(stk_cells) != len(STK_FAST_CELLS) or len(tg_cells) != len(TG_CELLS):
+    if len(stk_cells) != len(STK_FAST_CELLS) or len(tg_cells) != len(want_tg):
         raise PatchError("take7: the sampler/TG cells are not the pinned counts")
     every = ([s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + f_cells + v_cells
              + cp_cells + v2_cells + sel_cells + e3_cells + stk_cells + tg_cells)
     if len(set(every)) != len(every):
         raise PatchError("take7 cells are not all distinct")
-    if list(tg_cells) != list(TG_CELLS):
+    if list(tg_cells) != want_tg:
         raise PatchError("take7: the TG cells are not bankgate.md sec 5's words")
 
     md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
@@ -12490,7 +12769,9 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
         "selread": pad_sel_read_take4(pads["selread"], pads["selpre"]),
         "selpre": pad_sel_pre_take4(pads["selpre"], pads["send"]),
         "stk_fast": pad_stk_fast(pads["stk_fast"], stk_fast_cells, pads["stk_eoir"]),
-        "stk_eoir": (pad_stk_eoir_take7b if fixed_gate else pad_stk_eoir_take7)(
+        "stk_eoir": (pad_stk_eoir_take7c if pre_state
+                     else pad_stk_eoir_take7b if fixed_gate
+                     else pad_stk_eoir_take7)(
             pads["stk_eoir"], TG_RPR, pads["stk_bank"], eoir_id),
         "stk_bank": (pad_stk_bank_take7b if fixed_gate else pad_stk_bank_take7)(
             pads["stk_bank"], list(TG_CELLS), TRIGNAT_CONT_A),
@@ -12518,28 +12799,61 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
     # THE FORCE PAD: the self-gate, the ONE canonical EOIR store, the dsb, the two post-force
     # deposits - each rebuilt from the primitives, independently of the emitter
     eo = code["stk_eoir"]
-    eoir_op = op_store_bytes(STK_GICC_EOIR, eoir_id, "word")
-    # the pad's fixed layout: mrs+push+GICC base+cell base+PRE RPR read = 24 B, then the `cbz`,
-    # the ISACTIVER0 read (10 B), `lsls #30` and the `bcc`, the ONE EOIR store, the `dsb sy`
-    gate_bcc = pads["stk_eoir"] + 24 + 2 + 10 + 2
-    dsb_at = gate_bcc + 2 + len(eoir_op)
-    gate_cbz = cbz(5, pads["stk_eoir"] + 24, dsb_at)
-    gate_cbnz = cbnz(5, pads["stk_eoir"] + 24, dsb_at)
-    gate_op = gate_cbnz if fixed_gate else gate_cbz
+    # the pad's fixed layout.  take7/take7b: mrs+push+GICC base+cell base+PRE RPR read = 24 B,
+    # then the `cbz`/`cbnz`, the ISACTIVER0 read (10 B), `lsls #30` and the `bcc`, the ONE
+    # canonical EOIR store, the `dsb sy`.  take7c moves the guard to +26 (the TG_PRERPR deposit)
+    # and its `bcc` to +42 (the TG_PREACT deposit inside the fall-through), inserts the
+    # distributor -> CPU-interface `dsb sy` (+4) before a PAGE-RELATIVE store (-8), so BOTH
+    # layouts land on the SAME dsb_at - which is what keeps take7c's slot and chain untouched.
+    gate_at = pads["stk_eoir"] + (26 if pre_state else 24)
+    gate_bcc = pads["stk_eoir"] + (42 if pre_state else 38)
+    mid_dsb = 4 if pre_state else 0
+    eoir_op = (op_store_page_bytes(STK_GICC_EOIR, eoir_id, 2, GICC_PAGE) if pre_state
+               else op_store_bytes(STK_GICC_EOIR, eoir_id, "word"))
+    dsb_at = gate_bcc + 2 + mid_dsb + len(eoir_op)
+    gate_cbz = cbz(5, gate_at, dsb_at)
+    gate_cbnz = cbnz(5, gate_at, dsb_at)
+    gate_op = gate_cbnz if (fixed_gate or pre_state) else gate_cbz
     gate_cc = b_cond(gate_bcc, dsb_at, COND_CC)
     if eo.count(gate_op) != 1 or eo.count(gate_cc) != 1 or eo.count(lsls_imm(5, 1, 30)) != 1:
         raise PatchError("take7: the force pad lost its RPR/ACTIVER0 self-gate")
     if eo.count(eoir_op) != 1 or TI_DSB_SY not in eo:
         raise PatchError("take7: the corrected EOIR op + its `dsb sy` must appear exactly once")
-    if eo.index(eoir_op) < eo.index(gate_op) or eo.index(TI_DSB_SY) < eo.index(eoir_op):
+    if not (eo.index(gate_op) < eo.index(eoir_op) < eo.rindex(TI_DSB_SY)):
         raise PatchError("take7: the EOIR store must sit between the self-gate and the `dsb sy`")
     rpr_post = ldr_imm(1, 2, TG_GICC_RPR - GICC_PAGE) + str_imm(1, 6, 0)
     hpp_post = ldr_imm(1, 2, GICC_HPPIR - GICC_PAGE) + str_imm(1, 6, TG_HPP - TG_RPR)
     if eo.count(rpr_post) != 1 or eo.count(hpp_post) != 1:
         raise PatchError("take7: the post-force RPR/HPPIR deposits are not exactly once")
-    if eo.index(rpr_post) < eo.index(TI_DSB_SY) or eo.index(hpp_post) < eo.index(rpr_post):
+    if not (eo.rindex(TI_DSB_SY) < eo.index(rpr_post) < eo.index(hpp_post)):
         raise PatchError("take7: the post-force deposits must follow the `dsb sy`, RPR first")
-    if write_ca_block(STK_GICC_EOIR, eoir_id) != eoir_op:
+    if pre_state:
+        # (1)/(2) THE GATE'S OWN OPERANDS, rebuilt independently: TG_PRERPR is the guard's r5
+        # read (deposited BEFORE the guard, so it survives a skip); TG_PREACT is the guard's
+        # ISACTIVER0 word (deposited INSIDE the fall-through, so a 0 proves guard 1 skipped).
+        pre_rpr = str_imm(5, 6, TG_PRERPR_OFF)
+        pre_act = str_imm(1, 6, TG_PREACT_OFF)
+        act0_read = (movw(1, STK_GICD_ACT0 & 0xFFFF) + movt(1, STK_GICD_ACT0 >> 16)
+                     + ldr_imm(1, 1, 0))
+        if eo.count(pre_rpr) != 1 or eo.count(pre_act) != 1 or eo.count(act0_read) != 1:
+            raise PatchError("take7c: the gate's own pre-state deposits are not exactly once")
+        if not (eo.index(pre_rpr) < eo.index(gate_op) < eo.index(act0_read)
+                < eo.index(pre_act) < eo.index(gate_cc)):
+            raise PatchError("take7c: the pre-state deposits are not (before the guard) / "
+                             "(inside the fall-through, after the ISACTIVER0 read)")
+        # (3) the cross-interface barrier must sit between the GICD read and the GICC store
+        if eo.count(TI_DSB_SY) != 2:
+            raise PatchError("take7c: the force pad must carry exactly two `dsb sy`")
+        if not (eo.index(act0_read) < eo.index(TI_DSB_SY) < eo.index(eoir_op)):
+            raise PatchError("take7c: the distributor -> CPU-interface `dsb sy` is not between "
+                             "the ISACTIVER0 read and the EOIR store")
+        # (4) the store is page-relative AND the pad itself sets that page into r2 - the page
+        # base is verified independently, so a wrong base fails here like a dropped `movt` does
+        if eo.count(base_setup_bytes(2, GICC_PAGE)) != 1:
+            raise PatchError("take7c: the pad does not set r2 to the GICC page exactly once")
+        if write_page_block(STK_GICC_EOIR, eoir_id, 2, GICC_PAGE) != eoir_op:
+            raise PatchError("take7c: the pad does not emit the page-relative EOIR store bytes")
+    elif write_ca_block(STK_GICC_EOIR, eoir_id) != eoir_op:
         raise PatchError("take7: the pad does not emit the canonical EOIR store bytes")
 
     # THE BANK PAD: the 12 ranked reads in order + the sentinel LAST, each rebuilt independently
@@ -12633,7 +12947,15 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
         "sticky_cell": hex(STK_STICKY), "act_cell": hex(STK_ACT), "hpp_cell": hex(STK_HPP),
         "eoir": {"ca": hex(STK_GICC_EOIR), "id": hex(eoir_id),
                  "value_kind": "the full GICC_IAR word (id[9:0] + source PE[12:10])",
-                 "gate": ("GICC_RPR == 0x00 (cbnz r5, dsb_at: the POLARITY-CORRECTED guard - fire "
+                 "gate": ("GICC_RPR == 0x00 (cbnz r5, dsb_at: the POLARITY-CORRECTED guard - "
+                          "fire only when RPR == 0x00) AND GICD_ISACTIVER0 word 0 bit 2 SET "
+                          "(lsls #30 / bcc), and the gate's OWN two operands are DEPOSITED "
+                          "(TG_PRERPR before the guard, TG_PREACT inside the fall-through) - "
+                          "else the store is skipped and TG_RPR reads 0x00 (the NOFORCE label); "
+                          "a `dsb sy` separates the guard's GICD read from the GICC store, and "
+                          "the store is page-relative through the pad's own r2 = 0x40160100"
+                          if pre_state else
+                          "GICC_RPR == 0x00 (cbnz r5, dsb_at: the POLARITY-CORRECTED guard - fire "
                           "only when RPR == 0x00) AND GICD_ISACTIVER0 word 0 bit 2 SET "
                           "(lsls #30 / bcc) - else the store is skipped and TG_RPR reads 0x00 "
                           "(the NOFORCE label)" if fixed_gate else
@@ -12650,7 +12972,7 @@ def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
                  "sentinel": hex(TG_SENTINEL), "sentinel_cell": hex(TG_SNT),
                  "len": len(bk)},
         "no_new_write": False,
-        "variant": "take7b" if fixed_gate else "take7",
+        "variant": "take7c" if pre_state else "take7b" if fixed_gate else "take7",
     }
 
 
@@ -12843,6 +13165,148 @@ def make_take7b(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
     tm["padding"]["stk_bank"] = {"file_offset": hex(pads["stk_bank"]),
                                   "code_length": len(code_bk), "code_hex": code_bk.hex()}
     return out, tm
+
+
+def make_take7c(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
+    """take7c (build/tmp/inta-spec/padstruct.md): take7b's ENTIRE instrument, chain and slot
+    layout with the 76-byte force pad RESTRUCTURED so its gate is EVIDENCE-CARRYING and its
+    Distributor-read -> CPU-interface-write pair is ORDERED.  `eoir_id` is REQUIRED and is the
+    FULL GICC_IAR word (take7c changes the PAD, not the value).
+
+    take7b is built first and reused: its own exhaustive verification (every pad's bytes, every
+    site, the chain, the forbidden-CA scan) has already run, so take7c only has to (a) swap the
+    force pad, (b) prove the swap is confined to that pad, and (c) re-verify the RESULT with
+    pre_state=True.  The pad stays EXACTLY 76 B, so no other pad, cell, slot or site can move -
+    and the frozen take7/take7b blobs stay byte-identical."""
+    if eoir_id is None:
+        raise PatchError("take7c carries the EVIDENCE-CARRYING EOIR force - it requires --eoir-id")
+    base, tm = make_take7b(data, barmap, refs, eoir_id)
+    cells, v2c, selc, ec3, stk, sel = select_cells_take7(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    off_b = off_a + TRIGNAT_A_NCELLS
+    bc = cells[off_b:off_b + TRIGNAT_B_NCELLS]
+    off_b2 = off_b + TRIGNAT_B_NCELLS
+    b2c = cells[off_b2:off_b2 + INTA_B2_NCELLS]
+    off_f = off_b2 + INTA_B2_NCELLS
+    fc = cells[off_f:off_f + INTA2_F_NCELLS]
+    off_n = off_f + INTA2_F_NCELLS
+    nc = cells[off_n:off_n + INTA2_N_NCELLS]
+    ac2 = ac + nc
+    vc = list(TAKE1_V_CELLS)
+    cpc = list(TAKE1_CP_CELLS)
+    stk_cells = list(stk)
+    if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
+            or len(b2c) != INTA_B2_NCELLS or len(fc) != INTA2_F_NCELLS
+            or len(nc) != INTA2_N_NCELLS or len(ac2) != INTA2_A_NCELLS):
+        raise PatchError("internal error: take7c inta3 cells were not selected")
+
+    # the gate's OWN pre-state pair: two fresh WRAM words, zero at BOTH barmap views and distinct
+    # from every inherited cell
+    ok = _cell_ok(barmap)
+    for nm, addr in zip(TG2_NAMES, TG2_CELLS):
+        if not ok(addr):
+            raise PatchError(f"take7c cell {nm} at {addr:#x} is not a zero cell at both barmap views")
+    if set(TG2_CELLS) & (set(cells) | set(v2c) | set(selc) | set(ec3) | set(stk) | set(TG_CELLS)):
+        raise PatchError("the take7c pre-state cells are not distinct from the inherited ones")
+
+    pad_of = {"send_n": "send", "drain_b2": "drain", "fallthrough_f": "fallthrough"}
+    pads = {k: int(v["file_offset"], 16) for k, v in tm["padding"].items()
+            if isinstance(v, dict) and "file_offset" in v}
+    for alias, real in pad_of.items():
+        pads[real] = pads[alias]
+    code_eo = pad_stk_eoir_take7c(pads["stk_eoir"], TG_RPR, pads["stk_bank"], eoir_id)
+    need = len(pad_stk_eoir_take7b(pads["stk_eoir"], TG_RPR, pads["stk_bank"], eoir_id))
+    if len(code_eo) != need:
+        raise PatchError(f"take7c: the force pad is not take7b's {need}-byte size ({len(code_eo)})")
+    out = bytearray(base)
+    out[pads["stk_eoir"]:pads["stk_eoir"] + len(code_eo)] = code_eo
+    # the take7c-vs-take7b delta must be EXACTLY the force pad's 76 bytes
+    delta = [i for i in range(len(out)) if out[i] != base[i]]
+    lo, hi = pads["stk_eoir"], pads["stk_eoir"] + len(code_eo)
+    if not delta or min(delta) < lo or max(delta) >= hi:
+        raise PatchError("take7c: the take7c-vs-take7b delta is not confined to the force pad")
+    if write_ca_block(STK_GICC_EOIR, eoir_id) in out:
+        raise PatchError("take7c: the canonical EOIR materialisation must be ABSENT from the blob")
+    code_ps = bytes.fromhex(tm["padding"]["selpre"]["code_hex"])
+    emitted = check_emitted_ops(out, TI_WRITE_OPS + (
+        ("EOIR_PAGE", GICC_PAGE, 2, "page_base"),
+        ("EOIR_ID", STK_GICC_EOIR, eoir_id, "page", (2, GICC_PAGE))),
+        spans=[(pads["selpre"], pads["selpre"] + len(code_ps)),
+               (pads["stk_eoir"], pads["stk_eoir"] + len(code_eo))],
+        label="take7c selpre + the pre-state-carrying EOIR force")
+    verify = verify_disasm_take7(bytes(out), pads, s1, s2, gc, ec, ac2, bc, b2c, fc, vc, cpc, v2c,
+                                 selc, ec3, stk_cells, list(TG_CELLS) + list(TG2_CELLS), eoir_id,
+                                 pre_state=True)
+
+    # the manifest is take7b's (every cell/pad/site/chain record identical) with the force pad's
+    # records rebuilt from THIS build plus the pre-state/barrier record
+    tm["variant"] = "take7c"
+    tm["spec"] = ("build/tmp/inta-spec/padstruct.md - take7b with the force pad's gate made "
+                  "EVIDENCE-CARRYING (TG_PRERPR/TG_PREACT) and the GICD read / GICC store pair "
+                  "ordered by a `dsb sy`, on top of gfix.md + bankgate.md/bg2.md")
+    tc = dict(tm.pop("take7b"))
+    tc["gate_polarity"] = ("FIXED (cbnz; fire on RPR == 0x00) AND the gate's own PRE-STATE "
+                           "DEPOSITED (TG_PRERPR/TG_PREACT)")
+    tc["stk_eoir_len"] = len(code_eo)
+    tc["stk_eoir_pad"] = verify["stk_eoir_pad"]
+    # take7c's OWN eoir record (the gate text is a three-way string - inheriting take7b's would
+    # reproduce exactly the stale-label defect the vrun24 verdict flagged as D4)
+    tc["eoir"] = verify["eoir"]
+    tc["pre_state"] = {
+        "cells": {nm: hex(a) for nm, a in zip(TG2_NAMES, TG2_CELLS)},
+        "deposits": [
+            {"cell": "TG_PRERPR", "ca": hex(STK_GICC_RPR), "point": "BEFORE the guard",
+             "meaning": "the GICC_RPR the guard ITSELF read (gate operand 1; recorded whether or "
+                        "not the guard skips)"},
+            {"cell": "TG_PREACT", "ca": hex(STK_GICD_ACT0), "point": "INSIDE the fall-through",
+             "meaning": "the GICD_ISACTIVER0 word 0 the guard ITSELF read (gate operand 2; 0 "
+                        "means guard 1 skipped, so this deposit never ran)"}],
+        "barrier": {"kind": "dsb sy", "between": [hex(STK_GICD_ACT0), hex(STK_GICC_EOIR)],
+                    "why": "the pad's only PRE-store barrier and the reason take7c is the first "
+                           "pad in the chain whose gate depends on a GICD read: the Distributor "
+                           "access must not be reordered against the CPU-interface store (the "
+                           "access pair the FIRING take6f pad never had)"},
+        "store_form": ("page-relative: movw r0,#<id> ; str r0,[r2,#0x10] with r2 = GICC_PAGE "
+                       "0x40160100 set by the pad itself - the 8 B that fund the two deposits "
+                       "and the barrier at the SAME 76-byte size (write_ca_block's canonical "
+                       "form is ABSENT from the take7c blob)"),
+        "gate_record": ("TG_PRERPR != 0x00 -> guard 1 (the RPR term) skipped; TG_PRERPR == 0x00 "
+                        "and TG_PREACT bit 2 CLEAR -> guard 2 (the toggling SGI-2 ACTIVE bit) "
+                        "skipped, CELL-PROVEN for the first time (vrun24 D2); TG_PRERPR == 0x00 "
+                        "and TG_PREACT bit 2 SET -> the store WAS reached, so TG_RPR == 0x00 "
+                        "means the 0x402 EOIR did not land (the barrier's target) or the "
+                        "priority-0 epoch re-formed inside the window"),
+    }
+    tc["emitted_ops"] = {"check": NOTE_EMITTED_OPS, "ops": emitted,
+                         "scope": "10/10 = the eight retained flip stores (selpre pad) + the "
+                                  "PAGE-RELATIVE EOIR store AND its r2 GICC-page setup "
+                                  "(stk_eoir pad), each rebuilt independently"}
+    tc["note"] = NOTE_TAKE7C
+    tc["chain"] = ("send -> selread (P_ID) -> selpre (the retained flip + 0x4C re-enable) -> "
+                   "Pad A(N) (the H2D ring) -> stk_fast (the fast sampler) -> stk_eoir (the "
+                   "CORRECTED, self-gated EOIR force whose gate DEPOSITS its own operands and "
+                   "whose GICD read is barriered from the GICC store, padstruct.md) -> stk_bank "
+                   "(the ranked bank/group block) -> 0x86f5e ; Site F (0x86f7e) -> 0x86f82; the "
+                   "five dropped pads' SITES (0x82f58 + selpost/selpost_e) are stock")
+    tm["take7c"] = tc
+    tm["padding"]["stk_eoir"] = {"file_offset": hex(pads["stk_eoir"]),
+                                 "code_length": len(code_eo), "code_hex": code_eo.hex()}
+    for nm, addr in zip(TG2_NAMES, TG2_CELLS):
+        tm["cells"][nm] = {"addr": hex(addr), "file_offset": hex(addr + BIAS),
+                           "barmap_value": hex(word_at(barmap, addr)),
+                           "barmap_alias_addr": hex(ALIAS_OFF + addr),
+                           "barmap_alias_value": hex(word_at(barmap, ALIAS_OFF + addr))}
+    tm["selection"]["take7c_cells"] = [hex(a) for a in TG2_CELLS]
+    tm["selection"]["take7c_rule"] = (
+        "take7's cells (IDENTICAL addresses) + the 15 TG words 0x1501c8..0x150200 + take7c's "
+        "pre-state pair TG_PRERPR/TG_PREACT 0x150204/0x150208 (TG_RPR + 0x3c / + 0x40), 4 B "
+        "apart, zero at BOTH barmap views")
+    tm["selection"]["take7c_note"] = NOTE_TAKE7C
+    return bytes(out), tm
 
 
 def make_take7(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
@@ -13209,7 +13673,7 @@ def main(argv: list[str] | None = None) -> int:
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
                                           "trigcons", "inta", "inta2", "inta3", "take1", "gicv2",
                                           "take2", "take4", "take5", "take6", "take6f",
-                                          "take7", "take7b"),
+                                          "take7", "take7b", "take7c"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -13324,11 +13788,17 @@ def main(argv: list[str] | None = None) -> int:
                          "the post-force BANK/GROUP read block (bankgate.md sec 4 R1..R14: RPR/"
                          "HPPIR + ISACTIVER0/ISPENDR0 + IGROUPR word 2/word 0 + both CTLRs + "
                          "ISPENDR2/ISACTIVER2 + ITARGETSR 0x4C + PMR/ABPR + the AHPPIR NS alias, "
-                         "sentinel last) - bankgate.md section 5 on ADDENDUM 25a")
+                         "sentinel last) - bankgate.md section 5 on ADDENDUM 25a.  take7b: take7 "
+                         "with the self-gate POLARITY fixed (cbnz; fire on RPR == 0x00, gfix.md).  "
+                         "take7c: take7b's whole instrument with the force pad RESTRUCTURED so the "
+                         "gate is EVIDENCE-CARRYING (TG_PRERPR/TG_PREACT = what the guard ITSELF "
+                         "read) and its GICD read / GICC store pair is ordered by a `dsb sy` "
+                         "(padstruct.md); same 76-byte size, same slot, same cells")
     ap.add_argument("--eoir-id", type=lambda s: int(s, 0), default=None,
-                    help="take6f/take7 ONLY: the id GICC_EOIR is forced with - take6f takes the "
-                         "bare 10-bit stuck id (0..0x3ff), take7 the FULL GICC_IAR word "
-                         "(0..0x1fff, e.g. 0x402) the ISR's own EOI wrote; REQUIRED for both")
+                    help="take6f/take7/take7b/take7c ONLY: the id GICC_EOIR is forced with - "
+                         "take6f takes the bare 10-bit stuck id (0..0x3ff), take7/take7b/take7c "
+                         "the FULL GICC_IAR word (0..0x1fff, e.g. 0x402) the ISR's own EOI wrote; "
+                         "REQUIRED for all four")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     ap.add_argument("--check-emitted", metavar="BLOB",
@@ -13360,14 +13830,27 @@ def main(argv: list[str] | None = None) -> int:
                 eo = mj.get("padding", {}).get("stk_eoir")
                 eoir = (mj.get("take6f", {}).get("eoir")
                         or mj.get("take7", {}).get("eoir")
-                        or mj.get("take7b", {}).get("eoir") or {})
+                        or mj.get("take7b", {}).get("eoir")
+                        or mj.get("take7c", {}).get("eoir") or {})
                 eo_id = eoir.get("id")
                 if eo and eo_id:
                     e0 = int(eo["file_offset"], 16)
                     spans = (spans or []) + [(e0, e0 + int(eo["code_length"]))]
-                    ops = ops + [("EOIR_ID", STK_GICC_EOIR, int(eo_id, 16), "word")]
+                    if mj.get("variant") == "take7c":
+                        # take7c's store is PAGE-RELATIVE through the r2 the pad sets itself, so
+                        # the check rebuilds BOTH the store AND the base register's setup bytes (a
+                        # wrong base CA fails exactly like a dropped `movt` half does).
+                        ops = ops + [("EOIR_PAGE", GICC_PAGE, 2, "page_base"),
+                                     ("EOIR_ID", STK_GICC_EOIR, int(eo_id, 16), "page",
+                                      (2, GICC_PAGE))]
+                    else:
+                        ops = ops + [("EOIR_ID", STK_GICC_EOIR, int(eo_id, 16), "word")]
                     bk = mj.get("padding", {}).get("stk_bank")
-                    if bk:
+                    # take7c's r2 GICC-page setup is the pad's OWN prologue; the bank pad sets the
+                    # same value for its twelve reads, so take7c's spans are confined to the two
+                    # pads that carry its ops (the bank pad's integrity is asserted by
+                    # verify_disasm_take7 at build time).
+                    if bk and mj.get("variant") != "take7c":
                         b0 = int(bk["file_offset"], 16)
                         spans = spans + [(b0, b0 + int(bk["code_length"]))]
                     if eoir.get("hpp1_cell"):
@@ -13394,12 +13877,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not (args.out and args.variant):
             ap.error("--out and --variant are required (or use --selftest)")
-        if args.variant in ("take6f", "take7", "take7b") and args.eoir_id is None:
-            raise PatchError("take6f/take7/take7b carry the RANKED EOIR force (eoir.md sec 3 rank "
-                             "1; take7/take7b write the CORRECTED full IAR word) and the id is "
-                             "not guessable - refusing to build without an explicit --eoir-id")
-        if args.variant not in ("take6f", "take7", "take7b") and args.eoir_id is not None:
-            raise PatchError("--eoir-id is only meaningful with --variant take6f/take7/take7b")
+        if args.variant in ("take6f", "take7", "take7b", "take7c") and args.eoir_id is None:
+            raise PatchError("take6f/take7/take7b/take7c carry the RANKED EOIR force (eoir.md sec "
+                             "3 rank 1; take7/take7b/take7c write the CORRECTED full IAR word) "
+                             "and the id is not guessable - refusing to build without an "
+                             "explicit --eoir-id")
+        if args.variant not in ("take6f", "take7", "take7b", "take7c") and args.eoir_id is not None:
+            raise PatchError("--eoir-id is only meaningful with --variant take6f/take7/take7b/take7c")
         if os.path.abspath(args.out) == os.path.abspath(args.fw):
             raise PatchError("refusing to overwrite the input blob in place")
         if not os.path.exists(args.barmap):
@@ -13439,6 +13923,8 @@ def main(argv: list[str] | None = None) -> int:
                          if args.variant == "take7"
                          else make_take7b(data, barmap, refs, args.eoir_id)
                          if args.variant == "take7b"
+                         else make_take7c(data, barmap, refs, args.eoir_id)
+                         if args.variant == "take7c"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
