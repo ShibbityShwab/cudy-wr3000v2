@@ -177,6 +177,10 @@ TAKE6F_MD5 = "2c1ae79f892e922d0df0583f87fb1a2c"             # frozen take6f-vari
                                                              #   894d41d16853c1f5792fcdef1383dc73
                                                              #   (layoutdiff.md section 4's fixed
                                                              #   66-B EOIR pad: + the HPPIR deposit)
+TAKE7_MD5 = "b41b0aacfbd46bd8619d71f197431f49"                  # frozen take7-variant output (selftest regression)
+TAKE7_SELFTEST_EOIR_ID = 0x402                               # the FULL GICC_IAR word (id 2 +
+                                                             # source PE 1) - what the ISR's own
+                                                             # EOI writes at file 0x82f52
 TAKE6F_SELFTEST_EOIR_ID = 0x2                                # build-regression id ONLY (eoir.md sec 0)
                                                              # is a hypothesis; the runner uses take6)
 # ^ take5 = take4 byte-for-byte (the synchronized flip + the END-STATE E block) PLUS the READ-ONLY
@@ -1023,7 +1027,20 @@ def b_cond(addr: int, target: int, cond: int) -> bytes:
     return struct.pack("<H", 0xD000 | (cond << 8) | ((off >> 1) & 0xFF))
 
 
+def cbz(rd: int, addr: int, target: int) -> bytes:
+    """CBZ (T1): `cbz Rd, label` - the take7 self-gate's cheap forward skip.  Target =
+    addr + 4 + 2*imm5, so the reach is addr+4 .. addr+66 (a short forward branch).  Encoding
+    1011 0i01 iiiiiiii = 0xB100 | (imm5 << 3) | Rd; the selftest decodes it back with capstone."""
+    if rd > 7:
+        raise PatchError("cbz needs a low register")
+    off = target - (addr + 4)
+    if off % 2 or not 0 <= off <= 62:
+        raise PatchError(f"cbz out of range: {addr:#x} -> {target:#x}")
+    return struct.pack("<H", 0xB100 | ((off // 2) << 3) | (rd & 7))
+
+
 COND_NE = 1
+COND_CC = 3                             # unsigned lower: the take7 bank pad's `bcc` after LSLS
 
 
 # ---------------------------------------------------------------- image helpers
@@ -1133,7 +1150,8 @@ def find_padding(data: bytes, refs: set[int], need: int, taken: list[tuple[int, 
     raise PatchError(f"no non-referenced 0x00 padding run of {need} bytes inside the loaded image")
 
 
-def alloc_pads(data: bytes, refs: set[int], needs: list[tuple[str, int]]) -> dict[str, tuple[int, int]]:
+def alloc_pads(data: bytes, refs: set[int], needs: list[tuple[str, int]],
+               taken: list[tuple[int, int]] | None = None) -> dict[str, tuple[int, int]]:
     """Variant-local padding allocation for gicmask: first-fit, longest-need first, over the
     non-referenced 0x00 runs - and, unlike find_padding, it may place SEVERAL pads inside ONE run
     (each pad is a straight-line trampoline that ends in a branch, so nothing falls through into
@@ -1142,7 +1160,7 @@ def alloc_pads(data: bytes, refs: set[int], needs: list[tuple[str, int]]) -> dic
 
     Returns name -> (file_offset, the run's length); deterministic (the run list is sorted by
     length then address, and the needs are placed in descending size order)."""
-    free = [[st, st + ln] for st, ln in padding_runs(data, refs, [])]
+    free = [[st, st + ln] for st, ln in padding_runs(data, refs, list(taken or []))]
     out: dict[str, tuple[int, int]] = {}
     for name, need in sorted(needs, key=lambda t: -t[1]):
         need += need & 1
@@ -6966,6 +6984,124 @@ def selftest(fw_path: str, barmap_path: str) -> int:
         f"{[hex(i) for i in only6f if i not in allowed6f][:8]}"
     assert md5(g10) == TAKE6F_MD5, f"take6f output changed: {md5(g10)} != {TAKE6F_MD5}"
 
+    # ---- take7: the CORRECTED, SELF-GATED EOIR force + the post-force bank/group read block ----
+    assert not 0 <= TAKE7_SELFTEST_EOIR_ID <= 0x3FF, \
+        "take7's value must be the FULL GICC_IAR word (a bare id is take6f's, the UNPREDICTABLE one)"
+    g11, g11m = make_take7(data, barmap, refs, TAKE7_SELFTEST_EOIR_ID)
+    assert len(g11) == len(data), "take7 changed the size"
+    g11b, g11mb = make_take7(data, barmap, refs, TAKE7_SELFTEST_EOIR_ID)
+    assert g11 == g11b, "the take7 patch is not deterministic"
+    assert json.dumps(g11m, sort_keys=True) == json.dumps(g11mb, sort_keys=True), \
+        "the take7 manifest is not deterministic"
+    # every inherited cell keeps its address; the TG block is bankgate.md sec 5's page-10 words
+    for nm in g7m["cells"]:
+        assert g11m["cells"][nm]["addr"] == g7m["cells"][nm]["addr"], f"take7 moved cell {nm}"
+    for i, nm in enumerate(STK6_NAMES):
+        assert g11m["cells"][nm]["addr"] == hex(STK_FAST_CELLS[i]), f"take7 moved cell {nm}"
+    assert [g11m["cells"][nm]["addr"] for nm in TG_NAMES] == [hex(a) for a in TG_CELLS], \
+        "the take7 TG cells are not bankgate.md sec 5's words"
+    assert all((int(g11m["cells"][nm]["addr"], 16) & ~0xFFF) == 0x150000 for nm in TG_NAMES), \
+        "a take7 TG cell left page 10"
+    assert all(g11m["cells"][nm]["barmap_value"] == "0x0"
+               and g11m["cells"][nm]["barmap_alias_value"] == "0x0" for nm in TG_NAMES), \
+        "a take7 TG cell is not zero in barmap at both views"
+    for nm in TK_NAMES:
+        assert nm not in g11m["cells"], f"take7 kept the redundant take5 cell {nm}"
+    for key7 in STK7_DROPPED_PADS:
+        assert key7 not in g11m["padding"], f"take7 kept the redundant pad {key7}"
+    # the two new pads: byte equality + the fixed layout + the chain's three retargets
+    eo11 = bytes.fromhex(g11m["padding"]["stk_eoir"]["code_hex"])
+    bk11 = bytes.fromhex(g11m["padding"]["stk_bank"]["code_hex"])
+    off11 = int(g11m["padding"]["stk_eoir"]["file_offset"], 16)
+    boff11 = int(g11m["padding"]["stk_bank"]["file_offset"], 16)
+    assert eo11 == pad_stk_eoir_take7(off11, TG_RPR, boff11, TAKE7_SELFTEST_EOIR_ID), \
+        "the take7 force pad is not its independent reconstruction"
+    assert bk11 == pad_stk_bank_take7(boff11, list(TG_CELLS), TRIGNAT_CONT_A), \
+        "the take7 bank pad is not its independent reconstruction"
+    assert len(eo11) == 76 and len(bk11) == 112, \
+        f"the take7 pads are not the fixed 76/112-byte layout ({len(eo11)}/{len(bk11)})"
+    # THE ONE device write is the CORRECTED EOIR store, exactly once, inside its self-gate
+    op11 = op_store_bytes(STK_GICC_EOIR, TAKE7_SELFTEST_EOIR_ID, "word")
+    assert eo11.count(op11) == 1 and g11.count(op11) == 1, \
+        "take7: the corrected EOIR op must appear exactly once (in the force pad)"
+    assert op11 not in g9 and op11 not in g10, \
+        "the corrected full-IAR-word op must be ABSENT from take6/take6f"
+    gate_bcc11 = off11 + 24 + 2 + 10 + 2
+    dsb_at11 = gate_bcc11 + 2 + len(op11)
+    assert eo11.count(cbz(5, off11 + 24, dsb_at11)) == 1 \
+        and eo11.count(lsls_imm(5, 1, 30)) == 1 \
+        and eo11.count(b_cond(gate_bcc11, dsb_at11, COND_CC)) == 1, \
+        "take7: the force pad lost its RPR/ACTIVER0 self-gate (cbz / lsls #30 / bcc)"
+    assert eo11.count(TI_DSB_SY) == 1 \
+        and eo11.index(cbz(5, off11 + 24, dsb_at11)) < eo11.index(op11) < eo11.index(TI_DSB_SY), \
+        "take7: the EOIR store must sit between the self-gate and the `dsb sy`"
+    rpr11 = ldr_imm(1, 2, TG_GICC_RPR - GICC_PAGE) + str_imm(1, 6, 0)
+    hpp11 = ldr_imm(1, 2, GICC_HPPIR - GICC_PAGE) + str_imm(1, 6, TG_HPP - TG_RPR)
+    assert eo11.count(rpr11) == 1 and eo11.count(hpp11) == 1, \
+        "take7: the post-force RPR/HPPIR deposits are not exactly once"
+    assert eo11.index(TI_DSB_SY) < eo11.index(rpr11) < eo11.index(hpp11), \
+        "take7: the post-force deposits must follow the `dsb sy`, RPR first"
+    # the bank pad: the twelve ranked reads in order (rebuilt from the primitives) + sentinel last
+    idx11 = []
+    for nmr, base11, offr in TG_BANK_READS:
+        cellr = TG_CELLS[TG_NAMES.index(nmr)]
+        r11 = ldr_imm(1, base11, offr) if offr <= 124 else ldr_imm_w(1, base11, offr)
+        blk11 = r11 + str_imm(1, 6, cellr - TG_RPR)
+        assert bk11.count(blk11) == 1, f"take7: the {nmr} bank read is not exactly once"
+        idx11.append(bk11.index(blk11))
+    assert idx11 == sorted(idx11) and len(set(idx11)) == len(idx11), \
+        "take7: the bank pad's ranked reads are out of order"
+    snt11 = bk11.index(movw(1, TG_SENTINEL & 0xFFFF) + movt(1, TG_SENTINEL >> 16)
+                       + str_imm(1, 6, TG_SNT - TG_RPR))
+    assert idx11[-1] < snt11, "take7: the bank pad's sentinel is not the last deposit"
+    assert [(r["cell"], r["ca"]) for r in g11m["take7"]["bank"]["reads"]] == \
+        [(nmr, hex((GICC_PAGE if base11 == 2 else GICD_PAGE) + offr))
+         for nmr, base11, offr in TG_BANK_READS], \
+        "the take7 manifest does not record bankgate.md sec 4's read addresses"
+    # the bank pad adds NO device write and never addresses the forbidden CAs
+    for nmw, caw, valw, kindw in TI_WRITE_OPS:
+        assert op_store_bytes(caw, valw, kindw) not in bk11, f"the take7 bank pad carries a write ({nmw})"
+    assert not any(ref in bk11 for ref in _ca_ref_bytes(STK_GICC_EOIR)), \
+        "the take7 bank pad must not address GICC_EOIR"
+    for bad_ca in (0x4016010C, 0x40160120, 0x10161000, 0x400392F0, 0x40039AF0, 0x40161F00):
+        for badb in _ca_ref_bytes(bad_ca):
+            assert badb not in eo11 and badb not in bk11, \
+                f"a take7 pad references the forbidden CA {bad_ca:#x}"
+    # the chain: send -> selread -> selpre -> Pad A(N) -> stk_fast -> stk_eoir -> stk_bank -> 0x86f5e
+    sf11 = int(g11m["padding"]["stk_fast"]["file_offset"], 16)
+    assert g11m["padding"]["stk_fast"]["code_hex"][:-8] == \
+        g10m["padding"]["stk_fast"]["code_hex"][:-8], \
+        "take7 changed the fast sampler body (only its tail may move)"
+    assert g11[sf11 + 168:sf11 + 172] == b_w(sf11 + 168, off11), \
+        "take7: the fast sampler's tail does not point at the force pad"
+    assert eo11[-4:] == b_w(off11 + len(eo11) - 4, boff11) and \
+        bk11[-4:] == b_w(boff11 + len(bk11) - 4, TRIGNAT_CONT_A), \
+        "take7: the force -> bank -> 0x86f5e chain is not the intended one"
+    assert g11[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] == bl(TRIGNAT_SITE_A, int(
+        g11m["padding"]["selread"]["file_offset"], 16)), "take7 Pad A site"
+    assert g11[TK_SITE_I:TK_SITE_I + 4] == data[TK_SITE_I:TK_SITE_I + 4] == TK_SITE_I_STOCK, \
+        "take7 must leave the dropped tk_i site 0x82f58 stock"
+    # the emitted-bytes check covers the eight retained flip stores + the corrected force (9/9)
+    pad11 = int(g11m["padding"]["selpre"]["file_offset"], 16)
+    pre11 = bytes.fromhex(g11m["padding"]["selpre"]["code_hex"])
+    emitted11 = check_emitted_ops(g11, TI_WRITE_OPS + (("EOIR_ID", STK_GICC_EOIR,
+                                                        TAKE7_SELFTEST_EOIR_ID, "word"),),
+                                  spans=[(pad11, pad11 + len(pre11)),
+                                         (off11, off11 + len(eo11))],
+                                  label="the regenerated take7 blob")
+    assert [r["op"] for r in emitted11] == [o[0] for o in TI_WRITE_OPS] + ["EOIR_ID"] \
+        and len(emitted11) == 9 and all(r["ok"] for r in emitted11), \
+        "the take7 emitted-bytes check did not hold (9/9 expected)"
+    assert g11m["take7"]["no_new_write"] is False \
+        and g11m["take7"]["eoir"]["id"] == hex(TAKE7_SELFTEST_EOIR_ID) \
+        and g11m["take7"]["eoir"]["rpr_cell"] == hex(TG_RPR) \
+        and g11m["take7"]["eoir"]["hpp_cell"] == hex(TG_HPP) \
+        and g11m["take7"]["stk_bank_len"] == 112 and g11m["take7"]["stk_eoir_len"] == 76, \
+        "the take7 manifest does not record the corrected force + the bank block"
+    assert g11m["take7"]["dropped_pads"] == list(STK7_DROPPED_PADS), \
+        "the take7 manifest does not record the five dropped pads"
+    assert md5(g11) == TAKE7_MD5, f"take7 output changed: {md5(g11)} != {TAKE7_MD5}"
+
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
           f"{pm['patches'][0]['before']} -> {pm['patches'][0]['after']} "
@@ -7129,6 +7265,17 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"pad @ {g10m['padding']['stk_eoir']['file_offset']} ({len(eo10)} B: RPR + HPPIR "
           f"by transition), md5-pinned apart from take6)")
     print(f"  take6f md5        : {md5(g10)}")
+    print(f"  take7 cells       : " + " ".join(f"{nm}={g11m['cells'][nm]['addr']}"
+                                               for nm in TG_NAMES)
+          + f" (the CORRECTED, SELF-GATED EOIR force: GICC_EOIR 0x40160110 <= "
+            f"0x{TAKE7_SELFTEST_EOIR_ID:x} - the FULL IAR word - only when GICC_RPR == 0x00 and "
+            f"GICD_ISACTIVER0 bit 2 is SET; force pad @ {g11m['padding']['stk_eoir']['file_offset']} "
+            f"({len(eo11)} B) -> bank pad @ {g11m['padding']['stk_bank']['file_offset']} ({len(bk11)} B: "
+            f"bankgate.md sec 4 R1..R14); dropped pads {list(STK7_DROPPED_PADS)})")
+    print(f"  take7 bank reads  : " + ", ".join(f"{nm}={hex((GICC_PAGE if b == 2 else GICD_PAGE) + o)}"
+                                                 for nm, b, o in TG_BANK_READS)
+          + f" + sentinel TG_SNT 0x{TG_SENTINEL:08x}")
+    print(f"  take7 md5         : {md5(g11)}")
     return 0
 
 
@@ -11940,6 +12087,763 @@ def make_take6(data: bytes, barmap: bytes, refs: set[int], eoir_id: int | None =
     return out, manifest
 
 
+# ------------------------------------------------ take7: the CORRECTED EOIR force + the post-force
+# BANK/GROUP read block (build/tmp/inta-spec/bankgate.md section 5 on ADDENDUM 25a;
+# bg2.md sections 1/2 for the read set) ---------------------------------------
+# WHY: take6f's force wrote the BARE id `0x2` to GICC_EOIR while the last valid IAR word was
+# 0x402 (the ISR's own read at file 0x82f04, V2_ID), i.e. inside the spec's UNPREDICTABLE clause
+# ("the value written must be the INTID from GICC_IAR ... For SGIs, bits [12:10] identify the CPU
+# interface corresponding to the source PE").  The same pad then measured a HALF-DONE EOI - the
+# priority drop landed (RPR 0x00 -> 0xFF) while the interface's own view did not (HPPIR stayed
+# 0x3FF) - and the SAME boot's later site F read HPPIR = 0x4C with RPR idle.  take7 therefore
+# (1) writes the CORRECTED value - the FULL IAR word 0x402, exactly what the firmware's own EOI
+# writes at file 0x82f52 (`str r7,[r3]`, r7 = the IAR word) - so the force lands in the spec's
+# DEFINED branch; (2) GATES the store on a PRE-read of GICC_RPR (`cbz`: only an RPR = 0x00 epoch
+# is retired) AND of GICD_ISACTIVER0 word 0 bit 2 (`lsls #30` puts that bit in the carry, `bcc`
+# skips), so a blind spurious EOIR can never deactivate a live interrupt (eoir.md sec 2(3)); and
+# (3) samples the whole BANK/GROUP layer at the post-force instant in the SAME pad chain (R1..R14
+# of bankgate.md section 4) - the one layer ADDENDUM 25a left unmeasured once RPR was dropped.
+#
+# THREE deltas from take6f (everything else rides byte-for-byte):
+#   (a) the retained selpost_e E-block pad (152 B at file 0xc80a8) is DROPPED - its twelve cells
+#       are answered by take2/take3/take4/take6f and ADDENDUM 25a (bankgate.md sec 5.4), and the
+#       ring instant keeps stk_fast's own STK_STICKY/STK_ACT/STK_HPP.  Its run is what take7's
+#       bank pad needs (the image's only free runs after the take6 pad set are two 76-B and the
+#       156-B slots the 0xc80a8/0xc8xxx 156-B class offers);
+#   (b) the chain is re-linked Pad A(N) -> stk_fast -> stk_eoir (the corrected force) -> stk_bank
+#       (the ranked read block) -> 0x86f5e;
+#   (c) STK_RPR1/STK_HPP1 (take6f's post-force pair) are SUPERSEDED by TG_RPR/TG_HPP in the same
+#       pad - same CAs, same instant, now inside the ranked read block (bankgate.md sec 4, R1/R2).
+GICC_PAGE = 0x40160100                   # the CPU interface page
+GICD_PAGE = 0x40161000                   # the distributor page
+TG_GICC_RPR = STK_GICC_RPR               # 0x40160114 GICC_RPR (the running priority)
+TG_GICC_HPPIR = GICC_HPPIR               # 0x40160118 GICC_HPPIR (the signalable read)
+TG_GICC_CTLR = GICC_PAGE                 # +0x00 GICC_CTLR (EnableGrp0 bit0 / EnableGrp1 bit1)
+TG_GICC_PMR = GICC_PAGE + 0x04           # +0x04 GICC_PMR (a mask < 0xC0 blocks 0x4C)
+TG_GICC_ABPR = GICC_PAGE + 0x1C          # +0x1C GICC_ABPR (the Group-1 binary point)
+TG_GICC_AHPPIR = GICC_PAGE + 0x28        # +0x28 GICC_AHPPIR - the NS-view ALIAS of HPPIR;
+                                         #        NON-acknowledging, and NOT the ack AIAR 0x40160120
+TG_GICD_PEND0 = GICD_PAGE + 0x200        # +0x200 GICD_ISPENDR word 0 (the SGI/PPI pending bank)
+TG_GICD_GRP0 = GICD_PAGE + 0x080         # +0x080 GICD_IGROUPR word 0 (the SGI/PPI bank, expect 0x0)
+TG_GICD_GRP2 = GICD_PAGE + 0x088         # +0x088 GICD_IGROUPR word 2 (bit 12 = id 0x4C's group)
+TG_GICD_TGT4C = GICD_PAGE + 0x84C        # +0x84C GICD_ITARGETSR for id 0x4C (byte 0 = the target)
+TG_BASE = STK_HPP1 + 4                   # 0x1501c8 - bankgate.md sec 5's block, above take6f's pair
+TG_CELLS = tuple(TG_BASE + 4 * i for i in range(15))
+(TG_RPR, TG_HPP, TG_ACT0, TG_PEND0, TG_GRP2, TG_GRP0, TG_CCTLR, TG_DCTLR, TG_ISP2, TG_ACT2,
+ TG_TGT, TG_PMR, TG_ABPR, TG_SNT, TG_AHPP) = TG_CELLS
+TG_NAMES = ("TG_RPR", "TG_HPP", "TG_ACT0", "TG_PEND0", "TG_GRP2", "TG_GRP0", "TG_CCTLR",
+            "TG_DCTLR", "TG_ISP2", "TG_ACT2", "TG_TGT", "TG_PMR", "TG_ABPR", "TG_SNT",
+            "TG_AHPP")
+# the ranked read block (bankgate.md sec 4, R3..R14): (cell, the base register the pad holds -
+# 2 = GICC_PAGE, 3 = GICD_PAGE - and the CA's offset off that base).  Every read is
+# NON-acknowledging; the page sentinel is the LAST deposit (bg2.md sec 3.2).
+TG_BANK_READS = (("TG_ACT0", 3, STK_GICD_ACT0 - GICD_PAGE),
+                 ("TG_PEND0", 3, TG_GICD_PEND0 - GICD_PAGE),
+                 ("TG_GRP2", 3, TG_GICD_GRP2 - GICD_PAGE),
+                 ("TG_GRP0", 3, TG_GICD_GRP0 - GICD_PAGE),
+                 ("TG_CCTLR", 2, TG_GICC_CTLR - GICC_PAGE),
+                 ("TG_DCTLR", 3, GICD_PAGE - GICD_PAGE),
+                 ("TG_ISP2", 3, GICD_ISPENDR2 - GICD_PAGE),
+                 ("TG_ACT2", 3, GICD_ISACTIVER2 - GICD_PAGE),
+                 ("TG_TGT", 3, TG_GICD_TGT4C - GICD_PAGE),
+                 ("TG_PMR", 2, TG_GICC_PMR - GICC_PAGE),
+                 ("TG_ABPR", 2, TG_GICC_ABPR - GICC_PAGE),
+                 ("TG_AHPP", 2, TG_GICC_AHPPIR - GICC_PAGE))
+TG_SENTINEL = STK_SENTINEL               # 0x50aa7e49 - the presence proof TG_SNT carries
+STK7_DROPPED_PADS = STK6_DROPPED_PADS + ("selpost_e",)
+TAKE7_EOIR_MAX = 0x1FFF                  # the full GICC_IAR word: id[9:0] + source PE[12:10]
+
+NOTE_TAKE7 = (
+    "take7 (build/tmp/inta-spec/{bankgate,bg2}.md on ADDENDUM 25a, exp/20261007-010906) - the "
+    "CORRECTED EOIR force plus the post-force BANK/GROUP read block.  It rides take6f's instrument "
+    "byte-for-byte (the retained flip, the v1/v2 canaries, the CPSR milestones, the giccpu cells, "
+    "Pad A(N) with the H2D ring, Pad B2 + companion, Site F, the take6 read-only fast sampler) with "
+    "THREE deltas: (a) the retained selpost_e E-block pad (152 B) is DROPPED - its twelve cells are "
+    "answered by take2/take3/take4/take6f + ADDENDUM 25a and the ring instant keeps stk_fast's own "
+    "STK_STICKY/STK_ACT/STK_HPP - which frees the run take7's bank pad needs; (b) the chain is "
+    "Pad A(N) -> stk_fast -> stk_eoir -> stk_bank -> 0x86f5e; (c) STK_RPR1/STK_HPP1 are superseded "
+    "by TG_RPR/TG_HPP (same CAs, same instant, inside the ranked block).  stk_eoir writes the FULL "
+    "GICC_IAR word (0x402 = SGI 2 from source PE 1 - what the firmware's own EOI writes at file "
+    "0x82f52) instead of take6f's bare 0x2, so the force lands in the spec's DEFINED branch, and it "
+    "is GATED on a PRE-read of GICC_RPR (cbz) AND GICD_ISACTIVER0 word 0 bit 2 (lsls #30 / bcc) so "
+    "no spurious EOIR can deactivate a live interrupt.  stk_bank then samples the whole bank/group "
+    "layer at the post-force instant (bankgate.md sec 4's R1..R14: RPR/HPPIR + ISACTIVER0/ISPENDR0 "
+    "+ IGROUPR word 2/word 0 + both CTLRs + ISPENDR2/ISACTIVER2 + ITARGETSR 0x4C + PMR/ABPR + the "
+    "AHPPIR NS-view alias), all NON-acknowledging, page sentinel last.  The emitted-bytes check "
+    "covers the eight retained flip stores + the corrected EOIR force (9/9); the two post-force "
+    "RPR/HPPIR deposits are rebuilt from the primitives by the verifier and the selftest.  Hard "
+    "rules held: no write of CA 0x400392f0/0x40039af0, never read 0x10161000 / the ack IAR "
+    "0x4016010c / the aliased AIAR 0x40160120 / GICD_SGIR 0x40161f00, and register state only (a "
+    "reboot rewrites every GIC register from the vendor bring-up)."
+)
+
+
+def _bank_ldr(rt: int, rn: int, off: int) -> bytes:
+    """The one ldr form the bank pad needs: the narrow T1 when the CA sits within 124 B of its
+    page base, the wide T3 otherwise (IGROUPR2 0x88, ISPENDR0 0x200, ISPENDR2 0x208, ISACTIVER0
+    0x300, ISACTIVER2 0x308, ITARGETSR 0x84C)."""
+    return ldr_imm(rt, rn, off) if off <= 124 else ldr_imm_w(rt, rn, off)
+
+
+def pad_stk_eoir_take7(pad: int, cell_rpr: int, cont: int, eoir_id: int,
+                       cell_hpp: int = TG_HPP) -> bytes:
+    """take7 ONLY (bankgate.md sec 5): the CORRECTED, SELF-GATED EOIR force.  Save the flags and
+    r0-r7, materialise the GICC page (r2) and the TG cell base (r6), read GICC_RPR into r5 and
+    SKIP the whole force with a `cbz` unless it is 0x00; read GICD_ISACTIVER0 word 0, put bit 2
+    in the carry with `lsls r5,r1,#30` and SKIP with a `bcc` unless it is SET; then write the FULL
+    IAR word `eoir_id` to GICC_EOIR 0x40160110 (ONE 32-bit store, `dsb sy`-ordered) and deposit
+    the post-force GICC_RPR into TG_RPR and GICC_HPPIR into TG_HPP.  Both skips land on the
+    `dsb sy`, so a gated-off boot deposits nothing but its two post-state reads and its shape is
+    byte-identical either way (the emitted store bytes stay present for the 9/9 gate).  The
+    pre-read RPR is deliberately NOT deposited: TG_RPR is the POST-force RPR, so TG_RPR == 0x00
+    in the evidence is itself the NOFORCE label (bankgate.md sec 5).  76 B, inside the 76-byte
+    0x00 run at 0xcb8e4 that take6f proved."""
+    if cell_rpr != TG_RPR:
+        raise PatchError("take7: the EOIR pad's post-force cell must be TG_RPR")
+    if cell_hpp != TG_HPP or cell_hpp - cell_rpr != 4:
+        raise PatchError("take7: the EOIR pad's HPPIR cell must be TG_HPP = TG_RPR + 4")
+    if not 0 <= eoir_id <= TAKE7_EOIR_MAX:
+        raise PatchError(f"take7: the EOIR value must be a full GICC_IAR word "
+                         f"(0..0x{TAKE7_EOIR_MAX:x}), got {eoir_id:#x}")
+    b = bytearray()
+    b += mrs_apsr(12)
+    b += push([0, 1, 2, 3, 4, 5, 6, 7])
+    b += movw(2, GICC_PAGE & 0xFFFF) + movt(2, GICC_PAGE >> 16)       # r2 = the GICC page
+    b += movw(6, TG_RPR & 0xFFFF) + movt(6, TG_RPR >> 16)             # r6 = the TG cell base
+    b += ldr_imm(5, 2, TG_GICC_RPR - GICC_PAGE)                       # r5 = GICC_RPR (PRE-force)
+    gate_len = 4 + 4 + 2 + 2 + 2                    # ISACTIVER0 movw/movt + ldr + lsls + bcc
+    store_len = len(write_ca_block(STK_GICC_EOIR, eoir_id))
+    dsb_at = pad + len(b) + 2 + gate_len + store_len
+    b += cbz(5, pad + len(b), dsb_at)                                 # RPR != 0 -> NOFORCE
+    b += movw(1, STK_GICD_ACT0 & 0xFFFF) + movt(1, STK_GICD_ACT0 >> 16)
+    b += ldr_imm(1, 1, 0)                                             # GICD_ISACTIVER0 word 0
+    b += lsls_imm(5, 1, 30)                                           # carry = bit 2
+    b += b_cond(pad + len(b), dsb_at, COND_CC)                        # bit 2 clear -> NOFORCE
+    b += write_ca_block(STK_GICC_EOIR, eoir_id)     # GICC_EOIR <= the FULL IAR word (ONE store)
+    b += TI_DSB_SY
+    b += ldr_imm(1, 2, TG_GICC_RPR - GICC_PAGE) + str_imm(1, 6, TG_RPR - TG_RPR)
+    b += ldr_imm(1, 2, GICC_HPPIR - GICC_PAGE) + str_imm(1, 6, TG_HPP - TG_RPR)
+    b += pop([0, 1, 2, 3, 4, 5, 6, 7])
+    b += msr_apsr(12)
+    return bytes(b) + b_w(pad + len(b), cont)
+
+
+def pad_stk_bank_take7(pad: int, cells: list[int], cont: int) -> bytes:
+    """take7 ONLY (bankgate.md sec 4 R3..R14, bg2.md sec 1a): the post-force BANK/GROUP read
+    block.  Save the flags and r0-r7, hold the TG cell base in r6 and the two GIC page bases in
+    r2/r3, then deposit each TG_BANK_READS word (one NON-acknowledging ldr off its page base +
+    one str into its own WRAM cell, ascending cell order) and the page sentinel LAST.  The pad
+    adds NO device-side write at all - every store targets a WRAM cell.  112 B."""
+    if list(cells) != list(TG_CELLS):
+        raise PatchError("take7: the bank pad's cells must be TG_CELLS")
+    b = bytearray()
+    b += mrs_apsr(12)
+    b += push([0, 1, 2, 3, 4, 5, 6, 7])
+    b += movw(6, TG_RPR & 0xFFFF) + movt(6, TG_RPR >> 16)             # r6 = the TG cell base
+    b += movw(2, GICC_PAGE & 0xFFFF) + movt(2, GICC_PAGE >> 16)       # r2 = the GICC page
+    b += movw(3, GICD_PAGE & 0xFFFF) + movt(3, GICD_PAGE >> 16)       # r3 = the GICD page
+    for name, base_reg, off in TG_BANK_READS:
+        cell = cells[TG_NAMES.index(name)]
+        if (cell - TG_RPR) % 4 or cell - TG_RPR > 124:
+            raise PatchError(f"take7: the {name} cell is out of the pad's str range")
+        b += _bank_ldr(1, base_reg, off)
+        b += str_imm(1, 6, cell - TG_RPR)
+    b += movw(1, TG_SENTINEL & 0xFFFF) + movt(1, TG_SENTINEL >> 16)
+    b += str_imm(1, 6, TG_SNT - TG_RPR)                               # TG_SNT (the LAST deposit)
+    b += pop([0, 1, 2, 3, 4, 5, 6, 7])
+    b += msr_apsr(12)
+    return bytes(b) + b_w(pad + len(b), cont)
+
+
+def select_cells_take7(barmap: bytes):
+    """take6's cells (IDENTICAL addresses: the fast sampler's 20 words on page 10) plus the 15
+    TG words of bankgate.md sec 5's block at 0x1501c8..0x150200 - 4 B apart, zero at BOTH barmap
+    views, distinct from every take4/take6f cell."""
+    cells, v2c, selc, ec3, stk, sel = select_cells_take6(barmap, with_eoir=False)
+    ok = _cell_ok(barmap)
+    for nm, addr in zip(TG_NAMES, TG_CELLS):
+        if not ok(addr):
+            raise PatchError(f"take7 cell {nm} at {addr:#x} is not a zero cell at both barmap views")
+    if set(TG_CELLS) & (set(stk) | set(cells) | set(v2c) | set(selc) | set(ec3)) \
+            or len(set(TG_CELLS)) != len(TG_CELLS):
+        raise PatchError("the take7 TG cells are not distinct from the inherited ones")
+    if list(stk) != list(STK_FAST_CELLS):
+        raise PatchError("internal error: the take7 sampler cells changed")
+    sel = dict(sel)
+    sel.update({
+        "take7_rule": "take6's cells (IDENTICAL addresses) + the 15 TG words 0x1501c8..0x150200 "
+                      "(bankgate.md sec 5: the corrected-force pair RPR/HPPIR followed by the "
+                      "ranked bank/group block + the page sentinel), 4 B apart, zero at BOTH "
+                      "barmap views",
+        "take7_cells": [hex(a) for a in TG_CELLS],
+        "take7_dropped_pads": list(STK7_DROPPED_PADS),
+        "take7_note": NOTE_TAKE7,
+    })
+    return cells, v2c, selc, ec3, stk, sel
+
+
+def verify_disasm_take7(data: bytes, pads: dict[str, int], s1: int, s2: int,
+                        gic_cells: list[int], e_cells: list[int], a_cells: list[int],
+                        b_cells: list[int], b2_cells: list[int], f_cells: list[int],
+                        v_cells: list[int], cp_cells: list[int], v2_cells: list[int],
+                        sel_cells: list[int], e3_cells: list[int], stk_cells: list[int],
+                        tg_cells: list[int], eoir_id: int) -> dict:
+    """Byte-equality of every take7 pad against its independent reconstruction PLUS the block
+    structure: the retained take6 sampler (byte-identical but for its tail), the corrected-
+    force pad's SELF-GATE (cbz + lsls #30 + bcc) and canonical EOIR op, the post-force RPR/HPPIR
+    deposits (rebuilt from the primitives, after the store), the bank pad's 12 ranked reads in
+    order with the sentinel LAST, the re-linked chain (Pad A(N) -> stk_fast -> stk_eoir ->
+    stk_bank -> 0x86f5e), selpost_e's absence, the sites, and the forbidden-CA scan."""
+    if len(a_cells) != INTA2_A_NCELLS or len(b_cells) != TRIGNAT_B_NCELLS:
+        raise PatchError("take7: the inherited A/B cells are not the take4 counts")
+    if len(b2_cells) != INTA_B2_NCELLS or len(f_cells) != INTA2_F_NCELLS:
+        raise PatchError("take7: the inherited B2/F cells are not the take4 counts")
+    if len(v_cells) != len(TAKE1_V_CELLS) or len(cp_cells) != len(TAKE1_CP_CELLS):
+        raise PatchError("take7: the inherited V/CP cells are not take1's")
+    if len(v2_cells) != len(GICV2_CELLS) or len(sel_cells) != len(SEL_CELLS):
+        raise PatchError("take7: the inherited v2/sel cells are not take4's")
+    if len(e3_cells) != len(TI_E_CELLS):
+        raise PatchError("take7: the inherited E cells are not take4's")
+    if len(stk_cells) != len(STK_FAST_CELLS) or len(tg_cells) != len(TG_CELLS):
+        raise PatchError("take7: the sampler/TG cells are not the pinned counts")
+    every = ([s1, s2] + gic_cells + e_cells + a_cells + b_cells + b2_cells + f_cells + v_cells
+             + cp_cells + v2_cells + sel_cells + e3_cells + stk_cells + tg_cells)
+    if len(set(every)) != len(every):
+        raise PatchError("take7 cells are not all distinct")
+    if list(tg_cells) != list(TG_CELLS):
+        raise PatchError("take7: the TG cells are not bankgate.md sec 5's words")
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+
+    def dis(off: int, size: int) -> list[str]:
+        return [f"{i.mnemonic} {i.op_str}".strip() for i in md.disasm(data[off:off + size], off)]
+
+    stk_fast_cells = list(stk_cells[:len(STK_FAST_CELLS)])
+    code = {
+        "thunk": pad_thunk(pads["thunk"], s1, gic_cells, apsr_cell=e_cells[3],
+                           req_cell=e_cells[2]),
+        "bringup": pad_bringup(pads["bringup"], s2, gic_cells),
+        "send_n": pad_send_inta2(pads["send"], a_cells, pads["stk_fast"]),
+        "post": pad_post(pads["post"], e_cells),
+        "drain_b2": pad_drain_inta(pads["drain"], b_cells, pads["drain_extra"]),
+        "drain_extra": pad_drain_extra_inta(pads["drain_extra"], b2_cells,
+                                            next_pad=pads["giccpu"]),
+        "giccpu": pad_giccpu_take1(pads["giccpu"], cp_cells, TRIGCONS_CONT_B),
+        "fallthrough_f": pad_fallthrough_inta2(pads["fallthrough"], f_cells, cont=INTA2_CONT_F),
+        "vec": pad_vec_take1(pads["vec"], v_cells, TAKE1_V_CONT),
+        "m1": pad_m1_take1(pads["m1"], v_cells[3], TAKE1_M1_CONT),
+        "m2": pad_m2_take1(pads["m2"], v_cells[4], TAKE1_M2_CONT),
+        "v2": pad_vec_gicv2(pads["v2"], v2_cells, GICV2_CONT),
+        "selread": pad_sel_read_take4(pads["selread"], pads["selpre"]),
+        "selpre": pad_sel_pre_take4(pads["selpre"], pads["send"]),
+        "stk_fast": pad_stk_fast(pads["stk_fast"], stk_fast_cells, pads["stk_eoir"]),
+        "stk_eoir": pad_stk_eoir_take7(pads["stk_eoir"], TG_RPR, pads["stk_bank"], eoir_id),
+        "stk_bank": pad_stk_bank_take7(pads["stk_bank"], list(TG_CELLS), TRIGNAT_CONT_A),
+    }
+    if "selpost_e" in pads:
+        raise PatchError("take7: selpost_e is DROPPED - its pad must not be placed")
+    pad_of = {"send_n": "send", "drain_b2": "drain", "fallthrough_f": "fallthrough"}
+    for name, c in code.items():
+        off = pads[pad_of.get(name, name)]
+        if data[off:off + len(c)] != c:
+            raise PatchError(f"the take7 {name} pad at {off:#x} is not the intended bytes")
+    if len(code["stk_fast"]) != 172 or len(code["stk_eoir"]) != 76 or len(code["stk_bank"]) != 112:
+        raise PatchError(f"the take7 pads are not the intended sizes (172/"
+                         f"{len(code['stk_eoir'])}/{len(code['stk_bank'])}, want 172/76/112)")
+
+    # the retained sampler keeps its body; only its tail points at the force pad now
+    sf = code["stk_fast"]
+    for i in range(STK_N):
+        blk = ldr_imm(1, 3, 0) + str_imm(1, 7, 4 * i) + ands_reg(0, 1)
+        if sf.count(blk) != 1:
+            raise PatchError(f"take7: sample {i} block is not exactly once in the fast pad")
+    if sf[-4:] != b_w(pads["stk_fast"] + 168, pads["stk_eoir"]):
+        raise PatchError("take7: the fast sampler does not branch into the force pad")
+
+    # THE FORCE PAD: the self-gate, the ONE canonical EOIR store, the dsb, the two post-force
+    # deposits - each rebuilt from the primitives, independently of the emitter
+    eo = code["stk_eoir"]
+    eoir_op = op_store_bytes(STK_GICC_EOIR, eoir_id, "word")
+    # the pad's fixed layout: mrs+push+GICC base+cell base+PRE RPR read = 24 B, then the `cbz`,
+    # the ISACTIVER0 read (10 B), `lsls #30` and the `bcc`, the ONE EOIR store, the `dsb sy`
+    gate_bcc = pads["stk_eoir"] + 24 + 2 + 10 + 2
+    dsb_at = gate_bcc + 2 + len(eoir_op)
+    gate_cbz = cbz(5, pads["stk_eoir"] + 24, dsb_at)
+    gate_cc = b_cond(gate_bcc, dsb_at, COND_CC)
+    if eo.count(gate_cbz) != 1 or eo.count(gate_cc) != 1 or eo.count(lsls_imm(5, 1, 30)) != 1:
+        raise PatchError("take7: the force pad lost its RPR/ACTIVER0 self-gate")
+    if eo.count(eoir_op) != 1 or TI_DSB_SY not in eo:
+        raise PatchError("take7: the corrected EOIR op + its `dsb sy` must appear exactly once")
+    if eo.index(eoir_op) < eo.index(gate_cbz) or eo.index(TI_DSB_SY) < eo.index(eoir_op):
+        raise PatchError("take7: the EOIR store must sit between the self-gate and the `dsb sy`")
+    rpr_post = ldr_imm(1, 2, TG_GICC_RPR - GICC_PAGE) + str_imm(1, 6, 0)
+    hpp_post = ldr_imm(1, 2, GICC_HPPIR - GICC_PAGE) + str_imm(1, 6, TG_HPP - TG_RPR)
+    if eo.count(rpr_post) != 1 or eo.count(hpp_post) != 1:
+        raise PatchError("take7: the post-force RPR/HPPIR deposits are not exactly once")
+    if eo.index(rpr_post) < eo.index(TI_DSB_SY) or eo.index(hpp_post) < eo.index(rpr_post):
+        raise PatchError("take7: the post-force deposits must follow the `dsb sy`, RPR first")
+    if write_ca_block(STK_GICC_EOIR, eoir_id) != eoir_op:
+        raise PatchError("take7: the pad does not emit the canonical EOIR store bytes")
+
+    # THE BANK PAD: the 12 ranked reads in order + the sentinel LAST, each rebuilt independently
+    bk = code["stk_bank"]
+    idx = []
+    for name, base_reg, off in TG_BANK_READS:
+        cell = TG_CELLS[TG_NAMES.index(name)]
+        r = ldr_imm(1, base_reg, off) if off <= 124 else ldr_imm_w(1, base_reg, off)
+        blk = r + str_imm(1, 6, cell - TG_RPR)
+        if bk.count(blk) != 1:
+            raise PatchError(f"take7: the {name} bank read is not exactly once in the bank pad")
+        idx.append(bk.index(blk))
+    if idx != sorted(idx) or len(set(idx)) != len(idx):
+        raise PatchError("take7: the bank pad's reads are out of order")
+    snt = bk.index(movw(1, TG_SENTINEL & 0xFFFF) + movt(1, TG_SENTINEL >> 16)
+                   + str_imm(1, 6, TG_SNT - TG_RPR))
+    if not idx[-1] < snt:
+        raise PatchError("take7: the bank pad's sentinel is not the last deposit")
+    if bk.count(push([0, 1, 2, 3, 4, 5, 6, 7])) != 1 \
+            or bk.count(pop([0, 1, 2, 3, 4, 5, 6, 7])) != 1:
+        raise PatchError("take7: the bank pad must save/restore r0-r7 exactly once")
+    for nmw, caw, valw, kindw in TI_WRITE_OPS:
+        if op_store_bytes(caw, valw, kindw) in bk or op_store_bytes(caw, valw, kindw) in eo:
+            raise PatchError(f"take7: a device write ({nmw}) leaked into the new pads")
+    if write_ca_block(STK_GICC_EOIR, eoir_id) in bk:
+        raise PatchError("take7: the EOIR CA must live in the force pad only")
+
+    # the chain: selread -> selpre -> Pad A(N) -> stk_fast -> stk_eoir -> stk_bank -> 0x86f5e
+    pre, rdr = code["selpre"], code["selread"]
+    if pre.count(TI_DSB_SY) != 2:
+        raise PatchError("take7: the retained selpre pad must carry take4's exactly two `dsb sy`")
+    for b in [write_ca_block(ca, val) for ca, val in TI_FLIP_OPS] + \
+            [write_ca_byte_block(TI_PRIO_4C, TI_PRIO_4C_VAL)]:
+        if pre.count(b) != 1:
+            raise PatchError(f"take7: a retained flip op block is not exactly once: {b.hex()}")
+    if b_w(pads["selread"] + len(rdr) - 4, pads["selpre"]) != rdr[-4:]:
+        raise PatchError("take7: the selread pad does not branch into the flip pad")
+    if b_w(pads["selpre"] + len(pre) - 4, pads["send"]) != pre[-4:]:
+        raise PatchError("take7: the selpre pad does not branch into Pad A(N)")
+    if b_w(pads["send"] + len(code["send_n"]) - 4, pads["stk_fast"]) != code["send_n"][-4:]:
+        raise PatchError("take7: Pad A(N) does not branch to the fast sampler")
+    if b_w(pads["stk_eoir"] + len(eo) - 4, pads["stk_bank"]) != eo[-4:]:
+        raise PatchError("take7: the force pad does not branch into the bank pad")
+    if b_w(pads["stk_bank"] + len(bk) - 4, TRIGNAT_CONT_A) != bk[-4:]:
+        raise PatchError("take7: the bank pad does not return to 0x86f5e")
+    if b_w(pads["fallthrough"] + len(code["fallthrough_f"]) - 4, INTA2_CONT_F) != \
+            code["fallthrough_f"][-4:]:
+        raise PatchError("take7: Site F does not return to 0x86f82")
+
+    # the sites: take4's ten (no take5 ISR site); the dropped pads' sites left at stock
+    sites = ((SITE_THUNK, pads["thunk"], bl(SITE_THUNK, pads["thunk"])),
+             (BRINGUP_SITE, pads["bringup"], bl(BRINGUP_SITE, pads["bringup"])),
+             (SEND_SITE, pads["selread"], bl(SEND_SITE, pads["selread"])),
+             (POST_SITE, pads["post"], bl(POST_SITE, pads["post"])),
+             (TRIGCONS_SITE_B, pads["drain"], bl(TRIGCONS_SITE_B, pads["drain"])),
+             (INTA2_SITE_F, pads["fallthrough"], bl(INTA2_SITE_F, pads["fallthrough"])),
+             (TAKE1_V_SITE, pads["vec"], b_w(TAKE1_V_SITE, pads["vec"])),
+             (TAKE1_M1_SITE, pads["m1"], bl(TAKE1_M1_SITE, pads["m1"])),
+             (TAKE1_M2_SITE, pads["m2"], bl(TAKE1_M2_SITE, pads["m2"])),
+             (GICV2_SITE, pads["v2"], bl(GICV2_SITE, pads["v2"])))
+    for site, _pad, want in sites:
+        if data[site:site + 4] != want:
+            raise PatchError(f"take7 site {site:#x} is not the intended branch: "
+                             f"{data[site:site + 4].hex()} != {want.hex()}")
+    if data[TK_SITE_I:TK_SITE_I + 4] != TK_SITE_I_STOCK:
+        raise PatchError("take7: the dropped tk_i site (0x82f58) is not stock")
+
+    forbidden = [write_ca_block(0x400392F0, 1), write_ca_block(0x10161000, 0),
+                 gic_read_store_block(0x10161000, 0), gic_read_store_block(0x40160120, 0)]
+    forbidden += _ca_ref_bytes(0x4016010C) + _ca_ref_bytes(0x400392F0) + \
+        _ca_ref_bytes(0x10161000) + _ca_ref_bytes(0x40039AF0) + _ca_ref_bytes(0x40161F00) + \
+        _ca_ref_bytes(0x40160120)
+    for name, c in code.items():
+        for bad in forbidden:
+            if bad in c:
+                raise PatchError(f"the take7 {name} pad addresses a forbidden CA: {bad.hex()}")
+    for other, c in code.items():
+        if other == "stk_eoir":
+            continue
+        if any(ref in c for ref in _ca_ref_bytes(STK_GICC_EOIR)):
+            raise PatchError(f"take7: the EOIR CA appears outside the force pad ({other})")
+
+    return {
+        "stk_fast_pad": dis(pads["stk_fast"], len(sf)),
+        "stk_eoir_pad": dis(pads["stk_eoir"], len(eo)),
+        "stk_bank_pad": dis(pads["stk_bank"], len(bk)),
+        "stk_fast_len": len(sf), "stk_eoir_len": len(eo), "stk_bank_len": len(bk),
+        "samples": STK_N,
+        "sample_cells": [hex(a) for a in STK_SAMPLES],
+        "read_cas": [hex(STK_GICC_RPR), hex(STK_GICD_ACT0), hex(STK_GICC_HPPIR)],
+        "sticky_cell": hex(STK_STICKY), "act_cell": hex(STK_ACT), "hpp_cell": hex(STK_HPP),
+        "eoir": {"ca": hex(STK_GICC_EOIR), "id": hex(eoir_id),
+                 "value_kind": "the full GICC_IAR word (id[9:0] + source PE[12:10])",
+                 "gate": "GICC_RPR == 0x00 (cbz) AND GICD_ISACTIVER0 word 0 bit 2 SET "
+                         "(lsls #30 / bcc) - else the store is skipped and TG_RPR reads 0x00 "
+                         "(the NOFORCE label)",
+                 "rpr_cell": hex(TG_RPR), "hpp_cell": hex(TG_HPP)},
+        "bank": {"cells": [hex(a) for a in TG_CELLS],
+                 "reads": [{"cell": nm, "ca": hex((GICC_PAGE if base_reg == 2 else GICD_PAGE)
+                                                     + off),
+                            "base_reg": base_reg, "offset": hex(off)}
+                           for nm, base_reg, off in TG_BANK_READS],
+                 "sentinel": hex(TG_SENTINEL), "sentinel_cell": hex(TG_SNT),
+                 "len": len(bk)},
+        "no_new_write": False,
+        "variant": "take7",
+    }
+
+
+def make_take7(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
+    """take7: take6f's instrument byte-for-byte (every take6 pad, the four dropped take5 pads,
+    the retained flip, the canaries and the sites) EXCEPT that selpost_e is dropped and the chain
+    is re-linked Pad A(N) -> stk_fast -> stk_eoir (the CORRECTED, SELF-GATED force) -> stk_bank
+    (the ranked bank/group read block) -> 0x86f5e.  `eoir_id` is REQUIRED: it is the FULL
+    GICC_IAR word (the value the firmware's own EOI writes), never a bare id."""
+    if eoir_id is None:
+        raise PatchError("take7 is the CORRECTED EOIR force - it requires an explicit --eoir-id")
+    cells, v2c, selc, ec3, stk, sel = select_cells_take7(barmap)
+    s1, s2 = cells[0], cells[1]
+    gc = cells[2:2 + GICV_NCELLS]
+    ec = cells[2 + GICV_NCELLS:2 + GICV_NCELLS + GICP_NCELLS]
+    off_a = 2 + GICV_NCELLS + GICP_NCELLS
+    ac = cells[off_a:off_a + TRIGNAT_A_NCELLS]
+    off_b = off_a + TRIGNAT_A_NCELLS
+    bc = cells[off_b:off_b + TRIGNAT_B_NCELLS]
+    off_b2 = off_b + TRIGNAT_B_NCELLS
+    b2c = cells[off_b2:off_b2 + INTA_B2_NCELLS]
+    off_f = off_b2 + INTA_B2_NCELLS
+    fc = cells[off_f:off_f + INTA2_F_NCELLS]
+    off_n = off_f + INTA2_F_NCELLS
+    nc = cells[off_n:off_n + INTA2_N_NCELLS]
+    ac2 = ac + nc
+    vc = list(TAKE1_V_CELLS)
+    cpc = list(TAKE1_CP_CELLS)
+    stk_cells = list(stk)
+    if (len(ec) != GICP_NCELLS or len(ac) != TRIGNAT_A_NCELLS or len(bc) != TRIGNAT_B_NCELLS
+            or len(b2c) != INTA_B2_NCELLS or len(fc) != INTA2_F_NCELLS
+            or len(nc) != INTA2_N_NCELLS or len(ac2) != INTA2_A_NCELLS):
+        raise PatchError("internal error: take7 inta3 cells were not selected")
+
+    # THE SLOTS: take7 reuses the two runs take6f's own layout proved - its stk_eoir run (76 B)
+    # and the run selpost_e frees when it is dropped (>= 112 B).  Both are derived from a take6f
+    # build (deterministic) and cross-checked against the image's free-run list, so nothing is
+    # hardcoded and a take6f layout change can never silently move take7.
+    _, m6f = make_take6(data, barmap, refs, eoir_id=TAKE6F_SELFTEST_EOIR_ID)
+    eo_slot = int(m6f["padding"]["stk_eoir"]["file_offset"], 16)
+    freed_slot = int(m6f["padding"]["selpost_e"]["file_offset"], 16)
+    need_eo = len(pad_stk_eoir_take7(0, TG_RPR, 0, eoir_id))
+    need_bank = len(pad_stk_bank_take7(0, list(TG_CELLS), 0))
+    runs = {st: ln for st, ln in padding_runs(data, refs, [])}
+    if eo_slot not in runs or runs[eo_slot] < need_eo:
+        raise PatchError(f"take7: take6f's EOIR slot {eo_slot:#x} is not a "
+                         f"{need_eo}-byte free run any more")
+    if freed_slot not in runs or runs[freed_slot] < need_bank:
+        raise PatchError(f"take7: the run selpost_e frees ({freed_slot:#x}) is not a "
+                         f"{need_bank}-byte free run any more")
+
+    needs = [("send", len(pad_send_inta2(0, ac2, 0))),
+             ("thunk", len(pad_thunk(0, s1, gc, apsr_cell=ec[3], req_cell=ec[2]))),
+             ("bringup", len(pad_bringup(0, s2, gc))), ("post", len(pad_post(0, ec))),
+             ("drain", len(pad_drain_inta(0, bc, 0))),
+             ("drain_extra", len(pad_drain_extra_inta(0, b2c))),
+             ("fallthrough", len(pad_fallthrough_inta2(0, fc))),
+             ("giccpu", len(pad_giccpu_take1(0, cpc, 0))), ("vec", len(pad_vec_take1(0, vc, 0))),
+             ("m1", len(pad_m1_take1(0, vc[3], 0))), ("m2", len(pad_m2_take1(0, vc[4], 0))),
+             ("v2", len(pad_vec_gicv2(0, v2c, 0))),
+             ("selpre", len(pad_sel_pre_take4(0, 0))),
+             ("selread", len(pad_sel_read_take4(0, 0))),
+             ("stk_fast", len(pad_stk_fast(0, stk_cells, 0)))]
+    nsize = dict(needs)
+    reserved = [(eo_slot, eo_slot + need_eo), (freed_slot, freed_slot + need_bank)]
+    alloc = alloc_pads(data, refs, needs, taken=reserved)
+    pads = {name: off for name, (off, _run) in alloc.items()}
+    pads["stk_eoir"] = eo_slot
+    pads["stk_bank"] = freed_slot
+    for other, (off, _run) in alloc.items():
+        if off < eo_slot + need_eo and eo_slot < off + nsize[other]:
+            raise PatchError(f"the take7 {other} pad overlaps the force slot")
+        if off < freed_slot + need_bank and freed_slot < off + nsize[other]:
+            raise PatchError(f"the take7 {other} pad overlaps the bank slot")
+
+    code_i = pad_thunk(pads["thunk"], s1, gc, apsr_cell=ec[3], req_cell=ec[2])
+    code_b = pad_bringup(pads["bringup"], s2, gc)
+    code_s = pad_send_inta2(pads["send"], ac2, pads["stk_fast"])
+    code_p = pad_post(pads["post"], ec)
+    code_d = pad_drain_inta(pads["drain"], bc, pads["drain_extra"])
+    code_m = pad_drain_extra_inta(pads["drain_extra"], b2c, next_pad=pads["giccpu"])
+    code_g = pad_giccpu_take1(pads["giccpu"], cpc, TRIGCONS_CONT_B)
+    code_f = pad_fallthrough_inta2(pads["fallthrough"], fc, cont=INTA2_CONT_F)
+    code_v = pad_vec_take1(pads["vec"], vc, TAKE1_V_CONT)
+    code_1 = pad_m1_take1(pads["m1"], vc[3], TAKE1_M1_CONT)
+    code_2 = pad_m2_take1(pads["m2"], vc[4], TAKE1_M2_CONT)
+    code_v2 = pad_vec_gicv2(pads["v2"], v2c, GICV2_CONT)
+    code_ps = pad_sel_pre_take4(pads["selpre"], pads["send"])
+    code_rd = pad_sel_read_take4(pads["selread"], pads["selpre"])
+    code_sf = pad_stk_fast(pads["stk_fast"], stk_cells, pads["stk_eoir"])
+    code_eo = pad_stk_eoir_take7(pads["stk_eoir"], TG_RPR, pads["stk_bank"], eoir_id)
+    code_bk = pad_stk_bank_take7(pads["stk_bank"], list(TG_CELLS), TRIGNAT_CONT_A)
+
+    out = bytearray(patch_sites(data, pads["thunk"], pads["bringup"], pads["selread"],
+                                pads["post"], pads["drain"], drain_site=TRIGCONS_SITE_B,
+                                loop_pad=pads["fallthrough"], loop_site=INTA2_SITE_F))
+    out[TAKE1_V_SITE:TAKE1_V_SITE + 4] = b_w(TAKE1_V_SITE, pads["vec"])
+    out[TAKE1_M1_SITE:TAKE1_M1_SITE + 4] = bl(TAKE1_M1_SITE, pads["m1"])
+    out[TAKE1_M2_SITE:TAKE1_M2_SITE + 4] = bl(TAKE1_M2_SITE, pads["m2"])
+    out[GICV2_SITE:GICV2_SITE + 4] = bl(GICV2_SITE, pads["v2"])
+    # the five dropped pads' sites stay STOCK (selpost_e has no site of its own)
+    written = ((pads["thunk"], code_i), (pads["bringup"], code_b), (pads["send"], code_s),
+               (pads["post"], code_p), (pads["drain"], code_d), (pads["drain_extra"], code_m),
+               (pads["giccpu"], code_g), (pads["fallthrough"], code_f), (pads["vec"], code_v),
+               (pads["m1"], code_1), (pads["m2"], code_2), (pads["v2"], code_v2),
+               (pads["selread"], code_rd), (pads["selpre"], code_ps),
+               (pads["stk_fast"], code_sf), (pads["stk_eoir"], code_eo),
+               (pads["stk_bank"], code_bk))
+    for off, code in written:
+        out[off:off + len(code)] = code
+    out = bytes(out)
+
+    if len(out) != len(data):
+        raise PatchError("internal error: the take7 patch changed the image size")
+    for site, stock, nm in ((TAKE1_V_SITE, TAKE1_V_SITE_STOCK, "the ISR entry push.w"),
+                            (TAKE1_M1_SITE, TAKE1_M1_SITE_STOCK, "blx r5 + cpsid i"),
+                            (TAKE1_M2_SITE, TAKE1_M2_SITE_STOCK, "mrs r2, apsr"),
+                            (GICV2_SITE, GICV2_SITE_STOCK, "ubfx r8,r7,#0,#0xa"),
+                            (TK_SITE_I, TK_SITE_I_STOCK, "the dropped tk_i site")):
+        if data[site:site + 4] != stock:
+            raise PatchError(f"the take7 stock bytes at {site:#x} are not {nm} ({stock.hex()})")
+    if data[TRIGNAT_SITE_A:TRIGNAT_SITE_A + 4] != bytes.fromhex("1a600122"):
+        raise PatchError("the take7 Pad A site is not `str r2,[r3]`+`movs r2,#1`")
+    if data[TRIGCONS_SITE_B:TRIGCONS_SITE_B + 4] != TRIGCONS_SITE_B_BYTES:
+        raise PatchError("the take7 Pad B2 site is not `movw r3,#0xcece` (4cf6ce63)")
+    if data[INTA2_SITE_F:INTA2_SITE_F + 4] != TRIGNAT_DRAIN_POP:
+        raise PatchError("the take7 Site F site is not the stock `pop.w {r3..sb,lr}` (bde8f843)")
+    if out[TK_SITE_I:TK_SITE_I + 4] != data[TK_SITE_I:TK_SITE_I + 4]:
+        raise PatchError("take7 must leave the dropped tk_i site 0x82f58 stock")
+
+    for a, b_, nm in ((TAKE1_V_CONT, GICV2_SITE, "the ISR entry up to the v2 site"),
+                      (GICV2_CONT, TAKE1_M1_SITE, "the ISR body after the v2 site"),
+                      (TAKE1_M1_CONT, 0x82F78, "the ISR body after M1 (incl. the dropped I site)"),
+                      (0x826E0, TAKE1_M2_SITE, "the release body up to the guard"),
+                      (TAKE1_M2_CONT, 0x82730, "the release spin after the guard"),
+                      (INTA2_CONT_F, 0x86F92, "the announce-exit continuation"),
+                      (INTA_SITE_L, 0x86F7E, "the announce loop head")):
+        if out[a:b_] != data[a:b_]:
+            raise PatchError(f"take7 altered {nm} ({a:#x}..{b_:#x})")
+    if out[0x8702C:0x8702C + 8] != data[0x8702C:0x8702C + 8]:
+        raise PatchError("internal error: the enable thunk's stream was altered")
+
+    check_original_gic_write(out)
+    verify = verify_disasm_take7(out, pads, s1, s2, gc, ec, ac2, bc, b2c, fc, vc, cpc, v2c, selc,
+                                 ec3, stk_cells, list(TG_CELLS), eoir_id)
+    emitted = check_emitted_ops(out, TI_WRITE_OPS + (("EOIR_ID", STK_GICC_EOIR, eoir_id, "word"),),
+                                spans=[(pads["selpre"], pads["selpre"] + len(code_ps)),
+                                       (pads["stk_eoir"], pads["stk_eoir"] + len(code_eo))],
+                                label="take7 selpre + the corrected EOIR force")
+
+    records = {"S1": cell_record(barmap, s1), "S2": cell_record(barmap, s2)}
+    for i, a in enumerate(gc):
+        records[f"C{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ec):
+        records[f"E{i}"] = cell_record(barmap, a)
+    for i, a in enumerate(ac[:4]):
+        records[f"A_S{i}"] = cell_record(barmap, a)
+    records["A_P1"] = cell_record(barmap, ac[4])
+    records["A_E0"] = cell_record(barmap, ac[5])
+    records["A_E1"] = cell_record(barmap, ac[6])
+    for i, a in enumerate(ac[7:12]):
+        records[f"A_S{4 + i}"] = cell_record(barmap, a)
+    records["A_P2"] = cell_record(barmap, ac[12])
+    for i, a in enumerate(bc[:4]):
+        records[f"B_D{i}"] = cell_record(barmap, a)
+    records["B_P3"] = cell_record(barmap, bc[4])
+    for i, a in enumerate(b2c[:4]):
+        records[f"B_D{4 + i}"] = cell_record(barmap, a)
+    records["B_P4"] = cell_record(barmap, b2c[4])
+    for nm, a in zip(INTA2_F_NAMES, fc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(INTA2_N_NAMES, nc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TAKE1_V_NAMES, vc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TAKE1_CP_NAMES, cpc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(GICV2_CELL_NAMES, v2c):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(SEL_CELL_NAMES, selc):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TI_E_NAMES, ec3):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(STK6_NAMES, stk_cells):
+        records[nm] = cell_record(barmap, a)
+    for nm, a in zip(TG_NAMES, TG_CELLS):
+        records[nm] = cell_record(barmap, a)
+    aliases = {"C_PSR": "B_D5", "F_CTLR": "B_D6", "F_PMR": "B_D7"}
+
+    manifest = {
+        "variant": "take7",
+        "spec": ("build/tmp/inta-spec/{bankgate,bg2}.md on ADDENDUM 25a - the CORRECTED, "
+                 "self-gated GICC_EOIR force + the post-force bank/group read block"),
+        "selection": sel,
+        "cells": records,
+        "aliases": aliases,
+        "take7": {
+            "sites": {"selpre": hex(pads["selpre"]), "selread": hex(pads["selread"]),
+                      "fallthrough_f": hex(pads["fallthrough"]),
+                      "stk_fast": hex(pads["stk_fast"]), "stk_eoir": hex(pads["stk_eoir"]),
+                      "stk_bank": hex(pads["stk_bank"])},
+            "chain": "send -> selread (P_ID) -> selpre (the retained flip + 0x4C re-enable) -> "
+                     "Pad A(N) (the H2D ring) -> stk_fast (the fast sampler) -> stk_eoir (the "
+                     "CORRECTED, self-gated EOIR force) -> stk_bank (the ranked bank/group "
+                     "block) -> 0x86f5e ; Site F (0x86f7e) -> 0x86f82; the five dropped pads' "
+                     "SITES (0x82f58 + selpost/selpost_e) are stock",
+            "fast_sampler": {k: verify[k] for k in ("samples", "sample_cells", "read_cas",
+                                                    "sticky_cell", "act_cell", "hpp_cell",
+                                                    "stk_fast_len")},
+            "eoir": verify["eoir"],
+            "bank": verify["bank"],
+            "stk_eoir_len": verify["stk_eoir_len"],
+            "stk_bank_len": verify["stk_bank_len"],
+            "stk_eoir_pad": verify["stk_eoir_pad"],
+            "stk_bank_pad": verify["stk_bank_pad"],
+            "no_new_write": False,
+            "dropped_pads": list(STK7_DROPPED_PADS),
+            "branch_table": [
+                "0) TG_SNT != 0x50aa7e49 (or 0xDEADBEEF) -> NO-SAMPLE: the bank pad did not run; "
+                "do not read its block.",
+                "1) TG_RPR == 0x00000000 -> NOFORCE: the pre-store self-gate held (RPR != 0x00 "
+                "or GICD_ISACTIVER0 word 0 bit 2 clear) and the EOIR store was SKIPPED - this "
+                "boot is NOT a forced boot (TG_ACT0/TG_PEND0 still describe the unforced state).",
+                "2) TG_RPR == 0x000000FF AND TG_HPP == 0x0000004C -> the CORRECTED force retired "
+                "the priority-0 epoch and 0x4C became top-pending in the SAME boot: rank 1 "
+                "(the id-mismatched bare 0x2 of take6f) was the gate - compare take6f's "
+                "STK_HPP1 == 0x3FF.",
+                "3) TG_RPR == 0xFF AND TG_HPP == 0x3FF AND TG_CCTLR bit1 == 0 AND TG_GRP2 bit12 "
+                "== 1 -> GROUP GATE CONFIRMED (rank 2): id 0x4C is a Group-1 source with "
+                "EnableGrp1 = 0 at both levels; the next lever is GICD_IGROUPR2 bit12 <- 0 or "
+                "GICC_CTLR <- 0x03, never the deferred rank-3 bank quiesce first.",
+                "4) TG_RPR == 0xFF AND TG_HPP == 0x3FF AND TG_CCTLR bit1 == 1 AND TG_GRP2 bit12 "
+                "== 0 AND TG_ACT2 bit12 == 0 -> NOT RPR, NOT the group: the SGI/PPI BANK owns "
+                "it (TG_ACT0 bit 2 SET = SGI 2 still active through the window); the next lever "
+                "is the .ko ICENABLER0/1 bank quiesce (CI omo/phase22-hccaccept).",
+                "5) TG_HPP == 0x4C AND TG_AHPP == 0x4C -> 0x4C is signalable to the Non-secure "
+                "view too (the alias pair agrees); TG_AHPP == 0x3FF with TG_HPP == 0x4C -> "
+                "Group 0, seen only by the secure view.",
+                "6) TG_PMR < 0xC0 -> the PRIORITY MASK, not the group, is the comparator "
+                "(0x4C is priced 0x00): restore GICC_PMR <- 0xF0 and re-run.",
+                "7) TG_ACT2 bit12 SET (or TG_ACT0 bit2 CLEAR with TG_HPP == 0x4C) -> the IAR "
+                "read the id: the take moved (the arc's end - retire the incumbent).",
+                "8) TG_ISP2 bit12 CLEAR -> 0x4C is no longer pending: a spurious EOI or a "
+                "cross-core clear raced the pad; re-run before reading the block.",
+            ],
+            "emitted_ops": {"check": NOTE_EMITTED_OPS, "ops": emitted,
+                           "scope": "9/9 = the eight retained flip stores (selpre pad) + the "
+                                    "corrected EOIR force (stk_eoir pad).  The two post-force "
+                                    "RPR/HPPIR deposits and the twelve bank reads are rebuilt "
+                                    "from the primitives by verify_disasm_take7 and asserted "
+                                    "in the selftest (the base-register read form is not the "
+                                    "per-CA op_read_bytes shape, so it is verified by exact "
+                                    "byte reconstruction instead)."},
+            "note": NOTE_TAKE7,
+        },
+        "take4_retained": {
+            "select_ops": True,
+            "v2_site": hex(GICV2_SITE), "v2_cont": hex(GICV2_CONT),
+            "sel_cells": [hex(c) for c in selc],
+            "sel_post_reads": [{"ca": hex(ca), "cell": hex(cl)} for ca, cl in SEL_POST_READS],
+            "take1_cells": [hex(c) for c in vc + cpc],
+            "e_cells": [hex(c) for c in ec3],
+            "e_cells_note": "kept as addresses; their pad selpost_e is DROPPED in take7",
+            "flip_ops": [{"ca": hex(ca), "value": hex(val)} for ca, val in TI_FLIP_OPS],
+            "dsb_sy": TI_DSB_SY.hex(),
+            "prio_4c": {"ca": hex(TI_PRIO_4C), "value": hex(TI_PRIO_4C_VAL)},
+        },
+        "gic_map": {
+            "GICD_base": hex(GICD_PAGE), "GICC_base": hex(GICC_PAGE),
+            "GICC_RPR": hex(STK_GICC_RPR), "GICD_ISACTIVER0": hex(STK_GICD_ACT0),
+            "GICD_ISPENDR0": hex(TG_GICD_PEND0), "HPPIR": hex(GICC_HPPIR),
+            "GICC_AHPPIR": hex(TG_GICC_AHPPIR), "GICC_CTLR": hex(TG_GICC_CTLR),
+            "GICC_PMR": hex(TG_GICC_PMR), "GICC_ABPR": hex(TG_GICC_ABPR),
+            "GICD_IGROUPR2": hex(TG_GICD_GRP2), "GICD_IGROUPR0": hex(TG_GICD_GRP0),
+            "GICD_ITARGETSR_4C": hex(TG_GICD_TGT4C),
+            "GICC_EOIR": hex(STK_GICC_EOIR), "GICC_EOIR_value": hex(eoir_id),
+            "ISACTIVER2": hex(GICD_ISACTIVER2), "ISPENDR2": hex(GICD_ISPENDR2),
+            "ISENABLER2": hex(GICD_ISENABLER2),
+            "GICD_CTLR": hex(TI_GICD_CTLR),
+            "ICENABLER0": hex(TI_GICD_ICENABLER0), "ICENABLER2": hex(TI_GICD_ICENABLER2),
+            "ICPENDR0": hex(TI_GICD_ICPENDR0), "ICPENDR2": hex(TI_GICD_ICPENDR2),
+            "IPRIORITYR_4C": hex(TI_PRIO_4C),
+            "never_read": GICV2_NEVER_READ + ", 0x40160120 (the aliased AIAR), 0x10161000 (RC misc, "
+                          "panics) and 0x40161f00 (GICD_SGIR, write-only)",
+            "never_written": "0x400392f0 (ctrl-rb intr-clear, W1C) and 0x40039af0 (copy-B W1C)",
+            "ring": {"ca": hex(TRIGNAT_RING_CA), "value": hex(TRIGNAT_RING_VAL)},
+            "gate": {"ca": "0x4000010c", "wait_value": "0x0000cece"},
+        },
+        "classification": {
+            "instrument": "take6f's instrument byte-for-byte except selpost_e (dropped) + the "
+                          "re-linked chain, with the CORRECTED, self-gated EOIR force and the "
+                          "post-force bank/group read block",
+            "ROW_take7_1": "TG_RPR == 0x00 -> NOFORCE (the self-gate skipped the store); the "
+                           "boot is unforced.",
+            "ROW_take7_2": "TG_RPR == 0xFF AND TG_HPP == 0x4C -> the corrected force retired "
+                           "the epoch in the same boot (rank 1 was the gate).",
+            "ROW_take7_3": "TG_RPR == 0xFF AND TG_HPP == 0x3FF -> rank 2 (TG_GRP2 bit12 = 1 / "
+                           "TG_CCTLR bit1 = 0) or the bank (TG_ACT0 bit2 SET) holds 0x4C.",
+            "ROW_take7_4": "TG_SNT != 0x50aa7e49 -> NO-SAMPLE.",
+            "bounds": "the bank block is ONE post-force instant (not a matched pair), so a "
+                      "transient that opens AND closes between the force and the reads is "
+                      "missed; STK_STICKY still covers RPR only; register state only (a reboot "
+                      "rewrites every GIC register); take7's ONE device write is the corrected "
+                      "EOIR store, gated on the measured pre-state.",
+        },
+        "padding": {},
+        "sites": {},
+        "preserved": {},
+    }
+    region_spec = (("thunk", "thunk", code_i), ("bringup", "bringup", code_b),
+                   ("send_n", "send", code_s), ("post", "post", code_p),
+                   ("drain_b2", "drain", code_d), ("drain_extra", "drain_extra", code_m),
+                   ("giccpu", "giccpu", code_g), ("fallthrough_f", "fallthrough", code_f),
+                   ("vec", "vec", code_v), ("m1", "m1", code_1), ("m2", "m2", code_2),
+                   ("v2", "v2", code_v2), ("selpre", "selpre", code_ps),
+                   ("selread", "selread", code_rd), ("stk_fast", "stk_fast", code_sf),
+                   ("stk_eoir", "stk_eoir", code_eo), ("stk_bank", "stk_bank", code_bk))
+    for name, pkey, code in region_spec:
+        manifest["padding"][name] = {"file_offset": hex(pads[pkey]), "code_length": len(code),
+                                     "code_hex": code.hex()}
+    manifest["sites"] = {
+        "thunk": {"file_offset": hex(SITE_THUNK), "cont": hex(CONT_THUNK),
+                  "after": bl(SITE_THUNK, pads["thunk"]).hex()},
+        "bringup": {"file_offset": hex(BRINGUP_SITE), "cont": hex(BRINGUP_CONT),
+                    "after": bl(BRINGUP_SITE, pads["bringup"]).hex()},
+        "post": {"file_offset": hex(POST_SITE), "cont": hex(POST_CONT),
+                 "after": bl(POST_SITE, pads["post"]).hex()},
+        "send_n": {"file_offset": hex(TRIGNAT_SITE_A), "cont": hex(pads["stk_fast"]),
+                   "after": bl(TRIGNAT_SITE_A, pads["selread"]).hex()},
+        "drain_b2": {"file_offset": hex(TRIGCONS_SITE_B), "cont": hex(TRIGCONS_CONT_B),
+                     "after": bl(TRIGCONS_SITE_B, pads["drain"]).hex()},
+        "fallthrough_f": {"file_offset": hex(INTA2_SITE_F), "cont": hex(INTA2_CONT_F),
+                          "after": bl(INTA2_SITE_F, pads["fallthrough"]).hex()},
+        "vec": {"file_offset": hex(TAKE1_V_SITE), "cont": hex(TAKE1_V_CONT),
+                "after": b_w(TAKE1_V_SITE, pads["vec"]).hex()},
+        "m1": {"file_offset": hex(TAKE1_M1_SITE), "cont": hex(TAKE1_M1_CONT),
+               "after": bl(TAKE1_M1_SITE, pads["m1"]).hex()},
+        "m2": {"file_offset": hex(TAKE1_M2_SITE), "cont": hex(TAKE1_M2_CONT),
+               "after": bl(TAKE1_M2_SITE, pads["m2"]).hex()},
+        "v2": {"file_offset": hex(GICV2_SITE), "cont": hex(GICV2_CONT),
+               "after": bl(GICV2_SITE, pads["v2"]).hex()},
+        "dropped_tk_i_site": {"file_offset": hex(TK_SITE_I), "stock": TK_SITE_I_STOCK.hex(),
+                              "unchanged": out[TK_SITE_I:TK_SITE_I + 4] ==
+                                           data[TK_SITE_I:TK_SITE_I + 4]},
+    }
+    manifest["preserved"] = {
+        "original_gic_write": {"file_offset": "0x8702c",
+                               "bytes_identical": out[0x8702C:0x87030] == data[0x8702C:0x87030]},
+        "itet_block": {"file_offset": "0x87030..0x87035",
+                       "bytes_identical": out[0x87030:0x87036] == data[0x87030:0x87036]},
+        "isr_body_around_dropped_i_site": {"file_offset": "0x82f5c..0x82f78",
+                                           "bytes_identical": out[TAKE1_M1_CONT:0x82F78] ==
+                                                              data[TAKE1_M1_CONT:0x82F78]},
+    }
+    return out, manifest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -11951,7 +12855,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--variant", choices=("probe", "scratch", "gicview", "gicsend", "gicpost",
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
                                           "trigcons", "inta", "inta2", "inta3", "take1", "gicv2",
-                                          "take2", "take4", "take5", "take6", "take6f"),
+                                          "take2", "take4", "take5", "take6", "take6f",
+                                          "take7"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -12056,10 +12961,21 @@ def main(argv: list[str] | None = None) -> int:
                          "unmeasured, so there is no default) followed by a re-read of RPR into "
                          "STK_RPR1 AND of HPPIR into STK_HPP1 (layoutdiff.md section 4's fixed 66-byte "
                          "pad: the capping proof is verified BY TRANSITION, RPR 0x00 -> 0xFF then "
-                         "HPPIR 0x3FF -> 0x4C); take6f is md5-pinned apart from take6")
+                         "HPPIR 0x3FF -> 0x4C); take6f is md5-pinned apart from take6.  take7: "
+                         "take6f byte-for-byte EXCEPT that the retained selpost_e E-block pad is "
+                         "DROPPED (its cells are answered by take2/take3/take4/take6f + ADDENDUM "
+                         "25a) and the chain is re-linked Pad A(N) -> stk_fast -> stk_eoir -> "
+                         "stk_bank -> 0x86f5e, with the CORRECTED, SELF-GATED EOIR force (the FULL "
+                         "GICC_IAR word 0x402 - what the firmware's own EOI writes - gated on a "
+                         "PRE-read of GICC_RPR == 0x00 and GICD_ISACTIVER0 word 0 bit 2 SET) and "
+                         "the post-force BANK/GROUP read block (bankgate.md sec 4 R1..R14: RPR/"
+                         "HPPIR + ISACTIVER0/ISPENDR0 + IGROUPR word 2/word 0 + both CTLRs + "
+                         "ISPENDR2/ISACTIVER2 + ITARGETSR 0x4C + PMR/ABPR + the AHPPIR NS alias, "
+                         "sentinel last) - bankgate.md section 5 on ADDENDUM 25a")
     ap.add_argument("--eoir-id", type=lambda s: int(s, 0), default=None,
-                    help="take6f ONLY: the bare 10-bit stuck id (0..0x3ff) GICC_EOIR is forced "
-                         "with - the id the ISR's own EOI named; REQUIRED for --variant take6f")
+                    help="take6f/take7 ONLY: the id GICC_EOIR is forced with - take6f takes the "
+                         "bare 10-bit stuck id (0..0x3ff), take7 the FULL GICC_IAR word "
+                         "(0..0x1fff, e.g. 0x402) the ISR's own EOI wrote; REQUIRED for both")
     ap.add_argument("--manifest", help="manifest path (default <out>.manifest.json)")
     ap.add_argument("--selftest", action="store_true", help="run the byte-level selftest")
     ap.add_argument("--check-emitted", metavar="BLOB",
@@ -12083,15 +12999,23 @@ def main(argv: list[str] | None = None) -> int:
                 if pv:
                     p0 = int(pv["file_offset"], 16)
                     spans = [(p0, p0 + int(pv["code_length"]))]
-                # take6f: the standing check ALSO guards the ranked EOIR force (its own pad) AND
-                # its post-force HPPIR deposit (layoutdiff.md section 4)
+                # take6f/take7: the standing check ALSO guards the ranked EOIR force (its own pad)
+                # AND, for take6f, its post-force HPPIR deposit (layoutdiff.md section 4).  take7's
+                # post-force RPR/HPPIR deposits and its twelve bank reads use the pad's base-register
+                # form, so they are rebuilt from the primitives by verify_disasm_take7 instead (its
+                # manifest records the full disassembly + the read list).
                 eo = mj.get("padding", {}).get("stk_eoir")
-                eoir = mj.get("take6f", {}).get("eoir", {}) or {}
+                eoir = (mj.get("take6f", {}).get("eoir")
+                        or mj.get("take7", {}).get("eoir") or {})
                 eo_id = eoir.get("id")
                 if eo and eo_id:
                     e0 = int(eo["file_offset"], 16)
                     spans = (spans or []) + [(e0, e0 + int(eo["code_length"]))]
                     ops = ops + [("EOIR_ID", STK_GICC_EOIR, int(eo_id, 16), "word")]
+                    bk = mj.get("padding", {}).get("stk_bank")
+                    if bk:
+                        b0 = int(bk["file_offset"], 16)
+                        spans = spans + [(b0, b0 + int(bk["code_length"]))]
                     if eoir.get("hpp1_cell"):
                         hpp1 = int(eoir["hpp1_cell"], 16)
                         ops = ops + [("EOIR_HPP", STK_GICC_HPPIR, hpp1, "read", hpp1 - STK_RPR1)]
@@ -12116,11 +13040,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not (args.out and args.variant):
             ap.error("--out and --variant are required (or use --selftest)")
-        if args.variant == "take6f" and args.eoir_id is None:
-            raise PatchError("take6f is the RANKED EOIR force (eoir.md sec 3 rank 1) and its id is "
-                             "UNMEASURED - refusing to build it without an explicit --eoir-id")
-        if args.variant != "take6f" and args.eoir_id is not None:
-            raise PatchError("--eoir-id is only meaningful with --variant take6f")
+        if args.variant in ("take6f", "take7") and args.eoir_id is None:
+            raise PatchError("take6f/take7 carry the RANKED EOIR force (eoir.md sec 3 rank 1; "
+                             "take7 writes the CORRECTED full IAR word) and the id is not "
+                             "guessable - refusing to build without an explicit --eoir-id")
+        if args.variant not in ("take6f", "take7") and args.eoir_id is not None:
+            raise PatchError("--eoir-id is only meaningful with --variant take6f/take7")
         if os.path.abspath(args.out) == os.path.abspath(args.fw):
             raise PatchError("refusing to overwrite the input blob in place")
         if not os.path.exists(args.barmap):
@@ -12156,6 +13081,8 @@ def main(argv: list[str] | None = None) -> int:
                          if args.variant == "take6f"
                          else make_take6(data, barmap, refs)
                          if args.variant == "take6"
+                         else make_take7(data, barmap, refs, args.eoir_id)
+                         if args.variant == "take7"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
