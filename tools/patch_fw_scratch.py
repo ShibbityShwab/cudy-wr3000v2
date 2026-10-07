@@ -188,6 +188,16 @@ TAKE7C_MD5 = "60e0af1cb7fb32ea9e58178f754dfbf3"            # frozen take7c-varia
 TAKE7C_SELFTEST_EOIR_ID = 0x402                              # the FULL GICC_IAR word (same as
                                                              # take7/take7b: take7c restructures
                                                              # the PAD, not the value)
+TAKE7D_MD5 = "55120820882e07919ba98fedf6695b1b"            # frozen take7d-variant output
+                                                             # (selftest regression; take7c with the
+                                                             # EOIR operand's source-PE field
+                                                             # [12:10] CLEARED - padrca.md's RCA)
+TAKE7D_SELFTEST_EOIR_ID = 0x2                                # the BARE 10-bit id ([12:10] CLEAR) -
+                                                             # the ONLY operand measured to retire
+                                                             # the epoch (take6f) and the value
+                                                             # eoir.md sec 1 documents for an
+                                                             # EXTERNAL force; it differs from
+                                                             # take7c's 0x402 in [12:10] ONLY
 TAKE7B_SELFTEST_EOIR_ID = 0x402                              # the FULL GICC_IAR word (id 2 +
                                                              # source PE 1) - the corrected value,
                                                              # same as take7's (TAKE7B fixes the
@@ -7360,6 +7370,64 @@ def selftest(fw_path: str, barmap_path: str) -> int:
     assert md5(g11d) != TAKE7B_MD5, "take7c must differ from take7b (the pad was restructured)"
     assert md5(g11d) == TAKE7C_MD5, f"take7c output changed: {md5(g11d)} != {TAKE7C_MD5}"
 
+    # ---- take7d: take7c with the EOIR operand's SOURCE-PE FIELD [12:10] CLEARED (padrca.md) ----
+    g11e, g11em = make_take7d(data, barmap, refs, TAKE7D_SELFTEST_EOIR_ID)
+    g11eb, g11emb = make_take7d(data, barmap, refs, TAKE7D_SELFTEST_EOIR_ID)
+    assert g11e == g11eb, "the take7d patch is not deterministic"
+    assert g11em == g11emb, "the take7d manifest is not deterministic"
+    assert g11em["variant"] == "take7d" and "take7d" in g11em and "take7c" not in g11em, \
+        "the take7d manifest mislabels the variant"
+    off11e = int(g11em["padding"]["stk_eoir"]["file_offset"], 16)
+    eo11e = bytes.fromhex(g11em["padding"]["stk_eoir"]["code_hex"])
+    assert off11e == off11d, "take7d moved the force pad's slot"
+    assert len(eo11e) == 76, f"the take7d force pad is not 76 B ({len(eo11e)})"
+    assert eo11e == pad_stk_eoir_take7d(off11e, TG_RPR, boff11d, TAKE7D_SELFTEST_EOIR_ID), \
+        "the take7d force pad is not its independent reconstruction"
+    # THE ONE-BYTE PROOF: the whole 76-B force pad differs from take7c's in EXACTLY the store's
+    # `movw` imm8 high half (offset 51 = file 0xcb917: 0x40 for 0x402 -> 0x00 for 0x2) - i.e. the
+    # source-PE field [12:10] and NOTHING else in the pad, let alone in the blob
+    eo11c402 = pad_stk_eoir_take7c(off11e, TG_RPR, boff11d, TAKE7C_SELFTEST_EOIR_ID)
+    assert len(eo11c402) == 76 and [i for i in range(76) if eo11e[i] != eo11c402[i]] == [51], \
+        "the take7d-vs-take7c operand delta is not the single store byte 51 of the force pad"
+    assert eo11e[48:54] == write_page_block(STK_GICC_EOIR, TAKE7D_SELFTEST_EOIR_ID, 2, GICC_PAGE), \
+        "take7d does not emit the page-relative store with the source-PE-cleared value"
+    assert op_store_page_bytes(STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID, 2, GICC_PAGE) not in eo11e, \
+        "the take7d pad must not carry the source-PE-SET operand"
+    # THE FIX'S CONTRACT: the emitter REFUSES a value whose [12:10] are SET (the RCA's residue),
+    # so the full-IAR-word form can never ship silently again
+    for bad in (TAKE7C_SELFTEST_EOIR_ID, 0x400, 0x1000, 0x1C00, 0x1FFF):
+        try:
+            make_take7d(data, barmap, refs, bad)
+        except PatchError:
+            pass
+        else:
+            raise PatchError(f"take7d accepted the source-PE-SET value {bad:#x} - the fix's "
+                             "contract is not enforced")
+    # the emitted-bytes check holds in the PAGE-RELATIVE form (10/10), exactly as take7c's does
+    emitted11e = check_emitted_ops(g11e, TI_WRITE_OPS + (
+        ("EOIR_PAGE", GICC_PAGE, 2, "page_base"),
+        ("EOIR_ID", STK_GICC_EOIR, TAKE7D_SELFTEST_EOIR_ID, "page", (2, GICC_PAGE))),
+        spans=[(sp11d, sp11d + len(pre11d)), (off11e, off11e + 76)],
+        label="the regenerated take7d blob")
+    assert len(emitted11e) == 10 and all(r["ok"] for r in emitted11e), \
+        "the take7d emitted-bytes check did not hold (10/10 expected)"
+    # the delta vs take7c IS the single store byte - no pad, cell, slot, site or chain link moved
+    assert [i for i in range(len(g11e)) if g11e[i] != g11d[i]] == [off11e + 51], \
+        "the take7d-vs-take7c blob delta is not the single store byte"
+    vf = g11em["take7d"]["eoir_value_fix"]
+    assert vf["operand"]["take7c"] == hex(TAKE7C_SELFTEST_EOIR_ID) \
+        and vf["operand"]["take7d"] == hex(TAKE7D_SELFTEST_EOIR_ID) \
+        and vf["changed_bytes"]["file_offset"] == hex(off11e + 51) \
+        and vf["changed_bytes"]["take7c"] == "40" and vf["changed_bytes"]["take7d"] == "00", \
+        "the take7d manifest's value-fix record is not this build's"
+    assert g11em["take7d"]["eoir"]["id"] == hex(TAKE7D_SELFTEST_EOIR_ID) \
+        and "BARE 10-bit id" in g11em["take7d"]["eoir"]["value_kind"] \
+        and g11em["take7d"]["stk_eoir_len"] == 76 \
+        and g11em["take7d"]["emitted_ops"]["scope"].startswith("10/10"), \
+        "the take7d manifest's eoir record is stale"
+    assert md5(g11e) != TAKE7C_MD5, "take7d must differ from take7c (the operand changed)"
+    assert md5(g11e) == TAKE7D_MD5, f"take7d output changed: {md5(g11e)} != {TAKE7D_MD5}"
+
     print("SELFTEST PASS")
     print(f"  probe byte        : {pm['patches'][0]['file_offset']} "
           f"{pm['patches'][0]['before']} -> {pm['patches'][0]['after']} "
@@ -7545,6 +7613,11 @@ def selftest(fw_path: str, barmap_path: str) -> int:
           f"`dsb sy` between the GICD read and the page-relative GICC_EOIR store "
           f"(0x{STK_GICC_EOIR:08x} <= 0x{TAKE7C_SELFTEST_EOIR_ID:x} via r2)")
     print(f"  take7c md5        : {md5(g11d)}")
+    print(f"  take7d operand fix: GICC_EOIR 0x{STK_GICC_EOIR:08x} <= 0x{TAKE7D_SELFTEST_EOIR_ID:x} "
+          f"(the BARE 10-bit id - the source-PE field [12:10] CLEAR) vs take7c's "
+          f"0x{TAKE7C_SELFTEST_EOIR_ID:x}; the pad stays 76 B @ {hex(off11e)} and the WHOLE blob "
+          f"differs from take7c in ONE byte (file {hex(off11e + 51)}: 40 -> 00)")
+    print(f"  take7d md5        : {md5(g11e)}")
     return 0
 
 
@@ -12488,6 +12561,25 @@ NOTE_TAKE7 = (
 )
 
 
+NOTE_TAKE7D = (
+    "take7d (build/tmp/inta-spec/padrca.md - THE DEDICATED RCA OF THE GATED STORE) - take7c's "
+    "ENTIRE pad structure with the ONE operand the RCA isolates CHANGED: the EOIR word's "
+    "source-PE field [12:10] CLEARED.  The evidence: the SAME pad, slot, chain and pre-state "
+    "retired nothing when it wrote the ack's FULL IAR word (0x402) in THREE boots, and the ONE "
+    "boot whose write retired the epoch (take6f, RPR 0x00 -> 0xFF) wrote the bare id 0x2 - the "
+    "two operands share id[9:0] == 0x2 and differ ONLY in [12:10] (1 vs 0).  The elimination "
+    "table (padrca.md sec 3) removes the guard (cell-proven by TG_PRERPR/TG_PREACT), the "
+    "clobbers, the addressing, the emitted store's form, the barrier, the GICD read and the "
+    "ID field, leaving that field as the residue - and the counter-evidence (the firmware's own "
+    "EOI at file 0x82f52 writes the RAW ack word, and take5's I5 site reads RPR 0xFF right after "
+    "it) is recorded, not hidden.  The fix is ONE byte of emitted code (the store's `movw imm8 "
+    "high half`: 0x40 -> 0x00 at file 0xcb917), the pad stays EXACTLY 76 B at the SAME slot "
+    "0xcb8e4, and the emitter REFUSES any value whose [12:10] are SET (the defect class the RCA "
+    "names), so a silent fall-back to the full-IAR-word form fails the BUILD and not the boot.  "
+    "take7/take7b/take7c/take6f stay frozen; hard rules held as take7c's."
+)
+
+
 def _bank_ldr(rt: int, rn: int, off: int) -> bytes:
     """The one ldr form the bank pad needs: the narrow T1 when the CA sits within 124 B of its
     page base, the wide T3 otherwise (IGROUPR2 0x88, ISPENDR0 0x200, ISPENDR2 0x208, ISACTIVER0
@@ -12642,6 +12734,25 @@ def pad_stk_eoir_take7c(pad: int, cell_rpr: int, cont: int, eoir_id: int,
     if len(b) + 4 != 76:
         raise PatchError(f"take7c: the force pad is not the fixed 76-byte layout ({len(b) + 4})")
     return bytes(b) + b_w(pad + len(b), cont)
+
+
+def pad_stk_eoir_take7d(pad: int, cell_rpr: int, cont: int, eoir_id: int,
+                        cell_hpp: int = TG_HPP) -> bytes:
+    """take7d ONLY (build/tmp/inta-spec/padrca.md sec 4) - the take7c pad with the store's OPERAND
+    constrained to the documented bare-id form: the EOIR word's source-PE field [12:10] CLEARED
+    (`0 <= id <= 0x3FF`), i.e. exactly take6f's 0x2, the ONE operand this device has been measured
+    to retire the epoch with - NOT take7c's full GICC_IAR word (0x402), whose three boots retired
+    nothing.  The pad structure is take7c's byte-for-byte (guard, the gate's own pre-state deposits,
+    the cross-interface `dsb sy`, the page-relative store), so the take7d-vs-take7c delta is a
+    SINGLE byte of the store's `movw` imm8 high half (file 0xcb917: 0x40 -> 0x00) and the pad keeps
+    its 76 B size and its 0xcb8e4 slot.  The RANGE CHECK IS THE FIX's contract: a value whose
+    [12:10] are SET is REFUSED here, so the residue this RCA names can never ship silently."""
+    if not 0 <= eoir_id <= 0x3FF:
+        raise PatchError(f"take7d: the EOIR operand must be the BARE 10-bit id - the source-PE "
+                         f"field [12:10] must be CLEAR (got {eoir_id:#x}; take7d exists because "
+                         f"0x402 differed from take6f's 0x2 in exactly those bits and retired "
+                         f"nothing in three boots)")
+    return pad_stk_eoir_take7c(pad, cell_rpr, cont, eoir_id, cell_hpp)
 
 
 def pad_stk_bank_take7b(pad: int, cells: list[int], cont: int) -> bytes:
@@ -13309,6 +13420,93 @@ def make_take7c(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
     return bytes(out), tm
 
 
+def make_take7d(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
+    """take7d (build/tmp/inta-spec/padrca.md): take7c's whole instrument with the ONE operand the
+    RCA isolates changed - the EOIR word's source-PE field [12:10] CLEARED.  take7c is built first
+    (so its exhaustive verification - every pad's bytes, every site, the chain, the forbidden-CA
+    scan - has already run), then the force pad is re-emitted through pad_stk_eoir_take7d, which
+    REFUSES any value with [12:10] set; the delta is asserted to be the SINGLE store byte, so no
+    other pad, cell, slot, site or chain link can move and take7/take7b/take7c stay byte-frozen.
+    `eoir_id` is REQUIRED and must be a bare 10-bit id (0..0x3FF)."""
+    if eoir_id is None:
+        raise PatchError("take7d carries the EOIR force - it requires an explicit --eoir-id")
+    if not 0 <= eoir_id <= 0x3FF:
+        raise PatchError(f"take7d: the EOIR operand must be the BARE 10-bit id - the source-PE "
+                         f"field [12:10] must be CLEAR (got {eoir_id:#x}; take7d exists because "
+                         f"0x402 differed from take6f's 0x2 in exactly those bits)")
+    out, tm = make_take7c(data, barmap, refs, eoir_id)
+    pads = {k: int(v["file_offset"], 16) for k, v in tm["padding"].items()
+            if isinstance(v, dict) and "file_offset" in v}
+    off = pads["stk_eoir"]
+    code_eo = pad_stk_eoir_take7d(off, TG_RPR, pads["stk_bank"], eoir_id)
+    if code_eo != bytes(out[off:off + len(code_eo)]):
+        raise PatchError("take7d: the built force pad is not the take7d emitter's bytes")
+    # THE ONE-BYTE PROOF: the take7d pad and the take7c pad differ in exactly the store's `movw`
+    # imm8 high half (offset 51 of the 76-B pad = file 0xcb917: 0x40 for 0x402, 0x00 for 0x2)
+    eo_c402 = pad_stk_eoir_take7c(off, TG_RPR, pads["stk_bank"], TAKE7C_SELFTEST_EOIR_ID)
+    delta = [i for i in range(len(code_eo)) if code_eo[i] != eo_c402[i]]
+    if delta != [51]:
+        raise PatchError(f"take7d: the operand delta vs take7c is not the single store byte "
+                         f"(offsets {delta})")
+    if op_store_page_bytes(STK_GICC_EOIR, eoir_id, 2, GICC_PAGE) not in code_eo:
+        raise PatchError("take7d: the page-relative store with the CLEARED source-PE field is "
+                         "absent from the force pad")
+    if op_store_page_bytes(STK_GICC_EOIR, TAKE7C_SELFTEST_EOIR_ID, 2, GICC_PAGE) in code_eo:
+        raise PatchError("take7d: the force pad still carries take7c's full-IAR-word operand")
+    code_ps = bytes.fromhex(tm["padding"]["selpre"]["code_hex"])
+    emitted = check_emitted_ops(out, TI_WRITE_OPS + (
+        ("EOIR_PAGE", GICC_PAGE, 2, "page_base"),
+        ("EOIR_ID", STK_GICC_EOIR, eoir_id, "page", (2, GICC_PAGE))),
+        spans=[(pads["selpre"], pads["selpre"] + len(code_ps)),
+               (off, off + len(code_eo))],
+        label="take7d selpre + the source-PE-cleared EOIR force")
+
+    tm["variant"] = "take7d"
+    tm["spec"] = ("build/tmp/inta-spec/padrca.md - take7c's pad structure with the EOIR operand's "
+                  "source-PE field [12:10] CLEARED (the bare 10-bit id), on top of padstruct.md "
+                  "+ gfix.md + bankgate.md/bg2.md")
+    td = dict(tm.pop("take7c"))
+    eoir = dict(td["eoir"])
+    eoir["id"] = hex(eoir_id)
+    eoir["value_kind"] = ("the BARE 10-bit id (id[9:0] only, the source-PE field [12:10] CLEAR) - "
+                          "take7c's full-IAR-word form (0x402) is ABSENT and is REFUSED by the "
+                          "emitter")
+    eoir["value_contract"] = ("0 <= id <= 0x3FF (padrca.md sec 4: the [12:10] field is the RCA's "
+                              "residue; a value with [12:10] set fails the BUILD)")
+    td["eoir"] = eoir
+    td["eoir_value_fix"] = {
+        "residue": ("three boots (take7/take7b/take7c) wrote the ack's FULL IAR word 0x402 and "
+                    "retired NOTHING; the ONE boot whose write retired the epoch (take6f) wrote "
+                    "the bare id 0x2"),
+        "operand": {"take7c": hex(TAKE7C_SELFTEST_EOIR_ID), "take7d": hex(eoir_id),
+                    "same_bits": "id[9:0] == 0x2 in BOTH",
+                    "differing_bits": "source PE [12:10] = 1 (take7c) vs 0 (take7d)"},
+        "changed_bytes": {"file_offset": hex(off + 51), "take7c": "40", "take7d": "00",
+                          "note": ("the ONLY byte of the 76-B force pad - and of the whole blob - "
+                                   "that differs from take7c")},
+        "counter_evidence": ("the firmware's OWN EOI at file 0x82f52 writes the RAW ack word (r7) "
+                             "and take5's I5 site reads RPR = 0xFF right after it, so the "
+                             "[12:10] field is NOT proven to be the comparator: that entry's own "
+                             "r7 is unmeasured (the 4-deep id ring cannot say whether the entry "
+                             "whose EOI was sampled acked the bare 0x2 or the 0x402, and a nested "
+                             "entry makes the two indistinguishable).  The queued boot is the "
+                             "ONE-variable test of this field."),
+    }
+    td["emitted_ops"] = {"check": NOTE_EMITTED_OPS, "ops": emitted,
+                         "scope": "10/10 = the eight retained flip stores (selpre pad) + the "
+                                  "PAGE-RELATIVE EOIR store with the source-PE field CLEARED AND "
+                                  "its r2 GICC-page setup (stk_eoir pad), each rebuilt "
+                                  "independently"}
+    td["note"] = NOTE_TAKE7D
+    tm["take7d"] = td
+    tm["padding"]["stk_eoir"] = {"file_offset": hex(off),
+                                 "code_length": len(code_eo), "code_hex": code_eo.hex()}
+    tm["selection"]["take7d_rule"] = (
+        "take7c's cells (IDENTICAL addresses) - take7d changes the EOIR OPERAND, not the layout")
+    tm["selection"]["take7d_note"] = NOTE_TAKE7D
+    return bytes(out), tm
+
+
 def make_take7(data: bytes, barmap: bytes, refs: set[int], eoir_id: int):
     """take7: take6f's instrument byte-for-byte (every take6 pad, the four dropped take5 pads,
     the retained flip, the canaries and the sites) EXCEPT that selpost_e is dropped and the chain
@@ -13673,7 +13871,7 @@ def main(argv: list[str] | None = None) -> int:
                                           "gicmask", "gicking", "gicunmask", "trigring", "trignat",
                                           "trigcons", "inta", "inta2", "inta3", "take1", "gicv2",
                                           "take2", "take4", "take5", "take6", "take6f",
-                                          "take7", "take7b", "take7c"),
+                                          "take7", "take7b", "take7c", "take7d"),
                     help="probe: one non-executed byte flip; scratch: the two instrumentation "
                          "stores; gicview: scratch + six device-side GIC reads into cells C0..C5; "
                          "gicsend: gicview + a third trampoline at the firmware's out[1] message "
@@ -13831,12 +14029,13 @@ def main(argv: list[str] | None = None) -> int:
                 eoir = (mj.get("take6f", {}).get("eoir")
                         or mj.get("take7", {}).get("eoir")
                         or mj.get("take7b", {}).get("eoir")
-                        or mj.get("take7c", {}).get("eoir") or {})
+                        or mj.get("take7c", {}).get("eoir")
+                        or mj.get("take7d", {}).get("eoir") or {})
                 eo_id = eoir.get("id")
                 if eo and eo_id:
                     e0 = int(eo["file_offset"], 16)
                     spans = (spans or []) + [(e0, e0 + int(eo["code_length"]))]
-                    if mj.get("variant") == "take7c":
+                    if mj.get("variant") in ("take7c", "take7d"):
                         # take7c's store is PAGE-RELATIVE through the r2 the pad sets itself, so
                         # the check rebuilds BOTH the store AND the base register's setup bytes (a
                         # wrong base CA fails exactly like a dropped `movt` half does).
@@ -13850,7 +14049,7 @@ def main(argv: list[str] | None = None) -> int:
                     # same value for its twelve reads, so take7c's spans are confined to the two
                     # pads that carry its ops (the bank pad's integrity is asserted by
                     # verify_disasm_take7 at build time).
-                    if bk and mj.get("variant") != "take7c":
+                    if bk and mj.get("variant") not in ("take7c", "take7d"):
                         b0 = int(bk["file_offset"], 16)
                         spans = spans + [(b0, b0 + int(bk["code_length"]))]
                     if eoir.get("hpp1_cell"):
@@ -13877,13 +14076,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not (args.out and args.variant):
             ap.error("--out and --variant are required (or use --selftest)")
-        if args.variant in ("take6f", "take7", "take7b", "take7c") and args.eoir_id is None:
-            raise PatchError("take6f/take7/take7b/take7c carry the RANKED EOIR force (eoir.md sec "
-                             "3 rank 1; take7/take7b/take7c write the CORRECTED full IAR word) "
+        if args.variant in ("take6f", "take7", "take7b", "take7c", "take7d") \
+                and args.eoir_id is None:
+            raise PatchError("take6f/take7/take7b/take7c/take7d carry the RANKED EOIR force "
+                             "(eoir.md sec 3 rank 1; take7c writes the CORRECTED full IAR word, "
+                             "take7d the same write with its source-PE field [12:10] CLEARED) "
                              "and the id is not guessable - refusing to build without an "
                              "explicit --eoir-id")
-        if args.variant not in ("take6f", "take7", "take7b", "take7c") and args.eoir_id is not None:
-            raise PatchError("--eoir-id is only meaningful with --variant take6f/take7/take7b/take7c")
+        if args.variant not in ("take6f", "take7", "take7b", "take7c", "take7d") \
+                and args.eoir_id is not None:
+            raise PatchError("--eoir-id is only meaningful with --variant "
+                             "take6f/take7/take7b/take7c/take7d")
         if os.path.abspath(args.out) == os.path.abspath(args.fw):
             raise PatchError("refusing to overwrite the input blob in place")
         if not os.path.exists(args.barmap):
@@ -13925,6 +14128,8 @@ def main(argv: list[str] | None = None) -> int:
                          if args.variant == "take7b"
                          else make_take7c(data, barmap, refs, args.eoir_id)
                          if args.variant == "take7c"
+                         else make_take7d(data, barmap, refs, args.eoir_id)
+                         if args.variant == "take7d"
                          else make_gicunmask(data, barmap, refs))
         manifest.update({
             "tool": "tools/patch_fw_scratch.py",
