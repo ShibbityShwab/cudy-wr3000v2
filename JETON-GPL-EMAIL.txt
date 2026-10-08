@@ -8,18 +8,72 @@ Jeton-AX3000-Core_V3.1.00-260924_JETONTECHver (OpenWrt 22.03.6-r23439, target
 hisilicon/luofu, chip luofu_V200, product wrt_hg5013_4g_h2, product version
 ChenTang_1.2.16.linux0).
 
-That firmware distributes GPL-licensed software in binary form: the Linux kernel 5.10.201,
-U-Boot, BusyBox, opkg and the other GPL packages of the OpenWrt base.
+That firmware distributes GPL-licensed software in binary form: the Linux kernel 5.10.201, the
+U-Boot bootloader, BusyBox, opkg and the rest of the GPL packages in the OpenWrt base. It also
+ships a set of loadable kernel modules built from GPL-licensed sources, and those are covered by
+the same obligation.
 
-Under GPLv2 sections 3(a)/3(b), I request the complete corresponding source code for those
-GPL-licensed components as you distribute them, including:
+Under GPLv2 sections 3(a)/3(b), I request the complete corresponding source code for the
+GPL-licensed components exactly as you distribute them, including:
 
 1. the Linux kernel sources with the luofu/hi5671y/hsan platform modifications and the build
    configuration (defconfig, device trees);
-2. the U-Boot sources for this board;
-3. the source or build recipes for the other GPL packages in the image.
+2. the vendor kernel modules shipped in /lib/hisilicon/ko, in particular the Wi-Fi stack
+   hi5622v100_wifi.ko and hi5622v100_plat.ko, hi_basic.ko, hi_crg.ko, hi_clk.ko, hi_efuse.ko,
+   hi_flash.ko, hi_acp.ko, hi_kipc.ko, and the hi_kcfe_* module family, together with their
+   Makefiles, Kconfig entries and headers;
+3. the firmware files distributed under /lib/firmware/hi_wifi (FIRMWARE.bin and the two
+   configuration files that sit beside it), or the source and build recipe for them;
+4. the boot chain sources: the esbc and the U-Boot for this board. The device mtd table keeps two
+   U-Boot slots (uboot a and uboot b), so state clearly whether both are built from the same
+   source tree and provide that tree with its board configuration and device tree;
+5. the OpenWrt/LuCI sources for the version you ship (22.03.6), the target and device profile for
+   luofu_V200, the LuCI controllers in the rootfs, and the source or build recipes for the other
+   GPL packages in the image.
 
 The vendor SDK flow identifiers for this platform are hisi_trunk / opal22, chip luofu_V200.
-Please provide a download link, or a written offer valid for at least three years.
+Please provide a download link, or a written offer valid for at least three years. If any item
+above is licensed differently, say which and where its source can be obtained, because I'm asking
+for the corresponding source of the binaries you actually ship, not a general SDK drop.
 
 Thank you.
+
+---
+
+CHANGELOG
+
+2026-10-09 - Rewrote the component list so it names what the firmware actually ships, not just
+"the kernel and U-Boot".
+
+What changed:
+
+- Added the vendor kernel modules in /lib/hisilicon/ko as an explicit item, and named the stack
+  the request actually turns on: hi5622v100_wifi.ko and hi5622v100_plat.ko. Both carry
+  license=GPL v2 in their own module metadata, so they're in scope on their own terms.
+- Named the rest of that directory by category (platform, clock and reset, efuse, flash, acp,
+  kipc, kcfe) and asked for whatever else /lib/hisilicon/ko holds. I did not re-list the
+  directory in this checkout, so the letter points at it rather than naming files I can't see. See
+  the caveat below.
+- Added the /lib/firmware/hi_wifi files as an item, with the caveat that a binary blob may not be
+  GPL at all and the sender should say so rather than send nothing.
+- Split the boot chain into esbc plus U-Boot, and mentioned the two U-Boot slots from the mtd
+  table so a reply can't quietly cover only one of them. This matches the bootmenu's own TFTP
+  update commands (ubootupdate_eth, esbcupdate_eth).
+- Split OpenWrt/LuCI out of the old catch-all third item, so the vendor's private luofu_V200
+  target profile and the LuCI controllers are asked for by name.
+- Kept the tone, the greeting, the closing, and the hisi_trunk / opal22 flow identifiers.
+- Structurally it's the same letter the facts around it are drawn from: same items in the same
+  order as CUSTOM-FIRMWARE-PLAN.md section 4, plus the GPLv2 3(a)/3(b) framing the original used.
+
+Why: the first draft asked for "the U-Boot sources" and "the other GPL packages", which let a
+reply stop at upstream U-Boot and upstream OpenWrt. The vendor-specific pieces are the modules,
+the board boot chain, and the private target, so those had to be named.
+
+One caveat on the module list, recorded here rather than in the letter: the unpacked stock rootfs
+this repo used to verify names (rootfs-2.4.15/squashfs-root/lib/hisilicon/ko/) is not present in
+this checkout, so I could not re-run that directory listing. Every module name in the letter does
+appear in this repo's tracked text: hi5622v100_wifi.ko and hi5622v100_plat.ko are recorded with
+their license metadata in the submodule's ko_map evidence, and hi_clk.ko is cited from a live
+capstone pass over the stock module in mem-entries.md. Anything I could not see is described by
+category, not named, so the letter cannot misname a file that isn't there. Before sending, re-run
+the unpack and confirm the listing.
