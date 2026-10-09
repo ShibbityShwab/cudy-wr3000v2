@@ -2510,3 +2510,52 @@ The diagnostic now parks our own 172-byte read of that record, with err and retl
 where `devmem` can compare it against the vendor's all-zero-plus-CRC.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50an (2026-10-09): THE INSTRUMENT WAS CORRUPTING THE DRIVER - a whole line of readings was my own cross-talk
+
+**The parked record came back containing my own console ring:**
+
+```
+29 0a 0a 3c 34 3e 5b 20 20 20 20 34        ")  \n\n<4>[    4"
+```
+
+**And the FMC driver allocates its DMA landing zone like this:**
+
+```c
+	fmc->dma_buf = dmam_alloc_coherent(dev, 0x2200, &fmc->dma_addr, GFP_KERNEL);
+	writel(fmc->dma_addr, fmc->regs + FMC_SADDR_D0);
+	memcpy_fromio(data, fmc->dma_buf, fmc->spec.page_size);
+```
+
+**The allocator picked `0x80600c00` - the very region I had chosen as "proven-inert"
+because a 4-byte breadcrumb cell at `0x80600f20` had survived there for many fires.**
+The hardware reads each flash page into that buffer; **my 512-byte console ring was rewritten
+over it on every single printk**, so `luofu_fmc_read_page()` copied my log out instead of the
+page. **UBI's `vtbl_check` complaint, and the garbage header fields before it, were produced by
+the instrument observing them.**
+
+**The reasoning error, stated plainly: I generalised "a small write here survived" into "this
+region is free", without ever asking who *else* owns it.** A 4-byte breadcrumb between reads is
+harmless; a kilobytes-per-second ring inside a DMA landing zone is not.
+
+**Both buffers now come from `dmam_alloc_coherent()` and collide with nothing.** The log ring's
+physical address is stamped into a crumb (step 44) - the channel that has never lied, being I/O
+rather than RAM - and the log itself prints the diagnostic buffer's address, so **one 32-bit
+value bootstraps the whole readback with no hard-coded address left in the file.**
+
+**What this does to earlier conclusions, honestly:**
+
+| reading | status |
+|---|---|
+| offsets 0 and 2048 matching the vendor exactly | **still trustworthy** - those matched independent ground truth, which corruption could not have produced |
+| the record-6 garbage read, the `vtbl_check` bad CRC | **mine, not the device's** - withdrawn as evidence about UBI |
+| "the read path returns wrong data at non-boundary offsets" | **withdrawn** - it read my log, not flash |
+
+**And the important consequence: the compat patch has never once been tested on a clean
+instrument.** The next fire is the first that is, so **its reading - attach or refusal - is the
+first trustworthy measurement of UBI's real behaviour** rather than of my own cross-talk.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
