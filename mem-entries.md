@@ -2653,3 +2653,42 @@ this whole phase: each failure was real, and only the pair of them together iden
 region where neither applies.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ar (2026-10-09): THE LOG IS TRUSTWORTHY, UBI'S COMPLAINT IS REAL, AND THE FAULT IS OFFSET-DEPENDENT
+
+**The instrument finally works end to end.** The crumb gave the ring's address
+(`0x80603000` - **shifted from the `0x80602000` base, which means the collision check fired
+and moved it clear of the driver's DMA on its very first run**). The mark `0xc0de1055` was
+intact after a full vendor boot, the filter held, and **UBI's own words arrived clean:**
+
+```
+[    3.536281] ubi0: scanning is finished
+[    3.542833] ubi0 error: vtbl_check: bad CRC at record 6: 0xaae09698, not 0x000000
+[    3.620510] ubi0 error: ubi_read_volume_table: ...
+[    3.287525] ... attach_mtd_dev: failed to attach mtd14, error -22
+```
+
+**`scanning is finished` is the important half:** every VID header passed, **so the compat patch
+did its job**, and the failure is in the **volume table's data**.
+
+**And read through our driver with the clean diagnostic buffer, the fault is clear:**
+
+| offset | our read | vendor's flash |
+|---|---|---|
+| 0 | `"UBI#"` ✓ | `"UBI#"` ✓ |
+| 2048 | `"UBI!" 01 01 00 05 7f ff ef ff` ✓ | same ✓ |
+| **5128** (record 6) | **`66 CC` pattern of stale RAM**, `err=0`, `retlen=172` | **all zeros, CRC `f116c36b`** |
+
+**A read that claims success and returns memory instead of flash.** Not a header, not a CRC, not
+the instrument - a page read that is wrong for some offsets and right for others.
+
+**So the self-inflicted episode is closed and the real bug is now measured:** the diagnostic
+samples four offsets across the first PEB's page structure - 0, 2048, 4096 and 5128, each with
+its own err and retlen - to separate "a particular row is wrong" from "a particular within-page
+offset is wrong" from "the buffer is stale for repeated reads."
+
+**Device verified healthy after the fire:** 2 wiphys, 6 VAP interfaces, `OpenWrt` on the vendor
+stack, **zero `.omo-*` leftovers**, uptime 1 minute. `kernela` md5 `627436504c370da82ea61c2c9018b2ab`.
