@@ -1096,3 +1096,54 @@ recorded, and it is why the root= step is still held back for its own fire with 
 
 **Health.** The router came back on 2.4.15 by itself and is unchanged. This is the third
 consecutive fire in which the only device mutation was the `kernela` write and its reboot.
+
+
+---
+
+## Phase 50i (2026-10-09): THE SECOND MTD FIRE - the registration works, and the panic it exposed was one unallocated field
+
+**Two results in one fire, and both are progress.**
+
+**1. The MTD device now registers.** CI `37980541714` on `4417f43` built green and was
+fired. The cells read:
+
+```
+C18 = 0xC0DE5009     the driver's step-9 crumb
+C1C = 0x50010009     the step-9 PROGRESS marker - NOT a failure
+```
+
+`0x50010009` is `LUOFU_RPT_STAGEB(9)`, the "step reached" value, not `0xE0000009`. So
+`luofu_fmc_register_mtd()` **returned success**: `MTD_NO_ERASE` was the whole of that
+problem, and the device tree's 17 partitions are now being parsed.
+
+**2. And the kernel then panicked in step 10 - the crumbs said where.** `C18` stayed at
+`0xC0DE5009`, the driver's step-9 crumb, which means the mach's `late_initcall` crumb never
+ran: the kernel died between the step-9 write and the step-10 write. The only code in that
+gap is `get_mtd_device_nm("rootfsb")`, and reading `mtdcore.c` cleared it - that function
+cannot block (it returns `-ENODEV`), and `mtd_read_oob_std()` passes the **master** mtd to
+`->_read`, so `mtd->priv` is our `fmc` and the offset translation is correct.
+
+**The bug was one field, and it was mine.** `luofu_mtd_read()` reads into
+`fmc->page_buf`, and `page_buf` was **never allocated**: the probe allocated a *local*
+`page` for the stage-B read and left the struct member NULL. So `mtd_read()` reached
+`memcpy_fromio()` with a NULL destination and the kernel panicked. Fixed by
+`fmc->page_buf = page`, so the stage-B frame and the mtd read hook's frame are one
+allocation, assigned before either the stage-B read call or the registration can use it
+(commit `e99fdc3`). The other fields the hook touches were checked and are all set.
+
+**The second symptom, now explained.** This fire took roughly **ten minutes** to come back
+instead of the usual two. C18 = 0xC0DE5009 says the kernel never reached `late_initcall`,
+so a hang is excluded - it must have panicked, and `panic=5` plus the mach's `.restart`
+reboots. Ten minutes is several panic/reboot cycles before the bootreg machinery flipped to
+the vendor, versus the single cycle the earlier fires needed.
+
+**Why this is the crumb protocol working, not failing.** The step-by-step markers have now
+converted two silent failures into located ones: the first fire's `0xE0000009` named the
+step that failed, and this one named a bug **by where it did not write** - the missing
+step-10 crumb is what proves the death was between the two writes. A single "did it work"
+cell could not have carried either.
+
+**Health.** The router came back on 2.4.15 by itself and is healthy; the only device
+mutation was the `kernela` write and its reboots. The fire's wait loop tolerated the longer
+recovery without intervention, which is worth knowing for future firmware that panics
+earlier in the boot.
