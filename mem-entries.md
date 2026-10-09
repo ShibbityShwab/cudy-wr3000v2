@@ -2471,3 +2471,42 @@ complaint, or shows that UBI said nothing specific at all - and both are answers
 fires could not give.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50am (2026-10-09): UBI'S OWN WORDS - `vtbl_check: bad CRC at record 6` - and a correction about fields I dismissed
+
+**The instrument fix paid for itself immediately.** Keeping only chunks containing `"ubi"` in the
+console ring turned four identical readings into a specific one:
+
+```
+[    3.545553] ubi0 error: vtbl_check: bad CRC at record 6: 0xaae09698, not 0x000000
+[    3.482402] UBI error: cannot attach mtd14
+```
+
+**`vtbl_check` - the volume table, not the VID header.** Which means two things at once:
+
+- **the compat widening DID work**: UBI read the layout volume and got all the way to validating
+  its records, then rejected record 6. The previous phase's patch moved the failure *forward*
+  even though it did not end it;
+- **and the fields I dismissed two phases ago were real all along.** I called `upd_marker 138`
+  and `name_len 1873` artifacts of a scrambled buffer. **They are `ubi_vtbl_record` fields**, and
+  I misattributed them to a VID header without checking. The instrument was noisy and my reading
+  of it was wrong, and both were mine to fix - the first by parking bytes at fixed addresses, the
+  second by checking a field name against the source before calling it noise.
+
+**Ground truth from the vendor's own MTD driver at the record's offset (5128):** the record is
+**EMPTY - all zeros - with a VALID CRC of `0xF116C36B`.** UBI instead computed `0xaae09698` and
+saw a stored CRC of **zero**. **So what this read path returns at byte 5128 differs from what is
+on the flash.**
+
+**And 5128 is the interesting number:** it is `4096 + 6 * 172` - record 6 of the layout volume's
+first LEB, at the EC header's `data_offset`. **Every offset this driver has ever been checked at,
+0 and 2048, is a page boundary. This one is not.** A partial offset within a page is exactly what
+`luofu_mtd_read()` computes and **nothing has ever verified**.
+
+The diagnostic now parks our own 172-byte read of that record, with err and retlen ahead of it,
+where `devmem` can compare it against the vendor's all-zero-plus-CRC.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
