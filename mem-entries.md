@@ -1948,3 +1948,56 @@ same correction I had to make once already in this phase, when `0x80608000` turn
 guideline rather than a line.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50aa (2026-10-09): THE KERNEL NEVER PANICS - six faults, all real, all about a moment that never arrives
+
+**The panic notifier answered its own question by NOT firing.** `C18` stayed at the stage-D
+hook's crumb (`0xC0DE500B`) instead of becoming step 42, and the buffer was empty again. By
+the rule written into that instrument, **an absent crumb means the kernel never entered
+`panic()` at all.**
+
+**That reframes the whole exercise.** The kernel does not die - it **hangs** where the root
+device never appears: UBI refuses to attach, so `ubiblock0_0` never exists and `rootwait`
+keeps it waiting. Something then resets the box. **A hang calls neither `kmsg_dump()` nor any
+notifier**, which is why every panic-based design returned an empty buffer no matter how many
+of its own faults were repaired.
+
+**Six faults, every one real, every one about a moment that never arrives:**
+
+| # | fault | separated by |
+|---|---|---|
+| 1 | ramoops cmdline params were fatal | the artifact diff |
+| 2 | the region was inside our own kernel | my own scrub rule, applied halfway |
+| 3 | `ioremap` refuses RAM on ARM | the armed mark's absence |
+| 4 | a live write into our `.data` killed the boot | the late_initcall crumb |
+| 5 | `max_reason` filtered out the only dump | the kernel's own source |
+| 6 | **the panic never happens** | the panic notifier's absent crumb |
+
+**So the capture stops waiting for a die.** A 3-second timer schedules a workqueue job that
+snapshots the current log into the buffer - so whatever the kernel is doing when it finally
+goes down, **the buffer already holds the most recent log, because it was written while the
+kernel was still running.** A workqueue rather than the timer callback directly, because
+`kmsg_dump_get_line` takes printk's internal lock and must not run in softirq context.
+
+**And the vendor's own memory map explains the preservation rule as a plain fact:**
+
+```
+80600000-87ffffff : System RAM
+  80608000-80fdcfff : Kernel code
+```
+
+**The vendor's kernel does not load at `0x80008000` - it decompresses to `0x80608000`.** That
+is why everything below that address survives a vendor boot, and it is the first **external**
+confirmation of the address choice, which until now rested on a single cell from our own
+earlier work. Buffer B at `0x80600c00` straddles the proven `0x80600F20` and sits wholly below
+the vendor's kernel.
+
+**The generalisable lesson, and it is the sharpest one in this phase:** when an instrument
+fails silently, its *trigger* must be verified before its *mechanism* is repaired. Six
+correct repairs to the mechanism taught nothing, because the event being instrumented never
+occurred. One crumb on the trigger channel settled it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
