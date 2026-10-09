@@ -2001,3 +2001,45 @@ correct repairs to the mechanism taught nothing, because the event being instrum
 occurred. One crumb on the trigger channel settled it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ab (2026-10-09): BOTH MAPPING APIS RETURN NULL FOR THIS RAM - so address it through `__va`
+
+**The snapshot-timer build booted full-op and the buffer was still untouched.**
+`0x80600c00` read `0x66EC66CC`, and every word around it carried the repeating `66CC` pattern
+of RAM nothing has ever written.
+
+**That could only mean `luofu_log_b` was itself NULL** - because the timer fires three seconds
+after the probe, and each of the two candidate excuses was checked and eliminated from the
+kernel's own source rather than argued:
+
+- **the timer path is safe** - `kmsg_dump_get_line()` takes `logbuf_lock` via
+  `logbuf_lock_irqsave`, and `logbuf_lock` is a **`DEFINE_RAW_SPINLOCK`**: taken with interrupts
+  off, it neither sleeps nor needs process context, so a timer callback may call it;
+- **the workqueue was running** - `init/main.c` calls `workqueue_init()` at line **1511**,
+  before `do_basic_setup()` at **1526** and `prepare_namespace()` at **1538**, so workers exist
+  long before the root-device wait.
+
+**So both mapping APIs failed on this RAM.** `ioremap()` refusing RAM is documented ARM
+behaviour; `memremap()` turned out to be no better here. **Two APIs, two failures, and no mark
+to show for either** - and the earlier inference that "the armed write corrupted the kernel,
+therefore the mapping works" was wrong for the same reason: with no write possible, that death
+had another cause entirely.
+
+**Both are now gone; the buffers are reached through `__va()`.** These addresses are ordinary
+RAM inside the devicetree's memory node - the vendor's own map shows `80600000-87ffffff` as
+System RAM - so the linear map already covers them and `__va()` is simply where that memory
+lives from kernel code. **No new mapping to fail, no cache-type to get wrong.**
+
+Cached writes through the linear map are acceptable for a **measured** reason: an earlier
+instrument in this phase wrote 4-byte breadcrumbs into this same region through this same kind
+of mapping, and those values survived a reset and were read back with `devmem` from the vendor
+system.
+
+The workqueue is gone too - the copy now runs directly in the timer callback, removing a
+moving part. Buffer B stays at `0x80600c00` with 1 KiB, ending exactly at `0x80601000` and so
+never touching the ATAG the vendor itself reads there.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
