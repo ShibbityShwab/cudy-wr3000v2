@@ -1821,3 +1821,43 @@ for the ramoops parameters, and the armed mark did it here - each time by writin
 that *should* be there if the mechanism worked, so that its absence means one specific thing.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50x (2026-10-09): THE FIRST BOOT THAT COMPLETED EVERY INITCALL - and two placement errors it exposed
+
+**The memremap build booted further than any before it.** `C18 = 0xC0DE0020` is the mach's
+**late_initcall** crumb, meaning **every initcall completed** - and then the kernel died before
+`late_initcall_sync`, leaving `C1C` at its earlier stage-B value (`0x23494255`, the ASCII
+"UBI#") so the stage-D hook never ran at all. The armed marks read:
+
+```
+ARMED_B (0x80606000) = 0x00000000
+ARMED_A (0x809A0000) = 0xE34C1094   (ARM code, not a mark)
+```
+
+**Two placement errors, both now fixed, and one piece of good news.**
+
+**1. Writing B while the kernel was alive is what killed it.** The armed mark went into our own
+`.data`, where four live bytes break a structure the kernel reads later - which is exactly why
+the death *moved forward* to late_initcall time rather than disappearing. Nothing is written at
+registration now; both buffers are written **only from the panic path**, when the kernel is
+already dead and corrupting its data can cost nothing but the reboot it is about to perform.
+
+**2. The vendor's scrub line is lower than `0x80608000`.** B read back **zero**, and the record's
+boundary had been treated as exact. The address actually *proven* to survive is the old
+breadcrumb cell at **`0x80600F20`** - so the buffer moves to **`0x80600000`, 4 KiB**, a window
+that ends at `0x80601000` and so stays clear of the flash-size ATAG the vendor itself reads
+there, while containing the proven address.
+
+**And the good news, which is the important half:** the armed write to B **did happen** - that is
+precisely what killed the kernel. **So `memremap()` returned non-NULL and the mapping mechanism
+now works.** The `ioremap`-refuses-RAM diagnosis was right, the fix took, and what remains is
+purely *where* and *when* to write. The instrument is sound.
+
+**The armed mark is retired** - a mark that only ever gets scrubbed, or only ever corrupts the
+kernel, teaches nothing that the panic log will not teach more directly. The panic mark
+`0xC0DE1055` is unchanged.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
