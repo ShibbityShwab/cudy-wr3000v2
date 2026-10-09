@@ -1643,3 +1643,55 @@ vendor preserve it?" was answered and correct, while "does our own image already
 there?" was never asked. The `Image` size was printed in every manifest this phase produced.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50t (2026-10-09): THE ARTIFACT DIFF NAMED THE KILLER - the ramoops cmdline params - and the capture moves to a kmsg_dumper that needs none
+
+**The second ramoops attempt died identically.** `C18 = 0xC0DE0003` again, never reaching
+`0xC0DE0010`, and the readback empty again. So neither of my two fixes was the cause, and the
+death is still between `init_machine` and the first initcall.
+
+**Then the diff settled it in one line.** The two build artifacts - the EC-scan build that
+booted fine and the ramoops build that did not - **differ in exactly ONE config line out of
+2914: `CONFIG_CMDLINE`.** Everything else is byte-identical.
+
+```
+< CONFIG_CMDLINE="panic=5 ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs rootwait init=/nonexistent-init"
+> ...same... + ramoops.mem_address=... mem_size=... record_size=... console_size=... ftrace_size=... pmsg_size=...
+```
+
+So the six ramoops parameters alone were fatal. And they act exactly where the crumbs had
+already placed the death: `parse_args()` runs **after `setup_arch` (hence after
+`init_machine`) and before any initcall** - the precise window `C18 = 0xC0DE0003` reports.
+
+**Two earlier guesses were real defects but not this one,** and both are worth keeping as
+such: the first region *was* inside our own kernel image, and `ignore_loglevel` *was* a
+gratuitous addition that would flood the early console path. They were right to fix and wrong
+to blame, which is the difference between a defect and a cause - and the way to tell them
+apart was to compare two artifacts rather than to reason about the code a third time.
+
+**So the mechanism changes rather than the parameters.** `ramoops` is out and the driver
+registers a **kmsg_dumper**:
+
+- it takes **no command-line parameters at all**, so the fatal path is never touched;
+- it fires on the **panic this kernel already takes at the rootfs mount**, which happens
+  *after* UBI has had its say at `late_initcall` - so the message we want is in the log;
+- and it writes to the same `0x809A0000`, chosen the same way: above our own `Image`
+  (9,984,344 bytes from `0x80008000`, ending about `0x8098D4D8`) and below the `0x80A00000`
+  ceiling of the flashinfo reserved window, so it is **both** outside our kernel **and**
+  reserved by the vendor's devicetree.
+
+The buffer is 128 KiB, the walk is bounded by that size so a long log cannot overrun it, and
+registration is the **last** thing `probe()` does so a missing buffer cannot spoil any
+measurement above it. The API was checked against 5.10's own `kernel/printk/printk.c`
+(`kmsg_dump_register`, `kmsg_dump_get_line`, `kmsg_dump_rewind`, all with the
+`struct kmsg_dumper` signatures) rather than recalled.
+
+**The generalisable move, because it is now twice in one phase:** when a change breaks boot
+and more than one thing changed, **diff the two artifacts** before theorising about which
+change did it. A 2914-line config diff answered in one command what three rounds of reasoning
+had got wrong.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
