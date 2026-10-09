@@ -2324,3 +2324,50 @@ captured fragment shows the magic read correctly - **so a field failed validatio
 suspicion is on the geometry this driver hands UBI rather than on the read.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50aj (2026-10-09): THE READ PATH IS EXONERATED, AND THE REJECTION HAS A NAMED LINE
+
+**The parked bytes settled it, and they settled it in the read path's favour:**
+
+```
+META:      err0=0 rl0=32   err1=0 rl1=32
+AT0  @   0: 55 42 49 23 01 ...                        "UBI#"   - matches the vendor exactly
+AT2K @2048: 55 42 49 21 01 01 00 05 7f ff ef ff       "UBI!" version 1 vol_type 1 compat 5 vol_id 0x7FFFEFFF
+```
+
+**Also matching the vendor exactly.** So the flash is right, the driver reads it right at both offsets,
+and **`validate_vid_hdr()` is rejecting a byte-perfect header** - which is the one outcome that
+puts the whole fault on the *comparison*, not the bytes.
+
+**And the comparison has a named line.** In 5.10:
+
+```c
+	if (vol_id >= UBI_INTERNAL_VOL_START && compat != UBI_COMPAT_DELETE &&
+	    compat != UBI_COMPAT_RO && compat != UBI_COMPAT_PRESERVE &&
+	    compat != UBI_COMPAT_REJECT) {			/* the set is {0,1,2,3} */
+		ubi_err(ubi, "bad compat");
+		goto bad;
+	}
+```
+
+**Our header carries `compat = 5`, and the vendor's own dump shows the same `05`** - so the
+vendor's UBI accepts a value this kernel's does not. For a vendor-written flash, that is a
+plausible shape for the whole failure.
+
+**But the captured log showed a DIFFERENT PEB failing** - its `ubi_dump_vid_hdr()` reported
+`vol_type 102`, a value no valid header ever carries, and that was not the PEB just verified.
+**So rather than patch on an inference, the next fire scans every PEB's VID header** (the 128 the
+region covers), mirroring `validate_vid_hdr()`'s own checks - magic, `vol_type` in {1,2},
+`compat` in {0..3}, header CRC - and parks pass count, first failing PEB, and that PEB's fields
+at `0x80600e00`, away from the console buffer the panic dump overwrites.
+
+**And a defect of mine caught before it shipped:** the first version of that block reused `part`
+after the earlier `put_mtd_device()` had already released it - a use-after-free. The scan now
+re-acquires the device and releases it on every exit path, and **the validation checks
+acquisition/release counts rather than structure alone** - the same gap as the declaration-order
+failure one phase earlier: the check has to test the property that actually matters.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
