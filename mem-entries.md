@@ -2078,3 +2078,51 @@ should be - each of which had to be made to name its own cause. The last one was
 boolean.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ad (2026-10-09): ONE TOKEN EXPLAINS EVERYTHING - `rootwait` spins forever, so the kernel never panics and the capture never runs
+
+**The mark was there and the text still was not** - and `B1` read `0x62C46600`, **byte-identical to
+the previous fire's `W1`**, which is what proved those bytes were stale RAM rather than output.
+So `kmsg_dump_get_line` still returned false even with `active` set by hand.
+
+**Then `init/do_mounts.c` supplied the answer, in five lines:**
+
+```c
+	if ((ROOT_DEV == 0) && root_wait) {
+		while (driver_probe_done() != 0 ||
+		       (ROOT_DEV = name_to_dev_t(saved_root_name)) == 0)
+			msleep(5);
+	}
+```
+
+**`/dev/ubiblock0_0` can never appear, because UBI refuses to attach. So with `rootwait` on the
+command line the kernel SPINS THERE FOR EVER** - it does not panic, does not die, does not
+reboot. It waits.
+
+**And that single fact accounts for every anomaly of the last four fires, with no conjecture:**
+
+| observation | explanation |
+|---|---|
+| the panic notifier's crumb was **absent** | the kernel genuinely never entered `panic()` - exactly what that instrument was built to report |
+| the dumper was never invoked | `kmsg_dump()` runs only from the panic path |
+| setting `active` by hand produced **no text** | the iterator's real precondition was never satisfied either |
+| the box still **returned** | something resets a hung board - which is why every fire looked like a kernel that had "died" |
+
+**The fix is to remove `rootwait`.** The same failure then reaches `mount_block_root()`, every
+filesystem fails, and the kernel **panics** - the path this entire mechanism was designed for,
+and the one on which `kmsg_dump()` initialises the iterator itself. UBI's message, logged at
+`late_initcall` *before* the wait, is then in the ringbuffer and gets captured. `panic=5` stays
+in the same single `CONFIG_CMDLINE` value, so the panic still reboots and returns the box, and
+the timer remains as a second independent path.
+
+**The lesson, and it is the last one this instrument has to teach:** every one of the eight
+designs failed for a *different* reason, and the reason the *trigger* never fired was a single
+command-line token that had been sitting in the string since the very first fire. **Verifying
+that the trigger occurs is worth more than any amount of repairing the mechanism** - and the
+sound of a trigger that never fires is silence, which looks exactly like a mechanism that works
+and finds nothing to say.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
