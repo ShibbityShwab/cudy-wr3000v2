@@ -529,3 +529,17 @@ Clean sequence for a fresh session: revert to the exact 6d904f5 content; add ONL
 minimal inline-asm reader (hardcoded descriptor 0x2E8/VA 0xC06082E8 in the pad-less
 tree - verified); fire; if 0020 read cells at 0x8F000F20; then re-introduce the sweep,
 C-disable, dice one at a time with a fire each.
+
+### 2026-10-09 (MEASUREMENT COMPLETE) - the walk's patches are absent in BOTH classes
+
+The working instrument, finally: exact 6d904f5 baseline + a 12-instruction inline reader
+at the 0x17 site (descriptor hardcoded 0x80608244), cells at 0x80600F20/24 in the
+proven-surviving zone (0x8F000F20 is zeroed by the vendor boot - measured with a
+sentinel-reboot test).  It boots 0020; its cells read 0x00000001 (STOCK) and 0xC0000000
+(the delta, exactly as predicted - instrument validated).  => the alternative-site word
+is STOCK in the booting class too; the class difference is NOT about the walk's patches.
+Chain for the absence: walk stores -> D-cache (C=1 legacy) -> v7_invalidate_l1 (in
+v7_setup, invalidate-only) discards the dirty lines -> patches never reach RAM in ANY
+boot.  The reader survives because it runs after that invalidate.  Remaining question,
+now cleaner: why the same patchless code survives the mcr in one layout and not another
+(the byte-diff facts: descriptor bounds shift + post-0xF94CC layout).
