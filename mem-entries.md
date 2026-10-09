@@ -2614,3 +2614,42 @@ at all.** The notifier now stamps its step with `(u32)(uintptr_t)luofu_log_dma`,
 last writer to touch the crumb in a boot, its value is the one that survives.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50aq (2026-10-09): THE CRUMB WORKS, A COHERENT BUFFER DOES NOT SURVIVE, AND THE FIXED ADDRESS WAS RIGHT ALL ALONG
+
+**The crumb mechanism works.** `C1C = 0x820F2000` - the panic notifier's stamp survived and gave
+the log ring's physical address exactly as designed.
+
+**And the read there returned the vendor's own kernel text:**
+
+```
+"evices/platform/mtd/mtd0/mtdbl"
+"boot_done"
+```
+
+**Nothing in it contains "ubi", which the ring's filter guarantees if the ring were intact.** So
+the coherent allocation was **reclaimed by the vendor's kernel** when it booted. This kernel has
+no CMA, so `dmam_alloc_coherent()` is served from **ordinary System RAM** - and **a buffer in
+plain RAM does not survive a vendor boot.**
+
+**Which means the fixed address was the right answer all along.** The window below
+`0x80608000` survives every vendor boot because that is where the vendor's kernel does **not**
+load - a breadcrumb cell at `0x80600f20` there has survived dozens of fires. **The corruption
+that sent this phase sideways was never the address. It was that the FMC driver's DMA landing
+zone had been allocated *into* those same bytes**, so a console ring rewritten on every printk
+overwrote the staging buffer the hardware reads flash pages into.
+
+**So: fixed addresses in the surviving window** (`0x80602000`, clear of the ATAG at
+`0x80601000`), **and the driver checks at registration that they do not overlap its own DMA
+buffer, shifting up a slot if they do.** The chosen address is stamped into the crumb, so the
+readback never has to guess. The log keeps only UBI's output, so its small ring holds every UBI
+line however long the boot runs.
+
+**Two wrong answers, both measured, and the right one bracketed by them.** That is the shape of
+this whole phase: each failure was real, and only the pair of them together identified the
+region where neither applies.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
