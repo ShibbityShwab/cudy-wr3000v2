@@ -1695,3 +1695,48 @@ change did it. A 2914-line config diff answered in one command what three rounds
 had got wrong.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50u (2026-10-09): THE DUMPER BOOTS, THE LOG IS SCRUBBED - and I applied one rule while ignoring another from the same record
+
+**The boot is fixed.** `C18 = 0xC0DE500B` and `C1C = 0x5C2000FF`: the probe ran, the EC scan
+still passes 32 of 32, and the kernel completes its initcalls. That confirms what the
+artifact diff said - **the ramoops command-line parameters were the cause** of the two
+earlier early-boot deaths - and it clears the `kmsg_dumper` code of suspicion.
+
+**But its log read back EMPTY at `0x809A0000`, and the record had already said so.**
+Verbatim, from the earlier work: *"A cell for post-boot readback must live BELOW 0x80608000
+(the vendor kernel's own image span scrubs everything above on its return)."* I chose
+`0x809A0000` by applying the **"outside our own kernel"** rule - correct as far as it goes,
+since our `Image` spans `0x80008000` to about `0x8098D4D8` - and **ignored the "survives the
+vendor" rule that the same document had established.** Two rules, one applied.
+
+**And they CONFLICT for anything large.** The vendor-preserved zone is below `0x80608000`;
+our own image covers all of it. For a 4-byte cell that was workable - the old instrument
+wrote `0x80600F20` and it survived - but nothing of that size fits a log.
+
+**So both regions get a buffer, 8 KiB each, and the panic path writes both:**
+
+| address | why | expected |
+|---|---|---|
+| `0x809A0000` | outside our kernel | scrubbed by the vendor |
+| `0x80606000` | vendor-preserved | survives - but it is inside our `.data` |
+
+Writing into our own `.data` would corrupt a running kernel at any normal time; **at panic
+time it does not matter**, because the kernel is dead and its only remaining job is to
+reboot. So **nothing is written at registration** - the buffers are touched only from the
+panic path - and each opens with a magic word (`0xC0DE1055`) written *before* the log, so the
+readback distinguishes three cases that were previously indistinguishable: magic + text (ran
+and survived), magic with no text (ran, log empty), or all zeros (never ran, or scrubbed).
+
+The copy is circular - it wraps to the start when full - so what survives is the **newest**
+log, where the UBI message and the mount panic are, rather than the oldest boot messages.
+Writing both at once means one fire reports which region survives rather than needing two.
+
+**The pattern worth naming, because it is the third time in this phase:** the answer was
+already in my own notes and I applied half of it. The artifact diff found the ramoops cause
+the same way - by consulting evidence already on disk instead of reasoning forward again.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
