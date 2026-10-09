@@ -1249,3 +1249,52 @@ rootfs volume reads through it - i.e. the whole storage stack, with the only rem
 question being whether the kernel then mounts it. A `0xE000000B` means UBI did not attach.
 Either way `C18` should hold the mach's `0xC0DE0020`, because both paths complete the
 initcalls before the mount is attempted.
+
+
+---
+
+## Phase 50l (2026-10-09): THE ROOT-DEVICE FIRE - the hook ran, the volume name was my assumption, and what the cells cannot say
+
+**First, the artifact confirmed the near-miss fix.** The built config in the artifact carries
+`CONFIG_CMDLINE="panic=5 ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0
+rootfstype=squashfs rootwait init=/nonexistent-init"` - **`panic=5` is present**, so the
+duplicate-key trap recorded in phase 50k is genuinely closed, checked in the thing that was
+built rather than in the file that was edited.
+
+**The fire.** Both gates passed, the box came back by itself in the usual single cycle, and
+the cells read:
+
+```
+C18 = 0xC0DE500B     the driver's step-11 crumb - the late_initcall_sync hook RAN
+C1C = 0xE000000B     failed at step 11: ubi_open_volume_nm(0, "rootfs", UBI_READONLY)
+```
+
+So the root-device command line did not stop the kernel, UBI did not stop the kernel, and
+the stage-D hook executed and reported honestly. What failed is the hook's own lookup.
+
+**The volume is named `squashfs`, not `rootfs`.** One command on the live system answered
+it - `/sys/class/ubi/ubi0_0/name` reads **`squashfs`** (volume 0, static, 14,864,384 bytes),
+with `/sys/block/ubiblock0_0` present - and the offline check corroborates it from a
+different direction: the string `rootfs` occurs **zero** times in a decompressed dump of
+the partition. The volume was there all along; the hook was asking for a name I had
+assumed.
+
+**The fix removes the assumption rather than correcting it.** Open **by ID** -
+`ubi_open_volume(0, 0, UBI_READONLY)` - because "volume 0 is the rootfs" is the stable
+fact. And the same cell now answers both halves: the value is the squashfs magic `0x73717368`,
+**plus one** when `blk_lookup_devt("ubiblock0_0", 0)` resolves - the very call
+`name_to_dev_t()` makes for `root=/dev/ubiblock0_0`. So `0x73717368` means "the volume reads
+through UBI and the device root= names is resolvable", and `0x73717369` means "reads, but
+the block device does not resolve" (commit `4aee946`).
+
+**What this fire CANNOT say, stated plainly rather than glossed.** It cannot distinguish a
+mount that **succeeded** and then died at `init=/nonexistent-init` from a mount that
+**failed**. Both end in a panic, `panic=5`, and the vendor failover - which is exactly the
+design - and the cells look identical either way. That is the cost of the safety net: it
+makes the step safe to fire and it buys the ability to tell the cases apart with a separate
+observation. The next fire's cell is that observation: if the magic lands *and* the `+1`
+lands, then UBI attached, the volume reads, and the ubiblock device exists - and the mount
+itself is then mainline code with nothing board-specific left in it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router came back on
+2.4.15 healthy, as in every fire since 50b.
