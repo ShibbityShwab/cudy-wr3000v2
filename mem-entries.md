@@ -795,3 +795,70 @@ is "byte index -> 0x18-byte records"), so it needs the disassembly of
 **Health.** No device mutation whatsoever in this step: read-only `devmem` and
 `/proc/device-tree` reads. The router is as phase 50b left it - `WIPHY=2 IFACE=6`,
 cal `[SUCC]` both bands, `PSTORE=3` unchanged, zero leftovers.
+
+
+---
+
+## Phase 50d (2026-10-09): THE DMA OPERANDS ARE RECOVERED - the bootloader's flash-spec record, decoded and cross-checked
+
+Stage B needed `read_if_type`, `read_addr_cycle` and `read_dummy_num`. All three are
+now recovered, with a decode chain in which every step is checked against the geometry
+it must produce.
+
+**How the payload is laid out, from the consumer.** `tri_nand_probe` disassembles as:
+`index = *(u8 *)tri_get_flash_tag_info()`, then the record lives at
+`tag_info + 0x18 * index + 2`, and 52 bytes (`0x34`) of it are copied into the chip's
+spec, with a separate `0xa20`-byte blob memcpy'd from `spec + 0x34`. On this board the
+index byte is `0`, so the record is at **`0x8060102e`** - inside the tag `0x5441000a`
+found in phase 50c.
+
+**The record, read straight out of `/dev/mem`, field by field:**
+
+| off | field | value | cross-check |
+|---|---|---|---|
+| 0x00 | options | `0x40000400` | - |
+| 0x04 | tri_size | `0x08000000` | 128 MiB - the chip's size |
+| 0x08 | block_size | `0x00020000` | 128 KiB - the erase unit |
+| 0x0c | page_size | `0x00000800` | 2048 - matches UBI's I/O unit |
+| 0x10 | oob_size | `0x00000040` | 64 |
+| 0x14 | page_shift | `11` | 2^11 = 2048 ✓ |
+| 0x18 | erase_shift | `17` | 2^17 = 131072 ✓ |
+| 0x1c | bbt_erase_shift | `17` | - |
+| 0x20 | bbt_len | `0x100` | 1024 blocks / 4 blocks-per-byte ✓ |
+| 0x24 | ecc_type | `1` | - |
+| 0x28 | read_addr_cycle | **`5`** | |
+| 0x29 | write_addr_cycle | `5` | |
+| 0x2a | erase_addr_cycle | `3` | 0xd8 takes 3 address bytes ✓ (and the erase path hardcodes `0x30` = 3 cycles, agreeing) |
+| 0x2c | read_if_type | **`3`** | quad |
+| 0x2d | read_cmd | **`0x6b`** | READ FROM CACHE x4 |
+| 0x2e | read_dummy_num | **`1`** | |
+| 0x2f | write_if_type | `3` | |
+| 0x30 | write_cmd | `0x32` | PROGRAM LOAD x4 |
+| 0x31 | write_dummy_num | `0` | |
+
+**Why this is a decode and not a guess.** Three independent checks land at once:
+every size/shift field reproduces exactly the geometry mainline's `esmt_8c` entry gives
+for the F50L1G41LC (128 MiB / 128 KiB / 2048 / 64); the `erase_addr_cycle` value is
+corroborated by the erase code path hardcoding the same 3; and the whole thing is the
+record the vendor's own working driver consumes. The field *offsets* were not inferred
+either - they come from the DMA routine's own loads (`spec+0x28` and `spec+0x29` for the
+read/write address cycles, `+0x2c`/`+0x2d`/`+0x2e` for the read interface type, command
+and dummy).
+
+**The consequence that shapes stage B's implementation.** The device is configured for
+**quad** I/O (`read_if_type = 3`, `read_cmd = 0x6b`), and quad requires the die's
+configuration register (`0xb0`) to have its QE bit set - which the vendor's own driver
+does at boot via `enable-quad-mode`. Stage A's read showed `config = 0x00` precisely
+because this driver resets the die and writes no features. So the page read needs one
+SET FEATURES (`0xb0 |= 0x01`) first - a write to the die's *configuration* register,
+not to the flash array, and the same write the vendor performs on every boot.
+
+**The plan for the page read, and its pass condition.** Read the page at the start of
+`rootfsa` (chip offset `0x1e00000`, row `0xF00`) through the DMA engine and stamp its
+first four bytes into the result cell: if the path works and the partition really
+carries a UBI volume, that word is **`0x23494255`** = the ASCII `"UBI#"` of UBI's EC
+header magic. That makes the pass value self-describing - it is the data itself, not a
+proxy for it.
+
+**Health.** No device mutation in this step beyond what phase 50b left: the reads are
+`/dev/mem` and `/proc/device-tree`. Router unchanged.
