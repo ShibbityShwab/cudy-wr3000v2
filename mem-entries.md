@@ -1740,3 +1740,43 @@ already in my own notes and I applied half of it. The artifact diff found the ra
 the same way - by consulting evidence already on disk instead of reasoning forward again.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50v (2026-10-09): NEITHER BUFFER HOLDS THE MARK - so the dumper never wrote, and zeroes could not say why
+
+**The two-buffer fire booted cleanly** (`C18 = 0xC0DE500B`, `C1C = 0x5C2000FF` - probe ran, EC
+scan still 32/32) and then returned something I had not allowed for:
+
+```
+MAGIC_B (0x80606000) = 0x00000000
+MAGIC_A (0x809A0000) = 0xE34C1094
+```
+
+**Neither buffer holds the panic mark `0xC0DE1055`.** The A value is **ARM code**, not a number
+this driver ever wrote - so the vendor scrubbing the region above `0x80608000` is consistent
+with the record, and that half is explained. But **ZERO at B is not**: B is *below* `0x80608000`,
+the zone the record measured as surviving the vendor, so a successful write there should still
+be readable.
+
+**Both markless means the dumper never wrote at all** - so either both `devm_ioremap()` calls
+returned NULL, or `kmsg_dump_register()` failed, and the previous code could not tell either of
+those apart from "it ran and got erased". That is the same class of gap the step crumbs closed
+earlier in this phase: **an absence that cannot name its own cause.**
+
+**So each buffer now gets an ARMED mark (`0xC0DE10A0`) written at REGISTRATION time**, while the
+kernel is alive, which makes a single readback tell the three cases apart:
+
+| readback | meaning |
+|---|---|
+| `0xC0DE10A0` | the buffer was mapped - the mapping works, the dumper did not run |
+| `0xC0DE1055` | the dumper ran (it writes this over the armed mark) |
+| neither | the mapping failed, or the region was scrubbed |
+
+Four bytes per buffer, written once, and deliberately the size a previous instrument already
+proved survivable in exactly this region: the older breadcrumbs wrote 4-byte cells at
+`0x80600F20` inside the same `.data` for many fires without harm. The panic path is unchanged
+and still writes the log itself.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
