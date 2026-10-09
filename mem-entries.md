@@ -1599,3 +1599,47 @@ remaining question from an inference into a reading, and it makes every subseque
 this project legible rather than measurable.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50s (2026-10-09): THE FIRST RAMOOPS ATTEMPT KILLED THE EARLY BOOT - the crumbs localised it to a window, and two things were wrong
+
+**What the fire returned, and it was not a log.** `C18 = 0xC0DE0003`, `C1C = 0x18C5387D`, and
+the readback of both ramoops zones was empty.
+
+**Read against the mach file, those two values say exactly where the kernel died.**
+`LUOFU_CRUMB_DONE = 0xc0de0003` is stamped at the **end of `luofu_init_machine`**
+(`mach-luofu/luofu.c:138`) - and `C18` never reached `0xC0DE0010`, the `early_initcall`
+crumb. So this kernel **died between machine init and the very first initcall**, long before
+the driver's probe; and `C1C` still holding the head code's own `0x0018...` leftover confirms
+that nothing of ours ever ran. The empty log follows: `ramoops_init` is a `postcore_initcall`
+and had not been reached.
+
+**So the crumb protocol earned its keep for the fourth time** - a boot that produced no
+output at all still reported *which window* it died in, from two words in sysctrl.
+
+**Two things were wrong, and both are now fixed.**
+
+**1. The ramoops region was inside our own kernel.** `0x80602000` looked free because the
+record says cells below `0x80608000` survive the **vendor** - but that is a statement about
+the vendor not clobbering them, and it says nothing about our own image. Our `Image` is
+**9,984,344 bytes loaded at `0x80008000`**, so it spans to about **`0x8098D4D8`**, and an
+8 KiB log buffer at `0x80602000` would be written into the very code doing the writing. The
+flashinfo reserved area runs `0x80600000..0x80A00000`, so the window between our image's end
+and that ceiling is the one place that is **both** outside our kernel **and** reserved by the
+vendor's devicetree as well - which is what makes it survive the handover to be read back.
+The zone moves to **`0x809A0000`**.
+
+**2. `ignore_loglevel` is gone.** Its action lands in exactly the window where the kernel
+died - it floods the console path during early boot - and it is **unnecessary**: pstore's
+console callback receives everything at or above the console loglevel, and UBI's `ubi_err()`
+messages are `KERN_ERR`, so they arrive without it. It was a gratuitous addition made "for
+completeness", and it is removed rather than defended.
+
+**The lesson worth keeping, because it recurs in this project.** A region can be safe from
+the *other* kernel and fatal to *this* one, and the two questions are separate: "will the
+vendor preserve it?" was answered and correct, while "does our own image already live
+there?" was never asked. The `Image` size was printed in every manifest this phase produced.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
