@@ -2725,3 +2725,29 @@ The hook now enumerates every registered mtd with its name, type and geometry, t
 device UBI is actually using.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50at (2026-10-09): THE CI CAUGHT A WRONG API BEFORE A FIRE WAS SPENT
+
+**The enumeration build failed in CI, and the error was clean:**
+
+```
+luofu-fmc.c:944:25: error: implicit declaration of function 'mtd_for_each_device';
+did you mean 'class_for_each_device'?
+```
+
+**`mtd_for_each_device()` is a newer API; 5.10 has no such helper.** The idiom there is
+`get_mtd_device(NULL, i)` walking the index until it fails, releasing each device as it goes -
+which is what the hook now does. **The build gate did exactly its job: a wrong API cost a compile,
+not a device cycle.**
+
+**And the hypothesis the enumeration exists to test stands unchanged:** the four-offset sample
+produced reads with **`err=0` and `retlen=0`**, which `luofu_mtd_read()` **cannot** emit because it
+sets `*retlen = done` on every path returning 0 - and the payloads carry an **identical 14-byte
+stale patch at two different offsets**. **So `get_mtd_device_nm("rootfsb")` may not be resolving to
+the device this driver registered**, and if it is not, it is probably also what `ubi.mtd=rootfsb`
+picked. Printing every mtd with its name, type and geometry answers that directly.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
