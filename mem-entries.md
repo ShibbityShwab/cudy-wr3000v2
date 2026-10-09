@@ -1437,3 +1437,50 @@ a diagnostic that uses a different input than the code under test reports its ow
 it looks exactly like the kernel's.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50p (2026-10-09): THE ERRNO IS THE KERNEL'S, THE FLASH IS VALID - so the suspect is our READ, and the test is now aimed there
+
+**The corrected diagnostic settled the instrument question.** Attaching the **partition**
+(not the master) returns the **same `EINVAL`**, so `0xE1000016` is the kernel's error and
+not an artefact of my call.
+
+**And the flash itself is clean.** Every UBI-bearing PEB in a dump of that partition was
+checked, not a sample: **all 120** carry a valid EC header - `magic 0x55424923`, `version 1`,
+`vid_hdr_offset 2048`, `data_offset 4096`, `ec 0` - and the CRC checks out.
+
+**A convention worth writing down, because getting it wrong made the flash look broken.**
+UBI's `crc32()` is initialised with `0xFFFFFFFF` and carries **no final inversion**, so the
+value stored on the flash equals **zlib's `crc32` XOR `0xffffffff`**. Checking the dump with
+zlib alone reported **120 of 120** EC headers as corrupt when all 120 were fine. That is the
+same class as the offset errors this project has paid for before: a wrong *convention* returns
+a plausible wrong answer, and it is only caught by cross-checking against something that must
+agree. It is now a named constant in the driver (`LUOFU_UBI_CRC32_INIT`).
+
+**What remains, and it is now a narrow question.** UBI's attach rejects our partition with
+`EINVAL`; every `EINVAL` on that path has been accounted for from source and none should trip
+for this geometry; and the data on the flash is valid. The remaining suspect is **what our
+read path hands UBI**. So the hook now asks the flash directly: on a failed volume open it
+walks the first 32 PEBs of the partition and applies exactly `ubi_io_read_ec_hdr()`'s
+acceptance test - magic, version, `vid_hdr_offset`, `data_offset`, `ec` range and the CRC over
+the first 60 bytes.
+
+```
+0x5C2000FF              all 32 accepted -> the read path is fine
+0x5C<pass><first bad>   it stopped at that PEB
+0xE0000000 | errno      mtd_read() itself refused
+```
+
+The expected answer is known from the dump, so this is a comparison against a reference rather
+than a probe: the first 120 PEBs are valid, therefore **`0x5C2000FF` is the pass**, and any
+other value localises the fault - to the read path as a whole, or to one named PEB.
+
+**Caught before pushing, and worth the two minutes it took:** an earlier block replacement had
+dropped the `#define` for `LUOFU_ROOTFS_VOL_ID` while leaving both of its uses in place. That
+is a compile error, and with a 35-minute build cycle it is the expensive kind - the same class
+as the duplicated comment terminator three phases ago, and found this time by checking that
+every symbol the file uses is defined rather than by the compiler.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
