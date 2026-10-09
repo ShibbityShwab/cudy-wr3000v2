@@ -1861,3 +1861,55 @@ kernel, teaches nothing that the panic log will not teach more directly. The pan
 `0xC0DE1055` is unchanged.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50y (2026-10-09): THE FIFTH FAULT - the panic path only ever dumps EMERG, so PANIC filtered out the dumper
+
+**The placement fix worked.** The boot is back to full operation - `C18 = 0xC0DE500B`,
+`C1C = 0x5C2000FF`: the stage-D hook ran and the EC scan still passes 32 of 32, so **every
+initcall now completes**. And the panic buffer still held no mark (`0x76CC66CC` at
+`0x80600000`, which is neither of mine).
+
+**So the dumper was registered, the mapping worked, the address survived - and it was still
+never called.** The reason is in the kernel's own source, not in anything I wrote:
+
+```c
+	if (reason > max_reason)
+		continue;			/* kmsg_dump()'s filter */
+
+	void emergency_restart(void)
+	{
+		kmsg_dump(KMSG_DUMP_EMERG);	/* the ONLY dump this kernel performs */
+		machine_emergency_restart();
+	}
+```
+
+and **`panic()` never calls `kmsg_dump` at all** - `printk.c` contains no such call outside
+`kmsg_dump`'s own definition. The enum runs `UNDEF, PANIC, OOPS, EMERG, SHUTDOWN, MAX`, so
+`EMERG` is **3** and `PANIC` is **1**: `max_reason = KMSG_DUMP_PANIC` filtered out the only
+dump that ever happens. **The dumper was armed against an event that never fires.**
+
+`max_reason` is now `KMSG_DUMP_MAX`, so the dump that actually happens - `EMERG` from
+`emergency_restart()` - is accepted.
+
+**And this is the fifth distinct fault in ONE instrument,** worth naming because the pattern
+matters more than any single fix:
+
+| # | fault | the evidence that separated it |
+|---|---|---|
+| 1 | six ramoops cmdline params were fatal | the artifact diff (2914 config lines, one differs) |
+| 2 | the region was inside our own kernel | the record's own scrub rule |
+| 3 | `ioremap` refuses RAM on ARM | the absent armed mark |
+| 4 | a live write into our own `.data` killed the boot | the late_initcall crumb |
+| 5 | `max_reason` filtered out the only dump | the kernel's own source |
+
+**Every fix was correct and none was sufficient alone, because the instrument had five
+independent ways to fail silently** - and a silent failure of a log-capture instrument is
+indistinguishable from "there was nothing to log". That is the cost of building a new
+instrument rather than reading a document, and the compensations are that each fault is now
+understood rather than guessed, and that the same instrument will serve every remaining
+failure in this phase.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
