@@ -460,3 +460,23 @@ C18 sentinel):
 Evidence: build/tmp/bsp-notes/ubootguard/hunt.md (the guard decode), build/tmp/xzem (decoder
 harness + mytest.exe), build/tmp/kboot/{fixed2,fixed3,fixed4}-full.bin, make-fixed4.py,
 fire-fixed4.sh, ci-37832374733/ (v9 artifacts).
+
+
+## 2026-10-09 - THE OWN KERNEL BOOTS ON THE HARDWARE (C18=0xC0DE0020)
+
+The full ladder fired, live: stext -> __vet_atags -> __fixup_smp -> __fixup_pv_table
+(after TEXT_OFFSET=0x608000) -> __create_page_tables -> proc-init -> __enable_mmu ->
+last pre-MMU insn -> MMU ON -> __mmap_switched -> start_kernel -> setup_arch ->
+init_early (0001) -> init_machine (0002) -> THE WATCHDOG DISARM (0003) -> early_initcall
+(0010) -> late_initcall (0020). The box then panicked on the missing rootfs and the bootreg
+machinery failed over to the vendor by itself (~100 s). No dance needed.
+
+Two walls on the way were MY OWN breadcrumbs, not the kernel:
+- 0xC0DE0006 stored to IO post-MMU (unmapped early) - removed.
+- 0xC0DE0005 clobbered r4 (the __create_page_tables output the TTBRs are built from) -
+  moved to r5/r6; that fix booted to 0020.
+The one real kernel-side wall was TEXT_OFFSET: the SoC's kernels link at 0x80608000 (above
+the 6 MB napt reserve); mainline's 0x8000 made the PV delta 0xC0600000 (16MiB-unaligned).
+CI: instrumented head files now travel as whole-file copies; the patch is 3 stable sections.
+
+NEXT: the NAND/MTD driver + UBI for a real rootfs, then the Wi-Fi driver, then persistence.
