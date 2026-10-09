@@ -1539,3 +1539,63 @@ things - it must not collide with the flashinfo ATAG at `0x80601000`, and it mus
 kernel's return. A deliberate panic then captures dmesg there, and `devmem` reads it back.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50r (2026-10-09): GIVING THE KERNEL A VOICE - ramoops on the command line, because every failure so far has been inferred rather than read
+
+**The problem this fixes, stated plainly.** This board has no console. Every failure in this
+phase - the step-9 rejection, the NULL `page_buf`, the `EINVAL` from UBI's attach - has been
+localised by instrumenting the driver and reading blank cells, because the kernel's own
+explanation went to a printk buffer nobody can see. UBI has been writing the answer to
+`printk` the entire time: `"bad write buffer size"`, `"validation failed for PEB %d"`,
+`"bad vol_id"`, `"bad compat"`. Stage C's step crumbs narrowed the search; a readable log
+would have ended it.
+
+**ramoops is the instrument, and the reason it works here is the reason it had to be RAM.**
+pstore_blk is out: it writes to the pstore MTD partition and this driver has no write path,
+by design. ramoops backs printk with a RAM console, and RAM needs no `_write` at all - so it
+is compatible with the read-only property the driver has kept since stage A.
+
+**Configured from the COMMAND LINE, not the devicetree,** because the kernel boots the
+vendor's devicetree - the same fact that cost a fire back in phase 50:
+
+```
+ramoops.mem_address=0x80602000   ramoops.mem_size=0x4000
+ramoops.record_size=0x1000       ramoops.console_size=0x2000
+ramoops.ftrace_size=0            ramoops.pmsg_size=0
+```
+
+**The region satisfies three constraints that were each already established:** it sits inside
+the flashinfo reserved area (`0x80600000` + 4 MiB), which **both** kernels' devicetrees
+reserve so neither allocates it; it is clear of the flash-spec ATAG at `0x80601000`; and it
+is **below `0x80608000`**, the zone already measured to survive the vendor kernel's return -
+which matters because the log is read back with `devmem` from the vendor system after this
+kernel folds over, exactly as every other result in this phase has been.
+
+**And the sizes are checked against ramoops' own arithmetic rather than guessed.** Reading
+`ramoops_probe` shows:
+
+```c
+	dump_mem_sz = cxt->size - cxt->console_size - cxt->ftrace_size - cxt->pmsg_size;
+	err = ramoops_init_przs("dmesg", dev, cxt, &cxt->dprzs, &paddr, dump_mem_sz, cxt->record_size, ...);
+	err = ramoops_init_prz("console", dev, cxt, &cxt->cprz, &paddr, cxt->console_size, 0);
+```
+
+so `0x4000 - 0x2000 = 0x2000` of dmesg zones (two of `0x1000`) followed by the `0x2000`
+console - exactly the `0x4000` reserved, with each zone 4 KiB-aligned as ramoops requires.
+That check is the same discipline that caught the CRC convention and the compat constant:
+read the code, do not trust the recollection of it.
+
+`ignore_loglevel` joins the command line so nothing is filtered on the way to the zone, and
+`CONFIG_PSTORE`, `CONFIG_PSTORE_CONSOLE` and `CONFIG_PSTORE_RAM` were already in the fragment
+and asserted by the image job - so the whole change is one string.
+
+**What the next fire should produce.** Not a crumb value but a transcript: after our kernel
+fails and hands over, `devmem 0x80602000` on the vendor system should show the printk text -
+including, specifically, whichever UBI message explains the `EINVAL`. That converts the
+remaining question from an inference into a reading, and it makes every subsequent failure in
+this project legible rather than measurable.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
