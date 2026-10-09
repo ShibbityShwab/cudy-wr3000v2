@@ -1147,3 +1147,54 @@ cell could not have carried either.
 mutation was the `kernela` write and its reboots. The fire's wait loop tolerated the longer
 recovery without intervention, which is worth knowing for future firmware that panics
 earlier in the boot.
+
+
+---
+
+## Phase 50j (2026-10-09): STAGE-C PASS - OUR OWN KERNEL HAS AN MTD DEVICE, THE VENDOR'S PARTITION TABLE IS PARSED, AND THE ROOTFS PARTITION READS THROUGH THE MTD LAYER
+
+**The build.** CI `37981524117` on `e99fdc3` - both jobs green.
+
+**The fire, and both halves of the signature are exactly what was predicted.**
+
+```
+C18 = 0xC0DE0020     the mach's late_initcall crumb - ALL INITCALLS COMPLETED
+C1C = 0x23494255     the ASCII "UBI#", read THROUGH the mtd layer from the partition "rootfsb"
+```
+
+`C18 = 0xC0DE0020` is itself a result this time, not just setup: it is the value the mach
+stamps at `late_initcall`, which can only be written if the kernel survived the driver's
+probe. In the previous fire C18 froze at a `0xC0DE5xxx` step crumb because the probe
+panicked; now it is the mach's own value, so **the page_buf fix removed the panic and the
+probe runs clean**. The recovery was back to a single fast cycle (~2 minutes, versus the
+previous fire's ~ten) for the same reason.
+
+`C1C = 0x23494255` is `"UBI#"` read out of the partition through `mtd_read()`. Four things
+are therefore true at once, and this is what the instrument was built to prove:
+
+1. the `mtd_info` registered - `mtd_device_parse_register()` succeeded;
+2. `ofpart` parsed the **vendor devicetree's** 17-partition table off the fmc node;
+3. the partition exists under **exactly the name** `ubi.mtd=` will be handed (`rootfsb`);
+4. the read path survives the mtd page arithmetic - partition offset to master offset, then
+   page-index and in-page offset, then the DMA read.
+
+Reproduced in a second sample and again through an independent probe. Health by the
+project's own script: `FINAL_WIPHY=2 FINAL_IFACE=6`, `FINAL_CAL2G=1 FINAL_CAL5G=1`,
+`FINAL_VENDOR=2`, `OMO_OFF=0`, `STAGED=0`, `PSTORE=3` unchanged, on `mtd14:rootfsb`.
+
+**What this changes about the remaining work.** The storage stack our kernel needs for a
+rootfs is now, in order: FMC controller (measured), DMTA page read (measured), mtd device +
+partition table (measured), and then **UBI and the root device**. The last item is no longer
+a driver question - it is `ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0
+rootfstype=squashfs rootwait`, all mainline mechanisms, whose one unknown was whether the
+partition would be there under that name. It is.
+
+**And the safety question is unchanged and still binding.** The box is currently safe
+*because* our kernel panics on the missing rootfs, and `panic=5` plus the mach's `.restart`
+returns it to the vendor - which is what happened in this fire, in one cycle. A successful
+mount would end that, and with no network driver in our kernel the machine would then be
+reachable by neither ssh nor failover. So the `root=` step still gets its own fire with its
+own `init=/nonexistent` net, exactly as phase 50g specified, and it is the next step.
+
+**Device mutation.** The same as every fire since 50b: the `kernela` write and its reboots.
+Nothing else was touched, and nothing in this driver can write the flash.
