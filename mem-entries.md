@@ -2292,3 +2292,35 @@ diagnostics `0x80600e00-0x80600ed0`, ATAG at `0x80601000`. All of it in the same
 hundreds of printk writes per boot have already proven inert.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50ai (2026-10-09): THE BUILD CAUGHT WHAT MY CHECK MISSED - presence is not scope
+
+**The diagnostic build failed to compile, and the reason was mine:**
+
+```
+luofu-fmc.c:884:53: error: 'LUOFU_DIAG_AT0' undeclared (first use in this function)
+luofu-fmc.c:885:53: error: 'LUOFU_DIAG_AT2K' undeclared
+luofu-fmc.c:893:61: error: 'LUOFU_DIAG_META' undeclared
+```
+
+I put the three addresses next to the console buffer in the **stage-E** block, which sits
+**below** the stage-D hook that writes them. **The identifiers were present in the file - so the
+check I ran, which counted occurrences, passed - and they were not yet in scope.**
+
+**This is the "an edit that reports success is not a verified edit" class**, and the lesson is
+about the checker rather than the edit: a count proves a name exists somewhere, never that it is
+visible where it is used. **So the validation changed with the code** - it now extracts every
+`LUOFU_*` `#define`, finds each macro's first non-comment use, and fails if any use precedes its
+definition. It reports **43 macros, all defined before use, no duplicates.**
+
+The addresses move up beside the other stage-D constants, where the hook can see them.
+
+**And the diagnosis from the previous phase stands unchanged:** `-EINVAL` on UBI's VID-header
+path comes only from `validate_vid_hdr()`, a wrong magic returns a different code, and the
+captured fragment shows the magic read correctly - **so a field failed validation, and the
+suspicion is on the geometry this driver hands UBI rather than on the read.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
