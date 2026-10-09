@@ -543,3 +543,76 @@ v7_setup, invalidate-only) discards the dirty lines -> patches never reach RAM i
 boot.  The reader survives because it runs after that invalidate.  Remaining question,
 now cleaner: why the same patchless code survives the mcr in one layout and not another
 (the byte-diff facts: descriptor bounds shift + post-0xF94CC layout).
+
+
+---
+
+## Phase 50 (2026-10-09): THE NAND/FMC PORT OPENS - the controller spec, the stage-A driver, and the symbol that left the TODO list
+
+**Context.** The own kernel's ladder is already complete (C18 = 0xC0DE0020, watchdog
+disarmed, every rung live-verified) and the only thing between "boots and runs" and
+"mounts a rootfs" is the flash driver: the vendor box reaches its rootfs through
+`hi_flash` bound to `hi_nfc` at `10a20000.fmc`, and our kernel has never had a driver
+for that block. This phase starts it.
+
+**The spec (`opensource/docs/phase50/nand-fmc-port-spec.md`, task st_01a121d8).** The
+whole controller decoded from three independent artifacts - the public Triductor BSP
+objects (`tri_fmc.o` + the `nfc_tr6560/` set, capstone + DWARF), the vendor
+`hi_flash.ko` that actually runs on the box, and the vendor u-boot `stage2` - and
+pinned against the live register dump. It lands on the point that makes the port
+cheap: **the die is an ESMT F50L1G41LC and it is already in mainline**
+(`drivers/mtd/nand/spi/esmt.c`, `esmt_8c`, memorg 2048/64/64/1024, on-die ECC 1/512),
+so stage B is a thin controller driver, not a chip driver. `struct tri_fmc_reg_s`
+gives all 24 named members 0x00-0xac; the command recipes and the DMA recipes
+(`op_ctrl` types 1/3/0x11, the 0x2200 buffer split 8K data + 512B OOB) are tabled; and
+the completion semantics were recovered for both code bases.
+
+**THE ONE PLACE THE TWO IMPLEMENTATIONS DISAGREE, and the decision.** The BSP's
+`tri_fmc_status_check()` polls **FMC_CFG bit 0** - and cfg reads `0x00001823` at idle
+on this board (live dump), so bit 0 is SET at rest and that poll would spin to its
+100000-iteration timeout on the first operation. The vendor polls **FMC_OP (0x3c) bit
+0** for the command engine (`hi_fmc_status_check`) and **FMC_OP_CTRL (0x68) bit 0**
+for the DMA engine (`hi_fmc_status_check_dma_status`). The driver follows the vendor,
+because it is the implementation the live hardware runs, and the choice is recorded in
+the file header so it is not "fixed" back later.
+
+**Stage A, written and wired (`opensource/lab/luofu-kernel/nand/luofu/`).**
+`luofu-fmc.c` maps the controller and its 1 MiB window, resets the die (0xff / op
+0x81, then the OIP wait), reads the 5-byte READ ID (0x9f, 1 dummy, op 0x185) and reads
+back the status and configuration feature registers (0x0f / op 0xc5). It compiles in
+**no write path at all** - no write-enable, no erase, no program - so its read-only
+property is structural rather than promised, and it registers no `mtd_info`.
+`Kconfig` defines `MTD_NAND_LUOFU` (bool, depends on `ARCH_LUOFU || COMPILE_TEST`);
+`docs/soc/luofu-r116.dts` turns the `fmc` node to `status = "okay"` so the probe runs.
+The lane wires it in by **copying the directory and appending two lines** to
+`drivers/mtd/nand/{Kconfig,Makefile}` in both CI jobs - an append has no upstream
+context to drift against, unlike a patch hunk - and the image job now hard-asserts
+`CONFIG_MTD_NAND_LUOFU=y` beside the rest of the storage path.
+
+**Evidence, CI run `37974424274` on `d4280df`.** The fast `config` job is **GREEN**
+and its own log carries the decisive lines:
+`drivers/mtd/nand/Makefile:11:obj-$(CONFIG_MTD_NAND_LUOFU) += luofu/` and
+`OK    CONFIG_MTD_NAND_LUOFU=y` - i.e. the symbol has LEFT the driver-less TODO list
+(it was one of thirteen), the Kconfig is valid against the real 5.10.201 tree, and the
+patch still applies cleanly to the pristine sources. The `kernel` job (the image lane,
+the actual cross-compile of the driver) was still building when this entry was
+written; its result is the next line to add, and the artifact to fetch is
+`luofu-kernel-image`.
+
+**The BSP land, for the record (`docs/phase50/bsp-build-status.md`).** The public
+Triductor BSP is **half source and half binaries**: `target/linux/tr6560/files-5.10/`
+holds 2 `.c`, 33 `.h` and 10 prebuilt `.o` - every NAND/FMC file is an object with no
+`.c` anywhere - and the SoC platform drivers are 21 prebuilt `.ko` built for
+**5.10.138** with no `__versions`. Their compatible strings are `tri,*`; `grep -rl hsan`
+over the whole tree hits 6 files. So the BSP is a **reference and toolchain host, not a
+drop-in firmware for our board** - which is exactly why the spec above was decoded from
+the objects and why our own driver is written from scratch rather than ported by
+dropping the DTS in.
+
+**What this is NOT.** No device cycle ran this phase - nothing was flashed, staged,
+booted or read on the router, and the box is untouched. Stage A is a *compiling*
+driver with a *specified* register layer; nothing has yet been observed on hardware.
+The five low-order unknowns the spec could not close (cfg bits 1/8-12, global_cfg bits
+7/19, the pwidth/opidle provenance, the ecctype enum, the op bits 3/4) stay UNKNOWN
+with the observation that would settle each, and the stage-A run is what turns the
+ID read from "expected 8C 2C" into a measurement.
