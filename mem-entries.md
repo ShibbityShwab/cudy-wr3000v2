@@ -916,3 +916,66 @@ primitives, the 17 partitions from the devicetree, then UBI on top.
 readback cell holds the LAST thing the probe wrote, so it now reports stage B and no
 longer stage A; stage A's `0x8C2C` reading is preserved in phase 50b. Extending the
 protocol again means re-reading the header's table, not assuming the old meaning.
+
+
+---
+
+## Phase 50f (2026-10-09): WHY THE ROOTFS IS STILL MISSING - the vendor boots an INITRAMFS, and the two routes from here
+
+Stage B proved the kernel can read flash. It still panics on the missing rootfs, and this
+step establishes exactly why - which changes the next phase's plan.
+
+**The vendor kernel is never told where its root is.** Its effective command line is:
+
+```
+noinitrd cma=0 console=ttyS0,115200 earlycon maxcpus=2 nr_cpus=2 additional_cpus=1
+```
+
+There is **no `root=`**. And the running system's mounts are:
+
+```
+/dev/ubiblock0_0   /rom      squashfs  ro
+/dev/mtdblock15    /overlay  jffs2     rw
+overlayfs:/overlay /         overlay   rw
+```
+
+`/` is an **overlayfs built by userspace**, not a filesystem the kernel mounted. So
+something mounted `/rom` first and then handed over - i.e. the vendor kernel boots with a
+**built-in initramfs**, whose OpenWrt preinit finds the rootfs volume, mounts it and sets
+up the overlay. The absence of `root=` is not an omission; it is what an initramfs boot
+looks like from `/proc/cmdline`.
+
+**Our kernel cannot do that, by construction.** `luofu-shrink.fragment` carries
+`CONFIG_BLK_DEV_INITRD=n` ("no initramfs in the slice"), so there is no preinit to find a
+rootfs and no `root=` for the kernel to use. The panic is therefore not the storage path
+failing - it is the boot posture being incomplete. That distinction matters, because the
+storage half is now measured working.
+
+**Two routes, and the second is the one to take first.**
+
+(a) *Turn the initramfs back on* and build an OpenWrt-style preinit into it. Faithful to
+how the vendor does it, but it means `CONFIG_BLK_DEV_INITRD=y`, an `CONFIG_INITRAMFS_SOURCE`
+tree with OpenWrt's `/init` + `mount_root`, and it grows the image - the exact thing the
+shrink fragment exists to prevent.
+
+(b) *Skip the initramfs and tell the kernel directly.* `CONFIG_CMDLINE_EXTEND=y` plus a
+built-in command line naming the device chain:
+
+```
+ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs rootwait
+```
+
+`EXTEND` rather than `FORCE`, so the bootloader's `earlycon` and the rest survive and ours
+is appended. This uses mainline's own UBI auto-attach and ubiblock, needs no userspace
+before the mount, and its pass condition is unambiguous: the kernel either mounts a
+squashfs root or it does not. Use the partition NAME (`rootfsb`) rather than `mtd14`, so
+our partition registration order does not have to match the vendor's numbering.
+
+**What (b) still needs first, and it is the real work:** the driver must register an
+`mtd_info` with read/write/erase/OOB over the primitives that are now measured, plus the
+17 partitions from the devicetree, and `CONFIG_MTD_UBI` must actually attach. Until then
+there is no `mtd` for `ubi.mtd=` to name. So the next phase is: the MTD device, then the
+partition table, then route (b)'s command line.
+
+**Health.** Read-only step. Router unchanged: `WIPHY=2 IFACE=6`, cal `[SUCC]` both bands,
+`mtd14:rootfsb`, `PSTORE=3`, zero leftovers.
