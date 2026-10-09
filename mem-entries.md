@@ -1388,3 +1388,52 @@ than instrumenting for the answer first, and the last two commits have moved tow
 latter. That is what the next fire reads: an errno, not a coin flip.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50o (2026-10-09): THE EINVAL HUNT - every path accounted for, the geometry cleared from the flash itself, and a flaw in my own instrument
+
+**The errno fire.** `C1C = 0xE1000016` = `0xE1000000 | 0x16` = **errno 22 = `EINVAL`** from
+`ubi_attach_mtd_dev()`.
+
+**The source audit, and it came up empty.** Every `EINVAL` on the attach path was enumerated
+across `build.c`, `io.c`, `vmt.c`, `wl.c`, `scan.c` and `eba.c`, and each one is either
+unreachable for us or arithmetically satisfied:
+
+- `io_init()`'s checks: `min_io_size` = `writesize` = 2048 is a power of two; `max_write_size`
+  = `writebufsize` = 2048 is equal to it and a power of two; `vid_hdr_offset` resolves to
+  `ec_hdr_alsize = ALIGN(64, 2048) = 2048`; `leb_start = ALIGN(2048 + 64, 2048) = 4096`;
+  `vid_hdr_shift` is never set (0, so `% 4` passes); `numeraseregions` is 0.
+- the type checks (`MTD_UBIVOLUME`, `MTD_MLCNANDFLASH`), the `ubi_num`/`max_beb_per1024`
+  range checks: all fine with `UBI_DEV_NUM_AUTO` and a device `MDT_NANDFLASH`.
+- `vmt.c`'s and `wl.c`'s `EINVAL`s are sysfs, resize, erase and bitflip paths - not attach.
+
+**And the geometry was cleared from the flash itself, not from reasoning.** The partition
+dump's EC headers read `magic 0x55424923`, `version 1`, **`vid_hdr_offset 2048`**,
+**`data_offset 4096`**, `ec 0` - which is exactly what our kernel computes from our mtd's
+writesize. So `validate_ec_hdr()` has nothing to object to, and the "our geometry disagrees
+with the image" hypothesis is dead: it was checked against the image, offline, for free.
+
+**Then the flaw in my own instrument.** The diagnostic called
+`ubi_attach_mtd_dev(fmc->mtd, ...)` on the **master** - while the kernel's `ubi.mtd=rootfsb`
+attaches the **partition**. They are different mtd devices: the master spans the whole
+128 MiB chip including kernel, u-boot and parameter regions that are **not UBI at all**, so
+UBI's scan of it can fail for reasons the partition never would. **The errno I measured is
+therefore not necessarily the kernel's error**, and that is worth stating plainly rather than
+building on it.
+
+**Fixed** (`bab9e32`): the diagnostic now does `get_mtd_device_nm("rootfsb")` and attaches
+*that*, mirroring the kernel's own call, and then opens volume 0. The reading keeps its
+shape - `0xE1<errno>` if it refuses, `0x500B<ubi_num>` if it attaches but the volume will not
+open, `0xE2000000` if the partition is missing, and the squashfs magic `0x73717368` if it all
+works.
+
+**The honest tally.** Four instrument revisions on this one call. Three measured something
+real; this fourth corrects a mistake in the measuring rather than a hypothesis about the
+kernel, which is the more expensive kind to find late. The lesson worth keeping: when an
+instrument returns an error code, check that it is asking the same question the kernel asks -
+a diagnostic that uses a different input than the code under test reports its own error, and
+it looks exactly like the kernel's.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
