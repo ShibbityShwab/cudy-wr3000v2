@@ -2559,3 +2559,35 @@ instrument.** The next fire is the first that is, so **its reading - attach or r
 first trustworthy measurement of UBI's real behaviour** rather than of my own cross-talk.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ao (2026-10-09): THE SAME DECLARATION-ORDER CLASS AGAIN - and a crumb that is stamped too early to read
+
+**The clean-instrument build failed to compile:**
+
+```
+luofu-fmc.c:922:29: error: 'luofu_diag_buf' undeclared (first use in this function)
+```
+
+**The same mistake the constants made one phase earlier**, in a place the check does not look:
+the buffer statics went beside the console code that allocates them, and the stage-D hook that
+writes into the diagnostic buffer sits further up the file. **The validator caught macro order
+and said nothing at all about variables** - so a file with four globals out of scope passed it.
+
+**The statics move up beside `luofu_ubi_fmc`, and the validator now covers variables:** it finds
+every file-scope static, locates the hook, and fails if any global used inside the hook is
+declared after it. **That is the check that would have caught both of these** - the earlier fix
+taught the lesson and did not generalise it, which is why the same class came back a few turns
+later.
+
+**And a design flaw spotted while waiting, which the next fire would otherwise have wasted a
+cycle on:** the log ring's physical address is stamped as crumb **step 44** from
+`luofu_log_register`, but the **panic notifier stamps step 42 later in the same boot** - and the
+crumb cell holds one value, last write wins. **So the address I need is overwritten by the
+notifier's marker before I can read it.** The fix is to have the *later* writer carry the useful
+value, or to recover the address by probing for the mark; either way it is cheaper to know now
+than to discover it from an empty read.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
