@@ -2591,3 +2591,26 @@ value, or to recover the address by probing for the mark; either way it is cheap
 than to discover it from an empty read.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ap (2026-10-09): THE CLEAN INSTRUMENT BOOTS - and the log's address cannot be predicted, so the last crumb writer carries it
+
+**The rebuilt instrument compiled and booted clean** - the declaration-order fix took - and the
+probe for the ring's mark found **nothing in `0x80600000`..`0x80620000`**. The coherent
+allocations are not near the driver's old landing zone after all.
+
+**And they cannot be predicted.** This kernel has **no CMA**, so `dmam_alloc_coherent()` is
+served from the **page allocator** and the address is simply whatever pages it was handed.
+Finding it by scanning would mean walking 128 MB a word at a time.
+
+**So the crumb carries the address - and that change also fixes a design mistake I caught before
+it cost a cycle.** The log's address was stamped at **step 44** from `luofu_log_register`, but the
+panic notifier stamps **step 42 later in the same boot**, and the crumb cell holds one value:
+**last write wins.** The address was therefore overwritten by a marker before it could ever be
+read - **and that marker told me nothing I could not already infer from the box having panicked
+at all.** The notifier now stamps its step with `(u32)(uintptr_t)luofu_log_dma`, and being the
+last writer to touch the crumb in a boot, its value is the one that survives.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
