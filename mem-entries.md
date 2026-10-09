@@ -2371,3 +2371,63 @@ acquisition/release counts rather than structure alone** - the same gap as the d
 failure one phase earlier: the check has to test the property that actually matters.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50ak (2026-10-09): THE BLOCKER IS NAMED, VERIFIED, AND FIXED - `compat = 5` on the layout volume
+
+**Four measurements, each one ruling something out, and together they name a single field.**
+
+**1. The scan found the failure at PEB 0 and nowhere else first:**
+`pass_count = 0`, `first_bad_peb = 0`, and that PEB's header reported `magic 0x55424921` ("UBI!"),
+`vol_type 1`, `lnum 0`, `data_size 0` - all valid - with **`compat = 5`** as the one deviation.
+
+**2. The CRC verifies.** Read straight from the vendor's `mtd14`, computed with UBI's own
+convention (init `0xFFFFFFFF`, no final inversion):
+
+```
+stored hdr_crc : 0xB82564A8
+calculated     : 0xB82564A8
+```
+
+**The header is byte-perfect in every field UBI validates, except `compat`.**
+
+**3. The flash survey shows exactly one check needs widening.** PEBs 0 and 1 - the **layout
+volume** - carry `compat = 5`; **every data PEB carries `0` and passes already.** The layout
+volume is the one that hits the `vol_id >= UBI_INTERNAL_VOL_START` branch of
+`validate_vid_hdr()`:
+
+```c
+	if (vol_id >= UBI_INTERNAL_VOL_START && compat != UBI_COMPAT_DELETE &&
+	    compat != UBI_COMPAT_RO && compat != UBI_COMPAT_PRESERVE &&
+	    compat != UBI_COMPAT_REJECT) {		/* the set is {0,1,2,3} */
+		ubi_err(ubi, "bad compat");
+```
+
+**4. The vendor's own UBI attaches this flash without complaint, so it accepts the value.** The
+factory flash was written by the vendor's tools, which is exactly the shape of a vendor-private
+compatibility marker.
+
+**The fix is a one-line widening**, delivered through the mechanism the CI already uses -
+`lab/luofu-kernel/kernel-tree.patch`, applied with `patch -p1` to a pristine 5.10.201 tree.
+**It was dry-run and then applied against the pristine source before being committed: `rc=0`
+both ways.**
+
+**Why it is safe, stated plainly: `compat` tells a *writer* whether it may touch a volume, and
+this driver has no write path at all** - `MTD_NO_ERASE` and no `_write` callback, deliberately,
+since stage A. This kernel only ever **reads** the volume.
+
+**And an honesty note about the readings that led here.** The scrambled 1 KB console buffer had
+earlier appeared to show a `ubi_dump_vid_hdr()` with `vol_type 102`, `upd_marker 138`,
+`name_len 1873` - and those field names **do not exist in 5.10's UBI dumps at all**. They were
+artifacts of fragment interleaving in a wrapping buffer, and I read them as a coherent dump when
+they were not. **The reliable data came only from the fixed-address reads**, which is why the
+bytes were moved there.
+
+**What the next fire should show:** with UBI attaching, the stage-D hook takes its **success
+path** and stamps **`0x73717368`** - the squashfs superblock magic `"hsqs"` - **plus one if
+`blk_lookup_devt("ubiblock0_0")` resolves.** That single value would mean **the rootfs is
+readable through our own driver**, which is the thing this entire phase has been for.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
