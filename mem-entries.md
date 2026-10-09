@@ -979,3 +979,64 @@ partition table, then route (b)'s command line.
 
 **Health.** Read-only step. Router unchanged: `WIPHY=2 IFACE=6`, cal `[SUCC]` both bands,
 `mtd14:rootfsb`, `PSTORE=3`, zero leftovers.
+
+
+---
+
+## Phase 50g (2026-10-09): THE ROOT-DEVICE MECHANISM, SETTLED FROM SOURCE - and why the root= fire needs its own plan
+
+Stage C registers the MTD device (phase 50h's commit). This step settles what the kernel
+will need to actually MOUNT a root from it, by reading the sources rather than assuming.
+
+**1. A write-protected MTD is enough for UBI.** From v5.10 `drivers/mtd/ubi/build.c`,
+verbatim:
+
+```c
+	if (!(ubi->mtd->flags & MTD_WRITEABLE)) {
+		ubi_msg(ubi, "MTD device %d is write-protected, attach in read-only mode",
+			ubi->mtd->index);
+		ubi->ro_mode = 1;
+	}
+```
+
+So UBI does not refuse a read-only device, it attaches in read-only mode. That is what
+lets stage C register an `mtd_info` with **no `_write`, no `_erase`, no `_write_oob`** and
+`MTD_WRITEABLE` cleared, and it means the rootfs path needs no flash-modifying code at
+all: nothing in this driver can write the flash, and the mount still has what it needs.
+
+**2. `ubi.mtd=` accepts a partition NAME.** `ubi_mtd_param_parse()` stores the token and
+`open_mtd_device()` falls back to `get_mtd_device_nm()` when the token is not a number -
+so `ubi.mtd=rootfsb` names the partition rather than depending on our registration order
+matching the vendor's mtd numbering.
+
+**3. `root=/dev/ubiblock0_0` does resolve in vanilla 5.10.** `name_to_dev_t()` strips
+`/dev/`, then calls `blk_lookup_devt("ubiblock0_0", 0)`, which walks `block_class` and
+matches `dev_name()` - and a ubiblock device is named `ubiblock%d_%d` by construction. The
+timing also works: `ubi_init` (build.o) and `ubiblock_init` (block.o) are both
+`module_init`, and `prepare_namespace()` runs after all initcalls, so the device exists
+before the root is resolved.
+
+**4. OpenWrt's own mechanism is a patch set we do not have, and that is why the command
+line is the route.** The BSP carries the three patches that make a rootfs work without a
+`root=` at all - `420` sets `ROOT_DEV` to the mtdblock of a partition named "rootfs",
+`490` auto-attaches an MTD named "ubi" or "data" after checking its `UBI#` magic, `491`
+auto-creates a ubiblock for a UBI volume named "rootfs" that is not UBIFS, all gated on
+`CONFIG_MTD_ROOTFS_ROOT_DEV`. We build **vanilla 5.10.201 + our fragment**, so none of
+them are present. Re-creating them is route (a); naming the chain on the command line is
+route (b), and (b) uses mainline mechanisms only.
+
+**5. Why the `root=` fire still needs its own plan - a real risk, named before it is
+taken.** Today the box is safe because our kernel *panics* on the missing rootfs, and
+`panic=5` plus the mach's `.restart` reboots it, after which the bootreg machinery folds
+back to the vendor. **A successful mount removes that recovery.** Our kernel has no
+network driver, so a kernel that reaches userspace would be reachable by neither ssh nor
+the failover, and the only way back would be a power cycle - which is the user's hands,
+not mine. So the `root=` fire must be designed so that success is still self-recovering
+and still observable. The candidate: add `init=/nonexistent` alongside the root chain, so
+that a mount which succeeds proceeds to run init, fails to find it, and panics anyway -
+kernel log line "No working init found", then `panic=5` -> reboot -> vendor failover. The
+mount's success would then be readable as a DIFFERENCE in behaviour (how long the box is
+away, and where it ends up) rather than as a silent hang. That design gets its own step,
+deliberately, rather than being bolted onto this one.
+
+**Read-only step.** No device mutation; the router is as phase 50e left it.
