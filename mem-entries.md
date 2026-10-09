@@ -1484,3 +1484,58 @@ as the duplicated comment terminator three phases ago, and found this time by ch
 every symbol the file uses is defined rather than by the compiler.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50q (2026-10-09): THE READ PATH IS PROVEN AND THE FLASH IS PROVEN - and UBI still says EINVAL, so the next move is to make the kernel's own log readable
+
+**The read-path test passed, and it is the strongest verification this driver has had.**
+
+```
+C1C = 0x5C2000FF      pass count 0x20 = 32 PEBs accepted, first-bad 0xFF = none
+```
+
+The driver walked the first 32 PEBs of the partition and applied **exactly**
+`ubi_io_read_ec_hdr()`'s acceptance test - magic `0x55424923`, `version 1`, `vid_hdr_offset`,
+`data_offset`, the `ec` range and the CRC over the first 60 bytes - reading through the MTD
+layer. **All 32 passed.** So our reads deliver byte-perfect data, verified against an
+independent reference rather than against themselves.
+
+**And the whole partition was then validated offline, header by header:**
+
+- **120 EC headers**, all valid: magic, version 1, `vid_hdr_offset 2048`, `data_offset 4096`,
+  `ec 0`, CRC correct.
+- **120 VID headers**, all valid: magic `0x55424921`, version 1, and **zero CRC mismatches**.
+- The **layout volume** is correct: `vol_id = 0x7FFFEFFF = UBI_LAYOUT_VOLUME_ID`,
+  `vol_type = DYNAMIC`, `lnum 0..1`, `compat = 5 = UBI_COMPAT_REJECT =
+  UBI_LAYOUT_VOLUME_COMPAT`.
+- The **rootfs volume** is correct: `vol_id 0`, `vol_type = STATIC`, 118 PEBs, `lnum 0..117`,
+  `data_size 126976`, `used_ebs 118` - which is exactly 118 x 126976 = 14,983,168 bytes for
+  the 14,864,384-byte squashfs the live system reports.
+
+**Two of my own readings were wrong along the way, and both were caught by checking the
+source instead of trusting recall.** First the CRC convention (UBI's `crc32` omits the final
+inversion, so the stored value is `zlib.crc32 XOR 0xffffffff` - checking the dump naively
+reported 120 of 120 headers corrupt). Then the compat constant: I was sure
+`UBI_COMPAT_REJECT` was 4 and the flash's 5 was therefore invalid; `ubi-media.h` says
+**5**, so the flash was right and I was wrong. Both are the same lesson this project has paid
+for repeatedly - **a remembered constant is a hypothesis, and the artifact outranks it.**
+
+**So where this stands, honestly.** The flash is valid, our reads are valid, and every
+`EINVAL` on UBI's attach path has been read from source and is either unreachable or
+arithmetically satisfied for this geometry. UBI still returns `EINVAL`. **Static analysis has
+reached its limit here**, and the next move is not another inference - it is to make the
+kernel's own log readable, which UBI fills with the exact reason ("bad write buffer size",
+"validation failed for PEB %d", "bad vol_id", ...).
+
+**The route to a readable log, and the constraints that shape it.** pstore_blk is out: it
+writes to the pstore MTD partition, and this driver has no write path - by design. ramoops is
+in play because `CONFIG_PSTORE_RAM` needs a reserved-memory node only when the devicetree is
+ours, and **the kernel boots the vendor's devicetree**, so it must be configured by command
+line instead: `ramoops.mem_address=` / `ramoops.mem_size=`. The region has to satisfy two
+things - it must not collide with the flashinfo ATAG at `0x80601000`, and it must live **below
+`0x80608000`**, which is the zone the record already established as surviving the vendor
+kernel's return. A deliberate panic then captures dmesg there, and `devmem` reads it back.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
