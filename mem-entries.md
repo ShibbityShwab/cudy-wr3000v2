@@ -741,3 +741,57 @@ either by reading the ATAG the u-boot leaves in RAM, or by deriving them from
 the mainline spinand table - then read a page and check for the UBI magic at the
 start of `rootfsa` (chip offset `0x1e00000` = row `0xF00`). That is the next
 fire, and it is a read-only one.
+
+
+---
+
+## Phase 50c (2026-10-09): STAGE B'S OPERAND SOURCE IS LOCATED - the bootloader's flash-spec ATAG, and it names our die
+
+Stage B needs three operands the DMA page read cannot be issued without
+(`read_if_type`, `read_addr_cycle`, `read_dummy_num`), and the spec says they come
+from a flash-spec table the bootloader leaves behind. This step found that table
+and captured it.
+
+**Where the table actually is, which the spec had wrong.** The spec's own text
+pointed at the reserved-memory node at `0x80800000`, and an earlier capture noted
+that reading it back gave ARM code rather than a parameter block - and that is
+what it gives, because that is not where the table is. The live devicetree node
+`/proc/device-tree/reserved-memory/flashinfo@0x80800000/` carries two properties:
+
+```
+reg         = 80 60 00 00  00 00 40 00   -> base 0x80600000, size 0x400000
+atag-offset = 00 00 10 00                -> 0x1000
+```
+
+so the ATAG chain is at **0x80600000 + 0x1000 = 0x80601000**, and the `atag-offset`
+property is the piece the earlier attempt was missing. Reading there gives a clean
+tag chain: `ATAG_CORE` (`0x54410001`), `ATAG_SERIAL` (`0x54410006`), then the
+vendor tag **`0x5441000a` with size `0x61`** (97 words) - the flash table.
+
+**The payload corroborates stage A from an independent direction.** Its printable
+runs are a **table of SPI-NAND part numbers**, and the FIRST entry is literally:
+
+```
+F50L1G41LC     <- the die stage A's READ ID named (0x8C 0x2C), now named again
+S34ML02G1      S34ML02G2   S34ML04G2   MX35LF1GE4AB   MX35LF2G14
+```
+
+So the bootloader's own table knows this exact part, from a source that shares
+nothing with our kernel's RDID path - the u-boot flash table versus our command
+engine. The stage-A reading is now doubly confirmed.
+
+**Captured.** The full payload is `build/tmp/nand-spec/flashinfo-atag.txt` (100
+words from `0x80601024`, the tag header plus its payload), so the remaining decode
+is offline work and needs no further device access.
+
+**Still owed, and it is the last thing before the page read:** decode the 52-byte
+`tri_nand_spec` record out of that payload - specifically `read_if_type` (the bus
+width code), `read_addr_cycle`, and `read_dummy_num`. The record is not at a
+trivially-aligned offset in the payload (the leading words look like a selector
+byte plus a 0x18-byte record, which matches the spec's own note that the payload
+is "byte index -> 0x18-byte records"), so it needs the disassembly of
+`tri_nand_probe`'s copy loop read against the captured bytes rather than a guess.
+
+**Health.** No device mutation whatsoever in this step: read-only `devmem` and
+`/proc/device-tree` reads. The router is as phase 50b left it - `WIPHY=2 IFACE=6`,
+cal `[SUCC]` both bands, `PSTORE=3` unchanged, zero leftovers.
