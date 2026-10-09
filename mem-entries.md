@@ -677,3 +677,67 @@ deployment surface (its prior content is reproducible from
 executed, so nothing about the FMC's behaviour was measured. The stage-A claim
 ("the die answers 0x8C2C") is still OWED, and it is owed exactly one fire after
 the match fix builds.
+
+
+---
+
+## Phase 50b (2026-10-09): STAGE-A PASS - THE FMC COMMAND ENGINE RUNS IN OUR OWN KERNEL AND THE DIE ANSWERS 0x8C2C
+
+**The build.** CI run `37976313132` on `ed6376a` - both jobs **success** - after a
+failed round on `8f610c6` that was my own bug and is worth its own line: the
+match-fix edit touched four blocks of `luofu-fmc.c` in one call, the first
+block's replacement text ended with the comment's closing `*/` while the text it
+replaced stopped short of one, so the file carried two terminators and gcc
+stopped at `luofu-fmc.c:88:3: error: expected identifier or '(' before '/'
+token`. The other three blocks were intact, which is exactly what makes the
+class dangerous to eyeball. There is no C compiler on this workstation, so the
+first reader of a `.c` file is a 30-minute CI job - the fix is one deleted
+token, and the lesson is the one already recorded for this project, now with a
+second instance.
+
+**The fire, and it is the measurement the phase was for.** `fire-nand.sh` on
+run `37976313132`. Both gates passed again (kernela still the image last fired,
+both cells poisoned AND re-read). The box came back by itself, `boot_id` moved
+`e323f3cd-...` -> `1c8010f0-...`, and the cells read:
+
+```
+C18 = 0xC0DE0020     every initcall in OUR kernel completed
+C1C = 0x8C2C0000     the NAND driver's result
+```
+
+**`0x8C2C` is the die's signature.** `C1C` decodes as
+`id[0]<<24 | id[1]<<16 | config<<8 | status` = `0x8C 0x2C 0x00 0x00`: the two ID
+bytes the mainline ESMT table keys on (`SPINAND_ID(SPINAND_READID_METHOD_OPCODE_ADDR,
+0x2C)`, manufacturer `0x8C` = ESMT), then the configuration register (`0xb0`)
+reading `0x00` - which is what a die that has just been reset by this driver
+should read, since the quad-enable bit is set by the vendor's own driver and
+this one deliberately does not write features - and the status register
+(`0xc0`) reading `0x00`, i.e. not busy, no failure bits, exactly the state
+after a successful RESET plus the OIP wait.
+
+**So four things are now measured on real hardware, not inferred:** the FMC
+register window at `0x10a20000` maps and reads in our kernel; the data window
+at `0x1c000000` reads; the command engine accepts the decoded recipes (RESET
+`0xff`/op `0x81`, GET FEATURES `0x0f`/op `0xc5`, READ ID `0x9f`/op `0x185`) and
+its completion poll settles; and the die on chip select 1 answers with the
+identity the spec predicted from the BSP objects and the vendor module. The
+reading is stable across four samples taken over ~2 minutes, and the second
+sample was taken through a different probe, so it is not a one-instant artifact.
+
+**Health, by the project's own probe.** `FINAL_WIPHY=2 FINAL_IFACE=6`,
+`FINAL_CAL2G=1 FINAL_CAL5G=1`, `FINAL_VENDOR=2`, `OMO_OFF=0`, `STAGED=0`,
+`PSTORE=3` (the baseline set, unchanged), on `mtd14:rootfsb` with `bootflag=b`.
+Zero leftovers. The only device mutation in the whole phase was the `kernela`
+write and the reboots it caused, and `kernela` is this project's own deployment
+surface.
+
+**What this does NOT say, and the next link.** Stage A read the chip's identity
+through the command engine; it did NOT transfer a page. The page path is the DMA
+engine (`op_ctrl`, op types 1/3/0x11, the 0x2200-byte buffer split 8 KiB data +
+512 B OOB), and its `op_cfg` operands (`read_if_type`, `read_addr_cycle`,
+`read_dummy_num`) come from the bootloader's flash-spec ATAG table, which is the
+one input stage A does not consume. So stage B is: get those three operands -
+either by reading the ATAG the u-boot leaves in RAM, or by deriving them from
+the mainline spinand table - then read a page and check for the UBI magic at the
+start of `rootfsa` (chip offset `0x1e00000` = row `0xF00`). That is the next
+fire, and it is a read-only one.
