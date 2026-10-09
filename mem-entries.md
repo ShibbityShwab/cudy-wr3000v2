@@ -491,3 +491,18 @@ canonical inputs (r0=0x18C5387D, r4=r8=0x8060406A, r13=0xC0E00460), and a post-m
 to the same page NEVER lands. Only the mcr sits between. The transition is
 content-deterministic per binary, not per boot. Next pass: bisect the content class
 systematically; the NAND/rootfs lane waits on a boot that stays in the 0020 class.
+
+### 2026-10-09 (night close) - the 0017 condition: deterministic, narrowed, mechanism open
+
+Re-fires reproduce outcomes byte-for-byte: no-dt_rewrite builds boot (0020-class, 4/4);
+dt_rewrite-present builds die at the mcu transition (0017-class, 3/3 - even after shrinking
+it to ~80 bytes with no libc).  A 29-byte rodata string does not flip it.  The cache
+protocol fix (full clean+invalidate + explicit SCTLR.C disable at stext, verified in the
+image) does not fix it either.  Byte-diffs: everything executed pre-mcr is identical;
+the only content deltas are a descriptor whose bounds shift consistently (+0xD0) and an
+843-entry alternatives table whose 2 differing entries still patch identical values to
+shifted (correct) sites.  => identical pre-MMU code + different data => different fate.
+The consumer of that descriptor is __fixup_smp's late half feeding the pair-patch walker.
+Next pass: instrument which alternative words actually get patched (read the sites back
+from inside the kernel), and test the non-coherent A9's I/D-cache view of patched
+instruction words.  The NAND/rootfs lane waits on a boot that stays 0020-class.
