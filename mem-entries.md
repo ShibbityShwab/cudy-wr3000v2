@@ -506,3 +506,15 @@ The consumer of that descriptor is __fixup_smp's late half feeding the pair-patc
 Next pass: instrument which alternative words actually get patched (read the sites back
 from inside the kernel), and test the non-coherent A9's I/D-cache view of patched
 instruction words.  The NAND/rootfs lane waits on a boot that stays 0020-class.
+
+### 2026-10-09 (latest) - site-readback: the walk's stores measured; the dice model confirmed
+
+Built a guarded readback instrument (post-__fixup_smp) over several fires: the
+alternatives descriptor moves between builds (found by scanning early .text for
+(A-W) ~ 0xC0000000 AND word2-word1 == 0x1A58); a 0x260 lookalike exists; an inverted
+guard band killed a boot until fixed; the readback cells themselves were cache-held
+until DCCMVAC-cleaned.  Result (0017 class, expectations validated against THAT build):
+the three sampled sites read STOCK words - __fixup_smp's stores do not reach RAM in the
+dying class.  CAVEAT: the instrument flips the class itself (reverted dt_rewrite, still
+0017 with it in) => ANY sizable text change flips it; the "dice" model stands.  The
+0020-class cell read needs a smaller-footprint reader (a C-level one in luofu.c).
