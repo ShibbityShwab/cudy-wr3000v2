@@ -1040,3 +1040,59 @@ away, and where it ends up) rather than as a silent hang. That design gets its o
 deliberately, rather than being bolted onto this one.
 
 **Read-only step.** No device mutation; the router is as phase 50e left it.
+
+
+---
+
+## Phase 50h (2026-10-09): THE FIRST MTD FIRE - the instrument named the step, the source named the cause, and the fix is one flag
+
+**The fire, and it was deliberately a safe one.** CI `37979479321` on `bfc54f0` built green
+(uImage 3,611,400 B, ~5 MB inside budget). The fire ran the same two gates as always -
+kernela still the image last fired at `8351bdd0...`, both cells poisoned AND re-read - the
+box came back by itself with `boot_id` `00bc47a3-...` -> `a48df242-...`, and the cells read:
+
+```
+C18 = 0xC0DE0020     every initcall in OUR kernel completed
+C1C = 0xE0000009     FAILED AT STEP 9
+```
+
+**What that says, precisely.** Step 9 is `luofu_fmc_register_mtd()` - the `mtd_info`
+registration itself. Steps 1-8 all ran, so the operand parse, the quad enable, the DMA
+page read and the `rootfsa` read all still work; what failed is only the step that exposes
+them to the rest of the kernel. The instrument earned its keep here: without the step
+byte this would have been an ambiguous "the driver didn't do everything".
+
+**Why it failed, from the kernel source.** `drivers/mtd/mtdcore.c`, `add_mtd_device()`:
+
+```c
+	if (WARN_ON((!mtd->erasesize || !master->_erase) &&
+		    !(mtd->flags & MTD_NO_ERASE)))
+		return -EINVAL;
+```
+
+The driver registers **read-only**, so it has no `->_erase` - deliberately, because it must
+not modify the flash at all - and it did not declare `MTD_NO_ERASE` either, so
+`mtd->flags` was `MTD_CAP_NANDFLASH & ~MTD_WRITEABLE` = **0**. The check therefore refused
+the registration. In one line: the driver was rejecting itself for being exactly what it is
+meant to be, and the flag it needed is the one MTD defines for "this device has no erase".
+
+**The fix, and why it is safe for UBI.** `mtd->flags` now carries `MTD_NO_ERASE` (committed
+`4417f43`). That the change cannot disturb UBI was checked against its source rather than
+assumed: `drivers/mtd/ubi/build.c` mentions `MTD_NO_ERASE` **zero** times and tests only
+`MTD_WRITEABLE`, which is the one that selects read-only attach mode.
+
+**Every other check in `add_mtd_device` was already satisfied, so nothing else is
+outstanding:** `writesize` is non-zero (2048); the driver provides `->_read` but no
+`->_read_oob`, and the check rejects providing *both* of a pair; `->_write` and
+`->_write_oob` are both absent; and `mtd->dev.type` is NULL, so the already-registered check
+passes. Reading the function rather than guessing is what turns "try again" into a
+single-variable change.
+
+**Operational note: this fire could not have stranded the box, by design.** No `root=` was
+added, so the kernel still panics on the missing rootfs and the bootreg machinery folds back
+to the vendor - which is exactly what happened. That is the safety posture phase 50g
+recorded, and it is why the root= step is still held back for its own fire with its own
+`init=/nonexistent` net.
+
+**Health.** The router came back on 2.4.15 by itself and is unchanged. This is the third
+consecutive fire in which the only device mutation was the `kernela` write and its reboot.
