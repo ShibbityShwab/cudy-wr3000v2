@@ -2692,3 +2692,36 @@ offset is wrong" from "the buffer is stale for repeated reads."
 
 **Device verified healthy after the fire:** 2 wiphys, 6 VAP interfaces, `OpenWrt` on the vendor
 stack, **zero `.omo-*` leftovers**, uptime 1 minute. `kernela` md5 `627436504c370da82ea61c2c9018b2ab`.
+
+
+---
+
+## Phase 50as (2026-10-09): THE SAMPLE PRODUCED SOMETHING OUR DRIVER CANNOT DO - "rootfsb" may not be our device
+
+**Four offsets, each with its own err and retlen:**
+
+```
+offset 0     err=0  retlen=172   stale 14-byte patch    vendor: "UBI#"
+offset 2048  err=0  retlen=0     all zeros               vendor: "UBI!"
+offset 4096  err=0  retlen=32    first 8 bytes right     vendor: ...73717561
+offset 5128  err=0  retlen=0     THE SAME stale patch    vendor: all zeros
+```
+
+**`luofu_mtd_read()` sets `*retlen = done` on every path that returns 0.** A `(0, 0)` result
+**cannot have come through it.** And the payloads carry the **identical** 14-byte patch
+(`4cfb74e7 668a0751 7536bd0c d17e0000`) at **offset 0 and offset 5128** - data that is not flash
+at either location.
+
+**So `get_mtd_device_nm("rootfsb")` is resolving to some OTHER mtd device with the same name.**
+The plausible candidate is one registered by **the vendor's own NAND driver**, if that is
+compiled into this kernel - and if so, **it would also be the device `ubi.mtd=rootfsb` picks**,
+which would mean **every UBI reading this phase has been about that driver rather than ours.**
+
+**And that would explain the original `-EINVAL` outright** - not a bad header, not a compat flag,
+not a read-path bug, but **UBI being pointed at a device that is not the one we built.**
+
+The hook now enumerates every registered mtd with its name, type and geometry, then reports what
+`rootfsb` resolved to along with its `->priv` pointer, **so the answer is which driver owns the
+device UBI is actually using.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
