@@ -616,3 +616,64 @@ The five low-order unknowns the spec could not close (cfg bits 1/8-12, global_cf
 7/19, the pwidth/opidle provenance, the ecctype enum, the op bits 3/4) stay UNKNOWN
 with the observation that would settle each, and the stage-A run is what turns the
 ID read from "expected 8C 2C" into a measurement.
+
+
+---
+
+## Phase 50a (2026-10-09): THE FIRST STAGE-A FIRE - the driver compiled, the probe never ran, and the cause is that the kernel boots the VENDOR's devicetree
+
+**The builds.** Both CI runs are GREEN: `37974424274` on `d4280df` (the driver +
+spec) and `37974960956` on `08cdb42` (the crum-cell fix). The first one's artifact
+is the one that was fired: `config` and `kernel` both **success**, and the log
+carries the decisive lines - `drivers/mtd/nand/Makefile:11:obj-$(CONFIG_MTD_NAND_LUOFU)
++= luofu/` and `OK    CONFIG_MTD_NAND_LUOFU=y`, so the symbol has left the
+driver-less TODO list (one of thirteen) and the driver cross-compiles. The image
+is comfortably inside the budget: `zImage` 3,608,600 B, `uImage` 3,608,664 B
+against the 8,650,752-byte kernelb partition, ~5 MB of margin.
+
+**The fire.** `build/tmp/kboot/fire-nand.sh` - the proven `fire-fixed4.sh`
+sequence with both cells poisoned and the poison re-read before the reboot, a
+`boot_id`-changed freshness gate, and the two env writes dropped because the
+files they read (`/tmp/a{1,2}.bin`) do not exist and never did in any prior fire.
+Both gates passed: kernela's md5 still equalled the image last fired, and the
+cells read back `0xFEEDFACE`/`0xFACEFEED`. The slice went in, the box rebooted,
+and the vendor system came back by itself with a moved `boot_id`.
+
+**The measurement, and it is a NEGATIVE with a named cause.** `C18 = 0xC0DE0020`
+(every initcall completed) and `C1C = 0x18C5387D`. That second value is not a
+driver value: `patched-head.S` writes a **pair** at its `0x0017` site - the crumb
+to `0x10100C18` and then `str r0,[ip,#4]`, which lands r0 into `0x10100C1C` - and
+r0 there is `0x18C5387D`. So the cell still held the last thing the head code
+wrote, and **the probe never ran**. Two controls make that reading safe: a poison
+written to c1c on the running vendor system held for 60 s, so nothing else writes
+that cell, and c1c survives a warm reset.
+
+**Why the probe never ran, and it is a fact the record already held.** The
+mach's `dt_compat` carries `"hsan-luofu"`; our own DTS root is
+`"hisilicon,luofu-r116", "hisilicon,luofu"` - a string the mach does NOT carry -
+and the kernel still boots and stamps its crumbs. So the tree in use is the
+**vendor's**, handed over by the u-boot bootfip, exactly as
+`lab/luofu-kernel/README.md` recorded when it added that dt_compat entry. In that
+tree the node is `fmc@10a20000 { compatible = "hsan,fmc"; }` with no `status`
+property. Our match table had only `hisilicon,luofu-fmc`, so nothing probed.
+**Corollary, recorded because it is easy to waste a fire on: editing our DTS
+changes nothing at boot today - a `status = "okay"` there is inert.**
+
+**The fix, committed as `8f610c6`.** `"hsan,fmc"` goes FIRST in the match table
+(our own binding stays second for the day the appended tree is the one used); the
+report cell is mapped and the ENTRY stamped before any resource can fail, because
+"the probe was called at all" is the one fact that separates a missing DT match
+from a failure inside the function; and c1c becomes self-describing -
+`0x5000000n` = entered step n, `0xE000000n` = failed at step n, `0x8C2Cxxyy` =
+PASS, `0x18C5387D` = the never-ran signature, documented in the header.
+
+**Health.** The router is healthy throughout: it came back on 2.4.15 by itself,
+6 interfaces, the vendor's wifi modules loaded, no leftovers. The only device
+mutation was the kernela write and its reboot, and kernela is the project's own
+deployment surface (its prior content is reproducible from
+`build/tmp/kboot/mtd12-pre-2415.bin` plus the vendor container).
+
+**What this is NOT.** Not a hardware finding: the register layer was never
+executed, so nothing about the FMC's behaviour was measured. The stage-A claim
+("the die answers 0x8C2C") is still OWED, and it is owed exactly one fire after
+the match fix builds.
