@@ -2245,3 +2245,50 @@ away from it, and `luofu_mtd_read()` already computes `row = pos / writesize` an
 offset correctly - so the defect is one layer down, in the page read.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ah (2026-10-09): `-EINVAL` COMES ONLY FROM `validate_vid_hdr` - so the magic read fine and a FIELD failed
+
+**The first diagnostic fire answered half the question.** The captured output contained:
+
+```
+[    3.977322] FMC: read off0 err=0 rl=32 5542492306816...
+[    3.632146] UBI: ... 4 bytes read back 55 42 49 2...
+```
+
+**Our read at PEB offset 0 returns `55 42 49 23` - "UBI#" - exactly what the vendor's own MTD
+driver returns at the same offset.** The read path is right where it has always been tested;
+the offset-2048 line did not survive the panic dump.
+
+**And `ubi-io.c` narrows the fault further than the captured log could.** In
+`ubi_io_read_vid_hdr()`, a **wrong magic returns `UBI_IO_BAD_HDR` - not `-EINVAL`.** The only
+`-EINVAL` on that path is:
+
+```c
+	err = validate_vid_hdr(ubi, vid_hdr);
+	if (err) {
+		ubi_err(ubi, "validation failed for PEB %d", pnum);
+		return -EINVAL;
+	}
+```
+
+**So the VID header's magic READ CORRECTLY** - consistent with that `55 42 49 2` fragment -
+**and a field inside it failed validation.** That moves the suspicion away from the read and
+toward **what `validate_vid_hdr()` compares those fields against**: `ubi->leb_size`,
+`ubi->peb_count`, and the geometry this driver hands UBI. A header that is byte-perfect on the
+flash can still fail validation if the driver's geometry makes UBI's own checks unsatisfiable.
+
+**Why the bytes now go to fixed addresses instead of the log.** The lines land in the newest
+kilobyte of the console buffer, and **the panic that follows dumps a partition list and a stack
+trace straight over them** - the printed copies are unreliable by construction. The driver now
+writes the two 32-byte reads to `0x80600e00` and `0x80600e80`, plus err/retlen to
+`0x80600ec0`, where `devmem` reads them with no interleaving at all.
+
+The console buffer shrinks to 512 bytes so it ends exactly where those diagnostics begin,
+keeping every region clear of the flash-spec ATAG: console `0x80600c00-0x80600e00`,
+diagnostics `0x80600e00-0x80600ed0`, ATAG at `0x80601000`. All of it in the same 4 KiB that
+hundreds of printk writes per boot have already proven inert.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
