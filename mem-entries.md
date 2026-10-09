@@ -1298,3 +1298,48 @@ itself is then mainline code with nothing board-specific left in it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router came back on
 2.4.15 healthy, as in every fire since 50b.
+
+
+---
+
+## Phase 50m (2026-10-09): THE NAME WAS ONE PROBLEM, NOT THE ONLY ONE - so the failure value now carries the diagnosis
+
+**The volume-by-ID fire returned the same failure.** `C18 = 0xC0DE500B`, `C1C = 0xE000000B`:
+`ubi_open_volume(0, 0, UBI_READONLY)` failed too. So opening by ID did not fix it, which
+means the name was *one* problem and not the only one - **UBI is not up by the time the hook
+runs**, or `ubi0` does not exist at all.
+
+**Rather than guess a third time.** Two 40-minute round trips have now been spent on
+single-hypothesis fixes to this one call, and each taught something but neither located the
+cause. So the failure value itself now carries the diagnosis - on a failed open it stamps
+`0xE0000000` plus two independent facts:
+
+| bit | fact |
+|---|---|
+| 1 | can the mtd partition UBI was TOLD to attach still be resolved by name (`get_mtd_device_nm("rootfsb")`)? |
+| 0 | does the ubiblock device exist? |
+
+The second bit is the interesting one: `ubiblock0_0` is created by `ubiblock_init()` from
+`ubi.block=0,0`, and it can only exist if **ubi0 attached AND volume 0 opened for it** - so
+its presence is evidence about UBI that does *not* travel through this hook's own open call.
+The four outcomes then read:
+
+```
+0xE0000000  neither        -> the partition is not there any more
+0xE0000001  ubiblock only  -> UBI IS up; this hook failed for some other reason
+0xE0000002  partition only -> UBI did NOT attach
+0xE0000003  both           -> UBI is up and volume 0 is readable
+```
+
+**Why this shape and not another guess.** The step crumbs have now converted three
+ambiguous failures into located ones, and the pattern that makes them work is the same each
+time: make the instrument answer *which* of the candidate causes it is, in one observation,
+instead of testing one hypothesis per device cycle. The cost of a fire is the scarce
+resource here, not the code.
+
+**Still true, and still binding:** the safety net means a successful mount and a failed one
+are indistinguishable in the cells - both panic, both `panic=5`, both return the vendor. And
+`C18 = 0xC0DE500B` continues to show the hook itself runs and the kernel completes its
+initcalls, so nothing about the root= command line is implicated yet.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
