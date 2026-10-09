@@ -1198,3 +1198,54 @@ own `init=/nonexistent` net, exactly as phase 50g specified, and it is the next 
 
 **Device mutation.** The same as every fire since 50b: the `kernela` write and its reboots.
 Nothing else was touched, and nothing in this driver can write the flash.
+
+
+---
+
+## Phase 50k (2026-10-09): THE ROOT DEVICE, AND THE SAFETY NET THAT GOES WITH IT
+
+Stage C measured everything a rootfs mount needs. This step adds the root device itself -
+and the net that makes firing it safe - in one commit (`7e1da9c`, CI `37982351933`).
+
+**The command line**, appended to the loader's by `CONFIG_CMDLINE_EXTEND`:
+
+```
+ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs rootwait
+```
+
+All mainline mechanisms: `ubi.mtd=` takes a partition NAME (so our registration order need
+not match the vendor's numbering), `ubi.block=` creates the ubiblock for the rootfs volume,
+and `name_to_dev_t()` resolves `/dev/ubiblock0_0` through `blk_lookup_devt()` against the
+ubiblock disk's own name.
+
+**A near-miss caught in review, and it is the sharpest one in this phase.** The fragment
+already carried `CONFIG_CMDLINE="panic=5"`, and the first version of this change added a
+**second** `CONFIG_CMDLINE` line. `CONFIG_CMDLINE` is a *string* symbol: a second line does
+not extend it, it **replaces** it. So that version would have silently dropped `panic=5` -
+and a panicking kernel without `panic=5` **hangs instead of rebooting**, which is precisely
+the mechanism that returns this box to the vendor after every fire. Losing it is the one
+change here that could have stranded the router, and it would have looked like a successful
+push. Both values now live in ONE string, and a duplicate-symbol scan over the whole
+fragment reports none. Worth generalising: in a fragment, a repeated key is not a merge.
+
+**The safety net, `init=/nonexistent-init`, is not a typo.** Our kernel has no network
+driver, so a boot that SUCCEEDS in mounting a rootfs would reach a userspace reachable by
+neither ssh nor the bootreg failover - a power cycle, and therefore the user's hands, would
+be the only way back. Naming an init that cannot exist means a successful mount still ends
+in "Requested init ... failed", then `panic=5`, then the mach's `.restart` - the same path
+that returns the box today. **Both outcomes self-recover**, which is what makes this step
+something that can be fired at all.
+
+**And the part that makes it observable (stage D).** A `late_initcall_sync` hook opens the
+volume named `rootfs` through UBI's **public** API and reads its first four bytes into the
+reader cell. The *attach* is left to the kernel's own `ubi.mtd=` because
+`ubi_attach_mtd_dev()` is deliberately not public; the hook runs at `late_initcall_sync`,
+after every `late_initcall` and so after UBI's `module_init` has attached. A squashfs
+superblock begins with the magic `"hsqs"`, which as a little-endian word is
+**`0x73717368`** - so, like stages B and C, the pass value is the data itself.
+
+**What the fire will distinguish.** `0x73717368` means UBI attached to our mtd AND the
+rootfs volume reads through it - i.e. the whole storage stack, with the only remaining
+question being whether the kernel then mounts it. A `0xE000000B` means UBI did not attach.
+Either way `C18` should hold the mach's `0xC0DE0020`, because both paths complete the
+initcalls before the mount is attempted.
