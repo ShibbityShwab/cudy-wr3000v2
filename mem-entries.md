@@ -2431,3 +2431,43 @@ path** and stamps **`0x73717368`** - the squashfs superblock magic `"hsqs"` - **
 readable through our own driver**, which is the thing this entire phase has been for.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50al (2026-10-09): THE COMPAT PATCH WAS NECESSARY BUT NOT SUFFICIENT - and I cannot read UBI's reason for a size reason
+
+**The patched kernel booted, and CI's own log shows the patch reaching the build:**
+
+```
+config  apply our in-tree additions: checking file drivers/mtd/ubi/io.c
+config  apply our in-tree additions: patching file drivers/mtd/ubi/io.c
+```
+
+**And UBI still refuses:** `ubi0 error: ubi_attach_mtd_dev: failed to attach mtd14, error -22`.
+
+**So `compat = 5` was necessary but not sufficient, and I should say plainly that the previous
+phase's "blocker named, verified and fixed" was premature in its final word.** The field is real -
+the CRC verifies, it is the only deviation my scan finds - and widening it moved nothing.
+
+**The scan reports the same raw fields because it carries MY check, not UBI's.** It fails on
+`cp > 3` by construction, so it can never tell me whether *UBI* is satisfied; it only reports
+what the header contains.
+
+**And the reason I cannot simply read UBI's specific complaint is a size problem, cleanly
+stated:** the console ring is **512 bytes, roughly eight messages**, and an entire boot passes
+between UBI's attach attempt at `late_initcall` and the panic that follows the failed mount.
+**UBI's message is long overwritten by the time the panic notifier could copy anything out** -
+which is why every reading so far shows the attach *failing* without showing *which check*
+failed, even though UBI prints exactly that line.
+
+**So the console callback now keeps only chunks that contain "ubi".** UBI's messages are few, so
+a ring of those holds all of them however long the boot runs afterwards. **The match is loose on
+purpose** - printk may hand a message over in more than one piece, and the pieces around the
+keyword carry the detail.
+
+**This is a measurement fix rather than a theory:** the next fire either shows UBI's specific
+complaint, or shows that UBI said nothing specific at all - and both are answers the last four
+fires could not give.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
