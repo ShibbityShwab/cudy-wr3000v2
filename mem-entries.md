@@ -862,3 +862,57 @@ proxy for it.
 
 **Health.** No device mutation in this step beyond what phase 50b left: the reads are
 `/dev/mem` and `/proc/device-tree`. Router unchanged.
+
+
+---
+
+## Phase 50e (2026-10-09): STAGE-B PASS - THE DMA PAGE READ RETURNS REAL FLASH CONTENT, AND rootfsa BEGINS WITH "UBI#"
+
+**The build.** CI run `37978032314` on `7f4337d` - both jobs **success**. The image is
+3,610,504 B against the 8,650,752-byte kernelb partition, ~5 MB of margin.
+
+**The fire.** `fire-nand.sh` on that artifact. Both gates passed (kernela still the image
+last fired at `2e24d4e2...`, both cells poisoned AND re-read), the box came back by itself
+with `boot_id` moving `1c8010f0-...` -> `00bc47a3-...`, and the cells read:
+
+```
+C18 = 0xC0DE0020     every initcall in OUR kernel completed
+C1C = 0x23494255     the ASCII "UBI#"
+```
+
+**`0x23494255` is the ASCII `UBI#`, UBI's erase-counter header magic.** The driver's
+last act in probe() is to read the first page of the `rootfsa` partition through the DMA
+engine (chip offset `0x1e00000`, row `0xF00`) and stamp that page's first four bytes into
+the result cell - so the pass value is not a proxy for the read, it is the bytes the read
+returned. Reproduced in a second sample taken through a different probe.
+
+**What that one word establishes, link by link.** The flash-spec operands parsed out of
+the bootloader's own ATAG table at runtime are the correct ones, because the read they
+configured returned the right data; the quad configuration works, because that is the
+interface the operands describe (`read_if_type = 3`, `read_cmd = 0x6b`) and it needed this
+driver's one SET FEATURES to turn the die's QE bit on; the DMA engine's buffer setup,
+row addressing (`addrh/addrl = row << 16`) and `op_ctrl` trigger all work, because a
+specific page came back with the content that page must have; and the `rootfsa` partition
+genuinely carries a UBI volume, which is the volume the rootfs will be mounted from.
+
+**So the flash controller is now demonstrated end to end in our own kernel**: the register
+window, the data window, the command engine (stage A's READ ID), and the DMA page
+transfer. The thing that phase 50 opened as "the one thing between boots-and-runs and
+mounts-a-rootfs" now reads the rootfs.
+
+**Health, by the project's own probe.** `FINAL_WIPHY=2 FINAL_IFACE=6`,
+`FINAL_CAL2G=1 FINAL_CAL5G=1`, `FINAL_VENDOR=2`, `OMO_OFF=0`, `STAGED=0`, `PSTORE=3`
+unchanged, on `mtd14:rootfsb` with `bootflag=b`. Zero leftovers. The only device mutation
+across 50b/50e was the `kernela` write and the reboots it caused.
+
+**What this does NOT yet say.** Reading a page is not mounting a filesystem. Nothing is
+registered with MTD yet: there is no `mtd_info`, no partition table, no UBI attach and no
+mount, so the kernel still panics on the missing rootfs and folds back to the vendor. What
+changed is that the hard part - the controller - is measured, so what remains is the
+mainline integration the spec's section (f) always named: an MTD device over these
+primitives, the 17 partitions from the devicetree, then UBI on top.
+
+**A note on the instrument, because it matters for the next phase.** This driver's
+readback cell holds the LAST thing the probe wrote, so it now reports stage B and no
+longer stage A; stage A's `0x8C2C` reading is preserved in phase 50b. Extending the
+protocol again means re-reading the header's table, not assuming the old meaning.
