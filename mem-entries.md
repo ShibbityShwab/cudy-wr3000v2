@@ -518,3 +518,14 @@ the three sampled sites read STOCK words - __fixup_smp's stores do not reach RAM
 dying class.  CAVEAT: the instrument flips the class itself (reverted dt_rewrite, still
 0017 with it in) => ANY sizable text change flips it; the "dice" model stands.  The
 0020-class cell read needs a smaller-footprint reader (a C-level one in luofu.c).
+
+### 2026-10-09 (dice campaign close) - six instrumented throws, all 0017; the framing fix
+
+Six instrumented builds (C readers in three shapes, the asm readback, 192B text pads,
+string perturbations) all died 0017.  Key realization: the current tree carries the
+sweep + C-disable block (~+300 bytes vs the 0020 baseline), so the instrument was never
+added to "the verified 0020 content" - the budget framing was contaminated.
+Clean sequence for a fresh session: revert to the exact 6d904f5 content; add ONLY a
+minimal inline-asm reader (hardcoded descriptor 0x2E8/VA 0xC06082E8 in the pad-less
+tree - verified); fire; if 0020 read cells at 0x8F000F20; then re-introduce the sweep,
+C-disable, dice one at a time with a fire each.
