@@ -2170,3 +2170,78 @@ the seventh found that the event never happened (`rootwait`); the eighth made it
 ninth stops reading the log back at all and simply keeps what printk hands over.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50af (2026-10-09): THE LOG IS CAPTURED, AND UBI'S OWN SENTENCE NAMES THE FAULT - our read is wrong at the VID header, not the EC header
+
+**Nine designs, and the console capture works.** printk text now lands in RAM at `0x80600c00` and
+is read back with `devmem` from the vendor system. That fight is over, and it is worth naming
+what ended it: not another repair to the log-reading API, but **stopping the read-back entirely
+and registering a console that keeps whatever printk hands it.**
+
+**And the captured text contains UBI's own words:**
+
+```
+<4>error: ubi_attach_mtd_dev: failed to attach mtd14, error -22
+```
+
+**with a `ubi_dump_vid_hdr()` field dump right beside it** - `vol_type 102`, `upd_marker 138`,
+`name_len 1873`, a blank volume name. **Garbage.** UBI is not rejecting an EC header; it is
+rejecting a **VID header**.
+
+**Ground truth, read from the vendor's own MTD driver** (`/dev/mtd14`, which `/proc/mtd` shows
+as `rootfsb`, size `0x01740000`, matching our partition exactly):
+
+```
+EC  @   0: 55 42 49 23 01 ... "UBI#"   vid_hdr_offset = 2048   data_offset = 4096   VALID
+VID @2048: 55 42 49 21 01 01 00 05 7f ff ef ff ... "UBI!"  vol_type=1  compat=5  vol_id=0x7FFFEFFF   VALID
+    @4096: 00 00 00 76 00 00 00 01 ... 73 71 75 61 73 68 66 73   "squashfs"
+```
+
+**So the flash is correct at offset 2048 and our kernel reads it as garbage.** The fault is in
+**our read path at the VID header's offset**, while offset 0 reads perfectly.
+
+**Why every earlier check missed it.** The stage-D hook's EC scan read `mtd_read(part, i *
+block_size, 64, ...)` - **always offset 0 of each PEB**, 32 times, and all 32 passed. The
+offline dump validated both EC and VID headers and found them perfect. **Neither exercise ever
+asked our read path for a byte that was not at a PEB boundary**, so a fault at offset 2048 was
+invisible to both. `luofu_mtd_read()` itself looks right - it computes `row = pos / writesize`
+and the offset within the page - so the fault is one layer down, in the page read.
+
+**And a capability unlocked by the same result, which changes the pace of everything left:**
+the driver can now **print** and I can **read it**. The 32-bit crumb channel is no longer the
+only way for the kernel to speak.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ag (2026-10-09): THE KERNEL CAN SPEAK NOW - a driver that prints, and a read that is wrong only away from the PEB boundary
+
+**The capability that changes the pace of everything left.** With the console capture working,
+the driver can **print** and the output is read back with `devmem`. **The 32-bit crumb channel
+is no longer the only way for the kernel to say anything** - which for this whole phase has
+meant compressing every question into a single word and reading the answer out of a scratch
+register. A driver that can write a paragraph and have it read back is a different instrument
+entirely.
+
+**The first thing spent on it** is the measurement that could never be made before: the stage-D
+hook now reads **32 bytes at offset 0** and **32 bytes at offset 2048** of the same PEB and
+prints both with `pr_err`, side by side. That is the first question worth asking, because:
+
+- **UBI's own captured words** say `failed to attach mtd14, error -22`, beside a
+  `ubi_dump_vid_hdr()` dump full of garbage - so it rejects a **VID header**, not an EC header;
+- **the vendor's own MTD driver** returns a perfectly valid VID header at 2048 of the same
+  flash - `55 42 49 21` ("UBI!"), `vol_type 1`, `compat 5`, `vol_id 0x7FFFEFFF`;
+- and **the EC scan passed 32 of 32 because it only ever read offset 0** (`i * block_size`),
+  as did every earlier validation of this read path. **A fault at offset 2048 was invisible by
+  construction, not by bad luck.**
+
+**So the fault is now bounded precisely:** our read path is correct at a PEB boundary and wrong
+away from it, and `luofu_mtd_read()` already computes `row = pos / writesize` and the within-page
+offset correctly - so the defect is one layer down, in the page read.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
