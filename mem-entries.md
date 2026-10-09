@@ -2126,3 +2126,47 @@ sound of a trigger that never fires is silence, which looks exactly like a mecha
 and finds nothing to say.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ae (2026-10-09): THE KERNEL PANICS NOW - removing `rootwait` was the trigger fix - and the capture moves to a console
+
+**`C18 = 0xC0DE502A`, `C1C = 0xC0DE1042` - crumb step 42 and the panic marker.** For the first
+time in this phase, **the kernel panics**, and the panic notifier fired and stamped its crumb
+while the box still returned under `panic=5`. **Removing `rootwait` was what changed it**, and
+the trigger question is now answered from the trigger itself rather than from an inference.
+
+**The text still did not arrive, and the mark is now attributable.** It came from the
+**notifier**, where `dumper->active` is false - so it wrote the mark and the loop yielded
+nothing. But the **timer** sets `active` and produced no text either, and `_prb_read_valid`
+catches up when a sequence is behind the tail, so the iteration *should* have worked.
+
+**Rather than reason a third time about that API's preconditions** - `active`, `cur_seq`,
+`clear_seq`, record size - **the design stops using it.** The driver now registers a
+**console**:
+
+```c
+static struct console luofu_console = {
+	.name  = "luofu",
+	.write = luofu_console_write,
+	.flags = CON_PRINTBUFFER | CON_ENABLED,
+};
+```
+
+`CON_ENABLED` means printk uses it from the moment it registers; `CON_PRINTBUFFER` hands it
+everything printed before that, which is the boot-time text wanted. **This is what pstore's
+console backend does**, and it is the direct route: printk calls the callback for every message
+that passes the console loglevel, so UBI's `ubi_err()` lines arrive by the same path they would
+reach a serial port. **No ringbuffer to iterate, no cursor to position, no flag to set first.**
+
+The copy is circular so the newest text survives, and the write is a `memcpy` in console
+context - it cannot sleep and takes no locks of its own. The `kmsg_dumper`, the panic notifier
+and the timer all stay as independent extra paths; the console is simply the one that does not
+depend on any of them behaving.
+
+**The arc, stated plainly:** nine designs. Six fixed real faults in how the log was written;
+the seventh found that the event never happened (`rootwait`); the eighth made it happen; the
+ninth stops reading the log back at all and simply keeps what printk hands over.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
