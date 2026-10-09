@@ -1780,3 +1780,44 @@ proved survivable in exactly this region: the older breadcrumbs wrote 4-byte cel
 and still writes the log itself.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50w (2026-10-09): ioremap REFUSES RAM ON ARM - which is why no mark ever appeared, and why every crumb always did
+
+**The armed-mark fire put the answer in the ABSENCE of the marks.** `0x80606000` read
+`0x00000000` and `0x809A0000` read `0xE34C1094` - an ARM instruction. The armed mark is
+written at **registration time, while the kernel is alive**, so its absence can only mean that
+`devm_ioremap()` returned **NULL for both buffers**: the dumper had nothing to write to and
+never wrote anything. The values being read were simply whatever RAM happened to hold.
+
+**The cause.** On ARM, `ioremap()` **refuses valid RAM outright** -
+`__arm_ioremap_pfn_caller()` contains `WARN_ON(pfn_valid(pfn))`, "Don't allow RAM to be
+mapped" - and both of these buffers are RAM. `memremap()` exists for exactly this case and is
+what `ramoops` itself uses.
+
+**And that single fact explains the whole shape of this phase's instruments:**
+
+| address | type | worked? |
+|---|---|---|
+| `0x10100C18` sysctrl crumb cell | **I/O** - `devm_ioremap` maps it happily | **yes, reliably, all along** |
+| `0x80600F20` old RAM cells | RAM | worked then, but written by a different route |
+| `0x80606000`, `0x809A0000` log buffers | RAM | **no - ioremap returned NULL** |
+
+Same function, different memory type, and I had been treating them as interchangeable. The
+breadcrumbs have reported reliably for this entire phase precisely because sysctrl is an I/O
+region, so nothing about them ever hinted at this.
+
+**The fix:** `memremap(MEMREMAP_WB)` with plain pointer writes - the mapping is memory, not
+I/O, so `memcpy` rather than `memcpy_toio`. Cached writes are fine here: the previous
+instrument wrote 4-byte cells into this same region and those values survived a reboot and
+were read back with `devmem`, so cached writes do reach DRAM on this reset path. The
+armed/panic marks are unchanged, so the readback still distinguishes mapped, ran, and scrubbed.
+
+**The meta-lesson, and it is the third framing of the same thing in this phase:** an absence
+has to be made to name its own cause. The crumbs did it for the boot, the artifact diff did it
+for the ramoops parameters, and the armed mark did it here - each time by writing something
+that *should* be there if the mechanism worked, so that its absence means one specific thing.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
