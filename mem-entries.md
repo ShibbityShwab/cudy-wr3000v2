@@ -1343,3 +1343,48 @@ are indistinguishable in the cells - both panic, both `panic=5`, both return the
 initcalls, so nothing about the root= command line is implicated yet.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots.
+
+
+---
+
+## Phase 50n (2026-10-09): UBI IS NOT ATTACHING - the partition is there, and two explanations are ruled out from source
+
+**The diagnostic fire answered.** `C1C = 0xE0000002`: **bit 1 set** - the mtd partition
+`rootfsb` still resolves by name at `late_initcall_sync` - and **bit 0 clear** - no ubiblock
+device. By the encoding that means **UBI did not attach**. So the partition exists and is
+findable, and UBI is refusing it. One fire, one located fact, no guessing.
+
+**Two candidate causes were then eliminated from the source rather than by another fire.**
+
+*Link order is fine.* `drivers/mtd/Makefile` puts `obj-y += ... nand/ ...` **before**
+`obj-$(CONFIG_MTD_UBI) += ubi/`, so our driver's `device_initcall` probe registers the mtd
+and its partitions before `ubi_init` runs. Had it been the other way round, the fix would
+have been a one-line initcall level change - and it would have been wrong.
+
+*Init level is fine.* `ubi_init` is a **`late_initcall`** (and it calls `ubiblock_init()`
+itself rather than the latter having its own init), while this hook is
+`late_initcall_sync` - which runs after every `late_initcall`. So the kernel's own attach
+has already been attempted by the time the hook looks, and the hook is not racing it.
+
+**What remains is that the attach itself fails**, so the hook now asks instead of inferring:
+when the volume will not open it calls `ubi_attach_mtd_dev()` on our own mtd and stamps the
+outcome.
+
+```
+0xE1000000 | errno    the attach refuses, and the errno names the cause exactly
+0x500B0000 | ubi_num  the attach SUCCEEDED here - so the kernel's command-line attach is
+                      what did not take, not UBI
+```
+
+and on that success path it goes on to open the volume, so a working read still reports the
+squashfs magic `0x73717368`.
+
+**The honest accounting.** This is the third device cycle spent on this one call: the first
+taught the volume's name, the second taught that the name was not the whole story, the third
+located the failure to "UBI did not attach" and eliminated two of its explanations from
+source. Each fire has narrowed the space rather than repeated it, which is the property worth
+keeping - but the pattern to note is that I have been fixing one hypothesis per cycle rather
+than instrumenting for the answer first, and the last two commits have moved toward the
+latter. That is what the next fire reads: an errno, not a coin flip.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots.
