@@ -1913,3 +1913,38 @@ understood rather than guessed, and that the same instrument will serve every re
 failure in this phase.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50z (2026-10-09): FIVE FIXES AND STILL AN EMPTY BUFFER - so stop asking how the log is written and ask whether the panic happens at all
+
+**The `max_reason` fix did not land either.** The boot is still full-op (`C18 = 0xC0DE500B`,
+`C1C = 0x5C2000FF`) and `0x80600000` still read `0x76CC66CC` - not the mark.
+
+**Step back and look at what the five fixes had in common.** The ramoops parameters, the
+region, `ioremap` vs RAM, the live write, the reason filter - **every one of them was about
+HOW the log gets written.** Not one established the thing underneath: **that the panic happens
+at all, and that a hook on that path actually runs.** Five correct repairs to a mechanism
+whose trigger was never verified.
+
+**So the next instrument uses the one channel in this phase that has never once failed.** A
+**panic notifier**, whose first act is a **crumb to the SYSCtrl cell** - I/O, not RAM, which is
+exactly why the breadcrumbs have reported reliably since the first fire of this phase:
+
+| readback | meaning |
+|---|---|
+| crumb 42 appears | the panic **happened** and a panic-time hook **runs** — any remaining fault is inside the log-writing code |
+| crumb absent | the kernel **never panicked**, and every RAM theory so far was about the wrong event |
+
+Either answer is specific, which is the whole point. The notifier also performs the log
+capture itself, making it a second, independent trigger alongside the `kmsg_dumper`.
+
+**And buffer B moves once more - to `0x80600c00`, 1 KiB, straddling `0x80600F20`.** My previous
+choice, `0x80600000`, was a kilobyte *below* the only address ever measured, and it read back
+zeroes; u-boot may well scratch the first pages of that window before the vendor kernel runs
+at all. **Anchoring on the measured point instead of on my inferred boundary** - which is the
+same correction I had to make once already in this phase, when `0x80608000` turned out to be a
+guideline rather than a line.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
