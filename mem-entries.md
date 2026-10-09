@@ -2043,3 +2043,38 @@ moving part. Buffer B stays at `0x80600c00` with 1 KiB, ending exactly at `0x806
 never touching the ATAG the vendor itself reads there.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ac (2026-10-09): THE MARK LANDS - `__va` was the answer, and one boolean was hiding the text
+
+**`0x80600c00` read `0xC0DE1055`.** After seven instrument designs, the mark is in the buffer:
+**`__va()` reaches this RAM where both `ioremap` and `memremap` returned NULL**, the timer runs
+while the kernel is alive, and the buffer survives the vendor's return. **The instrument is
+real** - but the words after the mark were still the `66CC` pattern of untouched RAM.
+
+**The reason is one guard in `printk.c`:**
+
+```c
+	if (!dumper->active)
+		goto out;			/* returns false, *len = 0 */
+```
+
+and `active` is set in **exactly one place** - `kmsg_dump()` itself, on its way into a dumper's
+callback. **A dumper whose callback is never invoked - which is this kernel, because it never
+panics - stays inactive forever**, so the very first call to `kmsg_dump_get_line()` returns
+false and the loop body never runs. The mark was written, the buffer was refreshed every three
+seconds, and the log was silently empty.
+
+The timer now sets `active` around its walk. That is safe: it is this dumper's own iterator
+state, nothing else walks it, `kmsg_dump()` re-sets it on the panic path, and
+`kmsg_dump_get_line()` takes `logbuf_lock` itself - so this neither holds a lock across the
+walk nor disturbs a concurrent panic.
+
+**And there is the phase in one line:** this whole stretch has been a fight against absences
+that could mean two different things - an empty buffer, a missing crumb, a zero where a mark
+should be - each of which had to be made to name its own cause. The last one was a single
+boolean.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
