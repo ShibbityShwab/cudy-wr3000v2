@@ -480,3 +480,14 @@ the 6 MB napt reserve); mainline's 0x8000 made the PV delta 0xC0600000 (16MiB-un
 CI: instrumented head files now travel as whole-file copies; the patch is 3 stable sections.
 
 NEXT: the NAND/MTD driver + UBI for a real rootfs, then the Wi-Fi driver, then persistence.
+
+### 2026-10-09 (later) - the mcr-transition lottery (the current frontier)
+
+The 0020 boot landmark is reproducible (the 6d904f5 binary fires 0020 on demand), but
+ANY small content change (the NAND stack, a 50-byte string) flips some builds to 0017:
+death at the MMU-enable. Fresh instruments (C18 poisoned per fire; RAM captures at
+0x80600F00, below the vendor kernel's span) prove: the pre-mcr block runs in full with
+canonical inputs (r0=0x18C5387D, r4=r8=0x8060406A, r13=0xC0E00460), and a post-mcr store
+to the same page NEVER lands. Only the mcr sits between. The transition is
+content-deterministic per binary, not per boot. Next pass: bisect the content class
+systematically; the NAND/rootfs lane waits on a boot that stays in the 0020 class.
