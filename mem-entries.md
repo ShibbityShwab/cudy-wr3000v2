@@ -2996,3 +2996,35 @@ for a byte-for-byte comparison against the vendor's.** A diff shows which bytes 
 exactly where they start.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bb (2026-10-10): THE DIFF NAMES THE BYTES - 18 OF THEM, AND ONE IS THE CRC
+
+**The full-record diff against the vendor's own `mtd14`:**
+
+```
+ours=172 vendor=172   IDENTICAL: False
+differing byte offsets (18): 8..21 and 168..171
++8  ours=4c vendor=00      +9  ours=fb vendor=00      ...
+```
+
+**Record 6 starts at flash byte 5128 - page 2 offset 1032.** So the differences are:
+
+- **page offsets 1040..1053** - a **stale 14-byte patch**;
+- **the record's CRC field at its own +168.**
+
+**And that is exactly why UBI reports `bad CRC at record 6`:** it computes the CRC over our
+corrupted bytes and gets `0xaae09698` where the flash says `0xf116c36b`. **For the first time in
+this stretch, the symptom and its cause are the same object** rather than two facts I am trying to
+line up.
+
+**Everything below page offset 1040 is correct**, so the fill stops between 1039 and 1040.
+
+**And 1040 is 1024 + 16** - not a round number, but the kind of figure a **per-page transfer
+length** would produce. So the next probe samples four points either side of that boundary on
+**page 2** and the same four on **page 3**: if the boundary repeats per page it is a transfer-size
+defect, and if it only appears once it is something else.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
