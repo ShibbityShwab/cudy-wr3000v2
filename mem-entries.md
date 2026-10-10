@@ -5208,3 +5208,44 @@ harmless, **but it is NOT the instrument and the comments now say so.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+## Phase 50di (2026-10-10): THE BUILD FAILED ON FUNCTION ORDER - AND THE VALIDATOR COULD NOT HAVE CAUGHT IT
+
+**CI named the class exactly:**
+
+```
+luofu-fmc.c:1475: error: implicit declaration of function 'luofu_kmsg_to'
+luofu-fmc.c:1478: error: 'luofu_log_timer' undeclared (first use in this function)
+luofu-fmc.c:1483: error: static declaration of 'luofu_kmsg_to' follows non-static declaration
+```
+
+**I pasted the restored timer ABOVE `luofu_kmsg_to()` instead of below it**, so its call had no
+declaration in scope yet. **The order is now:**
+
+```
+1443  static void luofu_kmsg_to(...)      the function it calls
+1472  static void luofu_kmsg_dump(...)    the dumper callback
+1520  static void luofu_log_tick(...)     THE TIMER, after both
+1704  (the panic notifier's call)
+```
+
+**AND THE VALIDATOR HAD A GAP, WHICH IS THE REAL LESSON.** It verified macro order, file-scope static
+order, brace/paren/bracket balance, and hook `get_mtd_device`/`put_mtd_device` balance - **but nothing
+about FUNCTION order, which is precisely the family that just cost a build.**
+
+**THE NEW CHECK:** it walks every `luofu_*` call site and requires that **either a prototype or the
+definition itself appears earlier in the file.** It reports:
+
+```
+defined functions: 26 | prototypes: 1
+CALLED BEFORE ITS DEFINITION (no prototype): none
+```
+
+**THE CHECKER LIVES IN THE EVAL KERNEL RATHER THAN THE REPO**, so this is recorded here for whoever
+reads the next build failure: **function order is checked now, not just macro order.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
