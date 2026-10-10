@@ -2887,3 +2887,42 @@ out there fail the bounds check in `mtd_read()` **before our driver is reached a
 would explain short and empty reads **without any fault in the page read itself.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ay (2026-10-10): MTD_OF_PARTS REPLACES THE MASTER - and the number I called evidence was a stale field
+
+**The enumeration answered it and refuted my last hypothesis in the same three lines:**
+
+```
+FMC: mtd[0] esbc size=262144 off=0
+     ... size=23068672 off=80216064      (0x1600000 at 0x4C80000)
+```
+
+`0x1600000` at `0x4C80000` is **`rootfs_data`** - the vendor's own last-but-one partition, at the
+vendor's own offset. So the DT table is real and it is on our device.
+
+**But `CONFIG_MTD_OF_PARTS` does not add partitions *beside* the master - it RE-REGISTERS THE
+MASTER AS a set of partitions.** This driver's single `mtd_info` is **replaced** by the vendor's
+seventeen, **the master is no longer registered at all**, and **the index my crumb carried (`0`)
+was a stale field on an unregistered struct.** I reported that number as evidence twice, and it
+meant nothing - **the third time in this stretch that a plausible value came from the wrong
+place.**
+
+**And the tile arithmetic kills the hypothesis the number was meant to test:**
+`0x6280000 + 0x1d80000 = 0x8000000` exactly - **the partitions cover the whole flash, so the
+master is full-size**, and "a partition offset beyond the master" is dead.
+
+**So the suspicion returns to where it started - the page read - and to something that has never
+actually been measured: this driver's read at SEVERAL OFFSETS WITHIN ONE PARTITION.** The hook
+now reads 0, 2048, 4096 and 5128 of `rootfsb`, each with its own err and retlen, parked in our own
+coherent buffer. **That separates "a particular row is wrong" from "a particular within-page
+offset is wrong" from "the buffer is stale for repeated reads"** - the three candidates this
+phase has been unable to distinguish.
+
+**And one more catch, by the checker rather than the compiler:** the sampling block first went in
+**without acquiring the mtd device it reads from**. The get/put accounting found it before the
+build did. **A use with no matching acquisition is the same class as a use before a definition.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
