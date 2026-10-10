@@ -5401,3 +5401,46 @@ declaration, no undefined macro, no define-after-use, hook get/put balanced, sta
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+## Phase 50dm (2026-10-10): A PHYSICAL ADDRESS IS NOT A POINTER - AND THE FILE SAID SO
+
+**THE CONTROL DID ITS JOB.** The panic marker stayed **ABSENT** at `0x80607800` while **its crumb landed
+every fire** - **which proves the write was the failure, not the timer.**
+
+**AND THE CAUSE WAS MINE, THREE LINES ABOVE THE FIX:**
+
+```c
+luofu_log_b = (void *)__va((phys_addr_t)luofu_log_dma);
+luofu_diag_buf = (void *)__va((phys_addr_t)luofu_diag_dma);
+
+and the comment above them: "already covers them and __va() is the correct way to reach them
+from kernel"
+```
+
+**THE RING IS REACHED THROUGH `__va()`.** I wrote `luofu_stamp()` with the **raw physical address as a
+pointer**, assuming the window was identity-mapped - **which I never checked, and which is false:
+`__va(0x80607800)` is not `0x80607800` on ARM**, so the store went to unmapped or I/O space and vanished.
+
+```c
+-	writel(value, (void *)(uintptr_t)(LUOFU_STAMP_BASE + slot * 4));
++	writel(value, (void *)__va((phys_addr_t)(LUOFU_STAMP_BASE + slot * 4)));
+```
+
+**AND IT ALSO EXPLAINS THE FIRST ATTEMPT.** That one used `luofu_diag_buf`, which **IS** `__va`'d - so it
+was correct in kind, **and the zeros it produced mean the diag is simply not at `diag + 1024` where I
+read.** The same class of error both times: **an address I assumed instead of one the kernel told me.**
+
+**WHEN THE ADDRESSING QUESTION IS ALREADY ANSWERED IN THE FILE, READ THE ANSWER.** The ring's own
+initialisation is **four lines** from where these stamps were added.
+
+**AND THE CLASS WAS SWEPT:** every remaining `writel` with a hex literal is a **register VALUE** written
+to `fmc->regs + offset` - which is correct. **None writes to a raw address.**
+
+**Validator clean:** balance 0/0/0, 27 functions, 14 file-scope variables, no call or use before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
