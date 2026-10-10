@@ -6696,3 +6696,84 @@ define-after-use. **CLEAN.**
 
 **Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` now holds the
 Cortex-A9 rootfs. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ej (2026-10-10): THE A9 ROOTFS DIES THE SAME WAY - SO THE FAULT IS IN THE KERNEL'S FPU ★★★★★
+
+## THE COMPLETE LOG, NOW TRUSTWORTHY (THE FLUSH WORKS)
+
+**3571 of 3584 bytes non-zero, one 13-byte zero run at the very end, NO 32-byte holes:**
+
+```
+ubi0: attached mtd16 (name "upgrade", size 29 MiB)      good PEBs: 236, bad PEBs: 0
+block ubiblock0_0: created from ubi0:0(owrt)
+luofu-fmc 10a20000.fmc: FMC: ubi0 volume 0 begins 68 73 71 73, ubiblock0_0 resolves
+VFS: Mounted root (squashfs filesystem) readonly on device 254:0.
+devtmpfs: mounted
+Freeing unused kernel memory: 1024K
+Run /sbin/init as init process
+  with arguments: /sbin/init
+Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000004
+CPU: 0 PID: 1 Comm: init
+[<c0719d30>] (do_exit) from [<c071aed0>] (do_group_exit+0x58/0xb8)
+[<c071aed0>] (do_group_exit) from [<c072505c>] (get_signal+0x1e0/0x640)
+[<c072505c>] (get_signal) from [<c0708474>] (do_work_pending+0xe4/0x3ac)
+Exception stack(0xc0639fb0 to 0xc0639ff8)
+9fa0: 000000aa 004be000 000000a9 b6f812c0
+9fc0: 00000000 004bd000 00000001 0000002d 004be000 004bc000 00000000 ffffffff
+9fe0: 000000ce bee06ca8 b6f3472c b6f347a4 60000010 ffffffff
+```
+
+## TWO USERSPACES, TWO BASELINES, THE SAME DEATH
+
+```
+armsr/armv7      arm_cortex-a15_neon-vfpv4    -> init killed by signal 4, exitcode 0x00000004
+mvebu/cortexa9   arm_cortex-a9_vfpv3-d16      -> init killed by signal 4, exitcode 0x00000004
+```
+
+**A rootfs compiled for a STRICT SUBSET of this A9's capability cannot be using an instruction this core
+lacks** - so the CPU baseline was NOT the cause. **And the fact that BOTH die identically points at
+something the two share, which is the kernel they run on.**
+
+**A HARD-FLOAT USERSPACE TRAPS ON EVERY FLOATING POINT INSTRUCTION IF THE FPU WAS NEVER ENABLED.**
+
+**`CONFIG_VFP` and `CONFIG_NEON` are both set - the config lane asserts them - so the open question is
+not whether the code is compiled in, but whether `vfp_init()` actually brought the unit up on this SoC.**
+
+## AND NOTHING IN THE LOG COULD HAVE SAID OTHERWISE
+
+**ARM's `do_undefinstr()` prints `undefined instruction: pc=...` only under `CONFIG_DEBUG_USER` and only
+when `user_debug` has the `UDBG_UNDEFINED` bit. Neither was set** - the log goes straight from
+`with environment:` to the panic. **Now `CONFIG_DEBUG_KERNEL=y`, `CONFIG_DEBUG_USER=y`, and
+`user_debug=1` is in `CONFIG_CMDLINE`** (`UDBG_UNDEFINED` is 1, so it is exactly that bit). **The next
+fire prints the faulting pc AND the register dump.**
+
+**And the tick's crumb now carries `elf_hwcap` (step 46)** - the kernel's own record of what it brought up:
+
+```
+bit  6  HWCAP_VFP      the FPU is usable        <- A VALUE WITHOUT THIS BIT IS THE ANSWER
+bit 12  HWCAP_NEON
+bit 16  HWCAP_VFPv4
+bit 17  HWCAP_IDIVA    A7/A15 only, never A9
+bit 19  HWCAP_VFPD32   A9 has 32 double registers
+```
+
+## AND ONE VENDOR-SIDE TRAP, RECORDED SO IT COSTS NOBODY ANOTHER HOUR
+
+**Mounting the mvebu volume on the VENDOR kernel gives `md5sum: can't read '/mnt/a9/bin/busybox': I/O
+error` while `/etc/openwrt_release` reads fine, and `cp` produces 0-byte files.** **That is the VENDOR's
+squashfs/xz path, not the image: OUR kernel reads the same volume well enough to EXECUTE init - had the
+data been unreadable, `execve` would have returned `-EIO` and the kernel would have panicked with
+"No working init found" (exitcode 0x100), not run init into a signal.**
+
+**And the mvebu sysupgrade image is NOT UBI-wrapped:** no `UBI#` magic anywhere; marker block at 0,
+uImage at 2048, squashfs at 3883008, and `3883008 + bytes_used` lands 2 KB short of EOF. **So the plain
+carve is correct and the image itself is sound.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` holds the
+Cortex-A9 rootfs. The router is healthy.
