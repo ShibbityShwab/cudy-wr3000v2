@@ -7879,3 +7879,37 @@ FMC: upgrade is mtd16, and the master is mtd0
 the log ring keeps the TAIL and the probe printed at ~3.5 s, before the oldest retained line. The
 instrument wrote and the channel kept only the newest - the same failure as the crumb the tick
 overwrites, one layer up, and it cost two fires.**
+
+
+---
+
+# PHASE 50fb (2026-10-10): WHY OPENWRT'S OWN MARKING NEVER LANDED - NO OOB WRITE PATH
+
+**The remaining question was why `done()` - which calls `jffs2_switch(v)` for `FS_NONE` - left the
+partition untouched. The answer is in our own driver:**
+
+- **`jffs2_switch` runs the `jffs2mark` tool, which writes a cleanmarker into the NAND's OOB area.**
+- **Our `mtd_info` registers `_read`, `_write`, `_erase` and `_block_isbad` - AND NO `_write_oob`.**
+- **So the OOB write fails, the mark never lands, and mtd15 stays all-`0xff` (measured: 0 non-`0xff` bytes
+  in block 0 and block 128, after many boots).**
+
+**And `mtd_volume_identify()` reads the DATA area FIRST:**
+
+```c
+	sz = read(p->fd, &deadc0de, sizeof(deadc0de));
+	if (deadc0de == ~0) { ...ioctl(p->fd, MEMREADOOB, &oob); }   /* only if all-0xff */
+```
+
+**so an unmarked partition is `FS_NONE` twice over - nothing in the data, nothing in the OOB.**
+
+**THE FIX WRITES INTO THE DATA AREA, WHICH `identify()` READS ON THE FIRST PASS**, so it does not depend
+on an OOB path at all. Two independent repairs exist: this marker, and a `_write_oob`/`_read_oob` pair in
+the driver. The marker is smaller and is the one that was built.
+
+**The full chain, now consistent:**
+
+```
+done() -> jffs2_switch -> jffs2mark -> OOB write -> !_write_oob -> silent failure -> mtd15 untouched
+identify() -> data read -> ff ff ff ff -> OOB read -> nothing -> FS_NONE -> tmpfs overlay
+our marker -> data read -> 0x1985 -> FS_JFFS2 -> mount_overlay -> a real overlay
+```
