@@ -3498,3 +3498,45 @@ the controller leaves in `0x28` and `0x2c` after a read. **Guessing at `0x2c`'s 
 it would be inventing a number**, which is what the last several fires have taught me not to do.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bp (2026-10-10): THE READ-BACK PROVED THE WRITE LANDS - and the register map names FMC_DATA_NUM
+
+**The read-back settled which of the two possibilities it was:**
+
+```
+0x28 FMC_ADDRH     = 0x00000000
+0x2c FMC_ADDRL     = 0x6a8b0000
+0x40 FMC_DMA_LEN   = 0x00000820      <- 2080, EXACTLY WHAT WAS WRITTEN
+0x30 FMC_OP_CFG    = 0x000009a1
+0x68 FMC_OP_CTRL   = 0x006b0000
+0x3c FMC_OP        = 0x000001c4
+```
+
+**So the write LANDS** - `0x40` reads back 2080 - **and the transfer still stopped at 2048, which the
+sentinel already proved. `FMC_DMA_LEN` is therefore not the byte count.**
+
+**And the register map names the one that is, and that this driver has never written:**
+
+```
+0x28  FMC_ADDRH      <- written here
+0x2c  FMC_ADDRL      <- written here (and the vendor's 0x2c is the same flash address)
+0x38  FMC_DATA_NUM   <- THE DATA COUNT - NEVER WRITTEN, NOT ONCE, ANYWHERE
+0x40  FMC_DMA_LEN    <- written now, and it changed nothing
+```
+
+**The vendor's own call site confirms the shape:** it loads the length from a struct field, stores an
+`ADDRL` value into `0x2c`, and its `OP_CTRL` formula - `1 | (cmd << 16)` - is **byte for byte what
+this driver builds.** So the sequence was right and **the count was missing.**
+
+**Nothing here has ever set `FMC_DATA_NUM`, so the transfer has been bounded by whatever that
+register resets to: one page, the 2048 the sentinel measured.** The controller's output is not a bare
+page - it carries spare bytes inside it, which is the splice this driver already de-interleaves - so
+the count must cover the page PLUS that spare or the tail never arrives.
+
+**Both registers are written now, before the operation, and the read-back records `0x38` as well** so
+the next fire shows the count landing.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
