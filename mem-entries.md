@@ -4275,3 +4275,35 @@ the completion condition the vendor uses. The clear comes first because clearing
 very completion being waited for.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cl (2026-10-10): THE INTERRUPT ATTEMPT FAILED INFORMATIVELY - and it exposed a real bug in my own change
+
+**The first interrupt-completion build failed, and said exactly where:**
+
+```
+C18 = 0xC0DE0020
+C1C = 0xE0000008        <- LUOFU_RPT_FAIL(8)
+```
+
+**`LUOFU_RPT_FAIL(8)` is step 8** - three places, all in the probe: the `dma_buf` allocation, the page
+allocation, or **the first `luofu_fmc_read_page`**. With `FMC_INT_CLR` written before the operation,
+**the busy bit never asserted and that first read returned an error.** So writing those two registers
+is **not** the whole of the vendor's sequence.
+
+**AND IT FOUND A REAL BUG IN MY OWN PREVIOUS CHANGE, now fixed:** the three destination writes had
+landed **before** the `dma_buf` NULL check - so a failed allocation would have been written into the
+controller's destination registers before being noticed. They now come after it.
+
+**REVERTED.** The `FMC_INT_CLR`/`FMC_INT_STATUS` block is out, the busy-bit poll that has always worked
+is back, and the de-interleave is intact. **This build is the previous known-good read path plus one
+verified ordering fix.**
+
+**AND THE LEAD IS STILL GOOD.** `hi_spi_nand_drv_dma_read` genuinely does not poll a busy bit - that
+part of the discovery stands. But it **also** calls `hi_fmc_en_interrupt(1)` before the operation and
+`(0)` after, which is **`FMC_INT_EN` at `0x1c`**, and **that was missing from this attempt.** The
+interrupt route needs implementing on its own, deliberately, not folded in beside another change.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
