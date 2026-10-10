@@ -6067,3 +6067,55 @@ undefined macro, and **one spinlock with one unlock and a single return after it
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dy (2026-10-10): THE PERIODIC DUMP WAS STRANGLING THE KERNEL ★★★★★
+
+**THE LAST FIRE RETURNED THE SAME NUMBERS AS THE ONE BEFORE IT:**
+
+```
+C1C = 0x0002002F   phase 2, 47 ticks - IDENTICAL
+```
+
+**Same phase, same tick count, two consecutive fires. SO THIS IS DETERMINISTIC, AND THE SPINLOCK WAS NOT
+THE CAUSE. A race would move the number.**
+
+**AND THE SHAPE OF THE FAILURE POINTS AT MY OWN INSTRUMENT:**
+
+```
+printk stopped at   ~4 s      <- the log's newest entry
+the tick stopped at 47        ~23.5 s, when the system finally gave out
+the safety timer never fired  so timers died too
+the box's own watchdog returned it
+```
+
+**PRINTK DIED FIRST WHILE EVERYTHING ELSE KEPT RUNNING.** **And the thing that holds `logbuf_lock` on this
+system is `luofu_kmsg_to()`, which walks THE WHOLE LOG - 242 lines when this was measured - with
+`kmsg_dump_get_line` taking the lock for each one. FROM A TIMER, WHICH IS SOFTIRQ CONTEXT.** **That is 242
+locked iterations with interrupts held off, every 500 ms.**
+
+**AT A 500 ms CADENCE THE KERNEL WAS LOSING A LARGE FRACTION OF ITS INTERRUPT TIME TO MY OWN INSTRUMENT.**
+Printk starves first because **it is the thing waiting on the same lock**; the softirq keeps running
+because **it is the one holding it**; and eventually the system gives out entirely and **only the SoC
+watchdog recovers it.** **A hard, deterministic hang - which is what starvation looks like and what no
+race looks like.**
+
+```c
+#define LUOFU_LOG_TICK_MS   5000      /* was 500 */
+```
+
+**THE PANIC PATH KEEPS ITS FULL WALK.** A panic is **terminal**, so starving it costs nothing, and the full
+log is exactly what a panic needs. **Only the periodic one is slowed, and at 5 s a reading still carries
+the log from up to 20 s into the boot** - later than anything the 500 ms cadence ever managed to preserve.
+
+**AND THE MEASUREMENT TO WATCH NEXT: IF THE STARVATION WAS THE CAUSE, THE TICK COUNT WILL GROW PAST 47.**
+**That number has been identical across two fires and is the cleanest signal this project has had.**
+
+**Validator, run as its own step and read before committing:** balance (0,0,0), 17 file-scope variables
+with none used before its declaration, 28 functions with none called before its definition, no undefined
+macro. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
