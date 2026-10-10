@@ -3352,3 +3352,34 @@ is at 2032 - still inside the zeroed region - while the stale tail begins at 203
 what the instrument's stride could not.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bl (2026-10-10): THE WIDENED MEMSET CHANGED NOTHING - the zeros are the hardware's
+
+**The fix did not move UBI's number:**
+
+```
+still:  vtbl_check: bad CRC at record 118: 0xf116c36b, not 0xf1160000
+```
+
+**Same correct computed CRC, same stored field with its last two bytes zero.** So a stale staging
+buffer was **not** the source - extending the memset across the whole source window changed nothing
+at all, **and that refutes my own previous explanation cleanly.**
+
+**Which means the zeros come from the hardware.** The copy takes 1040 bytes direct, skips 14, and
+takes the rest, so the returned page's final 14 bytes come from the staging buffer's 2048..2061.
+**Record 118's CRC sits at page 11 offset 2032..2035 - source 2046..2049 - so its last two bytes come
+from 2048..2049, and they read zero.**
+
+**And the map could not have seen this**, which it announced when it reported 128 of 128: **its last
+sample is at 2032**, still inside the region the memset covers, and **the first affected byte is at
+2034.**
+
+**So the probe now samples both tails directly:** the splice region and the last 16 bytes of **page 2
+and page 11** - the page whose record UBI rejects, beside a page it accepts. The vendor's same
+offsets decide whether that tail is hardware content or a copy artefact, and **the two pages side by
+side show whether the difference is a property of this page or of every page's end.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
