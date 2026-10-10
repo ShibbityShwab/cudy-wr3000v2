@@ -8225,3 +8225,39 @@ build so the next fire confirms rather than assumes.**
 
 **Two fires were spent on wrong encodings because the instrument could not fail. The instrument that
 could fail answered in one.**
+
+
+## PHASE 50fj (2026-10-10): THE SELF-TEST'S OWN FIRST READ WAS THE ANOMALY
+
+```
+FMC: erase self-test: block 175 planted as 0x00000000
+FMC: erase self-test: block 175 reads 0x5a5a5a5a after erasing it (ERASE DID NOTHING)
+```
+
+**Zeros are neither what was written (`0x5a`) nor what erased flash reads (`0xff`) - they are the DMA
+buffer's initial contents, so that read did not happen and reported no error. The next read at the same
+address returned the pattern. The read path is unreliable at row 11,200, and a verdict resting on that read
+is worth nothing.**
+
+**AND EVERY "NOTHING WAS ERASED" CONCLUSION IN THIS ARC HAS BEEN READ AT A BLOCK WHERE THE READ PATH WAS
+NEVER SEPARATELY PROVEN.** **The reads that do work - every boot, through squashfs - are in the first few
+megabytes of mtd16.** **Row 11,200 is far outside anything exercised before.**
+
+**SO THE PROBE NOW COVERS THREE BLOCKS, EACH CHOSEN FOR WHAT IT CAN SHOW:**
+
+| block | why |
+|---|---|
+| 1 | low, where the rootfs proves the read path every boot |
+| 25 | exactly where JFFS2 complains (`0x00321bc8`) - the block in dispute |
+| `nblocks - 1` | the far end, the one that caught the address encoding |
+
+**Each is planted with its own byte pattern, read back, erased, and read again - and the read-back reports
+THREE outcomes rather than two, because "read returned ZEROS" is a third thing and it is the one that has
+been misleading me:**
+
+```
+planted 0x5a5a5a5a, read back ...   matches / DOES NOT MATCH
+reads ... after erasing             ERASE WORKS / ERASE DID NOTHING / read returned ZEROS
+```
+
+**An instrument that reports only the two answers I expected cannot tell me when it is broken.**
