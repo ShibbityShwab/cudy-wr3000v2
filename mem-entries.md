@@ -4705,3 +4705,41 @@ operation needs. **The restore is the right form, and it now matches the vendor 
 the vendor sets once at init". That was wrong, and the grep is what showed it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cx (2026-10-10): THE BASELINE GOT LOST - restored from a measured-working commit
+
+**The restore did not restore.** Putting the two writes back per read **still** died at step 8 - so
+something else had changed too, and **assembling more edits on top of a refuted line is how the baseline
+got lost in the first place.**
+
+**So the file is restored from the last commit that was MEASURED WORKING:** `1ef70ad`, the feature-0xB0
+build, **whose fire reached 117 of 118 volume-table records.** The diff from it to `e57cf96` - the
+interrupt build before it - is **exactly the 32 lines that add the feature and nothing else**, so
+`1ef70ad` is the 117-record baseline with the feature on top.
+
+**What is back, verified in the restored file:**
+
+```
+ADDRL -> ADDRH -> SADDR_D0 -> DMA_LEN -> OP_CFG -> DATA_NUM -> INT_EN -> INT_CLR -> OP_CTRL
+wait for the DMA completion interrupt
+INT_EN = 0 -> INT_CLR
+de-interleave and copy
+
+feature 0xB0 read-modify-write            present
+busy-bit poll                             gone
+```
+
+**AND THE LAST FEW BUILDS' FINDINGS ARE KEPT IN THE RECORD, NOT IN THE CODE:**
+
+- **`0x38` and `0x40` are PER-OPERATION registers** - the vendor writes them with different values for
+  different operations (5, 1, computed) and its DMA functions write them with a length argument. **My
+  per-read writes were always correct; "the vendor sets them once at init" was my error**, and a grep
+  refuted it;
+- **the vendor's real page-read function is `hi_spi_nand_hw_read`**, reached through the **relocation
+  table** rather than the symbol list, and **every value it writes matches this driver's**;
+- **the five-write form cannot be reproduced on this path** - three builds say so.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
