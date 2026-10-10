@@ -3540,3 +3540,43 @@ the count must cover the page PLUS that spare or the tail never arrives.
 the next fire shows the count landing.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bq (2026-10-10): THE READ-BACK CAUGHT MY MISTAKE - 0x38 is a counter, not a count
+
+**The read-back caught a mistake of mine:**
+
+```
+0x38 DATA_NUM = 0x00001020   (4128)
+0x40 DMA_LEN  = 0x00000820   (2080, exactly as written)
+tail          = f1160000     (unchanged)
+```
+
+**2080 was written to `0x38` and it reads back 4128 - WHICH IS 2048 + 2080, the register's own value
+plus mine.** That is not a data count: **it is a free-running TRANSFER COUNTER, and adding to it was
+wrong.** The write is reverted. `FMC_DMA_LEN` stays, because that one genuinely takes the value
+written and holds it.
+
+**So two registers have now been tested against the same symptom and both are refuted by
+measurement:** `0x40` takes the write and does not change the transfer; `0x38` is not settable at
+all. **Neither bounds it.**
+
+**And `0x28` is confirmed as the vendor sees it.** Its address-setting routine does exactly what this
+driver does:
+
+```
+lsr  r3, r1, #0x10     ; row >> 16
+lsl  r1, r1, #0x10     ; row << 16
+str  r3, [r0, #0x28]   ; FMC_ADDRH
+str  r1, [r0, #0x2c]   ; FMC_ADDRL
+```
+
+**so the addressing is not where the difference lies.**
+
+**What is left is the block's own configuration** - the geometry set once at probe time, which would
+bound every transfer regardless of what a per-operation register says. **So the read-back now records
+`FMC_CFG`, `FMC_GLOBAL_CFG`, `FMC_FLASH_INFO` and `0x20`** alongside the operation registers.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
