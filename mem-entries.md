@@ -4597,3 +4597,34 @@ clr around the read.
 shaped as the vendor performs it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cu (2026-10-10): SETTING THEM EARLIER IN THE PROBE DID NOT SURVIVE EITHER
+
+**The build with `DMA_LEN` and `DATA_NUM` set in the probe's configuration block died at step 8 too -
+the same place, on the first page read:**
+
+```
+C1C = 0xE0000008    -> LUOFU_RPT_FAIL(8)
+```
+
+**So it is not merely that they must be set once rather than per read. SOMETHING BETWEEN THE
+CONFIGURATION BLOCK AND THE FIRST READ RESETS THEM** - **the die reset, the RDID and the feature reads
+all run in between**, and any of them can clear a controller register that has to hold a value.
+
+**AND THAT IS WHY THE VENDOR'S ARRANGEMENT WORKS.** Its init sets them once and the values survive,
+**because its init runs AFTER its own identification.** Its page read then writes five registers and
+neither of these - not because they are unnecessary, but because they are already correct **at the
+moment the read happens.**
+
+**The arrangement now building:** set them after every identification step this probe performs and
+**immediately before the first page read** - once, and out of the per-read sequence so that sequence
+stays the vendor's five writes.
+
+**And the fallback is named in the commit:** if it still fails at step 8, the conclusion is that this
+controller requires them re-written per operation, and **the per-read writes - the build that reached
+117 of 118 records - come back.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
