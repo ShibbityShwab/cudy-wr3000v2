@@ -7351,3 +7351,41 @@ undefined macro, no define-after-use. **CLEAN.**
 
 **Device mutation.** `mtd16`: the audited soft-float OpenWrt 25.12.5 rootfs (volume 0, `owrt`) and
 `rootfs_data` (volume 1, 79 LEBs, still all-0xFF). The vendor's own `ubi0` untouched.
+
+
+---
+
+# PHASE 50es (2026-10-10): THE TICK CARRIES THE WRITE'S REPORT
+
+**The write's self-test put its answer in crumb step 47 at about nine seconds; the fire read step 45
+back.** **The LOG TICK writes that cell every five seconds and LAST WRITE WINS** - **a report that only
+survives if nothing else runs is not a report.** **So the tick carries it now, since by construction it has
+the final word:**
+
+```
+C18 = 0xC0DE502D
+C1C = (writes << 24) | (erases << 16) | (err << 15) | (wr_cmd << 4) | (mismatches >> 8)
+```
+
+**AND THE FIRST FIELD IS THE ONE THAT MATTERS MOST, because the question is not what the sequence did but
+whether it RAN AT ALL.** **If `mtd->_write` is never reached, every line of the program sequence is beside
+the point - and until now there was no way to tell a sequence that did nothing from one that was never
+called.** **So the MTD entry points count their own calls.**
+
+**`wr_cmd` is on that list deliberately: it is the one input to the sequence that has never been checked
+against a real value.** **Everything else in the recipe came out of the vendor's disassembly or its live
+registers.**
+
+## AND WHAT THE LAST FIRE ADDED, FROM UBIFS'S OWN DIAGNOSTICS
+
+```
+UBIFS error: bad node type (255 but expected 6)
+UBIFS error: bad node at LEB 0:0, LEB MAPPING STATUS 0
+```
+
+**LEB mapping status 0 means `ubifs_is_mapped()` says unmapped, so `check_volume_empty()` returned empty and
+UBIFS really did take the format branch - THE WRITES WENT NOWHERE RATHER THAN BEING SKIPPED.** **And the
+volume is unchanged after the fire: non-`0xff` bytes in its first and second 4 KiB are both 0.**
+
+**Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
+define-after-use, no use-before-declaration. **CLEAN.**
