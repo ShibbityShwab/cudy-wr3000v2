@@ -3823,3 +3823,38 @@ holding 4128 in our builds and 1 in the vendor's is this driver leaving a regist
 working implementation never reaches.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50by (2026-10-10): ONE DESTINATION MOVED THE FAULT - and FMC_DATA_NUM is the last value differing
+
+**The single-destination change did not fix the splice - it MOVED it, which is itself the result:**
+
+```
+with three destinations:  the f1 16 fragment sat at page 11 offset 2032,
+                          splice 14 bytes, UBI complaining at record 118
+with one destination:     the same fragment is now at 2044,
+                          the splice changed size, UBI back to record 6
+```
+
+**So the destination wiring DOES affect the layout.** The three-destination version was not a fix
+either - **it merely shifted which record failed** - but **the plumbing is demonstrably the right place
+to look**, which is more than any register argument produced.
+
+**And the live register comparison names one value still different:**
+
+```
+0x38 FMC_DATA_NUM:   vendor 1     ours 4128
+```
+
+**4128 is a number nothing in this driver ever wrote** - it survives every build, including ones that
+never touch the register, **which is how it twice misled me** into reading meaning into it. The
+vendor's `DMA_LEN` also sits at 1 and is never touched per read, **so the pair reads as a COUNT rather
+than a byte length.**
+
+**This sets it to the vendor's value before the operation** - the last plumbing value that differs
+from the one implementation known to read this flash correctly, and after the destination change moved
+the fault, *"last measured difference"* is the strongest argument available for what to try.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
