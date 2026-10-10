@@ -6777,3 +6777,94 @@ define-after-use. **CLEAN.**
 
 **Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` holds the
 Cortex-A9 rootfs. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ek (2026-10-10): THIS PART HAS NO USABLE FPU - AND THE VENDOR KNEW IT ★★★★★
+
+## elf_hwcap ANSWERED IT
+
+```
+C18 = 0xC0DE502E   (step 46)        C1C = 0x00008896
+```
+
+```
+bit  1  HWCAP_HALF       set
+bit  2  HWCAP_THUMB      set
+bit  4  HWCAP_FAST_MULT  set
+bit  7  HWCAP_EDSP       set
+bit 11  HWCAP_THUMBEE    set
+bit 15  HWCAP_TLS        set
+bit  6  HWCAP_VFP      ** NOT SET **
+bit 12  HWCAP_NEON     ** NOT SET **
+bit 13  HWCAP_VFPv3    ** NOT SET **
+bit 19  HWCAP_VFPD32   ** NOT SET **
+```
+
+**And `user_debug=1` DID ITS JOB - the kernel named the fault for the first time in this whole phase:**
+
+```
+<6>[    4.196820] init (1): undefined instruction: pc=(ptrval)
+```
+
+**(`ptrval` is the hashed `%p`; `no_hash_pointers` is in `CONFIG_CMDLINE` now so a future one prints raw.)**
+
+## AND `vfp_init()` SAYS EXACTLY WHERE IT BAILED
+
+From `arch/arm/vfp/vfpmodule.c` v5.10:
+
+```c
+	pr_info("VFP support v0.3: ");
+	if (VFP_arch) { pr_cont("not present\n"); return 0; }   <- RETURNS BEFORE
+	...
+	elf_hwcap |= HWCAP_VFP;                                  <- THIS LINE
+```
+
+## ★★★ AND THE VENDOR'S OWN KERNEL ON THIS SAME SILICON AGREES
+
+```
+vendor /proc/cpuinfo:  Features : half thumb fastmult edsp tls
+                       CPU part : 0xc09
+
+vendor /bin/busybox:   e_flags 0x05000200   EF_ARM_ABI_FLOAT_SOFT
+our OpenWrt rootfs:    e_flags 0x05000400   hard-float ABI
+```
+
+**SO THIS PART HAS NO USABLE FPU - not a kernel bug, not a config mistake, and not something a different
+rootfs BASELINE can dodge.** **The vendor never built a hard-float userspace for it, and that is why
+THEIR userspace runs on THEIR kernel and OURS did not: ours was hard-float, so every floating point
+instruction in it trapped as SIGILL - and SIGILL is signal 4, which is the exitcode init died with.**
+
+**And it explains every observation:**
+- why the A15 rootfs and the A9-subset rootfs died IDENTICALLY (both hard-float);
+- why `CONFIG_VFP=y` changed nothing (the unit is not there to bring up);
+- why the vendor's soft-float userspace runs fine on the same kernel family.
+
+## THE FIX IS IN THE VOLUME
+
+**A SOFT-FLOAT OpenWrt: `kirkwood/generic`, `arch_packages = arm_xscale`, carved from its own sysupgrade
+image** (block 262144, xz, bytes_used 2881866, md5 `fc079bad7802237c616f9d658ad3cce1`). **Verified on the
+device, not assumed:**
+
+```
+DISTRIB_TARGET='kirkwood/generic'
+DISTRIB_ARCH='arm_xscale'
+DISTRIB_RELEASE='25.12.5'
+```
+
+## AND TWO INSTRUMENT CORRECTIONS
+
+- **`LUOFU_LOG_KEEP` is 15 KiB, NOT 3.5 KiB.** **The old cap was set to stay inside "the 4 KiB that
+  lands" - which was a misreading all along: what landed was whatever the cache evicted before the reset,
+  and the 32-byte holes were its signature.** With the flush the whole 16 KiB window survives, so 15 KiB
+  plus the 4-byte mark ends at `0x80606c00`, short of the `0x80607000` end of the window.
+- **The head dump was for exactly one line** - what `vfp_init()` printed at half a second - **and the
+  answer arrived from two other directions instead, so the dump is back to the tail**, where a RUNNING
+  userspace reports.
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` now holds a
+soft-float OpenWrt 25.12.5 rootfs. The vendor's own `ubi0` untouched. The router is healthy.
