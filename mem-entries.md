@@ -7043,3 +7043,100 @@ binaries.**
 
 **Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` holds the
 audited soft-float OpenWrt 25.12.5 rootfs. The vendor's own `ubi0` untouched. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50eo (2026-10-10): THE VENDOR'S FLASH RECIPE SET, RECOVERED ★★★★★
+
+**`rootfs-2.4.15/squashfs-root/lib/hisilicon/ko/hi_flash.ko` (51728 bytes) is the vendor's own flash driver -
+the same module the read path was derived from. Disassembled (ARM mode, `.text` at 0, 21128 bytes, 5282
+instructions), it writes `FMC_OP_CTRL` (0x68) in TWELVE places, and each is one operation.**
+
+## THE REGISTER FILE, AS THE VENDOR USES IT
+
+```
+0x24 FMC_CMD      0x28 ADDRH     0x2c ADDRL     0x30 OP_CFG    0x38 DATA_NUM
+0x3c FMC_OP       0x40 DMA_LEN   0x4c SADDR_D0  0x50 SADDR_D1 0x5c SADDR_OOB   0x68 OP_CTRL
+       str 29            str 14         str 21         str 23          str 17         str 12/9/6/10
+```
+
+## THE TWO DATA-OP FORMS - AND THE DIFFERENCE IS WHICH COMMAND SLOT
+
+**SITE 8 at 0x6fc - THE FORM OUR READ PATH ALREADY MATCHES:**
+
+```asm
+ldr  r3, [r4]            ; recipe[0x00]
+str  r3, [r0, #0x4c]     ; SADDR_D0 = recipe[0]
+ldr  r3, [r4, #8]        ; recipe[0x08]
+str  r3, [r0, #0x5c]     ; SADDR_OOB = recipe[8]
+str  r2, [r0, #0x40]     ; DMA_LEN = a real length
+ldrd r2, r3, [r4, #0x10] ; addr_cyc = r2&7, dummy = r3&0xf
+orr  r3, r3, r2, lsl #4  ; | (addr_cyc << 4)
+ldr  r2, [r4, #0xc]      ; if_type
+orr  r3, r3, r2, lsl #7  ; | (if_type << 7)
+ldr  r2, [r4, #0x20]     ; cs
+orr  r3, r3, r2, lsl #11 ; | (cs << 11)
+str  r1, [r0, #0x30]     ; OP_CFG
+dsb  st
+ldr  r2, [r4, #0x1c]     ; recipe[0x1c] = THE COMMAND
+mov  r3, #1
+bfi  r3, r2, #0x10, #8   ; command into OP_CTRL BITS 16-23
+str  r3, [r5, #0x68]     ; OP_CTRL, low bits = 1
+```
+
+**SITE 9 at 0x808 - THE PROGRAM SHAPE:**
+
+```asm
+str  r7, [r5, #0x2c]     ; ADDRL
+str  r0, [r5, #0x28]     ; ADDRH
+ldr  r3, [r4]  ; str [r5,#0x4c]      ; SADDR_D0
+str  r6, [r5, #0x40]                 ; DMA_LEN
+OP_CFG = (cs<<11)|(if_type<<7)|(addr_cyc<<4)|dummy
+dsb  st
+ldr  r2, [r4, #0x18]     ; recipe[0x18] = THE COMMAND
+mov  r3, #3
+bfi  r3, r2, #8, #8      ; command into OP_CTRL BITS 8-15
+str  r3, [r5, #0x68]     ; OP_CTRL, low bits = 3
+```
+
+**SITE 1-3 - COMMAND-ONLY OPS** (no address, no data): `FMC_CMD = cmd`, `OP_CFG = 0x30` or `0x50`,
+`OP_CTRL = 1` or `1` or `3`.
+
+## AND THE DECODING OF THE DEFINES THAT MISLED ME
+
+**`#define LUOFU_SPEC_RD_CMD 0x2d` and `#define LUOFU_SPEC_WR_CMD 0x30` ARE OFFSETS INTO THE VENDOR'S SPEC
+RECORD, NOT OPCODES.** The driver reads the VALUES at those offsets from the vendor's own table at probe
+(`fmc->spec.rd_cmd = readb(rec + LUOFU_SPEC_RD_CMD)`) - **so `fmc->spec.wr_cmd` is already the vendor's
+real program command, and the whole recipe - `wr_addr_cyc`, `wr_if_type`, `wr_dummy`, `er_addr_cyc` - is
+already decoded and stored. THE DRIVER SIMPLY NEVER USES IT.**
+
+## AND THE LIVE REGISTER CONFIRMED THE SHAPE
+
+**After a real `ubiupdatevol` on the vendor:**
+
+```
+OP_CTRL = 0x006B3202     bits 16-23 = 0x6B, bits 8-15 = 0x32, low = 2
+OP_CFG  = 0x00000810     FMC_CMD = 0x10
+```
+
+**both command slots populated at once**, which is what a program sequence looks like from outside:
+a load in one slot and an execute in the other.
+
+## WHAT AN IMPLEMENTATION NEEDS (ALL OF IT ALREADY AVAILABLE)
+
+1. **WRITE ENABLE** - the command-only form (sites 1-3), `OP_CTRL = 1`.
+2. **PAGE PROGRAM** - write the page into `fmc->dma_buf` (the same coherent buffer the read fills),
+   then ADDRH/ADDRL, `SADDR_D0 = dma_addr`, `SADDR_OOB = dma_addr + page_size`, `DMA_LEN`,
+   `OP_CFG` from `spec.wr_if_type/wr_addr_cyc/wr_dummy/cs`, and `OP_CTRL = (spec.wr_cmd << 8) | 3`
+   (site 9's form), then the execute and a status poll - and the driver already defines
+   `FMC_READY_POLLS 2000` / `FMC_READY_DELAY_US 50` and `luofu_fmc_wait_cmd`.
+3. **ERASE** - the command-only form with `spec.er_addr_cyc` and the block address.
+4. **Then flip `MTD_WRITEABLE` on and drop `MTD_NO_ERASE`** - the two things that currently make UBI
+   attach read-only and `mount_root` fall back to tmpfs.
+
+**THE FIRST THING IT WOULD EVER TOUCH IS THE EMPTY `rootfs_data` VOLUME - 79 LEBs of disposable space.**
+
+**Device mutation.** The `kernela` write and its reboots; `mtd16` holds the audited soft-float OpenWrt
+25.12.5 rootfs (volume 0, `owrt`) and an empty `rootfs_data` volume (volume 1, 79 LEBs). The vendor's own
+`ubi0` untouched. The router is healthy.
