@@ -3580,3 +3580,36 @@ bound every transfer regardless of what a per-operation register says. **So the 
 `FMC_CFG`, `FMC_GLOBAL_CFG`, `FMC_FLASH_INFO` and `0x20`** alongside the operation registers.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50br (2026-10-10): THE CONFIG ISN'T IT - and the counter that corrected me becomes the instrument
+
+**The configuration registers hold no obvious transfer limit:**
+
+```
+FMC_CFG (0x00)  = 0x00001823
+FMC_GLOBAL_CFG  = 0x000800c0
+FMC_FLASH_INFO  = 0x00ff0000
+0x20            = 0x00000000
+```
+
+**And the same fire corrected me.** `0x38` reads **4128 in this build too - and this build does not
+write it.** So my reading of it as *"2048 + 2080, the register's own value plus mine"* was a
+**coincidence**: the counter ignores writes entirely and simply holds what it holds. **The previous
+fire's number was not caused by my write at all.**
+
+**Which makes it usable.** If the counter is untouchable and free-running, **its DELTA across a
+single page read is exactly what the controller moved** - a direct answer to the question every fire
+since the sentinel has been circling, **obtained without disassembling anything.**
+
+- **delta 2048** -> the page really is one truncated transfer, and the spare must come from
+  somewhere else entirely;
+- **delta more** -> **the bytes ARE arriving and the copy is dropping them.**
+
+**The probe now reads `0x38` before and after its sixteen samples**, so dividing by sixteen gives the
+per-read transfer. **That is the last unmeasured quantity in this line, and it is measured by asking
+the hardware rather than by reasoning about it.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
