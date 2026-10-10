@@ -7218,3 +7218,42 @@ define-after-use, **three spinlocks with three unlocks.** **CLEAN.**
 **Device mutation.** The `kernela` write and its reboots; `mtd16` holds the audited soft-float OpenWrt
 25.12.5 rootfs (volume 0, `owrt`) and an empty `rootfs_data` (volume 1, 79 LEBs). The vendor's own `ubi0`
 untouched. The router is healthy.
+
+
+---
+
+# PHASE 50eq (2026-10-10): THE WRITE PATH COMPILES - AFTER THE COMPILER CORRECTED ME ON AN API
+
+**The first build of the write path failed, and the failure was small, exact, and entirely mine:**
+
+```
+drivers/mtd/nand/luofu/luofu-fmc.c:1136:22: error: 'struct erase_info' has no member named 'state'
+drivers/mtd/nand/luofu/luofu-fmc.c:1136:32: error: 'MTD_ERASE_FAILED' undeclared
+drivers/mtd/nand/luofu/luofu-fmc.c:1138:22: error: 'struct erase_info' has no member named 'state'
+drivers/mtd/nand/luofu/luofu-fmc.c:1138:32: error: 'MTD_ERASE_DONE' undeclared
+drivers/mtd/nand/luofu/luofu-fmc.c:1141:9: error: implicit declaration of function 'mtd_erase_callback'
+```
+
+**FIVE ERRORS, ONE CAUSE: I WROTE THE OLD ASYNCHRONOUS ERASE SHAPE.** **5.10 dropped `erase_info.state`,
+`MTD_ERASE_DONE`, `MTD_ERASE_FAILED` and `mtd_erase_callback` altogether - the erase op is SYNCHRONOUS
+now, the driver does the work and returns 0 or an errno, and the core owns the rest.**
+
+```c
+	if (ret)
+		instr->fail_addr = pos;
+
+	return ret;
+```
+
+**`fail_addr` is kept because it is still a member and it is the one thing the core cannot know on its
+own: WHICH block failed.**
+
+**AND THIS IS THE SECOND TIME IN THIS PORT THAT THE COMPILER HAS BEEN THE BETTER READER OF AN API** - the
+first was the Kconfig ordering that needed the checker. **The build cost about four minutes and named the
+exact lines. Nothing about the sequences recovered from `hi_flash.ko` was wrong, and nothing else in the
+file failed to compile - which is the useful part: the disassembly-derived recipe passed the compiler
+untouched.**
+
+**Device mutation.** Unchanged: `mtd16` holds the audited soft-float OpenWrt 25.12.5 rootfs (volume 0,
+`owrt`) and the empty `rootfs_data` (volume 1, 79 LEBs). **Nothing has been written to the flash by our
+kernel yet - the write path has not run.**
