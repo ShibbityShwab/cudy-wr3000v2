@@ -3419,3 +3419,45 @@ already reads page 11 offset 2032 - **so the very same sample reports the sentin
 still refuses.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bn (2026-10-10): THE SENTINEL SURVIVED - the transfer length register was never programmed
+
+**The sentinel answered its question:**
+
+```
+p11 +2032  f116aaaa      <- 0xAA still there, past the page size
+p2  +2032  0000aaaa      <- same on the page UBI accepts
+p11/p2 +2036/2040/2044   aaaaaaaa
+```
+
+**The 0xAA written over the staging buffer past the page size SURVIVED THE READ.** The controller
+wrote nothing there: **the transfer stops at exactly 2048 bytes and the page's final bytes never
+arrive.** Not a stale buffer, not a copy bug - **the hardware was never asked for them.**
+
+**And the register list says why:**
+
+```
+#define FMC_OP_CFG   0x30    <- vendor writes here:  0x7f0: str r0, [r5, #0x30]
+#define FMC_DMA_LEN  0x40    <- THE TRANSFER LENGTH
+#define FMC_OP_CTRL  0x68    <- vendor writes here:  0x808: str r3, [r5, #0x68]
+```
+
+**The vendor's own DMA read writes the length** - in `hi_flash.ko`, `hi_sfc_hw_dma_read` takes it in
+`r3` and stores it with `str r2, [r0, #0x40]` - **while this driver NEVER TOUCHES `FMC_DMA_LEN`,
+leaving the reset default of one page.** Every read has been truncating at 2048 because nothing ever
+told the controller to send more.
+
+**The controller's output is not a bare page:** it carries spare bytes inside it, which is the splice
+this driver already de-interleaves. **So the length must cover the page PLUS that spare**, or the tail
+of the page is simply not transferred. The splice measured 14 bytes for the one insertion per page;
+the vendor lays out 16 per 1024-byte sector, so 32 covers it generously and the surplus can only
+produce bytes beyond what the copy reads.
+
+**Set before the operation, like the vendor does.** The staging clear now covers the same window, and
+the 0xAA sentinel is **removed** so the next fire shows the controller's own bytes there - which is
+the one thing this change exists to produce.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
