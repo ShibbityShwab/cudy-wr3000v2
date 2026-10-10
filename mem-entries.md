@@ -8261,3 +8261,33 @@ reads ... after erasing             ERASE WORKS / ERASE DID NOTHING / read retur
 ```
 
 **An instrument that reports only the two answers I expected cannot tell me when it is broken.**
+
+
+## PHASE 50fk (2026-10-10): JFFS2 READ BACK MY PLANTED PATTERN
+
+```
+jffs2: Magic bitmask 0x1985 not found at 0x00020000: 0x5a5a instead
+```
+
+**`0x00020000` is block 1; `0x5a5a` is exactly what the self-test wrote there.** **Three facts from one
+line, read out by a witness I did not build: the WRITE works at block 1, the READ is reliable there, and
+the ERASE left the pattern in place.**
+
+**AND MY SELF-TEST'S OWN LINES WERE BEING DROWNED.** **JFFS2 logs a line per 16 bytes of every block it
+dislikes - thousands of lines - and the log ring keeps the TAIL, so the measurement was pushed out of the
+window by the very problem it was measuring.** **So the verdicts now ride the CRUMB, the one channel proven
+to survive:**
+
+```
+C1C = (writes << 24) | (erases << 16) | (err << 15) | (luofu_e_test << 3) | (mism & 7)
+      luofu_e_test = (t1 << 8) | (t25 << 4) | (tlast)
+```
+
+**one nibble per probe block - 1 ERASE WORKS, 2 ERASE DID NOTHING, 3 read returned zeros, 4 read failed,
+6 the plant did not read back - so "the erase is broken" and "the read path is broken" are distinguishable
+answers rather than one ambiguous one.**
+
+**AND THE ERASE GOES BACK TO A BLOCK NUMBER (`pos / erasesize`), THE ENCODING THAT HAS NOT ACTUALLY BEEN
+DISPROVEN.** **The page-row run is the one JFFS2 just refuted on a planted pattern; the block-number run was
+judged by a read at block 175 that returned zeros - a read since established as not evidence.** **Three
+encodings tried, and only one has been tested against a pattern it could fail on.**
