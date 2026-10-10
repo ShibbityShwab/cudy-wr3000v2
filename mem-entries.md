@@ -5607,3 +5607,69 @@ root=/dev/ubiblock0_0 rootfstype=squashfs`.
 
 **Device mutation.** `mtd16` was rewritten twice and is now back to the verified known-good image. The
 `kernela` write and its reboots are unchanged. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dq (2026-10-10): THE VENDOR'S OWN PATH - A COMPLETE OPENWRT ROOTFS IN A UBI VOLUME ★★★★★
+
+**THE RAW-MTD ROUTE WAS MINE. THE VENDOR'S IS UBI + UBIBLOCK - AND EVERY LINK OF IT IS NOW PROVEN ON
+THIS DEVICE EXCEPT THE MOUNT ITSELF.**
+
+**FIRST, THE BLOCK-SIZE HYPOTHESIS DIED - AND THE CHEAP TEST KILLED IT:**
+
+```
+vendor kernel, mtdblock16, 256 KiB image:  mount OK, release read OK, file modes OK
+vendor kernel, mtdblock16, 128 KiB repack: mount OK, NAMES list, EVERY data read = I/O error
+```
+
+**The 256 KiB image reads perfectly. The 128 KiB REPACK is the defective one** - metadata reads, data does
+not - **so `unsquashfs` + `mksquashfs` is not a faithful round-trip on that tree.** **And the disproof cost
+nothing: a vendor-kernel mount is cheaper than a fire, and it is the check that should have run before the
+hypothesis went into a workflow.** `mtd16` was restored to the known-good image (`mtd verify: Success`).
+
+**THEN THE PATH THE VENDOR ACTUALLY USES, BUILT FROM THE VENDOR SIDE:**
+
+```
+ubiformat /dev/mtd16 -y
+    UBI device number 1, total 236 LEBs (29,966,336 bytes, 28.5 MiB)
+ubiattach -m 16 -d 1
+ubimkvol /dev/ubi1 -N owrt -s 16MiB
+    Volume ID 0, size 133 LEBs (16,887,808 bytes, 16.1 MiB), dynamic, name "owrt"
+ubiupdatevol /dev/ubi1_0 /tmp/owrt.sqfs
+ubinfo /dev/ubi1_0  ->  Size: 133 LEBs, State: OK, Name: owrt
+```
+
+**AND IT READS PERFECTLY - NOT JUST METADATA THIS TIME, THE FILE CONTENTS:**
+
+```
+ubiblock --create /dev/ubi1_0   ->  /dev/ubiblock1_0
+mount -t squashfs -o ro /dev/ubiblock1_0 /mnt/u
+contents: bin dev etc lib mnt overlay proc rom root sbin sys tmp usr var
+DISTRIB_ID='OpenWrt'
+DISTRIB_RELEASE='25.12.5'
+DISTRIB_REVISION='r33051-f5dae5ece4'
+DISTRIB_TARGET='armsr/armv7'
+-rwxr-xr-x 417809 /mnt/u/bin/busybox
+-rwxr-xr-x  12489 /mnt/u/sbin/init
+```
+
+**THE FULL 256 KiB-BLOCK IMAGE, PROVEN END TO END THROUGH UBIBLOCK** - and the volume was **detached
+cleanly** afterwards, **with the vendor's own `ubi0` (186 LEBs, from `rootfsb`) untouched.**
+
+**AND THE CMDLINE GOES BACK TO A UBI ROOT:**
+
+```
+panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init
+```
+
+**Our kernel attaches `mtd16` ("upgrade") as ITS `ubi0`, `ubi.block=0,0` builds `ubiblock0_0` from volume
+0 - which is the `owrt` volume - and the root is the squashfs the vendor's kernel just read end to end.**
+
+**THE DIFFERENCE THIS TIME IS THAT EVERY STEP IS PROVEN SEPARATELY ON THIS DEVICE:** our kernel attaches
+UBI and resolves the block device; the vendor's kernel mounts and reads this exact image; **and the only
+untested link is our kernel's squashfs mount of a ubiblock device - which is what this fire tests.**
+
+**Device mutation.** `mtd16` was rewritten three times and now holds a verified UBI volume with a
+complete, readable OpenWrt rootfs. The `kernela` write and its reboots are unchanged. The router is
+healthy.
