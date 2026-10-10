@@ -5945,3 +5945,65 @@ with none called before its definition, **no undefined macro, hook get/put balan
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dw (2026-10-10): THE RING WORKS - MY EXTRACTION WAS THE BUG ★★★★★
+
+**TWO FINDINGS FROM THE LAST FIRE, AND THE FIRST ONE IS THAT MY READER WAS WRONG.**
+
+**THE RING WORKS.** Scanning `0x80602000..0x80608000` for the dumper's mark `0xc0de1055` found it at
+**exactly one address, `0x80603000`**, **and the text there carries PANIC-ERA content:** stack dumps at
+**3.99 s**, frames for **`notifier_call_chain`**, **`blocking_notifier_call_chain`** and
+**`pkcs1pad_create`**, and the command line.
+
+**WHAT WAS WRONG WAS MY EXTRACTION.** I had been reading the **FIRST bytes** of the ring and calling them
+the state of the boot - **when the dumper writes CIRCULARLY and the NEWEST text is wherever its offset
+stopped.**
+
+```
+timestamped lines in the ring: 35, spanning 0.000 s to 3.997 s
+```
+
+**AND THE CRUMB DECODED: `C1C = 0x002600F2` is 38 ticks and 242 lines.** So the log is readable, the walk
+works, and the boot:
+
+```
+logged until   ~4 s
+ticked until   19 s   (38 x 500 ms)
+then STOPPED ENTIRELY - the safety timer never fired either, so TIMERS THEMSELVES STOPPED
+```
+
+**THAT IS A HARD HANG, NOT A DEADLOCK THAT YIELDS.** The box's own watchdog is what returned it, **and a
+hang that kills timers is a hang with interrupts disabled.**
+
+**SO THE NEXT QUESTION IS WHERE, AND THE ANSWER GOES IN THE CRUMB - THE CHANNEL THAT WORKS.** A phase
+global is set at four points and the tick publishes it on every fire:
+
+```
+C18 = 0xc0de502d        C1C = (phase << 16) | ticks
+
+1  the probe was entered
+2  the timers were armed (inside luofu_log_register)
+3  the probe returned
+4  late_initcall_sync completed - THE MOUNT IS NEXT
+```
+
+**Whichever phase survives is where the boot stopped**, and since the probe's own crumb is overwritten by
+the tick every 500 ms, **the phase is the only way to see it after a hard hang.**
+
+**AND THE CHECKER CAUGHT THE ORDER BUG BEFORE THE COMPILER DID:**
+
+```
+vars: 17 | use-before-decl: [('luofu_phase', 1477, 1036)]
+```
+
+**`luofu_phase` was declared at line 1477 and first set at 1036 - the same order class that has now cost
+three builds.** **BUT I RAN THE CHECKER IN THE SAME CELL AS THE COMMIT AND DID NOT READ ITS OUTPUT
+FIRST**, so the broken version went out anyway. **THE PROCESS FIX, WHICH IS THE POINT OF RECORDING THIS:
+validate in one step, read the result, and only then commit. FOUR BUILDS HAVE NOW GONE INTO THIS CLASS;
+THREE OF THEM WERE AVOIDABLE BY READING OUTPUT I ALREADY HAD.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
