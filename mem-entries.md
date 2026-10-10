@@ -7587,3 +7587,63 @@ confirmed as `0x2` before anything is installed.**
 
 **Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
 define-after-use, no use-before-declaration. **CLEAN.**
+
+
+---
+
+# ★★★★★ PHASE 50ew (2026-10-10): THE OVERLAY PARTITION HAS BEEN IN OUR DEVICETREE ALL ALONG ★★★★★
+
+## OUR OWN DT CARRIES IT, VERBATIM FROM THE VENDOR
+
+```
+partition@1e00000 { label = "rootfsa";     reg = <0x1e00000 0x1740000>; };   <- mtd13
+partition@3540000 { label = "rootfsb";     reg = <0x3540000 0x1740000>; };   <- mtd14
+partition@4c80000 { label = "rootfs_data"; reg = <0x4c80000 0x1600000>; };   <- mtd15  <-- THE ONE
+partition@6280000 { label = "upgrade";     reg = <0x6280000 0x1d80000>; };   <- mtd16
+```
+
+**So the partition OpenWrt looks for - by that exact name and number - has existed since the first
+devicetree, at the vendor's own offset and size. The FIRST fire's log even shows OpenWrt reaching for it:**
+
+```
+mount_root: Could not open mtd device: /dev/mtd15
+mount_root: reading rootfs_data failed
+mount_root: unable to create loop device
+mount_root: no usable overlay filesystem found, using tmpfs overlay
+```
+
+## AND A UBI VOLUME OF MINE WAS SHADOWING IT
+
+**The recent fires stopped reaching for it:**
+
+```
+mount_root: failed to mount -t ubifs /dev/ubi0_1 /tmp/overlay: Invalid argument
+```
+
+**`mount_root` PREFERS a UBI volume named `rootfs_data` when one exists - and I made one.** **And the UBI
+path means UBIFS, which is the one path that cannot work here:** **OpenWrt ships no `mkfs` anywhere (CI read
+the rootfs: `(no mkfs.* in the image)`), and the kernel never formats UBIFS - `mount_ubifs` goes straight to
+`ubifs_read_superblock` and fails; the v5.10 source has no format call in the file at all.**
+
+## JFFS2 IS THE PATH THAT WORKS, AND ITS FORMAT IS ERASED FLASH
+
+**Mount an all-`0xff` MTD partition with `-t jffs2` and the kernel builds the filesystem as files are
+written.** **That is exactly why the rootfs carries `jffs2mark` and `jffs2reset` as `factoryreset` links and
+no `mkfs` at all.** **And `mtd15` IS erased - measured on the device: 0 non-`0xff` bytes in its first
+4 KiB.**
+
+**SO: `CONFIG_JFFS2_FS=y` (and `CONFIG_JFFS2_FS_DEBUG=0`) went into the fragment, `CONFIG_JFFS2_FS` went
+into the CI assert list so an unresolved symbol costs four minutes instead of a fire, and the shadowing
+volume was deleted on the device:**
+
+```
+ubirmvol /dev/ubi1 -N rootfs_data     rc=0
+Present volumes: 0                     <- only owrt (volume 0) remains; the rootfs untouched
+```
+
+**WHAT REMAINS IS ONE FIRE: `mount_root` finds no UBI volume to prefer, falls back to `/dev/mtd15`, mounts
+it as JFFS2, and the kernel creates the filesystem as it writes - through the write path already proven at
+six and then twelve writes with byte-identical read-backs.**
+
+**Validator:** the fragment change is a config symbol and the assert list change is CI-only; the kernel
+tree itself is untouched by this commit.
