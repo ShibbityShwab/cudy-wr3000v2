@@ -4520,3 +4520,48 @@ carries a 14-byte splice at 1040 where the vendor's raw buffer is clean; and eve
 configuration value, write order and completion condition that has been compared matches.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cs (2026-10-10): ★★★★ THE RELOCATION TABLE NAMED THE CALLS - the vendor's page read writes FIVE registers, mine wrote SEVEN ★★★★
+
+**The "unreachable" calls were relocations.** The disassembler prints the instruction's own address for
+branch targets whose relocation it cannot show - which is why `0x303c`'s mode-0 path looked
+unfollowable. **Reading `.rel.text` with pyelftools resolves every one of them**, and the chain is
+complete:
+
+```
+hi_spi_nand_drv_dma_read              reads the page
+  -> 0x2d80 -> 0x3760                 feature 0xB0 setup, OOB marker check, retry
+  -> 0x3318                           clr_int, en_int(1), call, wait, en_int(0), clr_int, copy
+       -> 0x303c                      dispatcher on mode:
+            mode 1 -> hi_spi_nand_hw_write
+            mode 2 -> hi_spi_nand_hw_read_oob
+            mode 0 -> HI_SPI_NAND_HW_READ        <- THE PAGE READ
+            then   -> hi_fmc_status_check_dma_status
+```
+
+**AND `hi_spi_nand_hw_read` IS IN THE SYMBOL DUMP** - `@ 0x4e4`, 120 bytes - **it had simply never been
+known to be on the path.** Read end to end, **it writes FIVE registers:**
+
+```
+lsr r3, r1, #0x10   str r3, [r0, #0x28]     ADDRH = row >> 16
+lsl r1, r1, #0x10   str r1, [r0, #0x2c]     ADDRL = row << 16
+ldr r3, [r4]        str r3, [r0, #0x4c]     SADDR_D0
+(build OP_CFG)      str r1, [r0, #0x30]     OP_CFG
+dsb ; arm_heavy_mb
+mov r3, #1 ; bfi r3, r2, #0x10, #8 ; str r3, [r5, #0x68]   OP_CTRL
+```
+
+**EVERY VALUE MATCHES THIS DRIVER'S. WHAT DID NOT MATCH IS THE COUNT.** This driver also wrote
+`FMC_DMA_LEN` and `FMC_DATA_NUM` here, and **the vendor's page read writes NEITHER.** Both had been
+added on the strength of the vendor's live values being 1 - **but the vendor sets those once at init
+and leaves them alone.** Writing them per operation was **a difference the working implementation does
+not have, in the middle of the operation sequence**, which is exactly where a controller could be
+misled.
+
+**They are gone.** The interrupt enable/clear brackets stay - they are the **caller's** (0x3318 does
+clr, en(1), call, wait, en(0), clr) - moved before the setup, where the caller puts them.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
