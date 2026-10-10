@@ -4943,3 +4943,57 @@ vendor's** - a current OpenWrt userland built for this target - and the log line
 the device is ready for it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dd (2026-10-10): OPENWRT 25.12.5 IS ON THE DEVICE - OUR OWN ROOTFS ★★★★★
+
+**The latest OpenWrt release's generic ARMv7 squashfs rootfs is now on the router, verified twice.**
+
+**Downloaded and inspected:**
+
+```
+openwrt-25.12.5-armsr-armv7-generic-squashfs-rootfs.img.gz
+    squashfs superblock:  magic hsqs, v4.0, block_size 262144, compression xz
+    bytes_used:           3,837,574  (3.66 MB - the 104 MB apparent size is padding)
+```
+
+**AND THE KERNEL CAN MOUNT IT - checked against the BUILT config, not assumed:**
+
+```
+CONFIG_MTD_BLOCK=y          -> /dev/mtdblock16 exists
+CONFIG_SQUASHFS=y           -> it can mount
+CONFIG_SQUASHFS_XZ=y        -> the image's compression
+CONFIG_DEVTMPFS=y           -> /dev for the init
+CONFIG_DEVTMPFS_MOUNT=y     -> mounted automatically
+```
+
+**WRITTEN TO mtd16, THE VENDOR'S OWN UNUSED STAGING PARTITION:**
+
+- `mtd16 "upgrade"` is 29.5 MB, **backed up first** (`/tmp/upgrade-backup.bin`, md5 `33fb8bb4...`),
+  and **99.65% erased** - 107,996 non-0xFF bytes in the whole partition, so it holds nothing;
+- `mtd erase /dev/mtd16` -> then `mtd write /tmp/owrt.sqfs /dev/mtd16`;
+- **the vendor's own `mtd verify` says `Success`**, and the md5s agree on both sides
+  (`ad0c6b9539d88a2e3f775f2c66f625a0`), **and the superblock read back from the device matches the
+  source's first 96 bytes**.
+
+**AND THE CMDLINE NOW POINTS AT IT:**
+
+```
+panic=5 root=/dev/mtdblock16 rootfstype=squashfs init=/sbin/init
+```
+
+**THE UBI PARAMETERS ARE DELIBERATELY GONE** - `ubi.mtd=rootfsb`, `ubi.block=0,0` and
+`root=/dev/ubiblock0_0` all removed. They existed to hand the **vendor's** UBI volume to the kernel;
+**this root is a raw squashfs that needs no UBI attach and no volume table, so the boot depends on the
+smallest possible set of things working.** `panic=5` stays.
+
+**AND THE SAFETY TIMER STAYS ARMED** - whatever OpenWrt's procd does on a kernel it was not built for,
+come up or fail or hang, **the box returns to the vendor after 180 seconds and the readback cells are
+still readable.**
+
+**THIS IS THE FIRST BOOT OF A CURRENT, GENERIC OpenWrt USERLAND ON OUR OWN KERNEL, OUR OWN NAND DRIVER,
+AND THE FLASH READ PATH THIS PROJECT REVERSED.**
+
+**Device mutation.** `mtd16` only, backed up and verified. The router's boot path is untouched.
