@@ -4204,3 +4204,31 @@ as before.** A plain copy with the vendor's configuration, order and destination
 three destinations set once at probe time as it does, and a **plain copy** with no de-interleave.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cj (2026-10-10): THE PLAIN COPY FELL TO RECORD 6 - the splice is real here, the vendor's is clean
+
+**Tested with every other variable controlled, and it was worse:**
+
+```
+de-interleave:  UBI accepts 117 records, refuses at record 118
+plain copy:     UBI accepts   4 records, refuses at record 6
+                tail sample at p11+2044 = 0000f116
+```
+
+**So this driver's raw buffer DOES carry the 14-byte splice at 1040.** Removing the de-interleave
+corrupts every record from the sixth on. **The measurement is unambiguous and agrees with every
+earlier one.**
+
+**AND THE VENDOR'S RAW IS STILL CLEAN.** Read live at its `SADDR_D0`, page 3's raw holds `f116c36b` at
+offset **1044** - the same offset as its logical page, **172 bytes apart like every record.** Its
+driver gets a clean page; ours does not; **and every register value, write order, configuration field,
+destination count and poll bound now matches.**
+
+**The two drivers differ STRUCTURALLY**, in something around the operation that no value accounts
+for. **That is the remaining question, and the de-interleave stays until it is answered** - because it
+is what makes 117 records verify instead of 4.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
