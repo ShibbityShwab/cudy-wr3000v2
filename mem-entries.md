@@ -6868,3 +6868,43 @@ define-after-use. **CLEAN.**
 
 **Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` now holds a
 soft-float OpenWrt 25.12.5 rootfs. The vendor's own `ubi0` untouched. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50el (2026-10-10): THE SOFT-FLOAT ROOTFS USES NOTHING THIS SILICON LACKS ★★★★★
+
+**Before spending a fire on the new rootfs, its binaries were audited for every instruction class this
+part is known to be missing.**
+
+## THE BINARIES HAVE NO SECTION TABLE AT ALL
+
+`e_shoff = 0`, `e_shnum = 0`. **OpenWrt strips them for size, which is why the CI's `objdump -d` emitted
+THREE LINES and why its `swp`/FP counts were meaningless - there was nothing to enumerate.** The audit had
+to go through the PROGRAM HEADERS (`PT_LOAD` with `PF_X`) instead. **Any future disassembly of these
+binaries must do the same.**
+
+## THE AUDIT, OVER EVERY EXECUTABLE PROGRAM SEGMENT
+
+```
+busybox   422224 exec bytes:   NO swp, NO VFP/NEON, NO udiv/sdiv
+init       11708 exec bytes:   NO swp, NO VFP/NEON, NO udiv/sdiv
+libc.so   567216 exec bytes:   only bkpt x2 (the deliberate trap), NO swp, NO FP
+procd      77116 exec bytes:   NO swp, NO VFP/NEON, NO udiv/sdiv
+```
+
+**AND NOTABLY NO `ldrex`/`strex` EITHER: a soft-float ARMv5 build does its atomics through the KERNEL
+HELPER PAGE, not through ARMv6 exclusive loads.** So it depends on `CONFIG_KUSER_HELPERS` - **which neither
+fragment overrides, so it is at ARM's `default y`** - and on `CONFIG_VDSO=y`, which the shrink fragment
+sets explicitly.
+
+**The ABI is confirmed from the other side too:**
+
+```
+out/init      Flags: 0x5000200, Version5 EABI, soft-float ABI
+out/libc.so   Flags: 0x5000200, Version5 EABI, soft-float ABI
+out/busybox   Flags: 0x5000200, Version5 EABI, soft-float ABI
+```
+
+**SO THE ROOTFS IN THE VOLUME USES NO VFP INSTRUCTION, NO `swp`, AND NO EXCLUSIVE ATOMIC - the three
+things this part cannot do. It should run.**
