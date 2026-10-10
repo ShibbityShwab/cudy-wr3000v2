@@ -3890,3 +3890,41 @@ the bytes it has been missing; if it does not, the tail sample says so and the p
 narrows by one more arrangement.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ca (2026-10-10): THE COMBINATION RESTORES THE BASELINE - and the copy already looks past 2048
+
+**One destination plus the de-interleave reproduces the best result exactly:**
+
+```
+tail:    p11+2032 = f1160000
+log:     bad CRC at record 118: 0xf116c36b, not 0xf1160000
+```
+
+**117 of 118 records verify again, reproducibly.** So:
+
+- **the de-interleave is the deciding factor** - removing it dropped UBI to record 6;
+- **the destination count does not affect UBI's verdict** - three destinations and one both give
+  record 118, and the change only moved the tail sample;
+- **`DATA_NUM` at the vendor's value changes nothing.**
+
+**AND THE SENTINEL IS MOOT.** It does not need repeating in the new wiring, because **the copy already
+reads past 2048**: the second `memcpy_fromio` takes `page_size - SPLICE_OFF` bytes from
+`dma_buf + SPLICE_OFF + SPLICE_LEN`, which ends at **source byte 2062**. Those bytes return zero in
+every configuration, so **the controller's output really is 2048 bytes** and the page's last 14 data
+bytes are **genuinely absent** rather than merely uncopied.
+
+**THE STATE, PRECISELY:**
+
+- the driver reads **2034 of the 2048 data bytes** of every page correctly;
+- the missing 14 are **the page's last 14**;
+- the controller delivers 2048 bytes and no register difference from the vendor changes that;
+- the driver's configuration now matches the vendor's on everything except the destination count,
+  which does not affect the verdict.
+
+**The remaining mechanism is a SECOND OPERATION** - the vendor must obtain those bytes somehow, and no
+single-operation arrangement has produced them.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
