@@ -4342,3 +4342,34 @@ plain copy was measured worse** (4 records against 117).
 so a failure costs nothing but tells me the next thing to look at.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cn (2026-10-10): THE INTERRUPT WORKS AND IS NEUTRAL - the completion mechanism is eliminated
+
+**The interrupt-only build completed the probe, and UBI's verdict is unchanged:**
+
+```
+complaint at record: 118: 0xf116c36b, not 0xf1160000     (identical to the busy-poll build)
+"never fired" in the log: False                          <- THE INTERRUPT FIRED
+tail p11+2032: f1160000                                  (identical)
+```
+
+**So the fix works mechanically** - the enable, the clear, the wait, the disable - **and changes nothing
+functionally.** That is a clean **elimination**: **the completion mechanism is not the difference
+between this driver and the vendor's.**
+
+**AND THE RESULT IS NOW IN A VERY NARROW PLACE.** With the registers, the order, the configuration
+block, the destination count, the read command, the poll/complete condition and the de-interleave all
+either matched or measured, **this driver still produces a raw buffer with a 14-byte splice at offset
+1040 and loses the page's last 14 bytes, while the vendor's raw buffer is clean.**
+
+**AND THE SPLICE'S POSITION IS SUGGESTIVE: 1040 = 1024 + 16.** A sixteen-byte displacement at that
+boundary is what a **column-address** effect looks like, and **the address registers are the one part
+of the operation not yet compared between the two drivers** - only the row formula was (and it matches).
+
+**That is the next measurement:** compare the address registers during a read on both sides, and look
+at the column bits rather than the row.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
