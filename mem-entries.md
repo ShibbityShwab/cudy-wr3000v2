@@ -3461,3 +3461,40 @@ the 0xAA sentinel is **removed** so the next fire shows the controller's own byt
 the one thing this change exists to produce.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bo (2026-10-10): THE LENGTH WRITE WAS NOT ENOUGH - and the vendor's full read names two registers I never touch
+
+**`FMC_DMA_LEN` was programmed to `page_size + 32` and the tail did not arrive:**
+
+```
+p11 +2032  still f1160000   (wanted f116c36b)
+vtbl_check: bad CRC at record 118: 0xf116c36b, not 0xf1160000   (unchanged)
+```
+
+**So either that register is not the limit on the transfer, or the write does not take effect** - and
+this driver cannot tell those apart without looking. **The probe now records the controller registers
+after every read:** `0x28`, `0x2c`, `0x40`, `0x30`, `0x68` and `0x3c`.
+
+**And the vendor's full DMA read is now read, which narrows it.** `hi_sfc_hw_dma_read` writes:
+
+```
+str r1, [r0, #0x2c]     <- an argument this driver has NEVER written
+mov r1, #0
+str r1, [r0, #0x28]     <- cleared on every read, also never written here
+str r3, [r0, #0x4c]     <- the flash address, which we do write
+str r2, [r0, #0x40]     <- the length, which we now write
+```
+
+then builds `OP_CFG`, does a `dsb` and `arm_heavy_mb`, and finally writes `OP_CTRL` as
+`mov r3, #1` / `bfi r3, r2, #0x10, #8` / `str r3, [r5, #0x68]` - **that is `r3 = 1 | (cmd << 16)`,
+WHICH IS EXACTLY WHAT THIS DRIVER BUILDS.** So the start formula is right, **and the difference is
+the two registers at `0x28` and `0x2c`, which have no name in this driver at all.**
+
+**Reading them back is the cheap next step:** it says whether `0x40` holds what was written, and what
+the controller leaves in `0x28` and `0x2c` after a read. **Guessing at `0x2c`'s value without seeing
+it would be inventing a number**, which is what the last several fires have taught me not to do.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
