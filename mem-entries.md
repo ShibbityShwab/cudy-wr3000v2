@@ -3613,3 +3613,40 @@ per-read transfer. **That is the last unmeasured quantity in this line, and it i
 the hardware rather than by reasoning about it.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bs (2026-10-10): 0x38 IS STATIC - every per-operation register is now ruled out
+
+**The instrument is dead and the measurement says so:**
+
+```
+counter BEFORE = 4128
+counter AFTER  = 4128
+delta over 16 page reads = 0
+```
+
+**So `0x38` does not count anything.** It is static, it ignores writes, and sixteen page reads leave
+it at 4128 - **which means my reading of it last fire as a transfer counter was ALSO wrong, and the
+"2048 + 2080" arithmetic was numerology on a constant.** That is the second wrong reading of the same
+register, and the third measurement is what settled it.
+
+**What is left, after ruling out every per-operation register by measurement:**
+
+- the transfer stops at 2048 - **proven by a sentinel that survived the read**;
+- `FMC_DMA_LEN` (0x40) - takes the write, holds it, changes nothing;
+- `FMC_DATA_NUM` (0x38) - static, not settable, not a counter;
+- `FMC_CFG` / `FMC_GLOBAL_CFG` / `FMC_FLASH_INFO` - no limit in any of them;
+- the address registers (`0x28`/`0x2c`) - byte for byte what the vendor's routine writes.
+
+**The one buffer this driver has never examined is the OOB destination.** It points `FMC_SADDR_OOB`
+at `dma_buf + 0x2000` and **has not once read those bytes back.** If the controller deposits the
+page's spare area there, then **the data transfer IS a clean 2048 and the 14 bytes this driver
+de-interleaves out of the data are something else entirely** - which would make **the de-interleave
+itself the remaining defect.**
+
+**The probe now records those sixteen words.** It is the last unexamined region in the driver, and
+it is read from the same buffer whose destination register the driver has always set.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
