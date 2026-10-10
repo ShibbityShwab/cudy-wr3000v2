@@ -4449,3 +4449,39 @@ disassembly I had been reading.
 else, done after the quad enable so bit 0 survives, with a log line printing before and after.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cq (2026-10-10): FEATURE 0xB0 SET, RESULT UNCHANGED - eliminated
+
+**The feature write ran - its log line printed ("... clears bit 4, sets bit 6") - and the verdict is
+identical:**
+
+```
+0xf116c36b, not 0xf1160000        (the same CRC)
+tail p11+2032: f1160000           (unchanged)
+```
+
+**So bits 4 and 6 of feature `0xB0` do not govern the output stream either.** The finding was real - the
+vendor does set them on every operation and this driver had never touched them - **and the test
+eliminated it cleanly.** The write stays, because matching the vendor is the standing principle and the
+register is now configured as the working implementation configures it.
+
+**AND THE NEXT FRONTIER IS THE SAME FUNCTION'S REMAINDER.** I read 70 instructions of `0x3760` and
+stopped at the feature write. **The code after it contains a length-like constant that has not been
+explained:**
+
+```
+0x3830: ldr r0, [sb, #0xc]
+0x3834: mov r1, #0xcc0        <- 3264
+0x3838: ldr r3, [sb, #0x10]
+0x383c: add r0, r0, r3
+0x3840: bl  <something>
+```
+
+**3264 is not a page, not a page plus spare, and not two pages.** It is a number the working driver
+uses somewhere in its read setup, and **the rest of `0x3760` - from the feature write to its return at
+`0x38f4` - has not been read.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
