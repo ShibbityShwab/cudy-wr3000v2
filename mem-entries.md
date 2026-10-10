@@ -4778,3 +4778,46 @@ are unverified** - and a timing mismatch is exactly the kind of defect that corr
 while leaving the rest correct. **That is the first single-variable experiment from the restored base.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cz (2026-10-10): ★★★★★ THE ECC ENGINE - THE PAGE READ WAS DISABLING IT ★★★★★
+
+**The function that reads a page opened by turning the ECC engine off:**
+
+```c
+static int luofu_fmc_read_page(struct luofu_fmc *fmc, u32 row, void *data)
+{
+	u8 saved = luofu_fmc_ecc_type_get(fmc);
+	...
+	luofu_fmc_ecc_type_set(fmc, 0);      /* <-- EVERY PAGE READ RAN WITH ECC OFF */
+```
+
+**AND WITH ECC DISABLED THE CONTROLLER EMITS THE RAW STREAM** - the page's data with its **spare area
+spliced inline**. **That is the 14-byte window at offset 1040.**
+
+**IT EXPLAINS EVERYTHING AT ONCE:**
+
+- why every read produced a page **99% right with a window of misplaced bytes**;
+- why the page's **last 14 data bytes were missing** - the spare had displaced them;
+- why **de-interleaving** them out made **117 of 118 records pass** while still losing the tail;
+- and why the fit preferred 14 and the OOB layout suggested 16 - **the window is the spare's size, and
+  it is where the controller puts it, not where the flash does.**
+
+**AND THE VENDOR'S PAGE READ NEVER TOUCHES THE ECC TYPE.** `hi_spi_nand_hw_read` writes five registers -
+`ADDRH`, `ADDRL`, `SADDR_D0`, `OP_CFG`, `OP_CTRL` - and **no `FMC_CFG` write at all.** Its reads run with
+the engine in whatever state init left it, **and its raw buffer is clean because the engine stripped the
+spare.** Read live at its own `SADDR_D0`, that buffer holds the record CRCs at exactly the offsets its
+logical page does.
+
+**THE DISABLE BELONGS TO THE ID AND FEATURE PATHS, AND NOWHERE ELSE - this driver's own comment says
+so:** *"Every feature/id/status op in both the BSP and the vendor clears the ECC field first and
+restores it afterwards, because the ID and feature paths are single-byte transfers the ECC engine must
+not touch."* **It was applied to the page read by analogy, and that analogy was wrong.**
+
+**THE FIX: no ECC write here at all, and a plain copy** - the output is already the page.
+
+**And this is a clean single-variable change, made from the restored and verified 117-record base.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
