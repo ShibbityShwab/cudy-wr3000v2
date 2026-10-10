@@ -7527,3 +7527,63 @@ rootfs's own `mount_root`, its preinit scripts, `libfstools`, and the `mkfs.*` t
 
 **Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
 define-after-use, no use-before-declaration. **CLEAN.**
+
+
+---
+
+# ★★★★★ PHASE 50ev (2026-10-10): OPENWRT ONLY MOUNTS rootfs_data - AND MY IMAGE MISSED `-F` ★★★★★
+
+## WHAT OPENWRT'S OWN BINARIES SAY
+
+```
+(no mkfs.* in the image)                    <-- OpenWrt ships NO mkfs tool at all
+
+libfstools.so strings:
+    mkfs.f2fs -q -f -l rootfs_data %s
+    mkfs.ext4 -q -F -L rootfs_data %s
+    overlay filesystem in %s has not been formatted yet
+    failed to mount -t %s %s /tmp/overlay: %m
+    rootfs_data
+
+/lib/upgrade/nand.sh:
+ 218:  [ "$data_ubivol" ] && ubirmvol /dev/$root_ubidev -N rootfs_data || :
+ 252:  # create rootfs_data vol for non-ubifs rootfs
+ 258:  if ! ubimkvol /dev/$root_ubidev -N rootfs_data $rootfs_data_size_param; then
+```
+
+**SO OPENWRT ONLY EVER MOUNTS `rootfs_data`; THE FILESYSTEM MUST ALREADY BE THERE, CREATED BY THE
+INSTALLER.** **That is the factory flow, and it means the image has to be right - there is no runtime path
+that makes one.**
+
+## AND THE IMAGE'S SUPERBLOCK SAID WHICH FLAG WAS MISSING
+
+```
+leb_cnt     = 13     <-- the image occupies 13 LEBs
+max_leb_cnt = 79     <-- the volume is 79 LEBs
+flags       = 0x00000000    <-- NO UBIFS_SB_SPACE_FIXUP
+```
+
+**A UBIFS image built for a volume LARGER than itself must carry the space-fixup flag - that is exactly
+what `mkfs.ubifs -F` writes, and exactly what the kernel acts on:**
+
+```c
+	if (!c->ro_mount && c->space_fixup)
+		err = ubifs_fixup_free_space(c);
+```
+
+**WITHOUT IT THE FREE SPACE IS NEVER FIXED UP, THE FILESYSTEM'S ACCOUNTING NEVER MATCHES A 79-LEB VOLUME,
+AND THE INDEX READS AS NONSENSE - which is precisely what `ubifs_read_nnode: error -22 reading nnode at
+7:41` is: a node address that is not even eight-byte aligned.**
+
+**The rebuild adds `-F` and nothing else, and CI prints the superblock it writes so the flag can be
+confirmed as `0x2` before anything is installed.**
+
+## THE STATE OF THE HARDWARE SIDE, UNCHANGED AND SOLID
+
+- **Our write path works**: six writes, one erase, no errors, read-back byte-identical, and the two
+  journal LEBs legitimately rewritten.
+- **Our read path is byte-exact on this volume**: every untouched LEB matched the image.
+- **`wr_cmd = 0x32`** is the vendor's real programming command, read from its spec table.
+
+**Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
+define-after-use, no use-before-declaration. **CLEAN.**
