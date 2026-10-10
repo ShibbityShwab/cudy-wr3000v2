@@ -6275,3 +6275,52 @@ with the translation applied to it.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ec (2026-10-10): THE POINTER IS RIGHT AND THE TRANSLATION IS RIGHT ★★★★★
+
+```
+C1C = 0x0000CDC0     lines = 0xCD = 205, top byte = 0xC0
+```
+
+**`0xC0` MEANS `__va()` PRODUCED `0xC06xxxxx`, THE EXPECTED KERNEL VIRTUAL ADDRESS.** **So three things are
+ruled out in one reading:**
+
+```
+the physical address   0x80603000, matched exactly by the page bits two fires ago
+the translation        __va gave the kernel virtual address, not the physical one
+the walk               205 lines, every time
+```
+
+**AND THE WRITES STILL VANISH.** The text at `0x80603000`, read with `devmem`, **is this kernel's FIRST
+boot and never changes** - **while every I/O write this driver makes, through the same kind of pointer
+arithmetic, sticks.**
+
+## SO THE LAST POSSIBILITY IS A STATEMENT ABOUT TWO PATHS
+
+**What the dumper writes through `luofu_log_b` is not what `devmem` reads at the address the driver
+computed.** **That is testable in one word** - read the ring back **through its own pointer** and put the
+result in the crumb:
+
+```c
+C1C = (lines << 16) | (*(volatile u32 *)(luofu_log_b + 4) & 0xffff);
+```
+
+**AND THE REFERENCE IS ALREADY IN HAND, read with `devmem` just now:**
+
+```
+0x80603000 = 0xC0DE1055     the ring's MARK is there
+0x80603004 = 0x5B3E363C     "<6>[" - the first text
+```
+
+```
+crumb low 16 == 0x363C   the two paths meet, and the vanishing writes are something else again
+crumb low 16 != 0x363C   THE TWO PATHS DO NOT MEET, and that is the fault
+```
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
