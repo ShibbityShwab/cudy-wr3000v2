@@ -4054,3 +4054,55 @@ vendor SADDR_D0 (FMC 0x10a2004c) = 0x8207c000
 **What this changes:** the question is no longer "what does the hardware deliver" (answer: a clean page) nor "which register is wrong" (answer: none of the ones measured). It is **what this driver does differently around the operation** - and the raw-buffer comparison is how to find it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cf (2026-10-10): ★ THE FULL DUMP FOUND FIFTEEN REGISTERS MY DRIVER NEVER WRITES ★
+
+**Two results this turn, and the second is the most substantial gap found in the whole stretch.**
+
+**FIRST: the vendor's RAW DMA buffer, read live while its kernel runs, IS its logical page.**
+
+```
+SADDR_D0 = 0x8207c000
++1024   00000000 00000000 00000000 00000000     zeros, matching the flash
++2032   6bc316f1 00000000 00000000 00000000     f1 16 c3 6b, AT 2032
++2048   ffffffff ffffffff ffffffff ffffffff     UNTOUCHED past the page
+```
+
+**So the splice is entirely this driver's doing** - and a fire that matched the vendor's register ORDER
+changed nothing (`record 118`, unchanged), so the order was not it either.
+
+**SECOND: sampling the vendor's registers compared only the ones this driver already touches.** Dumping
+the **whole** block (0x00..0x120) instead found that **the vendor programs fifteen registers and this
+driver writes NONE**:
+
+```
+0x08 TIMING_SPI  = 0x0000006f
+0x0c PND_PWIDTH  = 0x00000333
+0x10 PND_OPIDLE  = 0x00088880
+0x14             = 0x08888888
+0x34             = 0x00001000     <- TWO PAGES
+0x48             = 0x00000007
+0x6c             = 0x00ffffff
+0xa0             = 0x80808080
+0xa4             = 0x00006060
+0xa8             = 0x000000ff
+0xb0             = 0x0000007f
+0xb4             = 0x01372b2b
+0xb8             = 0x0000ffff
+0xbc             = 0x00000100
+0xfc             = 0x00000005
+```
+
+**And `0x14`, `0x34`, `0x48`, `0x6c` and `0xa0` are not in this driver's register map at all** - grepping
+the file says NEVER for each. **Its entire configuration block sits at reset defaults.**
+
+**`0x34` is `0x1000` - two pages** - the shape of a threshold or depth, **exactly the kind of register
+that would bound a transfer and leave a page's last bytes behind.** Sixteen page reads have been
+running against a configuration the working implementation does not use.
+
+**All fifteen are now written once at probe time from the vendor's live values.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
