@@ -4565,3 +4565,35 @@ misled.
 clr, en(1), call, wait, en(0), clr) - moved before the setup, where the caller puts them.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ct (2026-10-10): THE FIVE WRITES ALONE FAILED - because the vendor's INIT sets what mine never did
+
+**Removing the two writes outright died at step 8, on the first page read:**
+
+```
+C1C = 0xE0000008    -> LUOFU_RPT_FAIL(8)
+```
+
+**while the previous build - interrupt-only, with the two writes made per read - worked.** So the
+values **are** needed, and the vendor's page read does not write them **because it does not have to.**
+
+**Which relocates the difference entirely.** It was never that the writes are unnecessary. **It is that
+the vendor's INIT sets `DMA_LEN` and `DATA_NUM` and this driver's init never did.** Its live block holds
+1 in both; `hi_spi_nand_hw_read` writes neither because the value is already there.
+
+**So this driver was writing them on every read to make up for never writing them at all** - two extra
+register writes in the middle of every operation, **in a sequence the working implementation performs
+with five.**
+
+**THE FIX: set them once in the probe's vendor-configuration block, exactly as the vendor does, and
+leave the per-read sequence as the vendor's own** - `ADDRH`, `ADDRL`, `SADDR_D0`, `OP_CFG`, `OP_CTRL` -
+bracketed by the caller's interrupt clear/enable, since `0x3318` does clr, en(1), call, wait, en(0),
+clr around the read.
+
+**That is the arrangement now building:** the values present as the vendor has them, and the operation
+shaped as the vendor performs it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
