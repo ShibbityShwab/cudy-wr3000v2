@@ -7389,3 +7389,73 @@ volume is unchanged after the fire: non-`0xff` bytes in its first and second 4 K
 
 **Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
 define-after-use, no use-before-declaration. **CLEAN.**
+
+
+---
+
+# ★★★★★ PHASE 50et (2026-10-10): `writes = 0` - AND UBIFS NEVER FORMATS ANYTHING ★★★★★
+
+## THE COUNTERS ANSWERED IT IN ONE LINE
+
+```
+C18 = 0xC0DE502D   (step 45, the tick)
+C1C = 0x00000000   writes 0 | erases 0 | err 0 | wr_cmd 0 | mismatches 0
+```
+
+**THE MTD WRITE AND ERASE OPS WERE NEVER CALLED. Not once.** **So the program/erase sequences recovered from
+`hi_flash.ko` have not been tested yet - they are exonerated, not implicated - and the fault is UPSTREAM of
+them.**
+
+**(`wr_cmd = 0` here means nothing: that variable is only assigned inside the self-test, which never ran.
+The fields that carry information are `writes`, `erases` and `err`.)**
+
+## AND THE SOURCE SAYS WHY NOBODY WAS EVER GOING TO WRITE
+
+**From `mount_ubifs` (`fs/ubifs/super.c`, v5.10):**
+
+```c
+	err = ubifs_read_superblock(c);      /* line 1332 */
+	if (err)
+		goto out_auth;               /* the mount simply fails */
+```
+
+**and a search of the whole file for a format helper returns NOTHING.** **UBIFS NEVER FORMATS ANYTHING.**
+
+**The message seen two fires ago - "can't format empty UBI volume: read-only UBI volume" - is UBIFS REFUSING
+TO HELP on read-only media, not evidence that it formats when the media is writable.** **It does not. With
+the volume empty and writable it simply proceeds to read a superblock that is not there and fails.**
+
+**SO THE VOLUME MUST BE FORMATTED BY USERSPACE - WHICH IS EXACTLY HOW OPENWRT DEVICES SHIP: the factory
+image contains a `mkfs.ubifs`-built `rootfs_data` volume, and `mount_root` mounts it rather than creating
+it.** **Ours has never existed in that state: it was created by `ubimkvol` and left empty, so there is
+nothing for UBIFS to mount and nothing was ever going to write one.**
+
+**AND `writes = 0` IS THE PERFECT CONFIRMATION OF THAT READING: no format was attempted by anyone, by any
+path.**
+
+## THE FIX, WHICH IS ALSO WHAT THE FACTORY FLOW DOES
+
+**Build the UBIFS image in CI with the volume's own geometry and install it with `ubiupdatevol`:**
+
+```
+mkfs.ubifs -x none -m 2048 -e 126976 -c 79 -r tree -o owrt-rootfs_data.ubifs
+```
+
+- **`-m 2048` and `-e 126976` are measured from the device**: PEB 131072 (128 KiB), so LEB = 131072 - 2*2048.
+- **`-c 79` is the volume's LEB count.**
+- **`-x none` IS DELIBERATE: it needs no compressor from the kernel, so the image cannot fail to mount over a
+  UBIFS compressor this build happens not to enable.**
+
+**THEN the fire mounts it - and the first thing OpenWrt writes into that overlay is the first real exercise
+of the write path, on the real target, with the empty volume already gone.**
+
+## WHAT THE WRITE PATH'S STATE IS NOW
+
+- **`MTD_WRITEABLE` restored, `MTD_NO_ERASE` dropped, `_write`/`_erase` registered** - the read-only attach
+  line is gone from the log, so UBI attaches read-write.
+- **The program and erase sequences are the vendor's own**, disassembled by symbol from `hi_flash.ko`.
+- **They have never been called**, and the first thing that will call them is OpenWrt writing to a real
+  overlay.
+
+**Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
+define-after-use, no use-before-declaration. **CLEAN.**
