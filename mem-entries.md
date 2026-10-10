@@ -4025,3 +4025,32 @@ the disassembly does not yet resolve cleanly - and the vendored reader must obta
 somewhere, because its own page output is complete.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ce (2026-10-10): ★ THE VENDOR'S RAW DMA BUFFER IS CLEAN - the splice is entirely mine ★
+
+**The vendor's kernel was running, so its own DMA destination register was readable:**
+
+```
+vendor SADDR_D0 (FMC 0x10a2004c) = 0x8207c000
+```
+
+**And reading that buffer directly, after forcing a real read through the vendor's own driver:**
+
+```
++1024   00000000 00000000 00000000 00000000     <- zeros, matching the flash
++2032   6bc316f1 00000000 00000000 00000000     <- f1 16 c3 6b, AT 2032
++2048   ffffffff ffffffff ffffffff ffffffff     <- UNTOUCHED past the page
+```
+
+**THE VENDOR'S RAW DMA OUTPUT IS ITS LOGICAL PAGE.** The record's CRC fragment sits at **offset 2032** - exactly where `dd if=/dev/mtd14` shows it - **with no splice anywhere**, zeros where the flash has zeros, and the transfer stopping cleanly at 2048 with the bytes beyond left untouched.
+
+**So the splice is entirely this driver's doing.** The hardware delivers a direct 2048-byte page. Every earlier fit and de-interleave was compensating for a defect in my own read path, and the compensating de-interleave is *why* the page loses its last 14 bytes: the copy skips them.
+
+**AND THERE IS NOW A LIVE INSTRUMENT.** The vendor's DMA destination is readable while its kernel runs, so its raw output can be compared against mine at any offset, on any page, without a fire - the same probe that produced this result.
+
+**What this changes:** the question is no longer "what does the hardware deliver" (answer: a clean page) nor "which register is wrong" (answer: none of the ones measured). It is **what this driver does differently around the operation** - and the raw-buffer comparison is how to find it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
