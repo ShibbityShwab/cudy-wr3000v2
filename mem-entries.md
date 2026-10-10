@@ -8366,3 +8366,53 @@ enable.**
 **SO EVERY BLOCK IS NOW VERIFIED AND RE-ERASED IF IT DID NOT TAKE, up to three tries, with the count that
 needed a second pass reported.** **The check is the same one the self-test uses, so the loop proves itself
 rather than trusting its own return value - which is the discipline this whole arc has been teaching.**
+
+
+---
+
+# PHASE 50fn (2026-10-10): THE BOARD IS STRANDED - WHAT IS READY, AND THE HAZARD I INTRODUCED
+
+## THE BOX
+
+**Booted into our kernel and stuck there: the Ethernet link is down (our kernel has no network driver,
+so a down link is what our kernel looks like), ssh and ping both time out, and a plain power cycle did not
+clear it.** **The last fire's watcher timed out mid-cycle, so the fire never reached its own revert of the
+boot selector.**
+
+**The recovery door is ARMED and proven working:**
+
+- host alias `192.168.1.88` on the Ethernet interface - still present from a previous session
+- a TFTP read server on `0.0.0.0:69` (**PID 23916 - the ORIGINAL one, which survived its cell being
+  killed; the "restart" I attempted never started and wrote no log**)
+- served file `build/tmp/recovery/recovery.bin` = the genuine 2.4.15 (20,975,775 bytes)
+- **`tools/tftp_server.py` is a WRITE receiver and cannot serve this: the u-boot sends an RRQ and needs a
+  reader, which is why `build/tmp/tftp_read_server.py` exists**
+
+**AND IT HAS FETCHED ONCE:**
+
+```
+RRQ recovery.bin from 192.168.1.1:1150
+  -> sending 20975775 bytes in 512-byte blocks
+```
+
+**(the transfer was then killed when the eval cell holding the server hit its run budget - the project's
+oldest rule, that a device run must not depend on an agent session, and I broke it by running a long
+transfer inside a cell.)**
+
+**Subsequent reset attempts have produced no RRQ. The difference is warm versus cold: RESET must be held
+WHILE POWER RETURNS, not pressed on a running board. The signature is the POWER LED blinking.**
+
+## THE ENGINEERING, AND THE HAZARD
+
+**Erase works** - the write enable (`0x06` + `FMC_OP 0x81` before every erase, exactly as the vendor's
+`hi_fmc_write_reg_en` does) was the missing step, and three seeded probes read back `ff`.
+
+**BUT THE FIX I ADDED AFTER THAT IS UNBOUNDED, AND IT IS PROBABLY WHAT STRANDED THE BOARD:** the loop
+verifies *every* block by reading it back and re-erasing up to three times, and a failing erase can spend
+200 ms in `wait_ready` - so 176 blocks can be **minutes** of boot **with the safety timer armed only
+afterwards**. A check is not worth re-creating the hazard it was added to catch.
+
+**`15efe8f` (pushed, built, NOT FIRED) already moves the safety restart ahead of the first flash write**,
+which is the more important half. **STILL TO DO: bound the verify to a sample** - every eighth block plus
+the last, roughly 22 reads - which is what the next session should implement before firing anything. An
+edit attempting exactly that failed on an anchor mismatch and was abandoned rather than guessed at.
