@@ -3210,3 +3210,44 @@ the validation has caught something the edit tool called success**, which is the
 keeping it rather than trusting a tool result.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bh (2026-10-10): THE CONTROLLER LEAVES ZERO REGIONS UNWRITTEN - and every read returned stale memory there
+
+**The page map settled it.** Sampling four bytes every sixteen across page 2 and diffing against
+the vendor's own `mtd14`:
+
+```
+DIFFERING 4-byte samples: 26 of 128
+page+ 176  ours=20000000   vendor=00000000
+page+ 192  ours=4cfb74e7   vendor=00000000
+page+ 896  ours=25927a26   vendor=00000000
+page+1040  ours=4cfb74e7   vendor=00000000
+page+1200  ours=00000000   vendor=f116c36b      <- a record CRC, absent from ours
+page+1664  ours=cc66cc67   vendor=00000000
+page+1888  ours=00000000   vendor=f116c36b
+```
+
+**Every differing sample is a place where the flash holds ZEROS.** Where the flash has data, this
+driver matches it byte for byte - the volume-table header at +0, the `"squashfs"` name at +16, the
+record CRCs wherever they sit.
+
+**And a whole run at 1664..1791 carries the `66CC` pattern of RAM that was never written at all** -
+the staging buffer holding whatever its allocation contained, **handed out as flash content.**
+
+**So the hardware leaves zero regions unwritten, and every read returns whatever was in the buffer
+there.** That also explains the EC scan's 32 of 32: its **64-byte reads at offset 0** sit in a region
+the controller always fills.
+
+**The fix zeroes the staging buffer before the operation is started.** Placed after the `writel` it
+would wipe the very data the controller had just deposited - **and the ordering check caught exactly
+that in my first attempt**, verifying `memset` before `writel` before `memcpy` by position rather
+than by reading it back.
+
+**It is a correctness fix regardless of the mechanism: a read must never return bytes the device did
+not produce.** And if UBI's CRC now matches, the attach proceeds - which is the outcome this whole
+line of work has been aiming at.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
