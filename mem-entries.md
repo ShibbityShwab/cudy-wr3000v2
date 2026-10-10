@@ -8120,3 +8120,37 @@ the same discipline the write path already uses.**
 
 **(A first attempt at this fix also changed the divisor to `erasesize`; that part was wrong, because the
 row is a page row matching `ADDRH = 0`, and it was reverted before the commit.)**
+
+
+## PHASE 50fg (2026-10-10): THE ERASE ADDRESS IS A BLOCK NUMBER - AND BLOCK 0 HID IT
+
+```
+FMC: erased 176 blocks of rootfs_data before marking it
+FMC: after the erase, rootfs_data begins 0xffffffff (erased)          <- the erase works now
+FMC: wrote the jffs2 marker; read back 0x20031985 (identifies as FS_JFFS2)
+jffs2: Incompatible feature node (0xe009) found at offset 0x00621798   <- 6.4 MB; the last fire said 1.5 MB
+```
+
+**THE OFFSET MOVING IS THE TELL.** **The unerased region is not a fixed piece of flash - it is wherever
+the loop failed to reach, so blocks 1..175 were never touched.**
+
+**AND BLOCK 0 IS WHY IT WAS INVISIBLE.** **It is the one address where a page row and a block number are
+the SAME VALUE**, so it erases correctly under either convention, and a read-back that samples only the
+start of the partition reports `erased` while the other 175 blocks keep everything.
+
+**SO BOTH CHANGES WERE NEEDED, NOT EITHER: the erase address is the block index (`pos / erasesize`) AND
+it is stored verbatim with `ADDRH = 0`.** **The previous commit reverted the divisor and kept the
+unshifting - it fixed the half block 0 could not distinguish.** **`ADDRH = 0` is consistent with a block
+index on this part: 176 blocks, comfortably inside 16 bits.**
+
+**AND THE INSTRUMENT WAS FIXED TOO, because an instrument that cannot fail for the right reason is worse
+than none:**
+
+```
+FMC: after the erase, block 0 of 176 begins 0xffffffff (erased)
+FMC: after the erase, block 175 of 176 begins 0xffffffff (erased)
+```
+
+**Sampling both ends is the difference between a check and a formality. The write path is untouched and
+still page-addressed with the shift - which is exactly what makes the marker read back correctly, and
+confirms the two ops genuinely do not share an encoding.**
