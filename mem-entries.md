@@ -5039,3 +5039,68 @@ define-after-use, hook `get_mtd_device`/`put_mtd_device` balanced.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50df (2026-10-10): THE VENDOR'S KERNEL MOUNTS OUR IMAGE - OURS FAULTS IN THE MOUNT ★★★★★
+
+**A decisive experiment that cost nothing: the vendor's kernel is still on this box, and `mtd16` still
+holds the OpenWrt image, so it can mount it directly.**
+
+```
+mtd16 superblock md5: e8940a8e939e8a76bba7ec30f8198a4b      <- STILL WHAT WAS WRITTEN
+mount -t squashfs -o ro /dev/mtdblock16 /mnt/t              <- MOUNTED CLEANLY
+contents: bin dev etc lib mnt overlay proc rom root sbin sys tmp usr var
+
+DISTRIB_ID='OpenWrt'   DISTRIB_RELEASE='25.12.5'   DISTRIB_TARGET='armsr/armv7'
+/mnt/t/bin/busybox     /mnt/t/sbin/init
+```
+
+**THE VENDOR'S KERNEL IS 5.10.201 - THE SAME VERSION AS OURS.** So the image, the flash, and the XZ
+stream are all sound, **and the difference is this kernel's CONFIGURATION.**
+
+**AND THE FAULT IS NOW LOCALIZED.** The ring held stack frames:
+
+```
+[ 4.390716] (vfs_get_tree) from [<...>]
+[ 4.413362] (mount_block_root) ...
+   (prepare_namespace) from [<...>]
+   (do_DataAbort) from [<c0700b38>
+```
+
+**A data abort inside `vfs_get_tree`, reached from `mount_block_root`.** The mount does not fail
+cleanly - it **faults**.
+
+**AND THE PANIC TEXT WAS MISSING FROM THE RING BECAUSE OF AN ORDERING BUG IN THE INSTRUMENT.**
+`kmsg_dump()` runs INSIDE `panic()` **BEFORE** the notifier chain, so the dumper writes the complete log
+into the ring - **and then the console hook keeps firing for everything `panic()` and the death path
+print afterwards, and its FILTERED text overwrote the dump.** The dumper's copy was the thing worth
+keeping and the console destroyed it.
+
+**SO THE READBACK IS TRUTHFUL NOW:**
+
+- **`static bool luofu_log_frozen;`** - set by the dumper before it copies, honoured by the console,
+  which returns immediately. **The ring's final content is the complete, unfiltered log, ending in
+  whatever the kernel said on the way down.**
+- **THE CONSOLE FILTER IS GONE.** It kept only chunks containing `"ubi"` or `"FMC"` because the ring was
+  512 bytes. **The ring is 16 KiB and circular, so keeping everything is strictly better** - the mount,
+  the init, the panic trace, and the lines either side of every error.
+- **NOTHING IS WRITTEN AT REGISTRATION** - an earlier attempt to stamp the buffers while the kernel was
+  alive **moved the failure forward and killed the boot**, so the ring is left alone and **the reader
+  stops at the terminator instead.**
+
+**AND THE BEHAVIOURAL CHANGE: `CONFIG_SQUASHFS_FILE_CACHE` -> `CONFIG_SQUASHFS_FILE_DIRECT`.**
+
+`FILE_CACHE` allocates a decompression buffer of **BLOCK_SIZE PER OPEN FILE**. This image uses
+**256 KiB blocks**, so each open file costs a 256 KiB contiguous allocation and a mount that walks the
+tree makes several at once. `FILE_DIRECT` reads into the page cache and **allocates nothing there** -
+what a 128 MB ARM board wants, **and the likeliest reason the vendor's kernel takes this image
+happily.** An allocation failure inside the mount path is exactly where a data abort in `vfs_get_tree`
+comes from.
+
+**The fragment was checked for a second `FILE_CACHE` line that would win by order: none, and the symbol
+is explicitly unset.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
