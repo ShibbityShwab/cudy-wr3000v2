@@ -3067,3 +3067,36 @@ file with Windows line endings - **1698 carriage returns.** The CR counter found
 build.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bd (2026-10-10): THE ADDRESSES KILLED THE COLLISION THEORY - AND THE WINDOW CHANGES BETWEEN READERS
+
+**The addresses came back and refuted my own hypothesis:**
+
+```
+FMC: page_buf=c062a040 size=2048 ; log=c06030... dma=...
+```
+
+**`page_buf` is virtual `0xc062a040` = physical `0x0062a040`, nowhere near the log at physical
+`0x80603000`. No overlap** - so the collision check correctly left the ring where it was, and the
+`page_buf` theory is simply wrong. **Two phases of instrument-collision experience made it a good
+guess; the measurement made it a dead one.**
+
+**UBI's summary line also changed** to `ubi_read_volume_table: both volume tables are corrupted` -
+the same failure family, a different line, and worth noting only because it is not new information.
+
+**What is established, and what is not.** A 16-byte window at page offset 1040 is wrong **on every
+page**; 1056 is fine on every page; and **the stale content DIFFERS between pages.**
+
+- a fixed fill length would cut **all pages identically** - it does not;
+- a fixed buffer collision would leave **identical stale bytes everywhere** - it does not.
+
+**Neither matches.** So the probe now samples 1032, 1040 and 1048 to bracket the window, and then
+**reads 1040 a second time.** **If two reads of the same offset disagree, the window is not stale
+memory at all but data that changes between reads** - which would mean the copy is **racing the
+hardware** rather than reading a dead buffer, and that is a different fix from anything tried so
+far.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
