@@ -6170,3 +6170,60 @@ did not, and that is the whole difference between an instrument that works and o
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ea (2026-10-10): EVERY I/O WRITE STICKS AND EVERY RAM WRITE VANISHES ★★★★★
+
+**THE PANIC DUMP NOW WORKS - THE FIRST FIRE WHERE IT DID:**
+
+```
+C18 = 0xC0DE502A     C1C = 0x000000CD
+```
+
+**205 lines. Setting `dumper->active` by hand fixed it, exactly as it did for the tick.**
+
+## AND THE 205 LINES WENT SOMEWHERE I CANNOT SEE
+
+```
+0x80603000 is byte-for-byte the same as every previous fire:
+4152 non-zero bytes, 26 timestamps, the newest at 4.380 s,
+and a banner reading "Linux version 5.10.201 (luofu-lane@github-actions)"
+                                      - THIS KERNEL'S OWN FIRST BOOT.
+```
+
+**I scanned the whole surviving window for the ring's mark `0xc0de1055` and found exactly one, at
+`0x80603000`, with that stale text.** **So the mark I have been reading is OLD, and the writes of the last
+fire are NOT THERE.**
+
+## AND THAT IS THE UNIFYING FACT OF THIS WHOLE PHASE
+
+**EVERY I/O WRITE THIS DRIVER MAKES STICKS, AND EVERY RAM WRITE VANISHES.**
+
+- **The crumb registers have never once failed** - they carried the **tick count**, the **phase**, and the
+  **line count**;
+- **the ring, the diagnostic buffer, and the RAM stamps have never once been readable at the address I put
+  them.**
+
+**`luofu_log_b = __va(luofu_log_dma)`, and the address has been the one thing I could never read, because
+the crumb that carries it is overwritten by the tick or the panic every time.**
+
+**SO THE PANIC CRUMB NOW SPENDS ITS PAYLOAD ON THE ADDRESS INSTEAD OF THE LINE COUNT:**
+
+```
+C1C = (lines << 12) | ((log_dma >> 12) & 0xfff)
+```
+
+**The window is `0x8060xxxx`, so twelve bits of page number pin the address, and the line count was already
+proven at 205.** **AND THE TICK NEVER RAN ON THIS BOOT AT ALL - zero ticks, because it panicked inside five
+seconds - WHICH IS WHY THE PANIC PATH IS THE ONE THAT HAS TO CARRY IT.**
+
+**AND THE NEXT QUESTION IS NAMED:** a `log_dma` of `0x80603000` would read back as **`0x000cd030`**.
+**Anything else names the real thing, and then the question becomes WHY `__va()` OF AN ADDRESS THE FIRST
+BOOT COULD WRITE TO IS NOT WRITABLE NOW.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
