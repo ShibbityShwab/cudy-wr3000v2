@@ -8081,3 +8081,42 @@ own divider for a 64-by-32 unsigned quotient, and the count is now computed once
 64-bit modulo in the mtd write path, fixed with `div_u64_rem`. **Both times the compiler was the reader
 and I was not.** **The check applied this time was the class rather than the instance: every remaining
 division in the function was walked, and no other 64-bit operator division is left in the new code.**
+
+
+## PHASE 50ff (2026-10-10): THE ERASE WAS A NO-OP - WRONG ADDRESS ENCODING
+
+```
+FMC: erased 176 blocks of rootfs_data before marking it
+FMC: wrote the jffs2 marker; read back 0x20031985
+jffs2: Incompatible feature node (0xe009) found at offset 0x00181758     <- THE SAME JUNK
+```
+
+**176 erase commands were accepted and changed nothing.** **The partition was byte-identical after a
+whole-partition erase - the same node at the same offset that JFFS2 has refused from the start.**
+
+**THE CAUSE WAS AN ENCODING I HAD ALREADY READ ONCE AND DID NOT APPLY:**
+
+```
+hi_spi_nand_hw_erase(regs, addr, cs, cmd):  ADDRH = 0 ; ADDRL = addr   (VERBATIM)
+```
+
+**while the WRITE path does `ADDRH = row >> 16; ADDRL = row << 16`. THE TWO OPS DO NOT SHARE AN ADDRESS
+ENCODING, and this driver copied the write's shift into the erase - so every erase carried its address in
+the wrong half of the register.** **`ADDRH = 0` is consistent with a page row: a 128 KiB block is 64
+pages and the device has about 15,104 of them, inside a 16-bit field.**
+
+**IT LIVED THIS LONG BECAUSE ONLY THE WRITE PATH WAS EVER MEASURED.** **`mism` counts how many bytes a
+page differs by after programming - it certifies writes and says nothing whatsoever about erases - and
+because the two paths shared a divisor they looked like one code path.**
+
+**SO AN ERASE IS NOW READ BACK BEFORE IT IS TRUSTED**, which is the check whose absence let this survive:
+
+```
+FMC: after the erase, rootfs_data begins 0x%08x (erased / STILL HOLDS DATA)
+```
+
+**An erase cannot be verified by its own return value, so it is verified by reading the flash afterwards -
+the same discipline the write path already uses.**
+
+**(A first attempt at this fix also changed the divisor to `erasesize`; that part was wrong, because the
+row is a page row matching `ADDRH = 0`, and it was reverted before the commit.)**
