@@ -3285,3 +3285,35 @@ caught before the build.** The same failure class as the `'OMO_REL_WIN' undeclar
 previously, except this time it never left the machine.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bj (2026-10-10): THE PAGE READS EXACTLY - and UBI moved on to record 118
+
+**The splice fix worked, and both the map and UBI say so.**
+
+**The map:** sampling four bytes every sixteen across page 2 and diffing against the vendor's own
+`mtd14` now gives **ZERO DIFFERENCES - 128 of 128.** The sequence was **26, then 6, then none.**
+Our driver reads that page exactly as the flash holds it.
+
+**And UBI's complaint MOVED:**
+
+```
+before:  vtbl_check: bad CRC at record 6:   0xaae09698
+now:     vtbl_check: bad CRC at record 118: 0xf1332418
+```
+
+**Record 6 is the one that straddled the splice at 1040. It verifies now, and so do the 117 records
+before it.** UBI walked the whole table and stopped at **record 118** - the last one it checks, and
+the only other one still wrong.
+
+**Record 118 begins at byte 20296 = 118 x 172, which is PAGE 9 (18432) offset 1864.** So the next
+question is what page 9 carries: the splice may sit at a different offset there, or there may be a
+second one. **The map now reads page 9** - same 128 samples, same vendor comparison.
+
+**And one more line worth reading as progress in its own right:** `UBI: block: can't open volume on
+ubi0_0` - **the block layer is up and asking for volumes**, which it only does once the volume table
+is nearly readable.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
