@@ -4997,3 +4997,45 @@ still readable.**
 AND THE FLASH READ PATH THIS PROJECT REVERSED.**
 
 **Device mutation.** `mtd16` only, backed up and verified. The router's boot path is untouched.
+
+
+---
+
+## Phase 50de (2026-10-10): THE LOG TOLD US THE MOUNT WORKED AND COULD NOT SHOW IT
+
+**The fire that booted to `/dev/mtdblock16` ended with a USERSPACE line in the ring:**
+
+```
+mware load for regulatory.db.p7s failed with error -2
+```
+
+**A regulatory-database load failure is a userspace message.** Its presence means **the squashfs rootfs
+mounted and `/sbin/init` executed** - the two things this whole phase was aimed at. **But the ring was
+0x200, about eight lines, and its newest 500 bytes were the driver's own probe lines.** The messages
+that matter most had been **overwritten**: the VFS mount line, `Run /sbin/init as init process`,
+procd's preinit, and whatever came after.
+
+**THE INSTRUMENT WAS TOO SMALL TO SHOW THE RESULT IT ALREADY HAD.**
+
+**So the ring is 0x4000 now** - roughly 136 lines, a full boot's worth:
+
+```
+ring   0x80603000 .. 0x80607000   (16 KiB)
+diag   0x80607000 .. 0x80607200   (512 B)
+window 0x80602000 .. 0x80608000   -> fits, no collision shift needed
+```
+
+**THE COLLISION CHECK NOW RESERVES RING + DIAG rather than twice the ring**, so the ring can use the
+space the diagnostic buffer does not - that is why the span expressions changed from
+`2 * LUOFU_LOG_SIZE` to `LUOFU_LOG_SIZE + LUOFU_DIAG_SIZE`. **The diag's address is still derived as
+`base + LUOFU_LOG_SIZE`, so it moved with the ring and the probe's own log line reports where it is.**
+
+**AND THE DUMPER WAS ALREADY RIGHT.** `luofu_kmsg_to` copies the **WHOLE kmsg log, unfiltered**, and
+wraps when it fills - the `"ubi"`/`"FMC"` filter belongs to the console hook, not the dumper. **So a
+bigger ring holds the newest 16 KiB, which is the mount and the init, not the probe's own noise.**
+
+**Verified after the edit:** braces 0, parens 0, line parity intact, no undefined macros, no
+define-after-use, hook `get_mtd_device`/`put_mtd_device` balanced.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
