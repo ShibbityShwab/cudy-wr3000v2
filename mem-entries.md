@@ -6908,3 +6908,58 @@ out/busybox   Flags: 0x5000200, Version5 EABI, soft-float ABI
 
 **SO THE ROOTFS IN THE VOLUME USES NO VFP INSTRUCTION, NO `swp`, AND NO EXCLUSIVE ATOMIC - the three
 things this part cannot do. It should run.**
+
+
+---
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 50em (2026-10-10): ★ THE USERSPACE RAN ★ - our kernel boots OpenWrt on the WR3000 v2
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+```
+C18 = 0xC0DE502D     step 45 = the 5-SECOND TICK      (step 42 = the panic notifier -> ABSENT)
+C1C = 0x40080603     phase = 4 (probe + late_initcall_sync done), log_dma = 0x80603000
+```
+
+**NO PANIC NOTIFIER FIRED, AND THAT IS THE WHOLE ANSWER:**
+
+**Init dying is a panic - the kernel panics with "Attempted to kill init" whenever PID 1 exits.** **So with
+the soft-float rootfs in the volume, PID 1 DID NOT DIE.** **And the tick is a 5-second timer: it kept
+writing that same step-45 crumb every cycle until the 180-second safety timer returned the box.**
+**THE KERNEL LIVED ITS FULL 180 SECONDS WITH A RUNNING USERSPACE - our own kernel, and an OpenWrt 25.12.5
+userspace, on the Cudy WR3000 v2.**
+
+**AND THE PRE-FLIGHT AUDIT SAID THIS IS WHAT WOULD HAPPEN:** no VFP instruction, no `swp`, and no exclusive
+atomic in any of the four binaries - the three things this part cannot do.
+
+## WHAT THE LOG DID NOT SHOW
+
+**That same build walked 4092 bytes and stopped mid-record at `VFP support` (0.144506 s):**
+
+```
+total body 15356 bytes | non-zero 4092 | zero run at offset 4092, length 11264
+timestamps: first 0.000 at 4, LAST 0.145 at 4065
+```
+
+**which is either printk dying there or the walk stopping at an incompletely written ring record.**
+**What makes it worth backing out rather than theorising: THE PREVIOUS KERNEL - 3.5 KiB window, no
+`CONFIG_DEBUG_KERNEL`, no `CONFIG_DEBUG_USER`, no `user_debug`, no `no_hash_pointers` - LOGGED UBI
+ATTACHING, `VFS: Mounted root`, AND `Run /sbin/init as init process`.** **That configuration is the one
+with a proven view of the boot.**
+
+**So both go back:**
+
+```
+#define LUOFU_LOG_KEEP 0x0e00      /* 3.5 KiB - the size that logged a whole boot */
+CONFIG_CMDLINE="panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init"
+```
+
+**None of the debug options is needed to answer what is left: the instruction audit already showed there
+is no bad instruction left to name, and `user_debug` was only ever there to name one. The `elf_hwcap`
+crumb (step 46) stays - it costs nothing and it lives in the panic path.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` holds the
+audited soft-float OpenWrt 25.12.5 rootfs. The vendor's own `ubi0` untouched. The router is healthy.
