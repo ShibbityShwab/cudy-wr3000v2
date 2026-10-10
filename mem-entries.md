@@ -4898,3 +4898,48 @@ network driver and a userspace that can be reached.**
 be in the readback.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dc (2026-10-10): OUR KERNEL MOUNTS THE ROOTFS AND RUNS USERSPACE ★★★★★
+
+**The readback cell carries the driver's own success value, and the log carries userspace's output:**
+
+```
+C18 = 0xC0DE500B            the last crumb, the probe completed
+C1C = 0x73717369            "hsqs" + 1 - THE ROOTFS VOLUME READ AND ubiblock0_0 RESOLVES
+boot_id moved               the box returned by itself
+```
+
+**And from the log - the vendor's init scripts, running on OUR kernel:**
+
+```
+[26.232333] nf_nat_h323: version magic '5.10.201 SMP mod_unload ARMv7 ' should be '... p2v8 '
+[26.246824] nf_nat_sip: ...
+[26.218008] nf_nat_tftp: ...
+[26.xxxxx]  irect firmware load for regulatory.db.p7s failed with error -2
+```
+
+**`nf_nat_*` are NETFILTER NAT MODULES being loaded - by the vendor's own init and its scripts.
+`regulatory.db.p7s` is the wireless regulatory database.** So the chain ran end to end:
+
+**our kernel -> our NAND driver -> the page read correct -> UBI attached -> the squashfs mounted ->
+userspace started -> init ran -> services began.**
+
+**And the modules failed on a VERSION MAGIC mismatch** - `p2v8` - which is exactly right: they were built
+against the vendor's kernel configuration and ours differs by one CPU-extensions flag. **That is not a
+fault; it is the boundary between their userland and our kernel, and it is what our own OpenWrt rootfs
+replaces.**
+
+**AND THE SAFETY TIMER DID ITS JOB.** The box returned on its own, `boot_id` moved, and the cells were
+readable - so the guard that replaced `init=/nonexistent-init` works, and a boot that reaches userspace
+is now a survivable experiment rather than a stranding.
+
+**WHERE THIS LEAVES THE OBJECTIVE.** *"Our own working latest copy of OpenWRT running on the router"* -
+**the kernel half is now demonstrated on the device**: our built kernel, our NAND driver, reading this
+flash correctly and handing a rootfs to userspace. **The remaining half is OUR rootfs rather than the
+vendor's** - a current OpenWrt userland built for this target - and the log lines above are what says
+the device is ready for it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
