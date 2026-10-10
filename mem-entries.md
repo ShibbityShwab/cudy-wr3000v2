@@ -8193,3 +8193,35 @@ ends fully erased either way.**
 reason being tested.** **Reading erased flash to test an erase cannot fail, exactly as a crumb that a
 later writer overwrites cannot report, and as a probe that prints before the log's retention point cannot
 be read.**
+
+
+## PHASE 50fi (2026-10-10): THE SELF-TEST SETTLED THE ERASE ENCODING
+
+```
+FMC: erase self-test: block 175 planted as 0x00000000
+FMC: erase self-test: block 175 reads 0x5a5a5a5a after erasing it (ERASE DID NOTHING)
+```
+
+**The pattern was on the flash - the same address returned two different values on two consecutive reads -
+so the write landed and the erase left it there.** **Block 175 is the only place that can show this; block
+0 is address 0 under every encoding, which is why five fires of judging by block 0 said nothing.**
+
+**THREE ENCODINGS HAVE NOW BEEN RUN AGAINST A KNOWN PATTERN, AND ONLY ONE DID ANYTHING:**
+
+| encoding | result |
+|---|---|
+| page row, shifted (`row << 16`) | partition byte-identical - nothing erased |
+| **page row, unshifted (`row`)** | **JFFS2's complaint MOVED - erasing happened** |
+| block index, unshifted (`pos / erasesize`) | `ERASE DID NOTHING` on a planted pattern |
+
+**The middle row is what this commit restores: the page row of the block's first page, stored verbatim.**
+**It is also what the vendor's wrapper does - `ADDRH = 0 ; ADDRL = addr` verbatim - and `ADDRH = 0` fits
+a page row here: 15,104 pages, inside 16 bits.**
+
+**SO THE ERASE AND THE WRITE DIFFER BY EXACTLY THE SHIFT AND NOTHING ELSE**, which is what the driver
+looked like one commit before the divisor was moved - and that move was made on a reading of block 0 that
+could not distinguish the encodings. **The self-test is what actually decided it, and it stays in the
+build so the next fire confirms rather than assumes.**
+
+**Two fires were spent on wrong encodings because the instrument could not fail. The instrument that
+could fail answered in one.**
