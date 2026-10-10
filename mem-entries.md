@@ -8154,3 +8154,42 @@ FMC: after the erase, block 175 of 176 begins 0xffffffff (erased)
 **Sampling both ends is the difference between a check and a formality. The write path is untouched and
 still page-addressed with the shift - which is exactly what makes the marker read back correctly, and
 confirms the two ops genuinely do not share an encoding.**
+
+
+## PHASE 50fh (2026-10-10): A READ-BACK OF ERASED FLASH PROVES NOTHING
+
+```
+FMC: after the erase, block 0 of 175 begins 0xffffffff (erased)
+FMC: after the erase, block 175 of 175 begins 0xffffffff (erased)
+jffs2: Incompatible feature node (0xe009) found at offset 0x00321bc8
+```
+
+**BOTH ENDS READ `ff`, AND THE CHECK WAS VACUOUS: the partition was already erased at every address
+sampled, so it could not have failed whatever the erase did.** **It was an improvement on sampling one
+block and still not an instrument.**
+
+**And JFFS2 gave a THIRD offset - `0x00181758`, then `0x00621798`, now `0x00321bc8`.** **An offset that
+moves with each boot is not a fixed piece of bad flash, and a check that reads erased data cannot
+distinguish "the erase still misses blocks" from "something else is being read as a node".**
+
+**SO THE ERASE IS NOW PROVEN THE ONLY WAY IT CAN BE - WRITE FIRST, THEN ERASE:**
+
+```
+FMC: erase self-test: block 175 planted as 0x5a5a5a5a
+FMC: erase self-test: block 175 reads 0xffffffff after erasing it (ERASE WORKS)
+                         ... or 0x5a5a5a5a (ERASE DID NOTHING)
+```
+
+**A page of `0x5a` is written into the last block, read back to confirm it landed, the block is erased
+through the same path, and read again.** **The last block is chosen deliberately: it is the furthest
+address from the one the old page-row encoding got right by accident, so it fails loudly if the
+addressing is still wrong.**
+
+**It sits behind the same guard as everything else - the first four bytes must read `ff` - so it only
+ever touches a partition that has never held a filesystem, and it runs before the marker so the partition
+ends fully erased either way.**
+
+**THE LESSON, WHICH IS THE PROJECT'S OLDEST ONE IN A NEW COAT: an instrument must be able to fail for the
+reason being tested.** **Reading erased flash to test an erase cannot fail, exactly as a crumb that a
+later writer overwrites cannot report, and as a probe that prints before the log's retention point cannot
+be read.**
