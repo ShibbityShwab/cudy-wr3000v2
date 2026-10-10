@@ -2962,3 +2962,37 @@ where the fill stops.** It also prints `page_size`, `oob_size`, `block_size` and
 `writesize`, since a mismatch between those would produce this shape directly.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ba (2026-10-10): THREE OF FOUR MATCH - AND MY "ALL ZEROS" WAS AN ASSUMPTION, NOT A MEASUREMENT
+
+**The four samples read against the vendor's own `mtd14` at the same offsets:**
+
+```
+        OURS                                        VENDOR
+@4096  00000076 00000001 00000000 02000008 ...       same                    == 
+@4608  f116c36b 00000000 ...                         same                    ==
+@5120  00000000 f116c36b 00000000 00000000           same (first half)       ==
+       4cfb74e7 668a0751 ...                         zeros                   !=
+@5632  00000000 00000000 00000000 f116c36b           f116c36b at +8          !=
+```
+
+**Three of four match byte for byte - including `f116c36b`, which is the CRC an empty
+volume-table record carries and which I had wrongly assumed was not in the flash at all.**
+
+**My "vendor: all zeros" label was an ASSUMPTION, not a measurement** - I had only ever read the
+vendor at 4096 and 5128. **That is the second time in this stretch I treated a thing I believed
+as a thing I had observed**, and both times it cost a cycle.
+
+**And the sizes are consistent** - `page_size 2048, oob 64, block 131072, page_buf 2048` - so there
+is no size mismatch to fix either.
+
+**What remains is a partial, offset-dependent divergence:** the first half of the 5120 window is
+right and the rest is stale. **32-byte samples are too small to characterise that**, so the driver
+now reads the **whole 172-byte record 6** - the exact read UBI makes and rejects - **and parks it
+for a byte-for-byte comparison against the vendor's.** A diff shows which bytes are wrong and
+exactly where they start.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
