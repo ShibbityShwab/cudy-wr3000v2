@@ -3028,3 +3028,42 @@ length** would produce. So the next probe samples four points either side of tha
 defect, and if it only appears once it is something else.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bc (2026-10-10): THE BOUNDARY IS PER-PAGE AT 1040 - AND `page_buf` WAS NEVER CHECKED
+
+**The boundary probe came back and is not a fill length:**
+
+```
+page2 +1008 rl=32  zeros                                   vendor zeros    ok
+page2 +1024 rl=32  00000000 f116c36b ...                    vendor same     ok
+page2 +1040 rl= 0  00000000 00000000 7536bd0c d17e0000      vendor zeros    BAD
+page2 +1056 rl=32  zeros                                   vendor zeros    ok
+page3 +1008 rl=32  zeros                                                   ok
+page3 +1024 rl=32  zeros                                                   ok
+page3 +1040 rl=32  25927a26 8518215e 7d20d1c2 6f1b0000      vendor zeros    BAD
+page3 +1056 rl=32  0000 f116c36b ...                        vendor same     ok
+```
+
+**A 16-byte window at page offset 1040 is wrong on BOTH pages, 1056 is fine on both, and the stale
+content DIFFERS between the two pages.** Varying stale content means **something is writing over a
+buffer** - the same class as the DMA collision two phases ago, at a **different allocation**.
+
+**The collision check I added then only covered `fmc->dma_addr`. It did not cover
+`fmc->page_buf`** - a separate `devm_kzalloc(page_size)` that can land anywhere in RAM. **If
+`page_buf` sits where the log ring sits, every printk overwrites part of the page staging
+buffer** - and that leaves reads at offset 0 correct (the EC scan passed 32 of 32) while
+corrupting exactly the region the volume-table records live in. **Which is the shape observed.**
+
+**So the check now covers `page_buf` as well**, and the driver prints its address, its size, both
+fixed addresses and the DMA address. **And that means the fix may be self-applying:** the check
+*shifts* the log address when it collides, so if `page_buf` is indeed the overlap, the next boot
+moves the ring clear on its own and the reads should come back correct.
+
+**Also fixed, and caught by the checker rather than the compiler:** my scripted edit rewrote the
+file with Windows line endings - **1698 carriage returns.** The CR counter found it before the
+build.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
