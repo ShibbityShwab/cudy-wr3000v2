@@ -2827,3 +2827,34 @@ I reported a green check that could not have been red is the real defect here, n
 missing macro.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50aw (2026-10-10): OUR MTD IS INDEX 0, UBI USES mtd14 - AND THE CONFIG CORRECTS MY READING OF IT
+
+**The crumb carried the index, and it is `0`:** `C1C = 0x80603000`, low twelve bits clear, so **our
+FMC driver's mtd is index 0** while UBI's own message says it attaches **mtd14**.
+
+**Two devices, then - and I called the second one "the vendor's driver". The config says that is
+wrong.** The fragment sets **no vendor NAND driver**; what it does set is **`CONFIG_MTD_OF_PARTS=y`,
+and this kernel boots the vendor's devicetree.** So the partitions that DT declares are created as
+**children of our MTD**, and **mtd14 is almost certainly a partition of our own device**, sitting
+at the vendor's `rootfsb` offset.
+
+**Which is a better position than I claimed, and the correction matters:** mtd14 is the **right**
+device to attach to - the same flash, described by the vendor's own table - so UBI has been
+reading **our hardware** all along, and the fault is in **how a partitioned read reaches the
+chip**, not in whose driver it is. My previous report said "the vendor's half-initialised driver",
+and that was a wrong reading of a right observation.
+
+**So the hook now enumerates every mtd** - index, name, type, size, geometry and offset - **and
+reports what `"rootfsb"` resolves to along with its index**, the number the crumb cannot carry
+because it already carries ours.
+
+**And one note on the checker, because it earned its keep this round:** it now reports a file
+clean only when it would have failed on the three faults that previously got past it - corrupted
+line numbers, missing definitions, and definition order. **That is the difference between a check
+and a formality.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
