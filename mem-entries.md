@@ -5444,3 +5444,64 @@ declaration, no undefined macro, no define-after-use, hook get/put balanced.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+## Phase 50dn (2026-10-10): THE GUESSED ADDRESS HUNG THE BOOT - STAMP IN THE RING INSTEAD
+
+**The second guessed address did not merely fail to write. It stopped the kernel.**
+
+```
+C18 = 0xC0DE0020   <- the mach's late_initcall crumb, NOT the panic notifier's step 42
+C1C = 0x80603000   <- the log address, so the hook did run and arm the timer
+boot_id moved      <- and the SAFETY TIMER, not a panic, is what returned the box
+```
+
+**So the boot reached the hook and then HUNG.** The only new thing the 500 ms tick does is **write the
+stamp**, so **a store into unmapped or bus space is what stopped it** - the previous fire panicked at
+step 42 and this one never got there.
+
+**AND TWO THINGS THAT LOOKED LIKE EVIDENCE PROVED NOTHING:**
+
+- the ring's mark `0xc0de1055` is written by **the console hook too**, so its presence says nothing about
+  the dumper;
+- the diag at `0x80607000` is **byte-identical across fires**, so it is **not written per boot** and is not
+  where the driver's diagnostic buffer lives.
+
+**THE GUESSED ADDRESS IS GONE. THE STAMPS LIVE AT THE END OF THE RING:**
+
+```c
+#define LUOFU_STAMP_OFF   (LUOFU_LOG_SIZE - 16)
+
+static void luofu_stamp(u32 slot, u32 value)
+{
+	if (!luofu_log_b)
+		return;
+
+	writel(value, (char *)luofu_log_b + LUOFU_STAMP_OFF + slot * 4);
+}
+```
+
+**`luofu_log_b` IS THE PROVEN MAPPING.** The ring at `0x80603000` is written every boot and read back
+every boot, **so a stamp through that pointer cannot have the wrong address - it is the same pointer the
+log itself uses.** The text occupies the first few KB of 16 KiB, so the last 16 bytes are free:
+
+```
+[ring + 0x3FF0]  ticks     how many times the 500 ms timer ran   (0 = it never fired)
+[ring + 0x3FF4]  jiffies   the last tick's jiffies
+[ring + 0x3FF8]  lines     lines the last kmsg walk returned
+[ring + 0x3FFC]  the panic notifier's marker 0xc0de9a11
+```
+
+**AND THE PANIC MARKER IS WRITTEN AFTER THE DUMP**, not before it, so the dump's circular write cannot
+land on top of it. **Read at `0x80606FF0`.**
+
+**THREE FAILURES FROM ASSUMED ADDRESSES** - the raw pointer, `diag + 1024`, and this one which hung -
+**and the fix in all three cases was the same: use the address the kernel already hands this driver.**
+
+**Validator clean:** balance 0/0/0, 27 functions, 14 file-scope variables, no call or use before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
