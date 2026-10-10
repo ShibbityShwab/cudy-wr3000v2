@@ -3746,3 +3746,44 @@ consulted.
 **The revert build is firing to restore the 117-record baseline.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bw (2026-10-10): THE VENDOR'S LIVE REGISTERS - my configuration matches it exactly, and the length is a PAGE COUNT
+
+**The vendor's kernel was running, so its FMC block was readable at `0x10a20000` - a read-only probe,
+no fire needed:**
+
+```
+0x00 FMC_CFG     = 0x00001823    <-- identical to mine
+0x04 GLOBAL_CFG  = 0x000800C0    <-- identical
+0x18 INT_STATUS  = 0x00000001
+0x28 ADDRH       = 0x00000000
+0x2c ADDRL       = 0x88420000
+0x30 OP_CFG      = 0x000009A1    <-- identical
+0x38 DATA_NUM    = 0x00000001    <-- 1, not the 4128 mine reads
+0x3c FMC_OP      = 0x000001C4    <-- identical
+0x40 DMA_LEN     = 0x00000001    <-- 1, not the 2080 I write
+0x68 OP_CTRL     = 0x006B0000    <-- identical
+0xac FLASH_INFO  = 0x00FF0000    <-- identical
+```
+
+**Six of eleven registers are byte-for-byte what my driver produces.** The block configuration,
+the OP_CFG, the operation register, the start register and the flash info **all match** - so the
+driver's setup is right and the difference is not a configuration field.
+
+**THE TWO LENGTH REGISTERS HOLD 1.** If `0x40` is a **PAGE COUNT**, then my `2080` was not a larger
+transfer: it was a request for 2080 **pages**, in the wrong units entirely - which is exactly why it
+changed nothing. **And `0x38` holding 1 where mine holds 4128 says my driver leaves that register in a
+state the vendor's never reaches.**
+
+**Which relocates the question.** The vendor reads a complete page with a one-page data transfer, so
+**the page cannot be coming from that transfer alone** - there must be a second operation, and the OOB
+buffer being populated (52 of 64 bytes) is the visible half of it.
+
+**Also recorded honestly:** the revert build still reports `record 5` where the earlier 14-byte build
+reported `record 118`. I do not have a clean explanation for that yet, so the "117 records" baseline
+**must be treated as unconfirmed until a build reproduces it.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
