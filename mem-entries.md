@@ -3383,3 +3383,39 @@ offsets decide whether that tail is hardware content or a copy artefact, and **t
 side show whether the difference is a property of this page or of every page's end.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bm (2026-10-10): ONE DIFFERENCE IN SIXTEEN SAMPLES - and it is the record's CRC field
+
+**The tail probe came back with exactly one difference:**
+
+```
+p11 +2032   ours f1160000   vendor f116c36b   DIFF
+p11 +2036   ours 00000000   vendor 00000000   ok
+p2  +1032/1040/1048/1056                      all ok
+p2  +2032/2036/2040/2044                      all ok
+p11 +1032/1040/1048/1056                      all ok
+```
+
+**Sixteen samples across two pages and fifteen match.** The single one that does not is **page 11
+offset 2032** - and page 11 is the page whose record UBI rejects. **Page 2, a page UBI accepts,
+matches everywhere, including its splice region.**
+
+**And the offset is the whole story.** 2032..2035 is **the record's CRC field**, the last thing in the
+record before the next begins. With the de-interleave, the returned page's byte 2032 comes from
+staging byte 2046, so **2034..2035 come from staging 2048..2049 - PAST the page size**, in the region
+the splice pushes in. **Those read zero.**
+
+**Zero can mean two things:** the controller wrote nothing there, or it wrote zeros. So the sentinel
+now marks that region **0xAA after the memset and before the operation starts**, and the probe
+already reads page 11 offset 2032 - **so the very same sample reports the sentinel directly.**
+
+- **still zeros** -> the transfer stops at the page size, and the copy must not reach past it;
+- **AAAA** -> the controller did write, and something downstream is losing it.
+
+**Either answer is a one-line change to the copy**, and it is the last bytes of the last record UBI
+still refuses.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
