@@ -3928,3 +3928,33 @@ bytes are **genuinely absent** rather than merely uncopied.
 single-operation arrangement has produced them.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cb (2026-10-10): THE REGISTER SPACE IS ELIMINATED - the difference is in the SEQUENCE
+
+**Every register this driver sets, compared against the vendor's live values:**
+
+```
+0x00 FMC_CFG       vendor=0x00001823    ours=0x00001823     same
+0x04 GLOBAL_CFG    vendor=0x000800C0    ours=0x000800C0     same
+0x30 OP_CFG        vendor=0x000009A1    ours=0x000009A1     same
+0x3c FMC_OP        vendor=0x000001C4    ours=0x000001C4     same
+0x68 OP_CTRL       vendor=0x006B0000    ours=0x006B0000     same
+0xac FLASH_INFO    vendor=0x00FF0000    ours=0x00FF0000     same
+0x2c ADDRL         per read            per read            same formula
+0x38 DATA_NUM      vendor=1            ours=1 (matched)
+0x40 DMA_LEN       vendor=1            not written (the vendor leaves it at 1 too)
+SADDR_D0/D1/OOB    one destination     one destination (matched)
+```
+
+**Every measured register now matches the working implementation, and the page's last 14 data bytes
+are still absent.** That eliminates the entire register-value space as the explanation.
+
+**So the difference is in the SEQUENCE, not the values** - the order and set of operations the vendor's
+driver performs around its DMA read, including calls this driver may simply not make. **That is a local
+disassembly question, not another fire**, and it is the right next step now that setting more
+registers provably does not help.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
