@@ -6417,3 +6417,63 @@ define-after-use, hook get/put 2/3. **CLEAN.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ef (2026-10-10): THE LOCK WAS STARVING EVERYTHING ★★★★★
+
+**THE RING SAID WHERE THE BOOT DIES, IN THE KERNEL'S OWN WORDS:**
+
+```
+3.315547  Creating 1...                       <- "Creating 1 UBI device"
+3.464127  Registering...                      <- ubi0 registering
+3.599879  ubi0: go, 1024K init, 160K bss...   <- ubi0 ATTACHED
+4.026379  devtmpfs: mounted
+4.053960  "  with a"                          <- AND THE LOG ENDS MID-WORD
+```
+
+**THE RAW BYTES ARE UNAMBIGUOUS:** `"...<7>[    4.053960]   with a"` followed by **THIRTY-TWO ZEROS** - the
+tail of the window this driver memsets - **and then older text.** **THE WALK WROTE UP TO THAT WORD AND
+STOPPED, SO THAT IS THE LOG BUFFER'S LAST ENTRY: THE KERNEL STOPPED PRINTING IN THE MIDDLE OF A MESSAGE.**
+
+**A CPU that stops mid-printk with the log buffer intact is not looping - IT IS BEING STARVED, and the
+instrument that did it is THIS LOCK:**
+
+```c
+spin_lock_irqsave(&luofu_fmc_read_lock, flags);
+while (done < len) { ... luofu_fmc_read_page(...); ... }
+spin_unlock_irqrestore(&luofu_fmc_read_lock, flags);
+```
+
+**A UBI ATTACH READS 128 KiB ERASE BLOCKS - 64 PAGES PER CALL - AND THIS HELD INTERRUPTS OFF ACROSS THE
+WHOLE THING.** **The 180-second safety timer cannot fire with interrupts off. Printk stops. And the SoC
+watchdog is what finally resets the box, which is exactly the recovery path every one of these fires has
+been showing.**
+
+```c
+while (done < len) {
+	spin_lock_irqsave(&luofu_fmc_read_lock, flags);
+	ret = luofu_fmc_read_page(fmc, row, fmc->page_buf);
+	if (ret == 0)
+		memcpy(buf + done, fmc->page_buf + off, chunk);
+	spin_unlock_irqrestore(&luofu_fmc_read_lock, flags);
+	if (ret)
+		break;
+	done += chunk;
+}
+```
+
+**`fmc->dma_buf` and `fmc->page_buf` ARE THE ONLY SHARED STATE, and they are touched inside
+`luofu_fmc_read_page` - so the lock goes there, per page, held for microseconds instead of seconds.**
+The copy moves inside it **because the staging buffer is what it copies from.**
+
+**AND THIS EXPLAINS THE WHOLE PHASE'S MOST STUBBORN FACT: printk dying at ~4 s while the kernel lived on.
+IT WAS NOT THE DUMPER STARVING PRINTK. IT WAS THIS LOCK STARVING EVERYTHING, and the dumper was simply the
+last thing to get a word in.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use, **one spinlock with one unlock and no early return between them.** **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
