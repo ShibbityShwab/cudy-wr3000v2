@@ -7257,3 +7257,97 @@ untouched.**
 **Device mutation.** Unchanged: `mtd16` holds the audited soft-float OpenWrt 25.12.5 rootfs (volume 0,
 `owrt`) and the empty `rootfs_data` (volume 1, 79 LEBs). **Nothing has been written to the flash by our
 kernel yet - the write path has not run.**
+
+
+---
+
+# ★★★★★ PHASE 50er (2026-10-10): THE WRITE WROTE NOTHING, AND NOBODY SAID SO ★★★★★
+
+## THE READ-ONLY ATTACH IS GONE - THE FLAGS CHANGE WORKED
+
+```
+ubi0: MTD device 16 is write-protected, attach in read-only mode     <-- NO LONGER PRINTED
+```
+
+**And UBIFS went much further than before: it decided the empty volume could be formatted, wrote the
+superblock through this driver, and this driver reported NO ERROR AT ALL - the completion interrupt fired
+and the ready poll came back clear. Then it read the superblock back and rejected it:**
+
+```
+UBIFS error (ubi0:1 pid 164): ubifs_read_node: expected node type 6
+```
+
+**AND THE VOLUME ITSELF SAYS WHY:**
+
+```
+non-0xff bytes in the first 4 KiB of rootfs_data: 0
+```
+
+**NOT ONE BYTE OF THE FLASH CHANGED. Every stage of the sequence "succeeded" without writing, which is
+the worst possible shape for a bug to have - and reading the flash afterwards is the only way it could
+have been seen.**
+
+## AND THE SOURCE SAYS WHICH BRANCH IT TOOK
+
+**From `mount_ubifs` (fs/ubifs/super.c, v5.10, line 1264):**
+
+```c
+	err = check_volume_empty(c);
+	if (c->empty && (c->ro_mount || c->ro_media)) {
+		ubifs_err(c, "can't format empty UBI volume: read-only %s", ...);
+		err = -EROFS;
+	}
+```
+
+**`check_volume_empty` asks `ubifs_is_mapped()` per LEB - IT IS MAPPING-BASED, NOT DATA-BASED.** **The first
+fire (read-only media) took the error branch; this one took the other, i.e. IT DECIDED TO FORMAT - and the
+format's writes went nowhere.**
+
+**AND ONE ROUTE IS CLOSED: the VENDOR's kernel has no UBIFS at all (`mount -t ubifs: No such device`), so
+it cannot format this volume for us.**
+
+## THE FIX: THE FIRST WRITE READS ITSELF BACK
+
+```c
+	if (!luofu_write_tested) {
+		memset(fmc->page_buf, 0, fmc->spec.page_size);
+		if (luofu_fmc_read_page(fmc, row, fmc->page_buf) == 0) {
+			for (i2 = 0; i2 < fmc->spec.page_size; i2++)
+				if (page_buf[i2] != dma_buf[i2]) mism++;
+		} else mism = 0xffffffff;
+		luofu_fmc_crumb(fmc, LUOFU_LOG_WRITE_STEP, ...);
+	}
+```
+
+```
+C18 = 0xC0DE502F
+C1C = (mismatches << 24) | (wr_cmd << 16) | (wr_if_type << 13) | (wr_addr_cyc << 10) | (wr_dummy << 6)
+```
+
+**One fire then says whether the command, the address cycles, the interface type or the OOB destination is
+the piece that is wrong - and `0xffffffff` means the read-back itself failed.**
+
+## AND TWO MORE REAL FINDINGS
+
+**1. A genuine bug fixed on the way: `luofu_fmc_wait_ready()` polled with `usleep_range()` while its
+callers hold `spin_lock_irqsave()`.** **The reset path can afford to sleep because it runs from probe in
+process context; a write or an erase arrives through the MTD core with interrupts off, where sleeping is
+"scheduling while atomic".** **It polls with `udelay(100)` now.**
+
+**2. THE CHECKER EARNED ITS KEEP, naming all three of this edit's ordering mistakes in one pass:**
+
+```
+define-after-use: ['LUOFU_LOG_WRITE_STEP']                    (define at 1520, used at 1083)
+use-before-decl:  [('luofu_ubi_fmc', 1083, 1367),
+                   ('luofu_write_tested', 1083, 1832)]
+```
+
+**That is the class that has cost this project more than any other, and a four-minute build is a slow way
+to learn it.** **Fixed by moving the define and the guard above the write path, and by dropping
+`luofu_ubi_fmc` from this code - the write function already has `fmc`.**
+
+**Validator:** balance (0,0,0), 18 file-scope variables, 33 functions with no use-before-declaration, no
+undefined macro, no define-after-use. **CLEAN.**
+
+**Device mutation.** `mtd16`: the audited soft-float OpenWrt 25.12.5 rootfs (volume 0, `owrt`) and
+`rootfs_data` (volume 1, 79 LEBs, still all-0xFF). The vendor's own `ubi0` untouched.
