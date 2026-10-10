@@ -5303,3 +5303,52 @@ the point of compiling on the runner. **The checker has closed both.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+## Phase 50dk (2026-10-10): THE RING CANNOT ANSWER THE QUESTION - SO STAMP IT
+
+**Six fires, and the ring still holds the same 4150 bytes of early boot.** Its contents **cannot separate
+three possibilities that lead to different fixes:**
+
+```
+(a) THE TIMER NEVER RUNS      -> the timer is not armed, or callbacks are not delivered
+(b) THE KERNEL LOG IS 4 KiB   -> printk is not storing, and the log path needs the fix
+(c) THE DUMP IS TRUNCATED     -> the kmsg walk stops early, and the walk needs the fix
+```
+
+**The ring shows the same thing under all three**, because under all three the **symptom** is "only the
+console's registration dump is present". **Reasoning cannot separate them and I have spent a build on
+each guess. A stamp separates them in one read.**
+
+```
+[diag+1024]  ticks     how many times the 500 ms timer ran   (0 = it never fired)
+[diag+1028]  jiffies   the last tick's jiffies
+[diag+1032]  lines     lines the last kmsg walk returned     (0 = the log buffer was empty)
+[diag+1036]  the panic notifier's fixed marker
+```
+
+**THE DIAGNOSTIC BUFFER IS THE RIGHT PLACE FOR THEM.** It is a **separate allocation from the ring**, so a
+stamp is written by the tick **whether or not the kmsg walk returns anything** - which is exactly the
+case that needs distinguishing. The offsets are clear of the probe's sample array at `diag+0` and its
+register block at `diag+128`.
+
+**AND IT IS CHECKED AGAINST THE BUILT CONFIG RATHER THAN ASSUMED:** this build has
+`CONFIG_CONSOLE_LOGLEVEL_DEFAULT=7` and `CONFIG_MESSAGE_LOGLEVEL_DEFAULT=4`, **so neither loglevel is
+suppressing the driver's own output** - which rules out one of the four candidates before the fire.
+
+**WHAT THE NEXT READ WILL SAY:**
+
+```
+ticks=0                 the timer never ran, and the fix is in the arming
+ticks>0, lines=0        the walk returns nothing, and the fix is in the kmsg path
+ticks>0, lines>0        the instrument works and the ring is being overwritten, and the fix is in
+                        the buffer discipline
+```
+
+**The validator covers the new code:** 27 functions, 14 file-scope variables, **no call or use before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
