@@ -3100,3 +3100,45 @@ hardware** rather than reading a dead buffer, and that is a different fix from a
 far.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50be (2026-10-10): THE BUSY POLL RACED THE DMA START - the driver bug, found by reading the code
+
+**Every measurement had narrowed the shape and none had explained it; reading the poll did:**
+
+```c
+	mb();
+	writel(op_ctrl, fmc->regs + FMC_OP_CTRL);
+	mb();
+
+	for (i = 0; i < FMC_CMD_POLLS; i++) {
+		if (!(readl(fmc->regs + FMC_OP_CTRL) & FMC_OPCTRL_BUSY))
+			break;
+		udelay(1);
+	}
+	... memcpy_fromio(data, fmc->dma_buf, fmc->spec.page_size);
+```
+
+**The loop breaks as soon as BUSY reads CLEAR - but immediately after the operation is started the
+hardware has not set it yet, so the loop can exit on its FIRST ITERATION and the copy runs WHILE
+THE DMA IS STILL FILLING THE BUFFER.**
+
+**And that explains every property measured, which no other theory did:**
+
+- the bad window sits at a **CONSISTENT in-page offset on every page** - the timing is
+  deterministic, so the copy always outruns the DMA at the same point;
+- the **CONTENT DIFFERS between pages** - it is whatever the DMA had managed to write by then;
+- **a fixed fill length would cut every page identically**, and **a fixed collision would leave
+  identical stale bytes everywhere.** Neither was observed, and both were tested and discarded.
+
+**It also explains the EC scan's 32 of 32:** its 64-byte reads at offset 0 land in the part of the
+page the DMA has always finished by the time the copy gets there.
+
+**The fix waits for BUSY to ASSERT, then for it to clear, and only then copies.** If BUSY never
+appears the controller never started - reported as a fault instead of silently copying stale memory
+into every reader. The ECC type is restored on every path: the early `-ENOMEM` return happens
+before it is changed, and the never-asserted path falls through to the same restore as the others.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
