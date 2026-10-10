@@ -4860,3 +4860,41 @@ register, and its raw buffer was clean for exactly this reason.**
 cmdline, so `mount_block_root` fails after the volume is up. The read path is no longer what stops it.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50db (2026-10-10): A REAL INIT, GUARDED BY A KERNEL TIMER RATHER THAN A FAKE ONE
+
+**UBI attaches and the rootfs volume is readable, so the next step is the mount - and that needed a
+replacement guard first.**
+
+**The fragment has carried `init=/nonexistent-init` as a safety net, and its comment explains why:** with
+no network driver, a boot that **succeeds** in mounting a rootfs reaches a userspace reachable by
+**neither ssh nor the bootreg failover**, and a power cycle would be the only way back.
+
+**A KERNEL TIMER REMOVES THAT LIMIT, SO IT GOES IN FIRST:**
+
+```c
+#define LUOFU_SAFETY_SECS   180
+
+static void luofu_reboot_tick(struct timer_list *t)
+{
+	pr_emerg("FMC: SAFETY TIMER FIRED after %d s - returning the box to the vendor\n", ...);
+	emergency_restart();
+}
+```
+
+**armed once at registration, never cancelled.** It runs in softirq context, independent of whatever
+userspace is doing, and `emergency_restart()` is **the same call `panic()` makes**. Whatever happens
+after the mount - userspace starts, misbehaves, or hangs - **the box returns to the vendor on its own**
+and the readback cells still get read.
+
+**AND ONLY THEN THE CMDLINE CHANGES:** `init=/nonexistent-init` -> **`init=/sbin/init`**, with the
+fragment's comment rewritten to name the new guard **and say it must stay until this kernel has a
+network driver and a userspace that can be reached.**
+
+**The log-capture stack is still in place, so however far the vendor's userspace gets on our kernel will
+be in the readback.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
