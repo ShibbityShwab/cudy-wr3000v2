@@ -6007,3 +6007,63 @@ THREE OF THEM WERE AVOIDABLE BY READING OUTPUT I ALREADY HAD.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dx (2026-10-10): A MUTEX WHERE ONLY A SPINLOCK IS LEGAL - THAT IS THE HARD HANG ★★★★★
+
+**TWO FINDINGS, AND THE SECOND ONE IS THE HANG.**
+
+## 1. STEP 42 WAS NEVER THE PANIC NOTIFIER
+
+**The probe calls `luofu_fmc_crumb(fmc, LUOFU_LOG_PANIC_STEP, ...)` IN THE MIDDLE OF ITSELF** - **it is a
+generic marker, not a death-path report.** **Every reading I took as "the panic notifier ran" was that
+line, which means EVERY FIRE THAT SHOWED `0xC0DE502A` WAS A HANG, not a panic.** That is worth stating
+plainly because **it changes the history: there has been no successful panic since the UBI cmdline went
+in.**
+
+## 2. THE PHASE CRUMB NAMED THE PLACE, AND THE PRIMITIVE WAS WRONG
+
+```
+C1C = 0x0002002F   phase 2, 47 ticks
+```
+
+**Phase 2 is set inside `luofu_log_register` at the timer setup. PHASE 1 IS SET ON THE PROBE'S FIRST LINE,
+SO THE PROBE NEVER RAN AT ALL** - the hang is **before it, in the UBI attach**, and it is **HARD**: the tick
+stopped at 47, **so timers themselves died and the safety timer never fired. The box's own watchdog
+returned it.**
+
+**AND THE CAUSE IS THE LOCK I ADDED TWO COMMITS AGO.** It was a **MUTEX**, on the reasoning that two
+readers must not stage into `fmc->dma_buf` at once. **THE REASONING WAS RIGHT AND THE PRIMITIVE WAS
+WRONG:**
+
+```
+UBI CALLS mtd_read() WITH A SPINLOCK HELD, AND A MUTEX SLEEPS.
+```
+
+**Sleeping in atomic context is exactly what the measurement looks like from the outside** - **a hard hang,
+dead timers, interrupts off, no watchdog but the SoC's own.**
+
+```c
+static DEFINE_SPINLOCK(luofu_fmc_read_lock);
+
+spin_lock_irqsave(&luofu_fmc_read_lock, flags);
+while (done < len) { ... if (ret) break; ... }
+spin_unlock_irqrestore(&luofu_fmc_read_lock, flags);
+```
+
+**`irqsave`/`restore` rather than plain `spin_lock`, because this driver's read path never needs interrupts
+- its completion condition is a STATUS BIT it polls** - **and UBI may call it with interrupts on or off.**
+The loop still **breaks on error so the unlock runs on every path.**
+
+**AND THE RANGE OF THE BUG IS WORTH RECORDING: THE MUTEX WENT IN BEFORE THE UBI CMDLINE DID.** The mutex
+alone was fine, because **nothing called `mtd_read` from atomic context.** **It became fatal the moment UBI
+was in the path - which is why the hangs started with the cmdline change and not with the lock.**
+
+**Validator, run as its own step this time and read before committing:** balance (0,0,0), 17 file-scope
+variables with none used before its declaration, 28 functions with none called before its definition, no
+undefined macro, and **one spinlock with one unlock and a single return after it.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
