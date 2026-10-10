@@ -3175,3 +3175,38 @@ it samples 1032, 1040 and 1048, then **reads 1040 a second time.**
   bug in how this driver fills the page.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bg (2026-10-10): THE TWO READS AGREE - stable wrong data, and both theories closed by experiment
+
+**The double-read probe came back:**
+
+```
+page2 +1032         err=0 rl=32  0000000000000000 4cfb74e7668a0751
+page2 +1040 (first) err=0 rl=32  4cfb74e7668a0751 7536bd0cd17e0000
+page2 +1048         err=0 rl=32  7536bd0cd17e0000 0000000000000000
+page2 +1040 (SECOND) err=0 rl=32  4cfb74e7668a0751 7536bd0cd17e0000
+
+TWO READS OF 1040 AGREE: True
+```
+
+**So the data is STABLE AND WRONG at that offset** - not a race (the identical CRC across boots
+already said so) and not a stale cache. **Both theories are now closed by direct experiment rather
+than by argument**, and the three samples also pin the blob exactly: `4cfb74e7 668a0751 7536bd0c
+d17e0000` occupies **+1040..+1053 and nothing else**, with zeros either side, while **each page
+carries its own different blob.**
+
+**So rather than guess at more offsets, the whole page gets mapped:** four bytes every sixteen
+across page 2 - **128 samples, exactly the 512 bytes of the diagnostic buffer** - with the vendor's
+same offsets read back from `mtd14`. **That shows every differing window in one fire instead of one
+guessed offset at a time.**
+
+**And one more catch by the checker rather than the compiler:** my first replacement of the sampling
+block **left the old loop's tail behind - 402 bytes of dead code after the new return.** The brace
+count went to `-1` and the check reported it before the build. **That is the third time this stretch
+the validation has caught something the edit tool called success**, which is the argument for
+keeping it rather than trusting a tool result.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
