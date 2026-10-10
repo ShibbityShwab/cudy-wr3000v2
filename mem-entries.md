@@ -4485,3 +4485,38 @@ uses somewhere in its read setup, and **the rest of `0x3760` - from the feature 
 `0x38f4` - has not been read.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cr (2026-10-10): THE VENDOR'S READ PATH IS A DEEP CHAIN - and every level compared matches
+
+**Tracing the read statically, one level at a time:**
+
+```
+hi_spi_nand_drv_dma_read            reads the page
+   -> 0x2d80 (thunk) -> 0x3760      feature 0xB0 setup + OOB marker check + RETRY loop
+   -> 0x3318                        THE TRANSFER: enable, start, wait, disable, copy
+        -> 0x303c                   THE OPERATION: a DISPATCHER on the mode
+             mode 0 (data) -> ...   and further calls beyond it
+```
+
+**`0x3318` is structurally identical to what had already been read:** clear interrupt, enable it,
+call the operation, wait on the interrupt status, disable, clear, then `memcpy` from two sources -
+`[r4+0x20]` and `[r4+0x28]` - with lengths taken from struct fields.
+
+**`0x303c` is a dispatcher.** It branches on the mode (`r2`), and loads **a table of operation-mode
+bytes** from a struct - `[r3+0x28]`, `[r3+0x29]`, `[r3+0x2c]`, `[r3+0x2d]`, `[r3+0x2e]`, `[r3+0x2f]`,
+`[r3+0x30]`, `[r3+0x31]` - selecting a different set per mode. This driver has a single `FMC_OP_CFG`
+value, and **the live register comparison showed its value (0x9a1) matches the vendor's.**
+
+**AND THAT IS THE LIMIT OF WHAT STATIC TRACING SETTLES.** Every level of the chain that can be
+compared against a register this driver writes comes out equal, and the un-symbolised calls below
+`0x303c` cannot be followed reliably from this dump - the disassembler prints the *next* address for
+unnamed branch targets, so their destinations are not recoverable from it.
+
+**THE STATE, UNCHANGED AND PRECISE:** 117 of 118 volume-table records verify; this driver's raw buffer
+carries a 14-byte splice at 1040 where the vendor's raw buffer is clean; and every register, address,
+configuration value, write order and completion condition that has been compared matches.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
