@@ -8291,3 +8291,43 @@ answers rather than one ambiguous one.**
 DISPROVEN.** **The page-row run is the one JFFS2 just refuted on a planted pattern; the block-number run was
 judged by a read at block 175 that returned zeros - a read since established as not evidence.** **Three
 encodings tried, and only one has been tested against a pattern it could fail on.**
+
+
+## ★★★★★ PHASE 50fl (2026-10-10): THE MISSING WRITE ENABLE - WHY EVERY ERASE DID NOTHING
+
+**The relocation table named it. The call sites in `hi_spi_nand_drv_erase` decode as `0xebfffffe` -
+placeholders patched at load time - so the disassembly could not show the target and `.rel.text` could:**
+
+```
+hi_spi_nand_drv_erase(dev, addr):
+    hi_fmc_write_reg_en(regs)               <-- MISSING FROM THIS DRIVER
+    hi_spi_nand_hw_erase(regs, addr, cs, 0xd8)
+    hi_fmc_status_check(regs)
+```
+
+**And its body is explicit:**
+
+```
+r7 = (*regs >> 5) & 7            save the three interface bits
+*regs = (*regs & ~(7 << 5))
+*(regs + 0x24) = 0x06            FMC_CMD = WRITE ENABLE
+*(regs + 0x3c) = 0x81            FMC_OP  = SEND COMMAND
+poll (regs + 0x3c) & 1           bounded, delay between reads
+*regs |= r7 << 5                 restore
+```
+
+**A CHIP THAT HAS NOT BEEN WRITE-ENABLED REFUSES THE FOLLOWING BLOCK ERASE, AND THE CONTROLLER REPORTS NO
+ERROR FOR IT.** **That is precisely what three address encodings looked like from outside - a command
+accepted and a partition byte-identical afterwards - and it is why the self-test said `ERASE DID NOTHING`
+whatever went into `ADDRL`. THE ADDRESS WAS NEVER THE PROBLEM.**
+
+**AND THE HARDWARE SEQUENCE IS OTHERWISE IDENTICAL TO OURS.** **`hi_spi_nand_hw_erase`, decoded in full:
+`ADDRL = addr` verbatim, `ADDRH = 0`, `CMD = 0xd8`, `DMA_LEN = 1`, `OP_CFG = (cs<<11)|0x30`, `OP = 0xc1`.**
+
+**SO THE ADDRESS GOES BACK TO A PAGE ROW** (`pos / writesize`) - the encoding the vendor's own mtd erase
+derives with a shift, and the one whose run showed JFFS2's complaint **moving**. **The block-number verdict
+came from an erase with no write enable behind it, so it was never a test of the address at all.**
+
+**THE PROGRAM PATH NEEDS NO EQUIVALENT - its command carries the enable itself - which is why the marker
+has always written correctly while nothing was ever erased.** **And JFFS2 reading the planted `0x5a5a` back
+off block 1 is what proved it.**
