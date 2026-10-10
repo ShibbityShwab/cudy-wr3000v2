@@ -2926,3 +2926,39 @@ phase has been unable to distinguish.
 build did. **A use with no matching acquisition is the same class as a use before a definition.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50az (2026-10-10): THREE OF FOUR MATCH EXACTLY - THE FAULT IS A SHORT PAGE FILL
+
+**The in-partition sample came back decisive:**
+
+```
+offset 0     err=0 retlen=32   ours == vendor exactly
+offset 2048  err=0 retlen=32   ours == vendor exactly
+offset 4096  err=0 retlen=32   ours == vendor exactly
+offset 5128  err=0 retlen=32   ours: 8 zeros then a stale patch;  vendor: all zeros
+```
+
+**Three of four match the vendor byte for byte, `retlen` is 32 everywhere, and the only bad
+offset is 1032 bytes into the same page as a good one.**
+
+**So the `(0,0)` results that had me chasing a resolver bug were the old corrupt buffer, not this
+driver** - and the real fault is **a short page fill**: `page_buf[0..32]` is real,
+`page_buf[1032..]` is stale, so the hardware or the copy **stops filling partway through the
+page.**
+
+**And that explains the two facts that have framed this whole phase:**
+
+- **the EC scan passed 32 of 32** because it only ever read **64 bytes at offset 0 of each PEB** -
+  well inside whatever does get filled;
+- **UBI dies on volume-table record 6** because that record sits at **byte 1032 of a page** -
+  right past where the fill stops.
+
+**So the next sampling is four points inside ONE page** - 4096, 4608, 5120, 5632 of `rootfsb`,
+where the vendor's flash is zero throughout - **so any non-zero byte in our read marks exactly
+where the fill stops.** It also prints `page_size`, `oob_size`, `block_size` and the mtd's
+`writesize`, since a mismatch between those would produce this shape directly.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
