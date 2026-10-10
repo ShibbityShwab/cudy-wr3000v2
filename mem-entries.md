@@ -4232,3 +4232,46 @@ for. **That is the remaining question, and the de-interleave stays until it is a
 is what makes 117 records verify instead of 4.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ck (2026-10-10): ★★★ I HAD BEEN READING THE WRONG FUNCTION - the vendor waits on the DMA INTERRUPT ★★★
+
+**`hi_sfc_drv_dma_read_uid` is the NOR UID reader.** That is the function every earlier disassembly
+conclusion was drawn from - its call site, its status check, its order. **Listing the module's functions
+found the real page-read path instead:**
+
+```
+hi_spi_nand_drv_dma_read @ 0x305c   (452 bytes - the SPI-NAND page read)
+```
+
+**AND IT IS STRUCTURALLY DIFFERENT FROM THIS DRIVER'S READ:**
+
+```
+hi_fmc_clr_interrupt()
+hi_fmc_en_interrupt(1)          <- the DMA interrupt is ENABLED
+bl  #0x2d80                     <- the operation
+hi_fmc_int_status_get()         <- ★ AND THE INTERRUPT IS WHAT IT WAITS ON ★
+hi_fmc_en_interrupt(0)
+hi_fmc_clr_interrupt()
+memcpy_s(...)
+```
+
+**IT DOES NOT POLL A BUSY BIT AT ALL.** `hi_fmc_status_check_dma_status` polls `OP_CTRL` bit 0 - which
+is what this driver copied - **but the page-read path waits on the DMA completion interrupt.**
+
+**AND THAT EXPLAINS EVERYTHING THIS STRETCH HAS BEEN CHASING.** A busy bit that clears before the
+controller has finished depositing the page makes the copy run **while the transfer is still in
+flight**, so the buffer holds a mixture of the new page and the leftover of the previous one:
+
+- a window of misplaced bytes **at a fixed position** - yes;
+- whose **content varies** between pages - yes, it is whatever had not been overwritten;
+- the page **losing its last bytes** - yes, they had not arrived;
+- and the vendor's raw buffer **clean** - because it waits for real completion.
+
+**The read now clears `FMC_INT_CLR` first, starts the operation, and waits for `FMC_INT_STATUS` bit 0** -
+the completion condition the vendor uses. The clear comes first because clearing after would wipe the
+very completion being waited for.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
