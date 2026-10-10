@@ -7704,3 +7704,58 @@ Present volumes: 0                   <- only owrt (volume 0) remains
 
 **Validator:** balance (0,0,0), no undefined macro, no define-after-use, no use-before-declaration, no
 call-before-definition, no collision for the two new locals. **CLEAN.**
+
+
+---
+
+# PHASE 50ey (2026-10-10): THE UBIFS IMAGE MAPPED - AND `7:41` IS NOT A BUG
+
+## WHAT THE IMAGE ACTUALLY CONTAINS, NODE BY NODE
+
+**A scan for `UBIFS_NODE_MAGIC` (0x06101831 - there is ONE magic, the type lives in the header) gives 17
+nodes:**
+
+```
+off       0  LEB  0+0      type  6 (SB)   len 4096     <- superblock
+off    4096  LEB  0+4096   type  0 (INO)  len 64       <- root inode
+off  126976  LEB  1+0      type  7 (MST)  len 512      <- master
+off  253952  LEB  2+0      type  7 (MST)  len 512      <- its twin
+off  380928  LEB  3+0      type 10        len 32       <- commit start, i.e. the journal
+off 1269760  LEB 10+0      type  0 (INO)  len 160
+off 1523712  LEB 12+0      type  9 (IDX)  len 128      <- the index
+```
+
+**Nothing at LEBs 4..9 or 11 - WHICH IS NOT A DEFECT. The LPT is stored as PACKED nodes: no `ubifs_ch`
+header, no eight-byte alignment.** **That is why `lpt_offs = 41` looked impossible to me and is not.**
+
+## AND THE MASTER NODE'S OWN FIELDS, READ DIRECTLY (both masters agree)
+
+```
+root_lnum = 12, root_offs = 0, root_len = 128      <- matches the IDX node the scan found at LEB 12
+lpt_lnum  = 7, lpt_offs  = 41                      <- verbatim what the kernel printed as "7:41"
+nhead_lnum = 7, nhead_offs = 2048
+ltab_lnum = 7, ltab_offs = 53
+lsave_lnum = 0                                     <- legitimately unwritten; the kernel skips lnum == 0
+leb_cnt = 13
+```
+
+**SO THE KERNEL'S COMPLAINT IS A FAITHFUL READING OF A CONSISTENT IMAGE.** **`lpt_lnum`/`lpt_offs` come
+straight from `c->lpt_lnum`/`c->lpt_offs`, which `ubifs_read_master` takes from those fields** (lpt.c:1215).
+
+## THE CHECK THAT REJECTS IT, AND THE VARIABLE THAT IS LEFT
+
+**`validate_nnode` (lpt.c) rejects a branch whose lnum falls outside `[lpt_first, lpt_last]`, bounds the
+kernel derives from the VOLUME - while mkfs laid the image out for `leb_cnt = 13` of 79.** **IN UBIFS THE
+MAIN AREA SITS AT THE END OF THE VOLUME, so `main_first = leb_cnt - main_lebs` differs between the two
+readings - and that is exactly the mismatch `-F` (space fixup) exists to reconcile.** **`-F` was set
+(flags 0x04), `ubifs_fixup_free_space` provably RAN, and it still failed.**
+
+**WHICH LEAVES ONE UNTESTED VARIABLE: THE TOOLKIT VERSION.** **The image was built by Ubuntu 22.04's
+mtd-utils; real devices' images were built by the toolkit of the kernel's own era.** **So a second image is
+being built inside an `ubuntu:20.04` container with identical flags and geometry** - same `-F`, same
+`-x none`, same `-m 2048 -e 126976 -c 79` - **and CI prints its superblock so the two can be compared
+directly.**
+
+**AND THE PRIMARY LANE REMAINS THE JFFS2 DIAGNOSTIC: its config job is green and its kernel job is
+compiling. That fire reports the mtd number `rootfs_data` resolves to and its first eight bytes, which is
+what decides between the three worlds `Could not open mtd device: /dev/mtd15` could be describing.**
