@@ -4628,3 +4628,48 @@ controller requires them re-written per operation, and **the per-read writes - t
 117 of 118 records - come back.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cv (2026-10-10): THREE BUILDS SAY THIS CONTROLLER NEEDS THOSE TWO WRITTEN PER OPERATION
+
+**The measurement, three times over:**
+
+```
+without DMA_LEN/DATA_NUM at all            -> step 8, the FIRST page read, fails
+set once in the probe's config block       -> step 8, the first page read, fails
+set once just before that first read       -> step 8, the first page read, fails
+```
+
+**So the value does not survive from before the operation TO THE MOMENT THE HARDWARE USES IT.** The
+vendor's page read writes five registers and neither of these, and **that is still true of the
+vendor** - but **this driver's sequence cannot reproduce it, and three builds say so.**
+
+**And that is a real answer about the vendor, not a failure to copy it.** `hi_spi_nand_hw_read` omits
+them because **its init runs after its identification and nothing between that and a read clears
+them.** On this driver's path, something does. Whatever that something is, **the consequence is
+measured** - they must be written immediately before the operation.
+
+**RESTORED, in the exact order the working build used:**
+
+```
+ADDRH -> ADDRL -> SADDR_D0 -> DMA_LEN -> DATA_NUM -> INT_EN -> INT_CLR -> OP_CFG -> OP_CTRL
+wait for the completion interrupt
+INT_EN=0 -> INT_CLR
+de-interleave and copy
+```
+
+**That is the build that reached 117 of 118 records, with the feature-0xB0 configuration on top** -
+which was measured neutral. **So this lands back on the 117-record baseline, and the five-write form is
+recorded as NOT REPRODUCIBLE HERE rather than left as an assumption.**
+
+**WHAT THE EXERCISE ESTABLISHED, KEPT:**
+
+- **the vendor's real page-read function is `hi_spi_nand_hw_read`**, reached through the **relocation
+  table**, not the symbol list - and it was in the dump all along;
+- **every value it writes matches this driver's**;
+- **the one thing that could not be copied is the omission of two registers this controller will not do
+  without.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
