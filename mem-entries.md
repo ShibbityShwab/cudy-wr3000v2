@@ -6324,3 +6324,46 @@ crumb low 16 != 0x363C   THE TWO PATHS DO NOT MEET, and that is the fault
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ed (2026-10-10): THE TWO PATHS MEET - AND THE RING STOPS AT 4 KB ★★★★★
+
+```
+C1C = 0x00CD363C     lines = 0xCD = 205, low 16 = 0x363C
+```
+
+**AND THE REFERENCE READ FROM THE HOST WAS `0x80603004 = 0x5B3E363C`, WHOSE LOW 16 BITS ARE `0x363C`.
+THEY MATCH EXACTLY.**
+
+**So the dumper reads back precisely what `devmem` reads at the address the driver computed** - **THE
+POINTER, THE TRANSLATION AND THE WALK ARE ALL FINE, and my extraction was the only thing that was ever
+wrong about the ring.**
+
+## AND WITH THAT SETTLED, THE REMAINING FACT IS SHARP
+
+**THE RING'S NON-ZERO SPAN IS 4152 BYTES ON EVERY FIRE - 4 KB OF TEXT AND TWELVE OF ZEROS - WHILE THE WALK
+REPORTS 205 LINES.** **A WRITE THAT STARTS AND THEN STOPS, AT A BOUNDARY SUSPICIOUSLY CLOSE TO ONE PAGE.**
+
+**SO THE DUMPER IS CAPPED JUST INSIDE IT AND SLIDES:**
+
+```c
+#define LUOFU_LOG_KEEP 0x0e00      /* 3.5 KiB */
+
+if (off + len + 1 > LUOFU_LOG_KEEP)
+	off = 4;
+```
+
+**SLIDING RATHER THAN TRUNCATING, because the OLDEST lines are what a linear buffer keeps and THE PANIC
+IS AT THE END OF THE LOG.** **If the boundary is what stops the write, THE PANIC TEXT APPEARS FOR THE
+FIRST TIME** - **and if it does not, then 4 KB is not the wall and the 205-line walk is writing past it
+some other way.**
+
+**AND THE READBACK STAYS IN THE CRUMB, so the same fire still proves what the dumper read.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
