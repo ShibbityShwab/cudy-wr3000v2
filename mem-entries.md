@@ -3787,3 +3787,39 @@ reported `record 118`. I do not have a clean explanation for that yet, so the "1
 **must be treated as unconfirmed until a build reproduces it.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bx (2026-10-10): ONE DESTINATION - the vendor's spare was never in the flash, it was in my wiring
+
+**Watching the vendor's LIVE registers through a real read of its own driver:**
+
+```
+IDLE                     AFTER a read
+ADDRL    0x88320000  ->  0x6A870000     <-- THE ONLY REGISTER THAT MOVED
+DATA_NUM 1           ->  1
+DMA_LEN  1           ->  1
+OP_CFG   0x9a1       ->  0x9a1
+OP_CTRL  0x6b0000    ->  0x6b0000
+```
+
+**Exactly one register changed.** The vendor's driver writes **the address per read and nothing
+else** - no length, no count, no config. Which means **the transfer size is GEOMETRY rather than a
+per-read length**, and **its single-page transfer produces a complete page.**
+
+**And its DMA read arms exactly one destination:** `hi_sfc_hw_dma_read` does
+`str r3, [r0, #0x4c]` and nothing else. **This driver also pointed `SADDR_D1` at `dma_addr + 0x1000`
+and `SADDR_OOB` at `dma_addr + 0x2000` on every read.** With three destinations armed the controller
+splits the page's spare bytes between them - **and that is the most likely source of the
+fourteen-byte window: the splice was never in the flash, it was in the driver's own buffer wiring.**
+
+**So: one destination, a plain copy, and no length write - the vendor's flow exactly.** The fourteen
+bytes that were being cut out are simply part of the data again, where UBI expects them.
+
+**And the whole register campaign is settled by it.** `FMC_DMA_LEN` taking the write and changing
+nothing is explained - it is not a byte count, it never was, and the vendor leaves it at 1. `0x38`
+holding 4128 in our builds and 1 in the vendor's is this driver leaving a register in a state the
+working implementation never reaches.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
