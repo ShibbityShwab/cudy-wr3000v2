@@ -3995,3 +3995,33 @@ equivalent of, and the vendored reader must obtain the page's final bytes somewh
 next thing to read, and it is a local disassembly question, not another fire.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cd (2026-10-10): FMC_CMD checked - and the state is exact
+
+**My read path never writes `FMC_CMD` (0x24)** - the only writes to it in the file are the
+GET_FEATURE, RESET, RDID and SET_FEATURE paths. **And the vendor's `hi_fmc_write_reg_en` writes `6` to
+it, which is the WRITE-ENABLE command, so that function is not part of its read story either.**
+
+**What both sides do carry is the command in `OP_CTRL`:** this driver's reads leave `OP_CTRL` at
+`0x006B0000`, and the vendor's idle value is **`0x006B0000`** too - **the same 0x6B read command.**
+
+**So the state is now exact.** The driver matches the working implementation on:
+
+- every register measured (`FMC_CFG`, `GLOBAL_CFG`, `OP_CFG`, `FMC_OP`, `OP_CTRL`, `FLASH_INFO`);
+- the address registers and their formula;
+- the poll (same register, same bit, same 100000 bound);
+- the destination count (one);
+- `DATA_NUM` and `DMA_LEN` at the vendor's values;
+- the read command;
+- and the de-interleave that makes **117 of 118 volume-table records verify.**
+
+**And the page's last 14 data bytes are still absent.**
+
+**The remaining difference is in the caller's SEQUENCE**, in a step of `hi_sfc_drv_dma_read_uid` that
+the disassembly does not yet resolve cleanly - and the vendored reader must obtain those final bytes
+somewhere, because its own page output is complete.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
