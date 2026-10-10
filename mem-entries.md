@@ -5673,3 +5673,66 @@ untested link is our kernel's squashfs mount of a ubiblock device - which is wha
 **Device mutation.** `mtd16` was rewritten three times and now holds a verified UBI volume with a
 complete, readable OpenWrt rootfs. The `kernela` write and its reboots are unchanged. The router is
 healthy.
+
+
+---
+
+## Phase 50dr (2026-10-10): SIX RAM ADDRESSES DID NOT LAND - ASK THROUGH I/O INSTEAD
+
+**THE UBI FIRE HUNG, AND THE RING STILL PROVES NOTHING.**
+
+```
+C18 = 0xC0DE0020   the mach's late_initcall crumb, NOT the panic notifier's step 42 -> a HANG
+C1C = 0x80603000   the log address, so the hook ran and armed the safety timer
+boot_id moved      and the SAFETY TIMER, not a panic, returned the box
+```
+
+The only change from the previous fire is the cmdline, **so the UBI path is what hangs.** And the ring
+holds only early boot with my new cmdline in it - **nothing from the driver.**
+
+**AND THE STAMPS ARE STILL NOT MINE.** `0x80606FF0` holds the same kind of static data as the fire before
+(`0x847f4811`/`0x847f4c11`, delta exactly `0x400`; previously `0x8494D811`/`0x8494DC11`).
+
+**SIX FIRES WENT INTO RAM ADDRESSES AND NOT ONE OF THEM LANDED:**
+
+```
+(void *)0x80607800 as a raw pointer    -> zero, and the write did nothing
+diag + 1024                            -> zero
+__va(0x80607800)                       -> zero, AND HUNG THE BOOT
+ring + 0x3FF0 through luofu_log_b      -> still the same static data at that address
+```
+
+**EVERY ONE OF THEM WAS A PLACE I CHOSE.** **THE CHANNEL THIS DRIVER HAS WRITTEN ON EVERY SUCCESSFUL BOOT
+IS NOT RAM AT ALL** - it is **`C18`/`C1C`, two memory-mapped registers, written through `fmc->crumb` and
+read back with `devmem`.** That is the channel the crumb steps have used all along, **and the file's own
+comment says why: "the crumb channel, the one that has always worked, because it is I/O rather than RAM."**
+
+**SO THE TIMER WRITES A CRUMB, FIRST, BEFORE ANYTHING ELSE IT DOES:**
+
+```c
+luofu_log_ticks++;
+if (luofu_fmc_stamp)
+	luofu_fmc_crumb(luofu_fmc_stamp, LUOFU_LOG_TICK_STEP, luofu_log_ticks);
+```
+
+```
+C18 = 0xc0de502d, C1C = tick count   the timer ran, this many times
+C18 = 0xc0de502a, C1C = log address  the panic notifier overwrote it
+C18 = 0xc0de0020                     a hang - no tick survived
+```
+
+**IT IS WRITTEN BEFORE THE DUMP AND BEFORE THE RAM STAMPS, so whatever faults afterwards cannot erase
+it** - **which matters, because the last fire HUNG rather than panicked and the tick's own work is the
+prime suspect for that.**
+
+**AND THE QUESTION IT ANSWERS IS THE ONE THE RING CANNOT: whether the 500 ms timer runs at all.** Six
+fires of evidence say the ring only ever holds the console's registration dump, **and `ticks = 0` in RAM
+would be indistinguishable from a write that did not happen** - **which is exactly the ambiguity that has
+cost this many fires. An I/O crumb cannot have that ambiguity.**
+
+**Validator clean:** balance 0/0/0, 27 functions with none called before its definition (including
+`luofu_fmc_crumb` before the timer uses it), 15 file-scope variables with none used before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
