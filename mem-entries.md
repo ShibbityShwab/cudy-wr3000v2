@@ -7974,3 +7974,48 @@ to be inferred:**
 ```
 FMC: geometry: writesize %u erasesize %u oobsize %u oobavail %u
 ```
+
+
+---
+
+# PHASE 50fd (2026-10-10): THE MARKER WAS WRITTEN, AND JFFS2 ASKED FOR THE OOB NEXT
+
+## TWO FIXES LANDED AT ONCE, AND THE ERROR MOVED WITH EACH
+
+```
+FMC: rootfs_data is mtd15 size=1600000 read=0 got=8: ff ff ff ff ff ff ff ff
+FMC: geometry: writesize 2048 erasesize 131072 oobsize 64 oobavail 64
+FMC: wrote the jffs2 marker; read back 0x20031985 (identifies as FS_JFFS2)
+jffs2: cannot read OOB for EB at 00000000, requested 8 bytes, read 0 bytes, error -95
+mount_root: failed to mount -t jffs2 /dev/mtdblock15 /tmp/overlay: I/O error
+```
+
+**The `oobavail` line is visible and correct, the marker was written and read back as `0x20031985`, and
+the mount now reaches JFFS2 itself. `-95` is `-EOPNOTSUPP` - this driver registers no `_read_oob`, and
+JFFS2 wants its cleanmarker from the spare area.**
+
+## THE WAY OUT IS THREE LINES OF JFFS2'S OWN CODE
+
+```c
+int jffs2_nand_flash_setup(struct jffs2_sb_info *c)
+{
+	if (!c->mtd->oobsize)
+		return 0;
+```
+
+**A device that declares no OOB is mounted the ordinary way, with the cleanmarker IN BAND - and the
+twelve bytes already being written are exactly that, a `struct jffs2_unknown_node` with a valid
+`hdr_crc`. So the partition declares `oobsize = 0`, and no OOB implementation is needed at all.**
+
+**IT IS SET ON THE PARTITION AND NOT ON THE MASTER, WHICH IS THE WHOLE POINT: `mtd16` keeps the real
+geometry, so UBI's attach - which carries the rootfs that already mounts and boots - cannot be disturbed
+by a change made for the overlay's benefit. `rootfs_data` is the only mtd that says `oobsize 0`, and it
+is the only one JFFS2 is asked to mount.**
+
+## AND ONE OBSERVATION WORTH KEEPING FROM THIS FIRE
+
+**`rootfs_data` read `ff ff ff ff` at 4.56 s even though the previous fire had written a marker into it
+and reported "already carries 0x20031985".** **Something erased that block between the two boots** - most
+plausibly the failed JFFS2 mount itself, which is known to erase blocks it cannot use. **It does not
+change the sequence (the marker is rewritten whenever the first four bytes are `ff`), but it does mean
+the marker is not assumed to persist across a failed mount.**
