@@ -5797,3 +5797,61 @@ AND NO EARLY RETURN BETWEEN THEM.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+## Phase 50dt (2026-10-10): THE THIRD ORDER FAILURE - AND THE CHECKER ITSELF HAD THE GAP
+
+```
+luofu-fmc.c:844: error: 'luofu_fmc_read_lock' undeclared (first use in this function)
+```
+
+**The mutex went in beside the log globals, 600 lines BELOW `luofu_mtd_read()`'s first use of it.**
+**Third time for this class - and this time the validator did not catch it either, which is the part worth
+recording.**
+
+**WHY THE CHECKER MISSED IT.** Its variable pattern required the declaration to **end in `=` or `;`**:
+
+```python
+r"\s*static\s+(?:const\s+)?[\w\s\*]+?\b(luofu_\w+)\s*(=|;)"
+```
+
+**AND `static DEFINE_MUTEX(luofu_fmc_read_lock);` ENDS IN A CLOSING PAREN.** The regex did not match the
+line at all, **so the mutex was never entered into the set of things checked, and the order test had
+nothing to test.** **A CHECKER THAT MISSES A DECLARATION *FORM* MISSES THE WHOLE ORDER CLASS FOR THAT
+FORM.**
+
+**FIXED BOTH WAYS.** The mutex moved to the file's early state, above the register layer and well above
+its first use:
+
+```
+mutex now at line 336, first use at line 864 -> OK
+```
+
+**and the checker now also matches macro-declared file-scope state:**
+
+```python
+r"\s*static\s+[A-Z_]+\((luofu_\w+)\s*[,)]"
+
+file-scope vars: 16   (was 15 - the mutex is now counted)
+USE-BEFORE-DECLARED: none
+caught the mutex form: True
+```
+
+**WHAT THE MUTEX IS FOR, UNCHANGED:** `luofu_fmc_read_page()` stages every page through **`fmc->dma_buf`**
+and copies out of **`fmc->page_buf`**, and `luofu_mtd_read()` loops over it. **Both buffers belong to the
+device, not to the caller, and nothing serialised them.** Fine while the only caller was a single-threaded
+probe; **NOT fine with UBI in the path, where `ubiattach` scans from its own workqueue and `ubi_bgt0d`
+runs in the background.** The boot **HANGS** rather than faults or panics - **the tick crumb measured 46
+ticks, about 23 seconds** - **and a shared staging buffer under overlapping readers is exactly that
+shape.**
+
+**The loop breaks on error rather than returning, so the unlock runs on every path, and the bounds check
+returns before the lock is taken.**
+
+**Validator:** balance 0/0/0, 27 functions, 16 file-scope variables, **no call or use before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
