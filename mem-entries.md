@@ -5855,3 +5855,50 @@ declaration, no undefined macro, no define-after-use, hook get/put balanced.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50du (2026-10-10): THE MUTEX FIXED THE HANG ★★★★★
+
+```
+C18 = 0xC0DE502A   step 42 - THE PANIC NOTIFIER RAN
+C1C = 0x80603000   the log address
+```
+
+**WHERE THE PREVIOUS FIRE HUNG AT THE MACH'S CRUMB AND ONLY THE SAFETY TIMER BROUGHT THE BOX BACK.**
+**SO THE SHARED STAGING BUFFER WAS THE HANG:** with the read path serialised, **`ubiattach`'s workqueue
+and `ubi_bgt0d` no longer stage into `fmc->dma_buf` at the same time**, **and the boot now gets far
+enough to panic properly.** **A hang and a panic are different failures, and the mutex removed the
+first one.**
+
+**AND IT REVEALS THE ONE UNDERNEATH: THE BOOT STILL PANICS AT THE MOUNT.** That was true **before** the
+hang appeared and it is true now - **the mutex removed a failure mode, not the fault.**
+
+**AND THE CRUMB STILL CANNOT ANSWER THE LOG QUESTION**, because **step 42 OVERWRITES the tick's step 45**,
+so the line count the tick put there **is gone by the time the cells are read.** And the panic's payload
+was the log address - **WHICH HAS BEEN `0x80603000` ON EVERY BOOT MEASURED, so it carries no
+information.** **It now carries what the tick's could not survive:**
+
+```c
+luofu_fmc_crumb(luofu_ubi_fmc, LUOFU_LOG_PANIC_STEP,
+		(luofu_log_ticks << 16) | (luofu_log_lines & 0xffff));
+
+C18 = 0xc0de502a (the panic), C1C = (ticks << 16) | lines
+
+lines > 0   the kmsg walk works, and the RING WRITE is what fails
+lines = 0   the walk returns NOTHING, and the log buffer itself is empty
+```
+
+**THAT IS THE LAST INSTRUMENT QUESTION, AND IT DECIDES WHETHER THE NEXT STEP IS THE BUFFER DISCIPLINE OR
+THE PRINTK CONFIGURATION.**
+
+**AND THE RAM STAMPS ARE STILL NOT MINE** - `ring + 0x3FF0` holds the same delta-0x400 pattern as every
+previous fire - **so the ring-tail write still does not land**, and the ring still carries only early
+boot, with this boot's cmdline in it.
+
+**Validator:** balance 0/0/0, 16 file-scope variables with none used before its declaration, 27 functions
+with none called before its definition, **no undefined macro, hook get/put balanced.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
