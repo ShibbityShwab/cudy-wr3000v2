@@ -7459,3 +7459,71 @@ of the write path, on the real target, with the empty volume already gone.**
 
 **Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
 define-after-use, no use-before-declaration. **CLEAN.**
+
+
+---
+
+# ★★★★★ PHASE 50eu (2026-10-10): THE WRITE PATH WORKS - AND THE READ PATH IS BYTE-EXACT ON THIS VOLUME
+
+## THE COUNTERS, DECODED
+
+```
+C18 = 0xC0DE502D
+C1C = 0x06010320
+    writes  = 6      OUR WRITE OP WAS CALLED SIX TIMES
+    erases  = 1      AND THE ERASE ONCE
+    err     = 0      NO ERRORS
+    wr_cmd  = 0x32   THE VENDOR'S REAL PROGRAMMING COMMAND - 0x32, NOT THE 0x30 THE OFFSET NAME SUGGESTED
+    mism    = 0      THE FIRST WRITE'S READ-BACK WAS BYTE-FOR-BYTE IDENTICAL
+```
+
+**THE PROGRAM AND ERASE SEQUENCES RECOVERED FROM `hi_flash.ko` WORK IN THIS DRIVER.** **And `wr_cmd =
+0x32` is worth keeping: `LUOFU_SPEC_WR_CMD` is an OFFSET into the vendor's spec record, and the driver
+reads the VALUE - which is 0x32. A hardcoded 0x30 would have been wrong.**
+
+## AND THE PER-LEB COMPARISON SETTLES EVERYTHING ELSE
+
+**The volume against the image I built, LEB by LEB:**
+
+```
+LEB   image        device       verdict
+ 0    20bfe57a     20bfe57a     identical
+ 1    fc807699     2a64aeea     CHANGED   <- our writes: the journal replay
+ 2    3f453bbc     deffc8f0     CHANGED   <- our writes: the journal replay
+ 3    53958215     53958215     identical
+ 7    cd085abf     cd085abf     IDENTICAL  <- the block UBIFS complained about was never touched
+4,5,6,8,9,11 (all 0xff) (all 0xff) identical
+10    8d224803     8d224803     identical
+12    d4db7615     d4db7615     identical
+```
+
+**THREE CONCLUSIONS, ALL FROM ONE TABLE:**
+
+1. **OUR READ PATH RETURNS BYTE-EXACT DATA FOR THIS VOLUME** - every untouched LEB matches the image
+   exactly, read through the same `luofu_mtd_read` the rootfs mounts through.
+2. **OUR WRITE PATH LEGITIMATELY MODIFIED LEBs 1 AND 2** - those are the journal, and replaying it writes
+   it. Real writes, in the right place, with the read-back clean.
+3. **LEB 7 WAS NEVER WRITTEN BY US** - it holds whatever `mkfs.ubifs` put there. **The block UBIFS
+   choked on is the IMAGE's doing, not ours.**
+
+**SO THE REMAINING FAULT IS IN THE IMAGE, NOT THE DRIVER:**
+
+```
+UBIFS error: ubifs_read_nnode: error -22 reading nnode at 7:41
+  <- ubifs_read_nnode <- ubifs_lpt_lookup_dirty <- ubifs_replay_journal <- ubifs_mount
+```
+
+**and the image's own superblock looks right:**
+
+```
+magic 0x06101831  node_type 6  len 4096
+min_io_size 2048  leb_size 126976  leb_cnt 13  max_leb_cnt 79
+FMT_VERSION 4  default_compr 0 (none)  flags 0x00000000
+```
+
+**Every geometry value matches the volume. Rather than reverse UBIFS's index format, the authoritative
+answer is one fetch away - HOW OPENWRT ITSELF FINDS OR MAKES THIS VOLUME - so CI is being pointed at the
+rootfs's own `mount_root`, its preinit scripts, `libfstools`, and the `mkfs.*` tools it carries.**
+
+**Validator:** balance (0,0,0), 20 file-scope variables, 33 functions, no undefined macro, no
+define-after-use, no use-before-declaration. **CLEAN.**
