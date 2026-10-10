@@ -3716,3 +3716,33 @@ was right.**
 **The remaining question is exactly one: what makes the controller move 2062 bytes instead of 2048.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bv (2026-10-10): THE VENDOR'S TWO DMA OPERATIONS BOTH USE 0x40 - and my read matches theirs
+
+**Reading `hi_sfc_hw_dma_write` (0x78c) settles the comparison:**
+
+```
+hi_sfc_hw_dma_write:  str r6, [r5, #0x40]   <- the LENGTH, same register as the read
+                      op_ctrl = 3 | (cmd << 8)     <- operation 3, command at bit 8
+hi_sfc_hw_dma_read:   str r2, [r0, #0x40]   <- the LENGTH, same register
+                      op_ctrl = 1 | (cmd << 16)    <- operation 1, command at bit 16
+```
+
+**Both DMA functions take the length as their third argument and store it at `0x40`.** They differ
+only in the operation code in `OP_CTRL` - read is 1, write is 3 - **and this driver's read builds
+`1 | (cmd << 16)`, which is the read's form exactly.** So:
+
+- the length register is `0x40`, and **both** vendor operations use it;
+- **the driver now writes it too, and the transfer still stops at 2048.**
+
+**Which leaves the last question sharpened rather than answered: the vendor's own caller passes a
+length to that register, and this driver writes the same register with a larger value and gets one
+page.** Either the value's units differ, or something else bounds the transfer before the length is
+consulted.
+
+**The revert build is firing to restore the 117-record baseline.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
