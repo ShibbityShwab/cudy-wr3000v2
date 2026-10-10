@@ -3858,3 +3858,35 @@ from the one implementation known to read this flash correctly, and after the de
 the fault, *"last measured difference"* is the strongest argument available for what to try.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bz (2026-10-10): THE TWO CHANGES OVERLAPPED - and the sentinel test ran under the old wiring
+
+**Three builds, and the window tracked the plumbing:**
+
+```
+three destinations + de-interleave:  window 14 bytes, UBI accepted 117 records
+one destination   + plain copy:      window 12 bytes, moved, UBI refuses at record 6
+one destination   + DATA_NUM = 1:    window 12 bytes, unchanged
+```
+
+**So the destination count CHANGES the window without being the whole of it** - 14 to 12 - and
+setting `0x38` to the vendor's value changed **nothing at all.**
+
+**And neither arrangement was ever tested against the other**, because the de-interleave and the
+single-destination change went in together and then came out together.
+
+**Which exposes a methodological gap in the earlier work:** the sentinel that proved the transfer
+stops at 2048 **ran with three destinations armed** - **the very wiring being changed.** With one
+destination the controller has fewer places to put the page's spare bytes, **and it may now write
+them where the copy can reach. That test has never been repeated in this configuration.**
+
+**So this fire is the de-interleave on top of the vendor's flow, for the first time:** one
+destination, no per-read length write, `DATA_NUM` at the vendor's value, and the two-part copy that
+reaches `page_size + SPLICE_LEN` in the source. **If the controller deposits the tail now, UBI gets
+the bytes it has been missing; if it does not, the tail sample says so and the plumbing question
+narrows by one more arrangement.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
