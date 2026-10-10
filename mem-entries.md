@@ -4106,3 +4106,37 @@ running against a configuration the working implementation does not use.
 **All fifteen are now written once at probe time from the vendor's live values.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cg (2026-10-10): THE CONFIG BLOCK MADE NO DIFFERENCE - and one tension I have not resolved
+
+**Programming all fifteen of the vendor's configuration registers changed nothing:**
+
+```
+vtbl_check: bad CRC at record 118: 0xf116c36b, not 0xf1160000    (unchanged)
+tail:       p11+2032 = f1160000                                  (unchanged)
+```
+
+**So the driver now matches the working implementation on every measurable aspect** - the registers,
+the write order, the destination count, the poll, and the whole configuration block - **and the page's
+last 14 data bytes are still absent.**
+
+**AND THERE IS A TENSION I HAVE NOT RESOLVED, which I am recording rather than papering over:**
+
+- **The plain-copy build accepted only 4 records** (UBI refused at record 6), which proves **this
+  driver's raw buffer DOES contain a 14-byte splice** - if it did not, the de-interleave would corrupt
+  a clean page and the plain copy would have been right.
+- **But the vendor's own raw DMA buffer reads clean** - `f1 16 c3 6b` at offset 2032, no splice - when
+  read live at its `SADDR_D0`.
+
+**Both are measurements. They cannot both be descriptions of the same hardware output.** The most
+likely resolution is that the vendor's driver **post-processes its buffer in place**, so what is read
+live at its destination is already de-interleaved - but that is a hypothesis, not a measurement, and
+it should be tested by reading the buffer at a moment when no read has just completed.
+
+**What is not in doubt:** the driver reads 2034 of 2048 data bytes of every page correctly, 117 of 118
+volume-table records verify, and every configuration value is now the vendor's.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
