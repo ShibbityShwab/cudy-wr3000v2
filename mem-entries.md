@@ -5161,3 +5161,50 @@ should name the function and the address.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dh (2026-10-10): THE CONSOLE NEVER CAPTURED ANYTHING ★★★★★
+
+**Measured, not guessed: the ring's non-zero span after the last fire was 4150 bytes.**
+
+```
+ring bytes: 16384
+non-zero bytes: 4150
+first non-zero: 0      (the mark)
+last  non-zero: 16375  (a stale byte from an earlier boot)
+```
+
+**Dense from offset 4 to about 4100, AND NOTHING AFTER IT.**
+
+**4100 IS WHAT `CON_PRINTBUFFER` HANDS A CONSOLE WHEN IT REGISTERS** - the log that already exists.
+**THE CONSOLE NEVER CAPTURED A SINGLE LINE AFTER THAT POINT.**
+
+**AND THAT RETROACTIVELY EXPLAINS THE EARLIER FIRES.** The `FMC:` lines I had been reading were **never
+the console's work** - **they came from the 3-second DUMPER TIMER, which copies the kernel log.**
+Removing that timer "because the callback runs now" lost them, and the ring went back to the same 0.15 s
+of boot. **I read the instrument's silence as a device that died early.**
+
+**SO THE TIMER IS BACK, at 500 ms**, with the two things it needed all along:
+
+- **THE KERNEL LOG BUFFER IS 64 KiB NOW** (`CONFIG_LOG_BUF_SHIFT=16`). Before, every dump could only
+  produce the same 4 KiB, which is why every reading looked identical;
+- **THE FREEZE IS PANIC-ONLY**, so this timer cannot stop anything from capturing.
+
+**The dump rewrites the ring from offset 4 with everything the log holds, circularly, so the ring keeps
+the NEWEST 16 KiB.** At 500 ms the last dump before the panic carries the whole boot, **and the panic
+path dumps again on top of it.**
+
+**AND `dumper->active` IS SET BY HAND - the one thing the original timer got right.**
+`kmsg_dump_get_line_nolock()` returns false immediately unless the dumper is active, and `kmsg_dump()` is
+the only thing that sets it - **on its way into a callback that, outside a panic, is never called.**
+
+**THE CONSOLE STAYS REGISTERED** because its registration dump is real early-boot text and it is
+harmless, **but it is NOT the instrument and the comments now say so.**
+
+**Verified after the edit:** braces 0, parens 0, brackets 0, no undefined macros, no define-after-use,
+**`luofu_log_tick` defined before the timer variable which is defined before its setup**, hook balanced.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
