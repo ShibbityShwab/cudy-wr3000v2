@@ -5736,3 +5736,64 @@ declaration, no undefined macro, no define-after-use, hook get/put balanced.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ds (2026-10-10): THE TIMER RUNS 46 TIMES - AND THE BOOT HANGS, NOT PANICS ★★★★★
+
+**THE CRUMB ANSWERED IN ONE READ WHAT SIX FIRES OF RING-INSPECTION COULD NOT:**
+
+```
+C18 = 0xC0DE502D     LUOFU_CRUMB_NAND | step 45 - the tick crumb
+C1C = 0x0000002E     46 decimal - THE TICK COUNT
+```
+
+**THE 500 ms TIMER RUNS. It fired 46 times - about 23 seconds** - **and the crumb SURVIVED because it is
+I/O rather than RAM.** **It was never overwritten by step 42 either, so THE BOOT DID NOT PANIC: IT HUNG,
+ROUGHHLY 23 SECONDS IN.**
+
+**THAT IS A DIFFERENT FAILURE FROM EVERY PREVIOUS FIRE, AND IT POINTS AT CONCURRENCY.** The boot gets
+that far **and then stops entirely** - the shape of a **shared resource under overlapping access.**
+
+**AND THIS DRIVER HAS EXACTLY ONE:**
+
+```c
+luofu_fmc_read_page() stages every page through fmc->dma_buf and copies out of fmc->page_buf,
+and luofu_mtd_read() calls it in a loop. Both buffers belong to the DEVICE, not to the caller,
+AND NOTHING SERIALISED THEM.
+```
+
+**That was fine while the only caller was a single-threaded probe. IT IS NOT FINE ONCE UBI IS IN THE
+PATH:** `ubiattach` scans with its own workqueue and **`ubi_bgt0d` runs in the background**, so **two reads
+can be inside `read_page` at the same time, staging into the same 0x2200 bytes.** **Progress until the
+overlap, then no progress at all - which is what the tick crumb measured.**
+
+```c
+static DEFINE_MUTEX(luofu_fmc_read_lock);
+
+luofu_mtd_read():
+	mutex_lock(&luofu_fmc_read_lock);
+	while (done < len) { ... if (ret) break; ... }
+	mutex_unlock(&luofu_fmc_read_lock);
+```
+
+**The loop BREAKS on error rather than returning, so the unlock runs on every path, and the bounds check
+returns before the lock is taken.** The probe's direct calls to `luofu_fmc_read_page()` **stay outside the
+lock on purpose** - they run single-threaded at `late_initcall`, before any of this is reachable.
+
+**AND THE CRUMB PAYLOAD NOW CARRIES BOTH NUMBERS, THE LAST INSTRUMENT QUESTION:**
+
+```
+C1C = (ticks << 16) | (lines & 0xffff)
+
+high > 0, low > 0   the kmsg walk works and the ring write is what fails
+high > 0, low = 0   the walk returns NOTHING, and the log buffer is the problem
+```
+
+**Validator clean:** balance 0/0/0, 27 functions, 15 file-scope variables, **no call or use before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced, and ONE LOCK WITH ONE UNLOCK
+AND NO EARLY RETURN BETWEEN THEM.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
