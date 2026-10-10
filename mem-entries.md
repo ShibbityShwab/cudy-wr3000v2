@@ -3142,3 +3142,36 @@ into every reader. The ECC type is restored on every path: the early `-ENOMEM` r
 before it is changed, and the never-asserted path falls through to the same restore as the others.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bf (2026-10-10): THE RACE FIX CHANGED NOTHING - the bad data is deterministic
+
+**The fix was correct as code and changed nothing as outcome.** UBI came back with the *identical*
+line:
+
+```
+ubi0 error: vtbl_check: bad CRC at record 6: 0xaae09698, not 0x000000
+```
+
+**`0xaae09698` is byte-identical to every previous fire.** A race would move that number - the copy
+would sometimes win and sometimes lose - so **the race hypothesis is refuted by its own experiment**,
+and the fix, while a genuine improvement (it no longer copies before the DMA is known to have
+finished), is not the cause of this failure.
+
+**What that leaves, stated as narrowly as the evidence allows:** the bad bytes are **deterministic**,
+sit at **page offset 1040 on every page**, are **16 bytes wide**, and their **content varies between
+pages** while UBI's CRC of the one that matters **does not vary between boots**. Deterministic
+content plus per-page variation is the signature of **stale cache or buffer content that is never
+refreshed for that window**, not of a race.
+
+**And the test that separates those is the double-read probe**, whose artifact is still available:
+it samples 1032, 1040 and 1048, then **reads 1040 a second time.**
+
+- **second read differs** → the first copy is stale and a second read fixes it: a cache or
+  refresh problem, and the fix is a cache maintenance or a re-read;
+- **second read identical** → the data is stable and simply wrong at that offset: a copy or offset
+  bug in how this driver fills the page.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
