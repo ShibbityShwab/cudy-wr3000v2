@@ -3251,3 +3251,37 @@ not produce.** And if UBI's CRC now matches, the attach proceeds - which is the 
 line of work has been aiming at.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bi (2026-10-10): THE CONTROLLER SPLICES 14 SPARE BYTES AT OFFSET 1040 - and record 6 is exactly what straddles it
+
+**The zeroing fix worked and the map showed it: 26 differing samples became 6.** Every difference in
+an unwritten region is gone. **The six that remain are a shift** - the vendor's record CRC at +1200
+appearing later in ours - so I fitted it:
+
+```
+BEST: everything below ~1040 direct; at/above, source = ours - 14
+samples where the vendor has data but the fit still fails: 0
+```
+
+**Two independent measurements agree on where.** The fine-grained samples put the inserted bytes at
+**1040..1053**; the fit is flat for every insertion point from 1040 upward because there is no vendor
+data in between to discriminate - **so 1040 it is.**
+
+**So the controller does not write a bare page. It writes the first 1040 bytes of data, then 14
+bytes of spare area, then the rest.** A straight page-sized copy splices those 14 bytes into the
+middle of the page - **and that is exactly the corruption UBI rejects: volume-table record 6 BEGINS
+AT OFFSET 1032, so it is the one record that straddles the splice.** Which is why record 6 was
+always the complaint, and why the EC scan at offset 0 always passed.
+
+**The fix copies 1040 bytes, skips 14, and copies the rest.** Both constants are measured, not
+chosen, and pages of another geometry keep the plain copy.
+
+**And the checker earned its keep again:** I first put the two macros beside the log block past line
+1160, while `read_page` - which uses them - sits at line 664. **Define-after-use, a build error,
+caught before the build.** The same failure class as the `'OMO_REL_WIN' undeclared` CI round
+previously, except this time it never left the machine.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
