@@ -2788,3 +2788,42 @@ its *index* was the fact that mattered - our FMC driver registering one partitio
   discarding the driver's own diagnostics, including the enumeration just added.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50av (2026-10-09): THE CHECKER WAS THE BUG - twice, and both times it reported "none"
+
+**The build failed with `LUOFU_LOG_PANIC_STEP undeclared` - the declaration-order class for the
+third time in this session, while my validator reported "none" on every single run.**
+
+**The first gap: its comment stripper replaced comment bodies with a single SPACE instead of
+newlines.** Every line number past a multi-line comment was therefore shifted, and the
+define-before-use comparison was comparing the wrong positions. **The file is full of multi-line
+comments, so the check had never been able to see an order problem at all** - which is precisely
+why the class kept returning after each individual repair. Preserving newlines made it
+immediately report the truth:
+
+```
+('LUOFU_LOG_PANIC_STEP', defined@1091, used@955)
+```
+
+**The second gap surfaced while fixing the first.** A two-part edit batch had its **addition**
+fail while its **removal** succeeded, leaving the macros **gone from the file entirely** - and the
+checker reported "no order problems", true in the narrow sense that nothing was out of order and
+useless in the sense that mattered. **It checked that DEFINED macros are used after their
+definition, and never that USED macros are defined at all.**
+
+**Both are closed.** The checker now reports 44 `LUOFU_*` macros defined, 44 identifiers used,
+**none used-but-undefined, no order problems**, with line parity against the source verified.
+
+**The lesson, and it is the important part:** I reported "all macros defined before use" several
+times in this session and it meant nothing, twice for different reasons. **A check that passes is
+only evidence if it would have failed on the thing it claims to test.**
+
+**And this is why the third occurrence was worth stopping for.** Each of the first two repairs
+fixed the code and left the checker broken, so the same class came back - and the count of times
+I reported a green check that could not have been red is the real defect here, not any individual
+missing macro.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
