@@ -4373,3 +4373,43 @@ of the operation not yet compared between the two drivers** - only the row formu
 at the column bits rather than the row.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50co (2026-10-10): THE ADDRESSES MATCH TOO - the column is zero on both sides
+
+**The last uncompared part of the operation, measured on the vendor's live registers after a read:**
+
+```
+ADDRH (0x28)     = 0x00000000
+ADDRL (0x2c)     = 0x6a8b0000
+   vendor row    = 0x00006a8b
+   vendor column = 0x0000
+DMA_LEN (0x40)   = 0x00000001
+DATA_NUM (0x38)  = 0x00000001
+SADDR_D0 (0x4c)  = 0x820c8000
+```
+
+**This driver writes `ADDRH = row >> 16` and `ADDRL = row << 16`, so its column bits are always zero -
+and so are the vendor's.** The addressing matches, column included. The "1040 = 1024 + 16 suggests a
+column effect" hypothesis is **refuted by measurement.**
+
+**So every measurable aspect of the operation now matches:**
+
+- registers and their values; write order; the whole configuration block; destination count;
+- the read command; the completion condition (busy poll and interrupt give the same result);
+- the addressing, row and column;
+- and the de-interleave, which is measured rather than assumed (4 records without, 117 with).
+
+**AND THE RESULT IS STABLE AND REPRODUCIBLE: 117 of 118 volume-table records verify, and this driver's
+raw buffer carries a 14-byte splice at offset 1040 where the vendor's raw buffer is clean.**
+
+**The honest position: the cause is not in any aspect I have been able to compare.** The two drivers
+differ in something that leaves every register, every address, every configuration value and the
+completion condition identical - and produces a different buffer. **The next productive step is not
+another register comparison; it is to read the vendor's page-read function end to end** - the 452
+bytes of `hi_spi_nand_drv_dma_read` in full, including the paths after the interrupt wait that have
+only been read in part.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
