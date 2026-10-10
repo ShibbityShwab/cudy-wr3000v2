@@ -6119,3 +6119,54 @@ macro. **CLEAN.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dz (2026-10-10): THE HANG IS GONE, A REAL PANIC APPEARED, AND THE RING FINALLY HAS A REASON ★★★★★
+
+**THE STARVATION FIX WORKED, AND IT SHOWED A REAL PANIC FOR THE FIRST TIME.**
+
+```
+C18 = 0xC0DE502A     step 42
+C1C = 0x00000000     ZERO ticks
+```
+
+**The probe's step-42 marker carries `(log_dma & 0xfffff000) | mtd index`, which is never zero - so a zero
+payload means this crumb is the PANIC NOTIFIER's, and ZERO TICKS means the boot panicked inside the first
+five seconds.** **Where the previous four fires hung at 47 ticks with timers dead, this one PANICKED.**
+**The starvation was real and slowing the dump removed it.**
+
+## AND IT EXPOSED WHY THE RING HAS NEVER CARRIED A PANIC
+
+```c
+kmsg_dump_get_line_nolock() opens with:  if (!dumper->active) goto out;
+```
+
+**`kmsg_dump()` sets `active` on its way INTO a callback and CLEARS IT AGAIN ON THE WAY OUT.** **My panic
+notifier runs from the panic notifier chain, which `panic()` calls AFTER `kmsg_dump()` has returned - SO
+`active` IS FALSE, THE WALK PRODUCES NOTHING, AND THE RING KEEPS WHATEVER AN EARLIER BOOT LEFT THERE.**
+
+**THAT IS WHY A PANICKING BOOT AND A STALE BOOT LOOK IDENTICAL FROM `devmem`.** The ring read **4152
+non-zero bytes on this fire and on the one before it, byte for byte, and I spent several fires reading an
+old boot's log as the current one's.**
+
+```c
+luofu_kmsg.active = true;
+luofu_log_frozen = true;
+luofu_kmsg_to(luofu_log_b, &luofu_kmsg);
+luofu_kmsg.active = false;
+```
+
+**AND THE CRUMB MOVES AFTER THE WALK.** It used to be written first, **which made its line count
+meaningless** - `luofu_log_lines` is only set **BY** the walk, so a crumb written before it **always reported
+zero lines**, and I read that as **an empty log rather than as an ordering mistake.**
+
+**The timer already did both of these, which is why the timer's walk returned 242 lines. The panic notifier
+did not, and that is the whole difference between an instrument that works and one that reports the past.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, hook get/put 2/3.
+**CLEAN, read before committing.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
