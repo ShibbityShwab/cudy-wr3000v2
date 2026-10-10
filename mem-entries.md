@@ -3317,3 +3317,38 @@ ubi0_0` - **the block layer is up and asking for volumes**, which it only does o
 is nearly readable.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bk (2026-10-10): UBI COMPUTES THE RIGHT CRC - the stored field's last two bytes were stale
+
+**Page 9 reads perfectly too: zero differences, 128 of 128, same as page 2.** So the de-interleave
+is general rather than a page-2 accident.
+
+**And the log named the remaining defect exactly:**
+
+```
+before:  vtbl_check: bad CRC at record 6:   0xaae09698, not 0x000000
+now:     vtbl_check: bad CRC at record 118: 0xf116c36b, not 0xf1160000
+```
+
+**UBI now computes `0xf116c36b` - THE CORRECT CRC, the one the flash holds** - and the **stored**
+field reads `0xf1160000`. **The last two bytes are zero when they should not be.**
+
+**That is my own fix's boundary, and the arithmetic says so.** Record 118's CRC field sits at
+partition byte `4096 + 118*172 + 168 = 24560`, page 11 offset 2032. **The splice makes the copy read
+`page_size + 14 = 2062` bytes out of the staging buffer, but the memset only cleared 2048 of them** -
+so bytes 2048..2061 still held the **previous read's** data, and the copy's final 14 bytes came from
+there. The last four bytes of the returned page are therefore `source[2046..2049]`: **two freshly
+zeroed, two stale. Hence `f1160000`** - the first half of the CRC correct and the second half zero,
+precisely.
+
+**The fix extends the memset to `page_size + LUOFU_DMA_SPLICE_LEN`**, covering the whole source
+window. The buffer is a `dmam_alloc_coherent` of 0x2200 = 8704 bytes, so 2062 is well inside it.
+
+**And the map could not have caught this:** it samples four bytes every sixteen, so its last sample
+is at 2032 - still inside the zeroed region - while the stale tail begins at 2034. **The log caught
+what the instrument's stride could not.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
