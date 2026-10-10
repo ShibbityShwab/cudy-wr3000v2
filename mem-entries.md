@@ -4673,3 +4673,35 @@ recorded as NOT REPRODUCIBLE HERE rather than left as an assumption.**
   without.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cw (2026-10-10): MY "INIT-TIME" THEORY WAS WRONG - they are per-operation registers
+
+**Grepping every store to `0x38` and `0x40` in the vendor module refutes what I had concluded:**
+
+```
+str r3, [r0, #0x38]   with r3 = 5      (twice)
+str r3, [r0, #0x38]   with r3 = 1      (twice)
+str lr/r1, [r0, #0x38]                 (computed values, three more sites)
+str r2/r6, [r0, #0x40]                 inside hi_sfc_hw_dma_read and hi_sfc_hw_dma_write
+```
+
+**`0x38` is written with DIFFERENT VALUES for different operations - 5 for some, 1 for others, computed
+values elsewhere - and `0x40` is written by the DMA functions with their length argument.** They are
+**per-operation registers**, not init-time configuration.
+
+**SO MY DRIVER'S PER-READ WRITES ARE CORRECT, AND ALWAYS WERE.** They match what the vendor does in its
+own DMA functions. The reason `hi_spi_nand_hw_read` appears to omit them is that **its caller sets
+them** - the chain runs `hi_spi_nand_drv_dma_read` → `0x3318` → `0x303c`, and the dispatcher passes a
+spec struct carrying the operation's parameters, which is where those values come from.
+
+**And that means the three failed builds were never going to work**, because they removed writes the
+operation needs. **The restore is the right form, and it now matches the vendor on both values:**
+`0x38 = 1` and `0x40 = 1` are exactly what the vendor's page read has at the moment it runs.
+
+**A correction to my own record, kept deliberately:** the previous phase called these "the two registers
+the vendor sets once at init". That was wrong, and the grep is what showed it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
