@@ -6533,3 +6533,73 @@ define-after-use. **CLEAN.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50eh (2026-10-10): THE ROOTFS MOUNTS - AND THE HOLES WERE UNFLUSHED CACHE ★★★★★
+
+## 1. THE 32-BYTE ZERO HOLES ARE UNFLUSHED CACHE LINES
+
+**The window's text is cut apart by holes that are EXACTLY 32 BYTES - one cache line - scattered
+through otherwise-contiguous text.** **That has one mechanical cause: every write to this region goes
+through the linear map and is CACHED, and this board is reset by a watchdog with no cache maintenance in
+between.** **Dirty lines that happen to be evicted reach DRAM; the rest never leave L1/L2 and are gone when
+the vendor image boots.**
+
+**AND THAT IS THE "UNIFYING FACT" THIS PROJECT RECORDED SEVERAL FIRES AGO - every I/O write sticks and
+every RAM write seems to vanish - characterised CORRECTLY, explained WRONG:** the crumb registers always
+worked because **I/O space is UNCACHED**; the RAM window never did because **it is cached and nobody ever
+flushed it.** **And the "the two paths meet" reading two fires ago was true only because the one line it
+compared happened to have been evicted before the reset.**
+
+```c
+__cpuc_flush_dcache_area(p, LUOFU_LOG_KEEP);
+outer_flush_range(__pa(p), __pa(p) + LUOFU_LOG_KEEP);
+```
+
+## 2. AND THE LOG SAYS THE ROOTFS MOUNTED
+
+```
+1984  >[    4.056766] Run /sbin/init a
+2016  s init process..<7>[    4.060848
+2048  ]   with arguments:..<7>[    4.0
+2080  60852]     /sbin/init..<7>[ ..<4
+```
+
+**"Run /sbin/init as init process" WITH "with arguments: /sbin/init" is printed by `kernel_init()` ONLY
+AFTER `prepare_namespace()` HAS MOUNTED THE ROOT.** **If the mount had failed the kernel would have
+panicked with "VFS: Unable to mount root fs" instead.** **SO THE SQUASHFS ROOTFS IN THE UBI VOLUME MOUNTS
+AND THE KERNEL STARTS INIT.**
+
+**AND THE DEATH IS AFTER INIT STARTS, not at the mount.** The same window carries, at 4.271302 and
+4.28-4.29:
+
+```
+[<c071aed0>]
+[<c0708474>] (do_work_pending+0xe4/0x3ac)
+Exception stack(0xc0639fb0 to 0xc0639ff8)
+```
+
+**which is an exception taken on the syscall/user-return path - AFTER init was exec'd.**
+
+**SO THE NEXT FIRE'S JOB IS DIFFERENT FROM EVERY FIRE SO FAR: NOT "WHY WON'T IT MOUNT" BUT "WHAT IS THIS
+EXCEPTION IN THE FIRST USER PROCESS".** **And with the flush, the log that describes it will be the log that
+survives.**
+
+## Also visible in the same window (UBI attached cleanly)
+
+```
+ubi0: attached mtd16 (name "upgrade", size 29 MiB)
+ubi0: PEB size: 131072 bytes (128 KiB), LEB size ...
+ubi0: min./max. I/O unit sizes: 2048/2048, sub-page size 2048
+ubi0: VID header offset: 2048 (aligned 2048), data offset: 4096
+ubi0: bad PEBs: 0, corrupted PEBs: 0
+ubi0: available PEBs: 79, total reserved PEBs: 1...
+```
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
