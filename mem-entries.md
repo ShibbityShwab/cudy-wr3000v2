@@ -7140,3 +7140,81 @@ a load in one slot and an execute in the other.
 **Device mutation.** The `kernela` write and its reboots; `mtd16` holds the audited soft-float OpenWrt
 25.12.5 rootfs (volume 0, `owrt`) and an empty `rootfs_data` volume (volume 1, 79 LEBs). The vendor's own
 `ubi0` untouched. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ep (2026-10-10): THE WRITE PATH, TAKEN FROM THE VENDOR'S OWN SYMBOL TABLE ★★★★★
+
+**OpenWrt boots on this kernel now, and the one thing it cannot do is keep a configuration:**
+
+```
+UBIFS error (ubi0:1 pid 164): ubifs_mount: can't format empty UBI volume: read-only UBI volume
+mount_root: failed to mount -t ubifs /dev/ubiblock0_1 /tmp/overlay: Read-only file system
+```
+
+**and the line that names the cause is one UBI prints about this driver:**
+
+```
+ubi0: MTD device 16 is write-protected, attach in read-only mode
+```
+
+**which was TRUE: `mtd->flags` cleared `MTD_WRITEABLE`, declared `MTD_NO_ERASE`, and no `_write` or
+`_erase` was offered.** **That was this driver's oldest property, held on purpose.** **It is given up here
+for a specific reason, and with the sequences NOT GUESSED.**
+
+## `hi_flash.ko` HAS A FULL SYMBOL TABLE - 454 SYMBOLS
+
+**So the vendor's write and erase were disassembled BY NAME:**
+
+```
+hi_spi_nand_drv_dma_write   104 bytes      hi_spi_nand_hw_write    136 bytes
+hi_spi_nand_drv_erase       184 bytes      hi_spi_nand_hw_erase     64 bytes
+```
+
+```
+hi_spi_nand_hw_write(regs, row, recipe):
+    ADDRH  = row >> 16
+    ADDRL  = row << 16
+    SADDR_D0  = recipe[0]                (the DMA buffer)
+    SADDR_OOB = recipe[8]
+    OP_CFG = (cs<<11) | (if_type<<7) | (addr_cyc<<4) | dummy
+    dsb
+    OP_CTRL = (OP_CTRL & ~0xffff) | 3 | (recipe[0x18] << 8)
+
+hi_spi_nand_hw_erase(regs, addr, cs, cmd = 0xd8):
+    FMC_CMD = 0xd8 ; ADDRL = addr (stored verbatim) ; ADDRH = 0
+    DMA_LEN = 1 ; OP_CFG = (cs<<11)|0x30 ; FMC_OP = 0xc1
+```
+
+## AND ITS CALLERS DO LESS THAN THEY LOOK LIKE THEY SHOULD
+
+**`hi_spi_nand_drv_dma_write` copies the page into the buffer, fills the OOB with `0xff`, and issues the
+op.** **`hi_spi_nand_drv_erase` issues the erase and polls a feature register up to 2000 times.**
+**NEITHER SENDS A WRITE ENABLE AND NEITHER SENDS A PROGRAM EXECUTE - THE CONTROLLER PERFORMS BOTH
+ITSELF.** **Adding them would be inventing a sequence the hardware does not want, so they are not added.**
+
+**AND THE COMMAND SLOT IS READ-MODIFY-WRITE, NOT A FRESH WORD:** the vendor's own code does
+`ldr r3, [r5, #0x68]` before setting bits 8-15, **preserving the upper half.** **The read path's shape -
+`(cmd << 16) | 1` - is a DIFFERENT slot for a different operation, which is why the read works with it.**
+
+## WHAT CHANGED
+
+```c
+mtd->flags = MTD_CAP_NANDFLASH;      /* was (MTD_CAP_NANDFLASH & ~MTD_WRITEABLE) | MTD_NO_ERASE */
+mtd->_write = luofu_mtd_write;
+mtd->_erase = luofu_mtd_erase;
+```
+
+**WHAT BOUNDS IT:** the ops are reached only through the MTD core, so every address is inside this
+partition and every row computation is the one the read path already proves. **The first thing that will
+ever be written is the EMPTY, DISPOSABLE `rootfs_data` volume - 79 LEBs that exist to be formatted.**
+**And UBI attaching `mtd16` read-write means it will rewrite its own EC/VID headers, which is ordinary UBI
+behaviour on NAND and exactly what the vendor's stack does to this same partition.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 33 functions, no undefined macro, no
+define-after-use, **three spinlocks with three unlocks.** **CLEAN.**
+
+**Device mutation.** The `kernela` write and its reboots; `mtd16` holds the audited soft-float OpenWrt
+25.12.5 rootfs (volume 0, `owrt`) and an empty `rootfs_data` (volume 1, 79 LEBs). The vendor's own `ubi0`
+untouched. The router is healthy.
