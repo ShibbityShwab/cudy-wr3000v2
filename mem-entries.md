@@ -7647,3 +7647,60 @@ six and then twelve writes with byte-identical read-backs.**
 
 **Validator:** the fragment change is a config symbol and the assert list change is CI-only; the kernel
 tree itself is untouched by this commit.
+
+
+---
+
+# ★★★★★ PHASE 50ex (2026-10-10): MOUNT_ROOT DOES NOT PROBE - A UBI VOLUME MEANS UBIFS, FULL STOP
+
+## THE EXT4 TEST, AND WHAT IT PROVED BY FAILING
+
+**The volume held a valid ext4 - label `rootfs_data`, magic `ef53`, verified byte-identical through the
+volume's own block device (local first-4-KiB md5 `b44f1549...` = the device's read-back).**
+**`mount_root` read UBIFS off it anyway:**
+
+```
+UBIFS error (ubi0:1 pid 164): ubifs_read_node: bad node type (0 but expected 6)
+UBIFS error (ubi0:1 pid 164): ubifs_read_node: bad node at LEB 0:0, LEB mapping status 1
+Not a node, first 24 bytes:
+00000000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+mount_root: failed to mount -t ubifs /dev/ubi0_1 /tmp/overlay: Invalid argument
+```
+
+**Those twenty-four zeros are CORRECT ext4 content - the superblock lives at offset 1024 - and it did not
+matter.** **A UBI volume means UBIFS to this `mount_root`, full stop.** **The f2fs/ext4 strings inside
+`libfstools` are for CREATING an overlay on a different device class, not for choosing one here - my
+"mount_root detects the filesystem" reading was wrong and this is what killed it.**
+
+## SO THE ONLY PAIRING LEFT IS: AN MTD PARTITION NAMED rootfs_data, MOUNTED AS JFFS2
+
+**And that partition is reached BY NUMBER** - `mount_root` resolves the name through `/proc/mtd` and mounts
+what it gets - **so the number and the contents are both things it acts on, and NEITHER HAS EVER BEEN
+MEASURED ON THIS KERNEL.** **The first fire only ever said:**
+
+```
+mount_root: Could not open mtd device: /dev/mtd15
+```
+
+**WHICH COULD MEAN THE PARTITION IS AT A DIFFERENT NUMBER, OR THAT THE NODE IS MISSING, OR THAT IT EXISTS
+AND IS SIMPLY NOT WHAT MOUNT_ROOT WANTS. THREE DIFFERENT WORLDS, ONE MESSAGE - and every attempt since has
+been guessing between them.**
+
+## WHAT THE PROBE NOW REPORTS INSTEAD
+
+**After the partition table is registered, the driver asks for `rootfs_data` and `upgrade` by name and
+reports the mtd number each one gets, plus the first eight bytes of `rootfs_data` read through the ordinary
+read path** - an erased partition reads `ff`, and anything else names the filesystem already sitting there.
+**Probe time is also before whatever kills printk at four seconds, so this reaches the LOG WINDOW rather
+than a crumb the tick overwrites.**
+
+**AND THE SHADOWING VOLUME IS DELETED ON THE DEVICE so the MTD path is actually reachable when the next
+fire runs:**
+
+```
+ubirmvol /dev/ubi1 -N rootfs_data   rc=0
+Present volumes: 0                   <- only owrt (volume 0) remains
+```
+
+**Validator:** balance (0,0,0), no undefined macro, no define-after-use, no use-before-declaration, no
+call-before-definition, no collision for the two new locals. **CLEAN.**
