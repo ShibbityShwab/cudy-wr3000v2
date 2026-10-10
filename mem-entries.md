@@ -5902,3 +5902,46 @@ with none called before its definition, **no undefined macro, hook get/put balan
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dv (2026-10-10): THE WALK RETURNS 230 LINES - THE CONSOLE WAS EATING THEM ★★★★★
+
+**THE INSTRUMENT FINALLY ANSWERED BOTH QUESTIONS IN ONE READ:**
+
+```
+C18 = 0xC0DE502D     step 45, the tick crumb
+C1C = 0x002E00E6     high 16 = 0x002E = 46 TICKS
+                     low  16 = 0x00E6 = 230 LINES THE KMSG WALK RETURNED
+```
+
+**SO THE KERNEL'S LOG IS READABLE AND THE KMSG WALK WORKS - 230 lines of it.** Which means **the ring write
+is what fails**, and the ring only ever shows about fifty lines of early boot.
+
+**AND THE CONSOLE IS THE OTHER WRITER.** Its callback keeps **its own static offset** and **appends every
+chunk printk hands it** - **INTO THE SAME BUFFER THE DUMPER REWRITES FROM OFFSET 4 EVERY 500 ms.** **Two
+writers, one region, neither aware of the other** - so what survives is **whichever wrote last, and the
+console writes after every printk.** **The dumper's 230 lines were being overwritten by a console that at
+best contributes one registration dump.**
+
+**`register_console(&luofu_console);` IS GONE.** With it unregistered **the ring belongs to the dumper
+alone**, which also **freezes on panic** - so what `devmem` reads is **exactly what the kernel logged**,
+and **the panic trace that has been missing from every fire should finally be in it.**
+
+**The console's write function and struct are marked `__maybe_unused` rather than deleted**, because **the
+comment above them records the DMA collision discovery** - that this driver's log ring once sat inside the
+FMC's `dmam_alloc_coherent` landing zone, so **every page read returned the log text.** That is worth
+keeping; the console itself is not.
+
+**AND A SECOND FINDING, FROM `C18 = step 45` ITSELF: THE PANIC NOTIFIER DID NOT RUN THIS TIME.** The
+previous fire - with the mutex - **panicked at step 42**; this one, whose only change is a one-line payload
+edit that cannot cause a hang, **hung at the tick instead.** **The hang is therefore INTERMITTENT**, which
+means the read-path mutex **reduced it without eliminating it** - **there is at least one more race, or the
+mutex does not cover the path that matters.** That is recorded here rather than smoothed over.
+
+**Validator:** balance 0/0/0, 16 file-scope variables with none used before its declaration, 27 functions
+with none called before its definition, **no undefined macro, hook get/put balanced.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
