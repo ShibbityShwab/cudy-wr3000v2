@@ -4140,3 +4140,37 @@ it should be tested by reading the buffer at a moment when no read has just comp
 volume-table records verify, and every configuration value is now the vendor's.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ch (2026-10-10): THE VENDOR'S RAW IS CLEAN WHERE MINE IS SPLICED - the tension is measured, not hypothetical
+
+**Testing the tension directly, on page 2 - the page where logical and raw are known to differ:**
+
+```
+vendor LOGICAL page 2 @1040 : 00000000000000000000000000000000
+vendor RAW buf     @1040    : 00000000000000000000000000000000
+vendor SADDR_D0             : 0x82034000      <- CHANGED from 0x8207c000 earlier
+```
+
+**My driver's raw at that same offset held `4cfb74e7 668a0751 7536bd0c d17e0000` - the splice.** The
+vendor's raw holds the logical zeros. **Same hardware, same page, same offset, and the two drivers'
+raw buffers disagree.** The tension is measured, not hypothetical.
+
+**AND THE SNAPSHOT WAS INCOMPLETE, WHICH IS ITSELF A FINDING.** My earlier before/after register
+comparison read `0x00, 0x28, 0x2c, 0x38, 0x3c, 0x40, 0x68` - **not `0x4c`**. `SADDR_D0` is exactly the
+register that changes per read, and it uses **a pool of buffers**, so the destination I read once is
+not the one the next read uses. **Any conclusion drawn from a single read of that register describes
+one operation, not the driver.**
+
+**What stands, measured:**
+
+- the vendor's logical page and its raw buffer agree at the splice position;
+- my raw differs there by exactly the 14 bytes the de-interleave removes;
+- and with every configuration value now the vendor's, my raw still differs.
+
+**So the difference is inside the read operation itself** - in something neither the registers, the
+order, the configuration block, nor the destination count accounts for.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
