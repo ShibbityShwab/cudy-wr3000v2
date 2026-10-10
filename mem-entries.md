@@ -5352,3 +5352,52 @@ declaration, no undefined macro, no define-after-use, hook get/put balanced.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+## Phase 50dl (2026-10-10): AN INSTRUMENT WHOSE ADDRESS IS UNCERTAIN REPORTS ABSENCE
+
+**The first stamp attempt read back ZERO for all four slots - INCLUDING THE PANIC MARKER, whose crumb
+provably landed one line earlier** (`C18 = 0xC0DE502A`, and `C1C` carried the ring's address). **So the
+write either went somewhere else or did not happen, and from the host there was no way to separate:**
+
+```
+luofu_diag_buf being NULL, or
+the diag being somewhere other than log + LOG_SIZE
+```
+
+**The second is entirely possible: `LOG_SIZE` grew from `0x200` to `0x4000` in this same stretch**, so
+`luofu_diag_dma = base + LOG_SIZE` moved with it - **and every note about the diag's address predates
+that.**
+
+**AND A READ OF THE DIAG SUPPORTS IT:** `diag+0..2047` held **166 non-zero words of a sequential,
+flash-data-like pattern** (`0x8061140e`, `0x8071140e`, `0x8081140e`, incrementing by `0x10000`) - **not
+zeros, and not anything this driver writes there.** So the buffer I read is not the buffer the stamps
+went to.
+
+**THAT IS THE SAME TRAP I HAVE HIT THREE TIMES NOW - AN INSTRUMENT WHOSE ADDRESS IS UNCERTAIN REPORTS
+ABSENCE, AND ABSENCE READS LIKE A NEGATIVE RESULT.** So the stamps get an address that cannot be wrong:
+
+```
+0x80607800   past the ring           (ring ends 0x80607000)
+0x80607804   past the diagnostic buf (diag ends 0x80607200)
+0x80607808   inside the window       (window ends 0x80608000)
+0x8060780c   and identity-mapped, the same region the ring itself is written through
+
+    [0x80607800]  ticks    how many times the 500 ms timer ran   (0 = it never fired)
+    [0x80607804]  jiffies  the last tick's jiffies
+    [0x80607808]  lines    lines the last kmsg walk returned
+    [0x8060780c]  the panic notifier's fixed marker 0xc0de9a11
+```
+
+**AND THE PANIC MARKER IS NOW THE CONTROL.** Its crumb lands **every fire without fail**, so if
+`0xc0de9a11` appears at `0x8060780c` **the write mechanism works and `ticks = 0` means the timer
+genuinely did not run**; **if it does not appear, the write itself is what fails** - and that is the bug
+to fix, not the timer.
+
+**The validator is clean:** 27 functions, 14 file-scope variables, **no call or use before its
+declaration, no undefined macro, no define-after-use, hook get/put balanced, stamps at four call sites.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
