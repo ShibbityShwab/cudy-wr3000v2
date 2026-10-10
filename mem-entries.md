@@ -6477,3 +6477,59 @@ define-after-use, **one spinlock with one unlock and no early return between the
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50eg (2026-10-10): THE FRONTIER MOVED, AND THE SLIDE WAS CUTTING LINES IN HALF ★★★★★
+
+**THE PER-PAGE LOCK HELPED, AND THE RING SHOWS IT:**
+
+```
+max timestamp  4.053960  ->  4.265227
+ubi0: go, 1024K init, 160K bss...   ubi0 ATTACHED
+```
+
+**The boot reaches a fifth of a second further - small in wall-clock and large in meaning: the lock WAS
+holding interrupts off, and releasing it more often MOVED THE FRONTIER.**
+
+## AND A KERNEL WARNING'S HEADER IS NOW VISIBLE
+
+```
+4>[    3.061116] ------------[ c          <- "------------[ cut here ]------------"
+```
+
+**BUT ITS BODY IS UNREADABLE, AND THE REASON IS MY OWN SLIDE.** The window was written directly and slid
+with `off = 4` whenever the next line would not fit - **WHICH CUTS A LINE IN HALF AND SPLICES THE NEWEST
+TEXT INTO THE MIDDLE OF THE OLDEST.** **That is what six apparent "wraps" inside one 3.5 KiB window were,
+each between a late timestamp and 0.000000: NOT A CIRCLE, BUT LINES CHOPPED THROUGH.**
+
+```c
+static char scratch[LUOFU_LOG_SCRATCH];
+
+if (s + len + 1 > sizeof(scratch)) {
+	size_t keep_from = sizeof(scratch) / 2;
+
+	while (keep_from < s && scratch[keep_from] != '\n')
+		keep_from++;
+	if (keep_from < s)
+		keep_from++;
+
+	memmove(scratch, scratch + keep_from, s - keep_from);
+	s -= keep_from;
+}
+```
+
+**Lines accumulate in the scratch first. When it fills, the oldest HALF is dropped and the cut is moved
+forward to the next newline - SO EVERY BYTE THAT REACHES THE WINDOW IS A WHOLE LINE.** The window then
+takes the tail, **also starting at a line boundary.**
+
+**WITH THAT, THE WARNING'S BODY IS READABLE FOR THE FIRST TIME - and a warning with a stack trace through
+`warn_slowpath_fmt` at 3.06 s, JUST BEFORE `ubi0` ATTACHES, is THE MOST CONCRETE THING THIS FAULT HAS
+PRODUCED.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
