@@ -3683,3 +3683,36 @@ reading to `page_size + SPLICE_LEN` in the source, because the source holds both
 as both sectors of data.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bu (2026-10-10): THE COMPLAINT MOVED BACKWARD - 16 was wrong, 14 at 1040 was right
+
+**The sixteen-byte splice made it worse, and UBI said so in the only language that settles it:**
+
+```
+with 14 at 1040:  vtbl_check: bad CRC at record 118   (117 records accepted)
+with 16 at 1024:  vtbl_check: bad CRC at record 5     (four accepted)
+```
+
+**The complaint moved BACKWARD** - the clearest possible refutation. **So the data really is
+`[0..1039]` plus `[1040..2033]`, the spare slot really is 14 bytes at 1040, and the `0xFFFF` in the
+OOB buffer is the first two bytes of the ECC field rather than the size of the splice.**
+
+**Two measurements that looked like independent confirmations - the OOB layout and
+`4128 = 2 x (2048 + 16)` - were both readings of something other than the splice.** The OOB is real
+(the buffer *is* written), and 4128 is real, and neither describes the splice. **The fit I distrusted
+was right.**
+
+**Reverted to 1040/14.**
+
+**The line is now narrower than it has ever been:**
+
+- the read is correct for **2034 of the 2048 data bytes of every page**;
+- the missing 14 are **the page's last 14**, not delivered by a transfer that stops at 2048;
+- no register examined so far extends that transfer.
+
+**The remaining question is exactly one: what makes the controller move 2062 bytes instead of 2048.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
