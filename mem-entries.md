@@ -4821,3 +4821,42 @@ not touch."* **It was applied to the page read by analogy, and that analogy was 
 **And this is a clean single-variable change, made from the restored and verified 117-record base.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50da (2026-10-10): UBI ATTACHED - THE ROOTFS VOLUME IS READABLE ★★★★★
+
+**The ECC fix closed the read path completely. UBI's own log, from our kernel and our driver:**
+
+```
+ubi0: scanning is finished
+ubi0: attached (the volume table verified - NO vtbl_check LINE AT ALL)
+ubi0: PEB size: 131072 bytes (128 KiB), LEB size: 126976 bytes
+ubi0: background thread "ubi_bgt0d" started, PID 52
+block ubiblock0_0: created from ubi0:0(squashfs)                <- THE ROOTFS BLOCK DEVICE
+luofu-fmc 10a20000.fmc: FMC: ubi0 volume 0 begins 68 73 71 73, ubiblock0_0 resolves
+                                                     ^^^^^^^^^^
+                                        68 73 71 73 = "hsqs" = THE SQUASHFS MAGIC
+```
+
+**WHAT THIS MEANS. Our kernel, with our own NAND driver, now:**
+
+- reads the flash **correctly** - every volume-table record verifies;
+- **attaches UBI** - the error that stood in the way for the whole stretch is gone;
+- reports the volume's geometry (128 KiB PEB, 126976 LEB);
+- **creates the rootfs block device** `ubiblock0_0`;
+- **reads the squashfs superblock** and finds the magic `hsqs`;
+- and the stage-D hook takes its **success** path, printing `ubiblock0_0 resolves`.
+
+**AND THE DEFECT WAS ONE LINE.** `luofu_fmc_read_page` opened by calling
+`luofu_fmc_ecc_type_set(fmc, 0)` - disabling the ECC engine - copied by analogy from the ID and feature
+paths, where disabling it is correct because those are single-byte transfers. **With the engine off, the
+controller emitted the raw stream with the page's spare area spliced inline**: the 14-byte window at
+1040, the displaced tail, and every symptom that followed. **The vendor's page read never touches that
+register, and its raw buffer was clean for exactly this reason.**
+
+**The panic that remains is expected and is the stage's own end state:** `init=/nonexistent-init` in the
+cmdline, so `mount_block_root` fails after the volume is up. The read path is no longer what stops it.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
