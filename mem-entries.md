@@ -7913,3 +7913,64 @@ done() -> jffs2_switch -> jffs2mark -> OOB write -> !_write_oob -> silent failur
 identify() -> data read -> ff ff ff ff -> OOB read -> nothing -> FS_NONE -> tmpfs overlay
 our marker -> data read -> 0x1985 -> FS_JFFS2 -> mount_overlay -> a real overlay
 ```
+
+
+---
+
+# ★★★★★ PHASE 50fc (2026-10-10): THE MARKER WORKED, AND JFFS2 REFUSED ON ONE MISSING FIELD
+
+## THE FIRE THAT PROVED THE MARKER
+
+```
+FMC: rootfs_data is mtd15 size=1600000 read=0 got=8: 85 19 03 20 0c 00 00 00
+FMC: rootfs_data already carries 0x20031985; leaving it alone
+jffs2: inconsistent device description
+mount_root: failed to mount -t jffs2 /dev/mtdblock15 /tmp/overlay: Invalid argument
+```
+
+**THE `-t ubifs` ATTEMPT IS GONE AND `-t jffs2` HAS REPLACED IT** - `volume_identify()` returned
+`FS_JFFS2` because the first bytes read `85 19`. **The twelve-byte marker did exactly what it was written
+to do, and the guard proved itself too: a partition that already carries a marker is reported and left
+untouched.**
+
+## AND THE NEW ERROR WAS ONE FIELD
+
+```c
+int jffs2_nand_flash_setup(struct jffs2_sb_info *c)
+{
+	if (!c->mtd->oobsize)
+		return 0;
+
+	c->cleanmarker_size = 0;
+
+	if (c->mtd->oobavail == 0) {
+		pr_err("inconsistent device description\n");     /* <-- this board, this line */
+		return -EINVAL;
+	}
+```
+
+**`oobavail` IS NOT DERIVED FROM `oobsize` - it is a separate field the driver has to fill in.** **This
+driver set `oobsize` and left `oobavail` at its default of zero, so JFFS2 refused the mount on EVERY
+partition, and had done since the driver first registered an mtd.**
+
+**THAT ALSO EXPLAINS WHY OPENWRT'S OWN REPAIR NEVER WORKED.** **`done()` calls `jffs2_switch()` for
+`FS_NONE`, and every route out of it passes through this same mount - so the missing `oobavail` was
+blocking the vendor-side repair path AND the direct mount, independently of the missing `_write_oob`
+found earlier.**
+
+## WHAT THE CHAIN NOW IS
+
+```
+identify()   -> data read 0x1985      -> FS_JFFS2                       (the marker does this)
+mount_overlay-> mount -t jffs2 /dev/mtdblock15 /tmp/overlay
+jffs2 mount  -> oobavail != 0         -> proceeds                      (this commit does this)
+             -> "overlay filesystem has not been fully initialized yet" -> overlay_delete + rebuild
+             -> "switching to jffs2 overlay" -> mount_move + fopivot -> A REAL, PERSISTENT OVERLAY
+```
+
+**A geometry line goes in with the fix so the next fire states the four numbers rather than leaving them
+to be inferred:**
+
+```
+FMC: geometry: writesize %u erasesize %u oobsize %u oobavail %u
+```
