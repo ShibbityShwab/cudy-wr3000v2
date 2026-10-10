@@ -8019,3 +8019,48 @@ and reported "already carries 0x20031985".** **Something erased that block betwe
 plausibly the failed JFFS2 mount itself, which is known to erase blocks it cannot use. **It does not
 change the sequence (the marker is rewritten whenever the first four bytes are `ff`), but it does mean
 the marker is not assumed to persist across a failed mount.**
+
+
+---
+
+# PHASE 50fe (2026-10-10): JFFS2 SCANS THE PARTITION - A WRONG CRC FLAVOUR AND 1.5 MB OF LEFTOVER DATA
+
+**Reaching JFFS2's scanner at all is the progress: the OOB-less declaration did its job and the mount is
+now inside the filesystem instead of being refused by its geometry.**
+
+```
+FMC: wrote the jffs2 marker; read back 0x20031985 (identifies as FS_JFFS2)
+jffs2: jffs2_scan_eraseblock(): Node at 0x00000000 {0x1985, 0x2003, 0x0000000c)
+      has invalid CRC 0x813c6fd8 (calculated 0xe41eb0b1)
+jffs2: Magic bitmask 0x1985 not found at 0x00000004: 0x000c instead
+jffs2: Incompatible feature node (0xe009) found at offset 0x00181758
+mount_root: failed to mount -t jffs2 /dev/mtdblock15 /tmp/overlay: I/O error
+```
+
+## FAULT ONE, AND IT WAS MINE: THE KERNEL'S crc32 IS NOT zlib's
+
+**Checked against JFFS2's own printed number rather than guessed:**
+
+```
+zlib.crc32(header, 0xffffffff) ^ 0xffffffff  ==  0xe41eb0b1      <- exactly what jffs2 calculated
+```
+
+**init ~0 with no final complement. The four bytes are `b1 b0 1e e4`.**
+
+## FAULT TWO, AND IT WAS THE PARTITION'S: DATA AT 1.5 MB
+
+**`Incompatible feature node (0xe009) found at offset 0x00181758` is what actually stops the mount.**
+**`mtd15` had only ever been probed at block 0 and block 128, where it is erased - it is NOT erased
+everywhere.** **A partition clean at the start and carrying junk further in has never held a filesystem,
+and JFFS2 will not adopt it.**
+
+## SO THE WHOLE PARTITION IS ERASED BEFORE MARKING - AND THE GUARD IS WHAT MAKES THAT SAFE
+
+**The erase runs only behind the existing check that the first four bytes read `ff ff ff ff`, and a
+filesystem that has ever been mounted writes block 0. So the destructive path is UNREACHABLE for a live
+overlay and cannot eat user data on a later boot, while a never-formatted partition gets the clean slate
+JFFS2 requires.**
+
+**This is the third distinct obstacle found and removed in three consecutive fires, each one revealed
+only after the previous was cleared: `oobavail` zero -> JFFS2 refused the device; no OOB ops -> JFFS2
+refused the cleanmarker path; wrong CRC and 1.5 MB of junk -> JFFS2 refused the scan.**
