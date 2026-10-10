@@ -6227,3 +6227,51 @@ BOOT COULD WRITE TO IS NOT WRITABLE NOW.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50eb (2026-10-10): THE PHYSICAL ADDRESS WAS RIGHT ALL ALONG - `__va` IS THE QUESTION ★★★★★
+
+```
+C1C = 0x000CD603     lines = 0xCD = 205     page bits = 0x603
+```
+
+**AND `0x80603000 >> 12` IS `0x80603`, WHOSE LOW TWELVE BITS ARE `0x603` - SO THE MATCH IS EXACT AND
+`luofu_log_dma` IS `0x80603000`, EXACTLY WHAT THIS DRIVER ASKED FOR.** **THE ADDRESS WAS NEVER THE
+PROBLEM.** **All the guesswork about collision shifts and window bases was chasing something that was
+already right.**
+
+## WHAT HAS NEVER BEEN CHECKED IS WHAT `__va()` TURNED IT INTO
+
+```c
+luofu_log_b = (void *)__va((phys_addr_t)luofu_log_dma);
+```
+
+**On ARM that is `x - PHYS_OFFSET + PAGE_OFFSET`.** **It never gets re-examined after it is assigned, and
+every RAM write this driver makes since this phase began has vanished - the ring, the diagnostic buffer,
+and every stamp - while every I/O write has stuck.** **That is exactly the shape of a pointer aimed at
+memory nothing is listening to.**
+
+**SO THE PANIC CRUMB CARRIES ITS TOP BYTE:**
+
+```
+C1C = (lines << 8) | ((luofu_log_b >> 24) & 0xff)
+
+0xC0   __va gave 0xC06xxxxx - the expected kernel virtual address
+0x40   it gave 0x406xxxxx - or the physical address unmodified
+0x80   it gave 0x806xxxxx - __va was a no-op, so PHYS_OFFSET == PAGE_OFFSET on this SoC
+```
+
+**AND ONE OF THOSE IS THE ANSWER, BECAUSE THE RING AT `0x80603000` PHYSICAL DOES HOLD TEXT** - **this
+kernel's own first boot, byte for byte, with a newest timestamp of 4.380 s that never moves.**
+**SOMETHING WROTE THERE ONCE.** **If `luofu_log_b` is not pointing where that text is, then the writes
+vanish for a reason that has nothing to do with the address this driver computed, and everything to do
+with the translation applied to it.**
+
+**The line count stays in the payload, so a boot that gets further still reports how much it logged.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
