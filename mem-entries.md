@@ -2751,3 +2751,40 @@ the device this driver registered**, and if it is not, it is probably also what 
 picked. Printing every mtd with its name, type and geometry answers that directly.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50au (2026-10-09): `mtd14` - THE ANSWER HAS BEEN IN UBI'S MESSAGE THE WHOLE TIME
+
+**UBI's own line, read for many fires as a label rather than as a fact:**
+
+```
+ubi0 error: ubi_attach_mtd_dev: failed to attach mtd14, error -22
+```
+
+**`mtd14` exists in our kernel.** Under the vendor's own `/proc/mtd` that index is `rootfsb` -
+and the vendor's kernel does not load here, so **mtd14 can only be present if the vendor's MTD
+driver is compiled into our kernel and has registered its whole 17-partition table.**
+
+**Which means both `get_mtd_device_nm("rootfsb")` and `ubi.mtd=rootfsb` have been resolving to
+that device, not the one our FMC driver builds** - and **every read this phase measured**,
+including the `(0,0)` results our own driver cannot emit and the EC scan's 32/32 pass,
+**describes the vendor's half-initialised driver rather than ours.**
+
+**And that plausibly explains the original `-EINVAL` outright:** UBI reading a flash through a
+driver that is not fully set up in this kernel. Nothing about headers, compat flags or read paths
+- a device identity.
+
+**The assumption hid in plain sight:** I read "mtd14" as "the mtd device" for many fires, when
+its *index* was the fact that mattered - our FMC driver registering one partition would have been
+`mtd0`. **The number was the evidence and I treated it as a name.**
+
+**Two changes, aimed at confirming it in one fire:**
+
+- **the crumb now carries OUR mtd's index in its low twelve bits** - the log's physical address is
+  slot-aligned, so those bits are free, and the index is the number that decides everything;
+- **the log filter also keeps chunks containing `"FMC"`** - it kept only `"ubi"` and was therefore
+  discarding the driver's own diagnostics, including the enumeration just added.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
