@@ -7759,3 +7759,57 @@ directly.**
 **AND THE PRIMARY LANE REMAINS THE JFFS2 DIAGNOSTIC: its config job is green and its kernel job is
 compiling. That fire reports the mtd number `rootfs_data` resolves to and its first eight bytes, which is
 what decides between the three worlds `Could not open mtd device: /dev/mtd15` could be describing.**
+
+
+---
+
+# PHASE 50ez (2026-10-10): THE DIAGNOSTIC WAS RIGHT AND ITS OUTPUT WAS DISCARDED
+
+## THE MEASUREMENT I LOST, AND WHY
+
+**The decompressed kernel that was actually sliced - `our-vmlinux-v9.bin`, 9,780,372 bytes, produced by
+`make-fixed4.py` from the artifact's zImage - contains all three strings:**
+
+```
+FMC: no rootfs_data partition (%ld)
+FMC: rootfs_data is mtd%d size=%llx read=%d got=%zu: %02x %02x %02x %02x %02x %02x %02x %02x
+FMC: upgrade is mtd%d, and the master is mtd%d
+```
+
+**AND NO FIRE EVER SHOWED THEM. The reason is the LOG RING: it keeps the TAIL, and the earliest line it
+still retains is `3.508 s`. The probe prints at about 3.5 s, so the measurement was TAKEN AND DISCARDED
+before the window that survives even began.**
+
+**THIS IS THE SAME FAILURE AS THE CRUMB THE TICK OVERWRITES, ONE LAYER UP: the instrument wrote, and the
+channel kept only the newest.** **Fixing one instance did not fix the pattern - I have now lost a
+measurement to a retention policy twice, once in the crumb and once in the log.**
+
+**The fix: the reporting moves into `luofu_fmc_ubi_probe()`, the late_initcall that already prints at
+4.02 s inside the retained window** - the same function that already resolves partitions by name:
+
+```c
+	part = get_mtd_device_nm("rootfsb");
+```
+
+**which is the idiom this needed in the first place, and which was in the file the whole time.**
+
+## AND THE PROCESS FIX THAT ACTUALLY HOLDS
+
+**I fired twice with the wrong or unverified image.** **The cause was a window between "the monitor
+stages the artifact" and "I fire" that I kept walking into.** **So the monitor now does the whole chain
+itself: wait for CI -> download -> print the md5 -> FIRE -> report the fire's tail.** **The window no
+longer exists because there is no second step for me to get wrong.**
+
+## AND TWO FIRES' WORTH OF NEGATIVE RESULT, WHICH IS NOT NOTHING
+
+**Both fires returned `C1C = 0x4B4B0320`: 75 writes and 75 erases, `wr_cmd = 0x32`, `mism = 0`.** **That
+is a far larger workload than any earlier fire and it completed with zero errors and a byte-identical
+read-back.** **And the source is identified, not guessed: the log carries**
+
+```
+ubi0 warning: ubi_attach: valid VID header but corrupted EC header at PEB 197
+```
+
+**on the partition where deleting the shadowing volume freed 79 PEBs whose EC headers were stale, so UBI
+erased and rewrote them as it attached.** **`mtd15` was never touched - measured, 0 non-`0xff` bytes in
+block 0 and in block 128 - so nothing has written an overlay yet.**
