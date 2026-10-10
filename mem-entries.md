@@ -8331,3 +8331,38 @@ came from an erase with no write enable behind it, so it was never a test of the
 **THE PROGRAM PATH NEEDS NO EQUIVALENT - its command carries the enable itself - which is why the marker
 has always written correctly while nothing was ever erased.** **And JFFS2 reading the planted `0x5a5a` back
 off block 1 is what proved it.**
+
+
+## ★★★★★ PHASE 50fm (2026-10-10): ERASE WORKS - AND A RACE ATE PART OF THE PARTITION
+
+```
+C1C = 0x4FFE0888   writes 79 | erases 254 | err 0
+  block 1    : ERASE WORKS
+  block 25   : ERASE WORKS
+  last block : ERASE WORKS
+```
+
+**THE WRITE ENABLE WAS THE ERASE'S WHOLE PROBLEM.** **Everything tried before it was address guesswork
+against a chip that was refusing the command anyway - three encodings, five fires, all of them measuring a
+chip that had never been told the erase was coming.**
+
+**BUT A WHOLE-PARTITION ERASE STILL LEFT ~500 KB BEHIND, AND THE VENDOR'S OWN DRIVER SAYS THE DATA IS REAL
+RATHER THAN A READ ARTIFACT:**
+
+```
+offset 0x4595e4    32 non-ff bytes      offset 0x321bc8    0 non-ff
+offset 0x00621798  32 non-ff bytes      offset 0x181758    0 non-ff
+first 8 MiB        521,750 non-ff bytes
+```
+
+**and sampling every eighth block found only block 96 dirty** - **a scattering, at a DIFFERENT set each
+boot, which is exactly how it presented from outside: JFFS2 naming a new offset every time.**
+
+**THE CAUSE IS A RACE THE LOOP CANNOT SEE.** **176 erase commands are issued back to back, each carrying a
+single WRITE ENABLE, and any block still busy when the next command arrives loses its erase.** **The
+three-block self-test could never expose it - each of its erases is separated by a read and a fresh write
+enable.**
+
+**SO EVERY BLOCK IS NOW VERIFIED AND RE-ERASED IF IT DID NOT TAKE, up to three tries, with the count that
+needed a second pass reported.** **The check is the same one the self-test uses, so the loop proves itself
+rather than trusting its own return value - which is the discipline this whole arc has been teaching.**
