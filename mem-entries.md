@@ -4174,3 +4174,33 @@ one operation, not the driver.**
 order, the configuration block, nor the destination count accounts for.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ci (2026-10-10): ★ THE HARDWARE DOES NOT SPLICE - my de-interleave has been compensating for my own defect ★
+
+**Reading the vendor's RAW buffer for page 3 and comparing it with its LOGICAL output:**
+
+```
+f116c36b in the vendor's LOGICAL page 3: [12, 184, 356, 528, 700, 872, 1044, 1216, 1388, 1560, 1732, 1904]
+f116c36b in the vendor's RAW     page 3: [1044]
+
+=> RAW and LOGICAL agree: the hardware does NOT splice.
+```
+
+**The record CRCs sit at 172-byte stride - the record length - and the raw buffer has them at exactly
+the same offsets as the logical page.** The hardware delivers a clean page. **There is no splice.**
+
+**So my de-interleave has been compensating for a defect in my own driver**, which means every build
+carrying it was correcting a problem that only exists because of something else this driver does -
+and it is also why the page loses its last 14 bytes: the copy skips them.
+
+**AND THE ARRANGEMENT WAS NEVER PROPERLY TESTED.** The plain copy was tried once, but in a build that
+had also had its destinations stripped to one and its length writes removed - **the same overlap mistake
+as before.** A plain copy with the vendor's configuration, order and destinations has never run.
+
+**That is the next change:** the vendor's full configuration (now programmed), its register order, its
+three destinations set once at probe time as it does, and a **plain copy** with no de-interleave.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
