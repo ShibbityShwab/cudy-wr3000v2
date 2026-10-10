@@ -5249,3 +5249,57 @@ reads the next build failure: **function order is checked now, not just macro or
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+## Phase 50dj (2026-10-10): THE SAME CLASS AGAIN - MOVING A BLOCK MEANS MOVING ALL OF IT
+
+**The second build failed with:**
+
+```
+luofu-fmc.c:1529:20: error: 'luofu_log_timer' undeclared (first use in this function)
+```
+
+**THE SAME FAMILY AS THE FIRST FAILURE AND A DIFFERENT SYMBOL.** The first fix moved the FUNCTION
+`luofu_log_tick()` below the function it calls. **But the timer's VARIABLE was part of the same block, so
+it travelled with the function - and ended up BELOW the line that uses it:**
+
+```c
+static void luofu_log_tick(struct timer_list *t)
+{
+	...
+	mod_timer(&luofu_log_timer, jiffies + msecs_to_jiffies(LUOFU_LOG_TICK_MS));
+}
+
+static struct timer_list luofu_log_timer;      /* declared after its use */
+```
+
+**MOVING A BLOCK MEANS MOVING EVERYTHING THE BLOCK DEPENDS ON, AND I MOVED HALF OF IT.**
+
+**THE VARIABLE NOW SITS WITH THE OTHER LOG GLOBALS, ABOVE EVERY FUNCTION THAT USES IT:**
+
+```
+1000  static void *luofu_log_b;
+1004  static struct kmsg_dumper luofu_kmsg;
+1005  static struct timer_list luofu_log_timer;
+1444  static void luofu_kmsg_to(...)
+1521  static void luofu_log_tick(...)
+```
+
+**ALL FILE-SCOPE STATE BEFORE ALL FUNCTIONS** - which removes the whole class rather than this instance.
+
+**AND THE CHECKER COVERS VARIABLES NOW.** The function-order check added after the first failure **would
+not have caught this one**, because it walks `luofu_*` CALL SITES and this was a plain identifier. **It now
+also collects every file-scope declaration (12 of them) and requires that no use precedes it:**
+
+```
+functions: 26       | called before definition: none
+file-scope vars: 12 | USED BEFORE DECLARED: none
+```
+
+**TWO BUILD FAILURES FROM ONE HABIT, and both were caught by CI rather than by the device** - which is
+the point of compiling on the runner. **The checker has closed both.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
