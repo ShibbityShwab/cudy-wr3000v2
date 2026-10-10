@@ -6603,3 +6603,96 @@ define-after-use. **CLEAN.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ei (2026-10-10): THE ROOTFS MOUNTS, INIT RUNS - AND THE USERSPACE WAS FOR THE WRONG CPU ★★★★★
+
+## THE FLUSH DELIVERED THE COMPLETE LOG
+
+**3571 of 3584 bytes non-zero, ONE 13-byte zero run at the very end (tail padding), NO 32-byte holes.**
+**The log is complete and contiguous for the first time in this phase:**
+
+```
+ubi0: attaching mtd16
+ubi0: MTD device 16 is write-protected, attach in read-only mode
+ubi0: scanning is finished
+ubi0: attached mtd16 (name "upgrade", size 29 MiB)
+ubi0: good PEBs: 236, bad PEBs: 0, corrupted PEBs: 0
+ubi0: user volume: 1, internal volumes: 1, max. volumes count: 128
+ubi0: available PEBs: 79, total reserved PEBs: 157
+ubi0: background thread "ubi_bgt0d" started, PID 52
+block ubiblock0_0: created from ubi0:0(owrt)
+luofu-fmc 10a20000.fmc: FMC: ubi0 volume 0 begins 68 73 71 73, ubiblock0_0 resolves
+VFS: Mounted root (squashfs filesystem) readonly on device 254:0.       <- THE MOUNT
+devtmpfs: mounted
+Freeing unused kernel memory: 1024K
+Run /sbin/init as init process                                          <- INIT EXEC'D
+  with arguments:
+    /sbin/init
+Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000004  <- SIGILL
+CPU: 0 PID: 1 Comm: init
+[<c0bb9f04>] (panic) from [<c0719d30>] (do_exit+0x1a0/0x840)
+[<c0719d30>] (do_exit) from [<c071aed0>] (do_group_exit+0x58/0xb8)
+[<c071aed0>] (do_group_exit) from [<c072505c>] (get_signal+0x1e0/0x640)
+[<c072505c>] (get_signal) from [<c0708474>] (do_work_pending+0xe4/0x3ac)
+Rebooting in 5 seconds..
+```
+
+**exitcode=0x00000004 = signal 4 = SIGILL.** The kernel reached init, init took an illegal instruction, and
+init dying is fatal. **THE KERNEL HALF OF THE EVAL CRITERION IS DONE: UBI attaches, the volume resolves,
+the squashfs rootfs MOUNTS, and init is exec'd.**
+
+## AND THE CAUSE IS ONE LINE IN THE ROOTFS
+
+Mounted the volume on the vendor system and read it:
+
+```
+DISTRIB_TARGET='armsr/armv7'
+DISTRIB_ARCH='arm_cortex-a15_neon-vfpv4'      <-- WRONG CPU
+```
+
+**The userspace was built for CORTEX-A15 with VFPv4. Our SoC is a Cortex-A9** (`CPU: ARMv7 Processor
+[414fc091]`, part 0xc09). **An A9 has NO hardware divide (sdiv/udiv) and NO VFPv4 (vfma) - so the A15
+build legitimately contains instructions this CPU cannot decode. THE MOUNT WAS NEVER THE PROBLEM; THE
+USERSPACE WAS BUILT FOR THE WRONG CORE.**
+
+## THE FIX, TAKEN AND VERIFIED ON THE DEVICE
+
+`arm_cortex-a9_vfpv3-d16` is a strict subset of this A9's capability - no idiv, no vfpv4. **The image was
+carved straight out of a 25.12.5 mvebu image:** download the smallest `squashfs-sysupgrade.bin`, find
+`hsqs`, read bytes_used from the superblock, trim.
+
+```
+mvebu/cortexa9    arch_packages = arm_cortex-a9_vfpv3-d16
+bcm53xx/generic   arch_packages = arm_cortex-a9
+sunxi/cortexa7    arch_packages = arm_cortex-a7_neon-vfpv4     (A7 has idiv+vfpv4 - still wrong)
+```
+
+```
+squashfs v4.0  block_size=262144  compression=XZ  bytes_used=2852982  inodes=1061
+```
+
+**And it is confirmed mounted on the device, not assumed:**
+
+```
+DISTRIB_TARGET='mvebu/cortexa9'
+DISTRIB_ARCH='arm_cortex-a9_vfpv3-d16'
+DISTRIB_RELEASE='25.12.5'
+Volume ID: 0 (on ubi1)   Size: 133 LEBs   State: OK   Name: owrt
+```
+
+**The vendor's own ubi0 untouched, the volume detached afterwards, /tmp/u unmounted.**
+
+## NOTE FOR THE NEXT FIRE
+
+**With a working userspace there may be NO PANIC, so the panic crumb (step 42) will not be written - the
+5-second TICK (step 45) is what will carry the state and the window content.** And the 180-second safety
+timer is what brings the box back.
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use. **CLEAN.**
+
+**Device mutation.** The `kernela` write and its reboots; the verified UBI volume in `mtd16` now holds the
+Cortex-A9 rootfs. The router is healthy.
