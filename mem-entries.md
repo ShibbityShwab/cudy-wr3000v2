@@ -2858,3 +2858,32 @@ line numbers, missing definitions, and definition order. **That is the differenc
 and a formality.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50ax (2026-10-10): CONFIRMED - THE VENDOR'S PARTITION TABLE IS ON OUR DEVICE
+
+**The previous enumeration answered it in the one line that survived the panic dump:**
+
+```
+FMC: mtd[15] name=rootfs_data type=4 size=230... esz=131072 wsz=2048 ...
+... size=24379392 off=55836672 ...
+```
+
+**55836672 is `0x3540000` - which is exactly where the vendor's own layout puts `rootfs_data`,
+the sixteenth partition.** So the vendor's devicetree partition table **is attached to our MTD**,
+**`mtd14` "rootfsb" is a partition of our own device**, and **UBI has been reading OUR HARDWARE
+all along.** The fault is in **how a partitioned read reaches the chip**, not in whose driver it
+is - which is the correction the config predicted and this line confirms.
+
+**And the ring is 512 bytes while the panic dump is larger**, which is why the full enumeration
+came back interleaved and half-gone. **So the driver now prints only the three lines that still
+matter:** `mtd[0]`/`mtd[14]`/`mtd[15]` with size and offset; the master's own name, size,
+writesize and erasesize; and what `rootfsb` resolves to.
+
+**The master's SIZE is the number to watch.** A partition offset beyond it would make every read
+out there fail the bounds check in `mtd_read()` **before our driver is reached at all** - which
+would explain short and empty reads **without any fault in the page read itself.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
