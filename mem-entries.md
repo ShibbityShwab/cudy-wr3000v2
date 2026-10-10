@@ -8064,3 +8064,20 @@ JFFS2 requires.**
 **This is the third distinct obstacle found and removed in three consecutive fires, each one revealed
 only after the previous was cleared: `oobavail` zero -> JFFS2 refused the device; no OOB ops -> JFFS2
 refused the cleanmarker path; wrong CRC and 1.5 MB of junk -> JFFS2 refused the scan.**
+
+
+## AND THE BUILD CAUGHT THE SAME CLASS AGAIN: `__aeabi_uldivmod` (2026-10-10)
+
+```
+arm-linux-gnueabihf-ld: drivers/mtd/nand/luofu/luofu-fmc.o: in function `luofu_fmc_ubi_probe':
+luofu-fmc.c:(.init.text+0x30c): undefined reference to `__aeabi_uldivmod'
+```
+
+**`part->size` is a 64-bit `loff_t` and `part->erasesize` is 32-bit, so the erase loop's block count
+pulled in libgcc's 64-bit divide - and the kernel does not link libgcc.** **`div_u64()` is the kernel's
+own divider for a 64-by-32 unsigned quotient, and the count is now computed once before the loop.**
+
+**THIS IS THE SECOND TIME THIS EXACT CLASS HAS COST A BUILD** - the first was `__aeabi_ldivmod` from a
+64-bit modulo in the mtd write path, fixed with `div_u64_rem`. **Both times the compiler was the reader
+and I was not.** **The check applied this time was the class rather than the instance: every remaining
+division in the function was walked, and no other 64-bit operator division is left in the new code.**
