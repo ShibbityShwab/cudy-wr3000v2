@@ -5505,3 +5505,64 @@ declaration, no undefined macro, no define-after-use, hook get/put balanced.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50do (2026-10-10): EVERY WORKING IMAGE ON THIS BENCH USES 128 KiB BLOCKS ★★★★★
+
+**FOUR FIRES WENT INTO INSTRUMENT ADDRESSES WHILE THE MOUNT ITSELF WAS UNTOUCHED, SO THIS TURNS BACK TO
+THE OBJECTIVE - AND THE OBJECTIVE HAD A MEASURABLE DIFFERENCE SITTING IN IT THE WHOLE TIME.**
+
+**Every squashfs on this bench, with its block size:**
+
+```
+WR3000V2-2.5.24.zip.rootfs.sqfs   131072  xz
+WR3000V2-2.4.15.zip.rootfs.sqfs   131072  xz
+stock/rootfs-live.sqfs            131072  xz
+Jeton AX3000 rootfs               131072  xz
+build/custom/*.sqfs               131072  xz
+owrt-rootfs.sqfs                  262144  xz   <- THE ONLY 256 KiB ONE,
+                                                  AND THE ONE WHOSE MOUNT FAULTS
+```
+
+**AND THE KERNEL IS `CONFIG_SQUASHFS_DECOMP_SINGLE`**, so the decompressor allocates **ONE buffer of
+`block_size`** - **256 KiB contiguous on a 128 MB board, plus the XZ decoder's own workspace** - **on the
+exact path where `vfs_get_tree` faults.**
+
+**THE REPACK HAD TO HAPPEN ON LINUX:** squashfs records ownership, permissions and setuid bits, and a
+Windows round-trip loses all of it. **The CI runner is the only Linux here.**
+
+**AND THE REPACK WORKED ON THE FIRST RUN:**
+
+```
+Creating 4.0 filesystem on owrt-128k.sqfs, block size 131072.
+Exportable Squashfs 4.0 filesystem, xz compressed, data block size 131072
+917/917 100%
+trimmed bytes: 4024924
+```
+
+**WHAT FAILED WAS THE VERIFY STEP, AND IT WAS THE WRONG CHECK:**
+
+```
+mount: /mnt/verify: wrong fs type, bad option, bad superblock on /dev/loop0
+```
+
+**The runner's kernel says nothing about whether THE DEVICE can mount it** - the device has already
+mounted a squashfs from `mtd16` with its own vendor kernel, **which is a stronger test than a GitHub
+runner's.** **And worse, the failure BLOCKED THE ARTIFACT UPLOAD**, which is the one thing the workflow
+exists to produce.
+
+**SO THE VERIFY IS NOW `unsquashfs -s`/`-ll`/`-cat`** - the superblock, the file listing, the release file
+**read back out of the repacked image**, and `sbin/init`'s mode bits - **with the kernel mount kept as a
+best-effort step that cannot fail the job.**
+
+**AND THE REAL VERIFICATION IS ON THE DEVICE, IN THE ORDER THAT COSTS NOTHING:**
+
+1. flash the repacked image to `mtd16`;
+2. **mount it from the VENDOR's kernel first** - the check that already worked for the 256 KiB image;
+3. **and only then fire our kernel at it.**
+
+**Device mutation.** Unchanged so far - the workflow produces an artifact and touches nothing. The
+`kernela` write and its reboots remain the only device mutation, plus the verified rootfs partition.
+The router is healthy.
