@@ -5104,3 +5104,60 @@ is explicitly unset.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dg (2026-10-10): THE INSTRUMENT WAS READING A 4 KiB LOG AND OVERWRITING THE CONSOLE ★★★★★
+
+**The ring has been showing the same 0.15 s of boot no matter how far the kernel got, and now the reason
+is measured rather than guessed.**
+
+**Every dump ended MID-LINE at literally 4092 bytes of text:**
+
+```
+[    0.148375] clocksource: jiffies: ma
+```
+
+**4092 is `CONFIG_LOG_BUF_SHIFT`'s buffer. THE KERNEL'S OWN LOG BUFFER IS 4 KiB**, so every
+`luofu_kmsg_to()` copy was the same 4 KiB of the **OLDEST** boot text - and the reason it was the oldest
+is that the buffer had wrapped and the copy starts at its beginning. **The instrument was faithfully
+reproducing a 4 KiB window and I was reading it as the state of the boot.**
+
+**TWO FAULTS, BOTH IN THE INSTRUMENT.**
+
+**1. THE SNAPSHOT TIMER WAS OVERWRITING THE CONSOLE.**
+
+A 3-second timer called `luofu_kmsg_to()` to work around `dumper->active` never being set -
+`kmsg_dump_get_line_nolock()` returns false immediately unless the dumper is active, and nothing sets
+that for a dumper whose callback has never run.
+
+**BUT THE CALLBACK RUNS NOW.** This kernel always panics at the end of the boot - that is what `panic=5`
+and the failing mount still do - so `kmsg_dump()` really does invoke `luofu_kmsg_dump` and sets `active`
+on its way in. **The workaround is obsolete.**
+
+**AND IT WAS ACTIVELY HARMFUL:** the timer's copy wrote from **OFFSET 4 of the ring**, over the top of
+what the console hook had been accumulating there. **The console is the only instrument that can hold
+more than 4 KiB, because it receives each line as it is printed** - and the timer destroyed it every
+three seconds.
+
+**2. THE FREEZE WAS SET IN THE SHARED WRITER, SO THE TIMER TRIGGERED IT.**
+
+`luofu_log_frozen` was set inside `luofu_kmsg_to()`, which has three callers. **The timer fired at t=3s,
+set the flag, and stopped the console capturing for the rest of the boot.**
+
+**IT IS SET IN THE PANIC PATH ONLY NOW:** `luofu_kmsg_dump` (the real dumper, called inside `panic()`
+before the notifier chain) and `luofu_panic_notify`. **Both are death-path only, and both are the last
+things to write.**
+
+**AND THE KERNEL LOG BUFFER IS 64 KiB NOW (`CONFIG_LOG_BUF_SHIFT=16`)** so a panic dump carries a whole
+boot rather than 4 KiB of its beginning.
+
+**WHAT THIS SHOULD SHOW:** the mount into `/dev/mtdblock16` still faults. **The vendor's kernel mounts
+the same image from the same partition**, so the image, the flash and the XZ are proven and the fault is
+in this kernel. **Every fire so far reported the FAULT but not the CAUSE, because the 4 KiB buffer never
+contained the trace.** With a console that survives the whole boot and a 64 KiB log, the next dump
+should name the function and the address.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified rootfs partition.
+The router is healthy.
