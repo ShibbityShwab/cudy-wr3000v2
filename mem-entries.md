@@ -6367,3 +6367,53 @@ define-after-use. **CLEAN.**
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
 `mtd16`. The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50ee (2026-10-10): UBI ATTACHES, AND A WARNING'S TRACE - BUT THE TEXT IS SPLICED ★★★★★
+
+**THE CAP AND SLIDE WORKED, AND THE RING FINALLY CARRIES LATE-BOOT CONTENT:**
+
+```
+3.315547  Creating 1...                       <- "Creating 1 UBI device"
+3.599879  ubi0: go, 1024K init, 160K bss...   <- ubi0 ATTACHED
+3.997412  [<c0e19358>] command line: ...
+Zone rangrom [<c0708c50>] (show_stack+0x1
+d39c>] (dump_stack+0xb4/0xd0)
+a15c>] (warn_slowpath_fmt) froffffff]
+alloc0954238>] (mpih_sqr_n+0x1e8/0x2...
+```
+
+**SO UBI ATTACHES** - **the first time the kernel's own words have said so** - **AND A WARNING'S STACK TRACE
+IS IN THERE:** `show_stack` <- `dump_stack` <- `warn_slowpath_fmt` <- ... <- **`mpih_sqr_n`, which is RSA
+bignum code, the module-signature path.**
+
+**AND THE LATEST TIMESTAMP IS 3.997412 s WITH ZERO TICKS - so the boot dies inside ~4 s, which is inside
+the probe.**
+
+## BUT THE TEXT IS SPLICED
+
+**`"Zone rangrom [<c0708c50>]"` IS TWO DIFFERENT LINES OVERLAPPED**, **and the trace's frames are cut
+through by fragments of older text.** **The ring is 16 KiB of fixed memory that nothing clears between
+boots, and the dump only rewrites the first 3.5 KiB of it - so the previous contents show through
+everything that is not overwritten.**
+
+```c
+memset(p, 0, LUOFU_LOG_KEEP);
+```
+
+**AND IT IS HERE RATHER THAN AT REGISTRATION ON PURPOSE.** **An earlier attempt to write to these buffers
+while the kernel was alive MOVED THE FAILURE FORWARD AND KILLED THE BOOT** - that is recorded in this file.
+**This function now runs only from the panic path and the 5-second tick, and the panic path is terminal,
+so zeroing here cannot shorten a boot that is already over.**
+
+**WITH PURE TEXT THE WARNING'S MESSAGE LINE APPEARS FOR THE FIRST TIME - and that line names what
+`warn_slowpath_fmt` was complaining about, which is the first concrete thing about this fault that is not
+an inference.**
+
+**Validator:** balance (0,0,0), 17 file-scope variables, 28 functions, no undefined macro, no
+define-after-use, hook get/put 2/3. **CLEAN.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots, plus the verified UBI volume in
+`mtd16`. The router is healthy.
