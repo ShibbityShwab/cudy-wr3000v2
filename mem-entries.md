@@ -4307,3 +4307,38 @@ part of the discovery stands. But it **also** calls `hi_fmc_en_interrupt(1)` bef
 interrupt route needs implementing on its own, deliberately, not folded in beside another change.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cm (2026-10-10): THE INTERRUPT REPLACES THE BUSY POLLS - that is why step 8 failed
+
+**The second interrupt build failed at step 8 again, and the reason is now clear: this driver was
+doing BOTH waits.**
+
+It waited up to **100 ms** for the DMA completion interrupt - **easily long enough for a page transfer
+to finish** - and then ran the old *"wait for BUSY to ASSERT"* loop. **By then BUSY was long clear, so
+that loop ran its full 100000 iterations and returned `-ETIMEDOUT`**, which is what killed the probe at
+step 8. **The enable register was not the missing piece; keeping both waits was the bug.**
+
+**The vendor polls no busy bit anywhere in this path.** `hi_spi_nand_drv_dma_read` enables the
+interrupt, starts the operation, and waits for the interrupt - **full stop. The interrupt IS the
+completion condition, so waiting for it REPLACES the busy polls rather than adding to them.**
+
+**So the busy polls are gone.** What remains is the vendor's own shape:
+
+```
+enable FMC_INT_EN, clear FMC_INT_CLR
+start the operation
+wait for FMC_INT_STATUS bit 0
+disable FMC_INT_EN, clear FMC_INT_CLR
+de-interleave and copy
+```
+
+with `-ETIMEDOUT` returned only if the interrupt never fires, **and the de-interleave kept because the
+plain copy was measured worse** (4 records against 117).
+
+**Two builds already sit behind this one** - the confirmed baseline and the destination-ordering fix -
+so a failure costs nothing but tells me the next thing to look at.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
