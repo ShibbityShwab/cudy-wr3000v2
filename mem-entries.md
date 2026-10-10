@@ -3650,3 +3650,36 @@ itself the remaining defect.**
 it is read from the same buffer whose destination register the driver has always set.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50bt (2026-10-10): THE OOB BUFFER IS LIVE - and it plus 0x38 both say SIXTEEN bytes per sector
+
+**The OOB buffer was never read back until now, and it is not empty:**
+
+```
+ffffc36b 00000000 00000000 00000000 74ef7bfa 49b4b9fc d7a4023e 7f87ffff ...
+52 of 64 bytes non-zero
+```
+
+**`0xFFFF` is the bad-block marker**, followed by ECC bytes - the classic `[1024 data][2 bbm][14 ecc]`
+layout, **which is a sixteen-byte spare per 1024-byte sector.** So **the controller does write the
+OOB destination**; the spare is real and it is sixteen bytes. **That is the first positive result out
+of the register work in several turns.**
+
+**And `0x38` agrees.** It reads **4128**, and **4128 = 2 x (2048 + 16) exactly**: two transfers of a
+page plus sixteen spare bytes. **The second independent confirmation of the same number, from a
+register that had just refuted my reading of it as a counter.**
+
+**So the splice is `[1024 data][16 spare]` repeated, not 14 bytes at 1040.** My earlier 14 came from
+**fitting our samples against the vendor's own `mtd14`** - a fit that **could not see the splice's
+position**, because the vendor holds no data in the discriminating range, and that settled on a value
+**the hardware's own structures contradict.** Sixteen is what the OOB layout and the transfer
+arithmetic both say.
+
+**The de-interleave now skips 16 at 1024:** copy the first sector, skip the spare, copy the second -
+reading to `page_size + SPLICE_LEN` in the source, because the source holds both spare regions as well
+as both sectors of data.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
