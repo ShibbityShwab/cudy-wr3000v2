@@ -5566,3 +5566,44 @@ best-effort step that cannot fail the job.**
 **Device mutation.** Unchanged so far - the workflow produces an artifact and touches nothing. The
 `kernela` write and its reboots remain the only device mutation, plus the verified rootfs partition.
 The router is healthy.
+
+
+---
+
+# ★★★★★ PHASE 50dp (2026-10-10): THE BLOCK-SIZE HYPOTHESIS IS WRONG - THE 256 KiB IMAGE READS PERFECTLY
+
+**THE REPACK IS DEFECTIVE, AND THAT REVERSES THE HYPOTHESIS.**
+
+```
+mtd verify:  Success   (a0d9ffb538a5a9ac2ea4313af55686ec, matches /tmp/owrt128.sqfs)
+mount:       SUCCEEDED  (bin dev etc lib mnt overlay proc rom root sbin sys tmp usr var)
+reading:     ls: /mnt/t/bin: I/O error     <- EVERY entry, but the names list fine
+```
+
+**METADATA READS; DATA DOES NOT.** The directory listing comes from the superblock and inode table, and
+the file contents give I/O errors - **so the repack lost the data blocks, and `unsquashfs` + `mksquashfs`
+is not a faithful round-trip on this tree.**
+
+**AND THE CONTROL WAS ALREADY IN HAND: THE 256 KiB ORIGINAL READS PERFECTLY THROUGH THIS SAME PATH.** I
+had cat'd its `openwrt_release` and listed its `bin/busybox` and `sbin/init` from the vendor's kernel.
+**So THE BLOCK SIZE IS NOT THE MOUNT FAULT.**
+
+**AND THE DISPROOF COST NOTHING, WHICH IS THE POINT.** A vendor-kernel mount on the device is a **cheaper
+test than a fire**, and it is the check that should have run before the hypothesis was written into a
+workflow. **The 256 KiB vs 128 KiB difference is real on this bench and it is not the cause.**
+
+**`mtd16` IS RESTORED to the known-good 256 KiB image:** `/mtd verify: Success`, md5
+`ad0c6b9539d88a2e3f775f2c66f625a0`.
+
+**WHAT THIS LEAVES:** the image is proven good, the vendor's kernel reads it end to end, **and the fault is
+in our kernel's mount path.** The one path never exercised is the one the vendor actually uses -
+**UBI + `ubiblock`, which our kernel already attached successfully** (the volume table verified, the
+squashfs magic was read, `ubiblock0_0` resolved). **The raw-MTD route was mine.**
+
+**THE NEXT PATH: put the OpenWrt squashfs into a UBI volume and boot via `ubiblock0_0`.** The vendor's
+kernel has `ubiformat`, `ubiattach` and `ubiupdatevol`, and `mtd16` is free - so the volume can be made
+from the vendor side, and the cmdline goes back to `ubi.mtd=upgrade ubi.block=0,0
+root=/dev/ubiblock0_0 rootfstype=squashfs`.
+
+**Device mutation.** `mtd16` was rewritten twice and is now back to the verified known-good image. The
+`kernela` write and its reboots are unchanged. The router is healthy.
