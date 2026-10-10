@@ -3958,3 +3958,40 @@ disassembly question, not another fire**, and it is the right next step now that
 registers provably does not help.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cc (2026-10-10): THE POLL MATCHES TOO - and the caller has one step left to trace
+
+**The vendor's DMA status check, read from the disassembly:**
+
+```
+hi_fmc_status_check_dma_status @ 0x7c:
+  r4 = 0x186a0            <- 100,000 retries
+  r5 = r0 + 0x68          <- FMC_OP_CTRL - the SAME register this driver polls
+loop:
+  r3 = [r5] & 1           <- BUSY
+  if (busy) { delay(0x20c498); if (--r4 == 0) return 0x70000000; loop }
+  return 0
+```
+
+**And this driver's bound is identical:**
+
+```
+FMC_CMD_POLLS = 100000      vendor uses 0x186a0 = 100000      ratio 1.0
+```
+
+**So the poll is not the difference either** - same register, same bit, same bound. My two-phase wait
+is a different shape but reaches the same condition.
+
+**What that leaves.** The driver now matches the vendor on **every register measured**, on **the poll**,
+on **the destination count**, and on **the de-interleave that makes 117 of 118 records verify**. **And
+the page's last 14 data bytes are still absent.**
+
+**And one part of the vendor's caller is not yet traced.** `hi_sfc_drv_dma_read_uid` runs
+`hi_sfc_hw_dma_read` then `hi_fmc_status_check_dma_status` then a further call this driver has no
+equivalent of, and the vendored reader must obtain the page's final bytes somewhere. **That is the
+next thing to read, and it is a local disassembly question, not another fire.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
