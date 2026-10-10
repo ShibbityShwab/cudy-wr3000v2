@@ -4413,3 +4413,39 @@ bytes of `hi_spi_nand_drv_dma_read` in full, including the paths after the inter
 only been read in part.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cp (2026-10-10): ★★★ THE SYMBOL TABLE HAD A GAP AT 0x2d80 - and behind it, feature 0xB0 ★★★
+
+**Every earlier conclusion came from the disassembly's symbol list. That list has a gap at
+`0x2d80`** - the helper `hi_spi_nand_drv_dma_read` calls to perform its operation - **so the operation
+setup had never been read.** The module and capstone are both local, so disassembling that range by
+hand found `0x2d80` is a thunk to `0x3760`, and `0x3760` does this:
+
+```
+mov r1, #0xb0        ; FEATURE 0xB0
+mov r2, #0xf         ; read 15 bytes
+bl  <read>           ;   -> ldrb r3, [sp, #3]
+bic r3, r3, #0x10    ; CLEAR BIT 4
+orr r3, r3, #0x40    ; SET   BIT 6
+mov r2, #0x1f        ; write 31 bytes
+bl  <write>
+```
+
+**AND THIS DRIVER NEVER TOUCHES EITHER BIT.** Its only write to `0xb0` is `cfg | BIT(0)`, the quad
+enable. **Bits 4 and 6 of the SPI-NAND configuration register govern how the chip emits array data** -
+and a driver that leaves them at the die's defaults can get an output stream carrying spare bytes
+where the working one gets a clean page. **That is exactly the 14-byte window at 1040 this driver has
+had to de-interleave out.**
+
+**This is the first difference in many turns that is not a value already matched, a write order, or a
+completion condition.** It is a **chip configuration the vendor sets on every operation and this driver
+has never set at all** - and it was invisible because the function containing it was missing from the
+disassembly I had been reading.
+
+**The fix reads feature `0xb0`, clears bit 4, sets bit 6, and writes it back**, preserving everything
+else, done after the quad enable so bit 0 survives, with a log line printing before and after.
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
