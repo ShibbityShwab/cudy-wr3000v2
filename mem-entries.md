@@ -7813,3 +7813,69 @@ ubi0 warning: ubi_attach: valid VID header but corrupted EC header at PEB 197
 **on the partition where deleting the shadowing volume freed 79 PEBs whose EC headers were stale, so UBI
 erased and rewrote them as it attached.** **`mtd15` was never touched - measured, 0 non-`0xff` bytes in
 block 0 and in block 128 - so nothing has written an overlay yet.**
+
+
+---
+
+# ★★★★★ PHASE 50fa (2026-10-10): FSTOOLS IDENTIFIES THE OVERLAY BY FOUR BYTES - AND THEY WERE ff ff ff ff
+
+## THE ANSWER, READ FROM FSTOOLS' OWN SOURCE
+
+**`mount_root.c`:**
+
+```c
+	data = volume_find("rootfs_data");
+	switch (volume_identify(data)) {
+	case FS_NONE:
+		ULOG_WARN("no usable overlay filesystem found, using tmpfs overlay\n");
+		return ramoverlay();
+```
+
+**`libfstools/mtd.c`, `mtd_volume_identify()` - the whole decision, on four bytes at offset 0:**
+
+```c
+	sz = read(p->fd, &deadc0de, sizeof(deadc0de));
+	if (deadc0de == ~0) { ...ioctl(p->fd, MEMREADOOB, &oob); }
+	if (deadc0de == __be32_to_cpu(0x4f575254)) return FS_SNAPSHOT;   /* "OWRT" */
+	if (deadc0de == 0xdeadc0de)                return FS_DEADCODE;
+	if (__be16_to_cpu(deadc0de) == 0x1985 ||
+	    __be16_to_cpu(deadc0de >> 16) == 0x1985)
+		return FS_JFFS2;
+	return FS_NONE;
+```
+
+**AN ERASED PARTITION READS `ffffffff`. So it is `FS_NONE`, so the overlay is a tmpfs, so every setting
+written at runtime dies with the next boot - and nothing shipped in the rootfs can change that, because
+OpenWrt carries no mkfs and the kernel is not asked to format anything.**
+
+**This also retires every wrong theory in this arc at once: the failure was never UBIFS vs JFFS2 vs
+ext4, never the mtd number, never the media. It was four bytes of identification.**
+
+## AND THE WRITE THAT FIXES IT
+
+**The first four bytes become `85 19` = 0x1985 little-endian, which `identify()` answers as `FS_JFFS2`.**
+**The twelve bytes are a real JFFS2 cleanmarker - magic, nodetype 0x2003, length 12, and a valid
+`hdr_crc` over the first eight bytes (`d8 6f 3c 81`, checked against `crc32` before commit) - so the
+filesystem accepts the block rather than complaining about it.**
+
+**IT ONLY WRITES AN UNTOUCHED PARTITION: the first four bytes must read `ff ff ff ff`, or it reports what
+it found and returns without erasing anything.**
+
+**AND IT HAS TO BE OUR DRIVER THAT WRITES IT. The vendor's own cannot even erase mtd15 - `mtd write`
+against it returns an erase error - while ours has both paths measured with byte-identical read-back
+(12 writes / 4 erases in the UBIFS run, 75 / 75 during the UBI scrub).**
+
+## WHAT THE PRECEDING FIRE MEASURED, VERBATIM FROM THE RETAINED WINDOW
+
+```
+FMC: rootfs_data is mtd15 size=1600000 read=0 got=8: ff ff ff ff ff ff ff ff
+FMC: upgrade is mtd16, and the master is mtd0
+```
+
+**mtd15 is the number `mount_root` asks for - my predicted off-by-one shift was WRONG - the partition is
+22 MB, the read succeeds, and it is erased. Every one of those is what `FS_NONE` means.**
+
+**Also worth keeping: the diagnostic did not appear until it was moved into the late_initcall, because
+the log ring keeps the TAIL and the probe printed at ~3.5 s, before the oldest retained line. The
+instrument wrote and the channel kept only the newest - the same failure as the crumb the tick
+overwrites, one layer up, and it cost two fires.**
