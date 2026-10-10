@@ -4743,3 +4743,38 @@ busy-bit poll                             gone
 - **the five-write form cannot be reproduced on this path** - three builds say so.
 
 **Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
+
+
+---
+
+## Phase 50cy (2026-10-10): THE RESTORE IS FAITHFUL - 117 records are back, and the tree is trustworthy
+
+**The restored commit fired clean:**
+
+```
+C18 = 0xC0DE502A        step 42, the panic notifier - the probe completed
+C1C = 0x80603000        the log address
+complaint at record:   118        -> 117 OF 118 RECORDS ACCEPTED
+tail p11+2032:         f1160000
+```
+
+**So `git checkout 1ef70ad` restored the known-good state exactly**, and the working tree can be trusted
+for single-variable work again. That was the point of restoring rather than repairing.
+
+**WHERE THE WORK STANDS, PRECISELY:**
+
+- **117 of 118 volume-table records verify** - a hard, reproducible result, and the best this driver has
+  achieved;
+- **the page's last 14 data bytes are missing** from this driver's raw buffer, where the vendor's raw
+  buffer is clean;
+- **every register, address, configuration value, write order and completion condition that can be
+  compared matches the vendor's**;
+- **and the vendor's real page-read function is `hi_spi_nand_hw_read`** - found through the **relocation
+  table**, not the symbol list - **whose five register writes match this driver's on every value.**
+
+**THE ONE ASPECT NEVER MEASURED ON THE VENDOR'S SIDE IS THE SPI TIMING.** This driver now programs
+`FMC_TIMING_SPI_CFG` with the vendor's value (`0x6f`) at probe time, but **the clock divider's semantics
+are unverified** - and a timing mismatch is exactly the kind of defect that corrupts a portion of a page
+while leaving the rest correct. **That is the first single-variable experiment from the restored base.**
+
+**Device mutation.** Unchanged: the `kernela` write and its reboots. The router is healthy.
