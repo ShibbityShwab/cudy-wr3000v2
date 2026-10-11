@@ -12588,3 +12588,57 @@ C4's "r4 survives" means: the `0x54` crumb store used r4 as scratch, and the `0x
 (`mov r4, pc`) **supersedes** it; r4 is then legitimately recomputed at `0xc4/0xd0` (and adjusted at
 `0x2f4`) before the jump at `0xa2c`. Those recomputations are the intended destination computation, not
 clobbers. The corrected phrasing avoids implying r4 is written exactly once.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 124 (2026-10-12): ★★★★★ THE UBI IMAGE'S VID HEADERS PARSED - AND A COMPATIBILITY DEPENDENCY CONFIRMED ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## PARSED CORRECTLY (after two wrong attempts, both my own)
+
+The `UBI!` magic appears ONCE per erase block, at **offset 0x800 (2048)** - not where I first looked. With
+the real `struct ubi_vid_hdr` field layout, `build/tmp/owrt-ubi/owrt.ubi` decodes as:
+
+    PEB 0: ver=1 vol_type=1 (dynamic) compat=5  vol_id=0x7FFFEFFF  lnum=0   <- THE LAYOUT VOLUME
+    PEB 1: ver=1 vol_type=1 (dynamic) compat=5  vol_id=0x7FFFEFFF  lnum=1   <- THE LAYOUT VOLUME
+    PEB 2: ver=1 vol_type=2 (**STATIC**) compat=0 vol_id=0          lnum=0
+    PEB 3: ver=1 vol_type=2 (**STATIC**) compat=0 vol_id=0          lnum=1
+    PEB 4: ver=1 vol_type=2 (**STATIC**) compat=0 vol_id=0          lnum=2
+
+**Volume 0 is STATIC** - which is what `ubi.block=0,0` / `ubiblock` requires (a dynamic volume cannot be
+ubiblocked). The construction is therefore right for our cmdline, and the recorded boot's log agrees
+("`ubi.block=0,0` builds `ubiblock0_0` from volume 0 - which is the `owrt` volume").
+
+## ★ THE COMPATIBILITY DEPENDENCY, FOUND BY THIS PARSE ★
+
+**PEBs 0 and 1 - the UBI layout volume - carry `compat = 5`.** Mainline's `validate_vid_hdr()` accepts
+only `{0,1,2,3}` for internal volumes and rejects anything else with `"bad compat"` / `-EINVAL`, which
+`ubi_attach_mtd_dev()` reports as `failed to attach mtdN, error -22`.
+
+**Our kernel carries the fix**: `lab/luofu-kernel/kernel-tree.patch` adds `compat != 5` to the accepted
+set, and I verified it is present in the BUILD TREE used for the last fires:
+
+    kernel-tree.patch:92      +	    compat != 5) {
+    drivers/mtd/ubi/io.c:870      compat != 5) {
+
+**So the image and the kernel agree.** Had I built the image without checking, or had the patch been
+missing, the attach would fail with `-22` and the kernel would report it as a UBI attach error - i.e. the
+BOOT would look like a different failure entirely. This is a genuine cross-artifact dependency that the
+earlier grep in PHASE 84 ("kernel-tree.patch is the only source delta left un-reverted, and it is
+exonerated by logic") had DISMISSED as unreachable - and that dismissal was wrong in an important way:
+the patch is not unreachable, it is REQUIRED for a vendor-written layout volume, and mtd16's content has
+exactly that shape.
+
+## CORRECTING THAT EARLIER CLAIM, PLAINLY
+
+PHASE 84 argued the UBI patch could not matter because "our kernel never executes a single instruction".
+That was true of the FIRES OF THAT NIGHT (the container gate refused them). **It is false as a general
+statement**: once the container gate is satisfied and the kernel runs, the UBI patch is exactly what lets
+it attach a vendor-shaped flash. The patch is LOAD-BEARING, not exonerated.
+
+## WHAT THIS ADDS TO THE PLAN
+
+Nothing changes about the sequence - the kernel already carries the patch. What it adds is a PREDICTION
+WITH TEETH for the next fire: **if our kernel fails to attach mtd16, the error will name `-22`/`bad
+compat`, and that would mean this patch is missing from the build that ran - a one-line check, not a
+mystery.**
