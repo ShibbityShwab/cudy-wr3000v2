@@ -11599,3 +11599,56 @@ reset to obtain.
     web UI       : UP and AUTHENTICATED (sysauth session held in build/tmp/wj4.txt)
     upgrade page : HTTP 200, field and cap verified
     board        : stock 2.4.15-20251030-114751, healthy, ping answering
+
+
+## PHASE 105 (2026-10-12): THE COMPLETE CONTAINER LAYOUT AND THE REBUILD PLAN
+
+`tools/extract_firmware.py` confirmed the decomposition independently (same uImage offset, same load
+address, plus the UBI rootfs extent):
+
+    [0x000000 .. 0x08_0E5C)   header + bootloader blob          527,964 B   (2.4% of the image)
+    [0x08_0E5C .. 0x49_8C8C)   uImage kernel                    4,292,144 B
+                                 load/ep 0x80608000, name "Linux-5.10.201"
+    [0x49_8C8C .. 0x4E_2C94)   DTB / FIT region                   303,112 B
+    [0x4E_2C94 .. end)         UBI region - rootfs squashfs   16,901,131 B
+    total                                                     22,024,351 B
+
+    the extractor's own read: uImage kernel @527964 (load #x80608000);
+    squashfs @5127316, PEB 5123220, inodes 4322, bytes_used 15,709,012
+
+## ★ THE REBUILD FORMULA, AND THE ONE CONSTRAINT THAT MATTERS ★
+
+    new_image = vendor[0 .. uimg]  +  OUR uImage  +  <re-laid DTB + UBI region>
+
+Our uImage is **1,649,056 B SMALLER** than the vendor's, so a naive concatenation of the vendor's tail
+would move the DTBO container 1.6 MB off the position `bootfip` requires. **The gate is
+position-sensitive by construction** (the magic must sit exactly at
+`0x40 + ih_size + dtb_totalsize`), so:
+
+**the tail must be RE-LAID at the new offset, not merely appended.**
+
+That is exactly what `build/tmp/slice/vendor-tail.bin` (40,828 B: base DTB + the 96-byte descriptor
+table + the two overlays) exists for, and it is the artefact that took our kernel from "never ran" to
+`C0DE000B`. The same construction, applied inside the vendor container, produces a sysupgrade image
+whose kernel is ours and whose container is valid.
+
+## WHY THIS IS THE RIGHT ROUTE NOW
+
+- it uses **only the vendor's own, proven write path** (the web upgrade endpoint, verified open:
+  HTTP 200, field `cbid.upgrade.1.firmware`, `accept=.bin`, cap 25600 KB, and byte-identical to the
+  recipe the project already executed successfully once);
+- it needs **no ssh**, which the recovery removed;
+- it is a **build task**, so it does not risk the state a physical reset was needed to recover;
+- and it is the same container the vendor ships, so every structural check the endpoint performs
+  (platform_check_image's FIT/OEM path) is satisfied by construction.
+
+## WHAT IS STILL OPEN
+
+1. **The header checksum region.** The `hboot1tag` header carries fields at offsets 8..28 that may
+   include a size or CRC over the payload. If the endpoint validates them, a rebuild must recompute
+   them. Not yet decoded - it is the next host-side question.
+2. **The 303,112-B DTB/FIT region** between the kernel and the UBI area needs to be understood: if it
+   is the FIT the endpoint checks for (`d00dfeed`), it must be preserved; if it is part of the boot
+   container, it interacts with the DTBO gate.
+3. **Whether the endpoint accepts a container whose kernel differs from the embedded version string.**
+   Cheap to find out: the response is read before anything is written.
