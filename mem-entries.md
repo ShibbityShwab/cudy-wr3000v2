@@ -11400,3 +11400,49 @@ clobber removed) and read C18:
 
 The artifact differs from the previously-fired `2g-full.bin` by **exactly four bytes** (the register
 encodings in the breadcrumb), which makes this as clean a single-variable test as the session has had.
+
+
+## PHASE 101 (2026-10-11): THE r4 FIX VERIFIED AT THE INSTRUCTION LEVEL IN THE LINKED BINARY
+
+Re-audited with `objdump` as the oracle rather than hand-rolled instruction masks (my masks kept
+returning a false zero - `(w & 0xfff0f000)` masks out the Rd field, so it can never match a real
+`movt rN,#imm`; **a plausible-looking zero from a wrong mask is exactly the failure class this whole
+session has been fighting**, and objdump settled it in one command).
+
+**Every crumb write in `arch/arm/boot/compressed/vmlinux` (`.text`, VMA 0..0x5ea0): only TWO.**
+
+    0x054: e3004008  movw r4, #8      / e34c40de movt r4,#0xc0de    -> 0xC0DE0008  (writes r4)
+    0x350: e300600b  movw r6, #11     / e34c60de movt r6,#0xc0de    -> 0xC0DE000B  (FIXED, r6)
+
+**And the execution order settles whether 0x054 is dangerous:**
+
+    0x054 : the 0xC0DE0008 prologue crumb     (writes r4)
+    0x0c0 : mov r4, pc                         (r4 is COMPUTED, overwriting whatever was there)
+    0x0c4 : and r4, r4, #0xf8000000
+    0x0d0 : add r4, r4, r5                     (r4 = the final kernel entry address)
+
+`0xC0DE0008` runs BEFORE `r4` is computed, so its write is harmless - the earlier "SAFE" verdict was
+correct. **`0xC0DE000B` was the only crumb that touched a live `r4`, and it is fixed.**
+
+**The entry tail, in exact execution order (the proof the fix works):**
+
+    340: bl   cache_clean_flush
+    344: bl   cache_off
+    348: movw r3, #0xc18                        (crumb address)
+    34c: movt r3, #0x1010
+    350: movw r6, #11            <<< r6, NOT r4
+    354: movt r6, #0xc0de
+    358: str  r6, [r3]           <<< writes 0xC0DE000B; r4 is NOT touched
+    35c: mrs  r0, SPSR
+    360: and  r0, r0, #31
+    364: cmp  r0, #26            (HYP mode check)
+    368: bne  a20 <__enter_kernel>   <<< taken (not HYP) -> falls to mov pc, r4
+
+    00000a20 <__enter_kernel>:
+        a20: mov r0, #0
+        a24: mov r1, r7
+        a28: mov r2, r8
+        a2c: mov pc, r4          <<< r4 SURVIVES TO HERE
+
+**`r4` is written at 0x54 (before it is computed at 0xc0) and nowhere between 0xc0 and the jump at
+0xa2c except by design. The register now reaches `mov pc, r4` intact.**
