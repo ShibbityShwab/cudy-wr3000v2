@@ -8461,3 +8461,94 @@ speced: flash `kernelb`, `bootflag=b`, reboot, and observe whether `mount_root` 
 
 **This is a DEVICE-MUTATING operation and the one that stranded the board before** - the hazard is
 fixed, but it is a decision, not a default. Not run as of this entry.
+
+
+---
+
+# PHASE 52 (2026-10-11): THE NON-WIFI LANES - LEDGER
+
+Worked the whole project EXCEPT the Wi-Fi hardware wall (A9/A10 interrupt, B6 data path), both of which
+need instruments this bench does not have (JTAG / vendor source). Findings below; each lane says what
+changed and what is next.
+
+## ★ THE PERSISTENT OVERLAY ALREADY WORKS - ON THE VENDOR KERNEL (device, read-only)
+
+    /dev/mtdblock15 on /overlay type jffs2 (rw,noatime)
+    overlayfs:/overlay on / type overlay (rw, lowerdir=/, upperdir=/overlay/upper, workdir=/overlay/work)
+
+A file written to `/root` lands in `/overlay/upper/root/` (PROVEN persistent; /overlay is 514 KB, 79
+files, including our own earlier `etc`/`sbin` layer). `mtd15` (rootfs_data, 22 MB) is erased at the
+head and carries the squashfs volume near its end; JFFS2 "cowardly refuses to erase blocks on a
+filesystem with no valid JFFS2 nodes" - that is the SAFETY behaviour, not a fault. `ubi0` has exactly
+ONE volume (id 0 "squashfs"); no shadowing `rootfs_data` volume exists. Slot gate: `ubi0` is on
+`mtd14` = rootfsb, `bootflag=b`.
+
+**So the C6 lane's stated open item - "a persistent overlay on the erased rootfs_data partition" - is
+already satisfied on the vendor kernel. The one unproven thing is whether OUR kernel reproduces it.**
+
+## C4 - PINCTRL `set_mux` IMPLEMENTED (was a no-op stub)
+
+The vendor algorithm (`hi_pinmux_set_mux` @ .text+0x348) was already documented in the comment and the
+tables (37 pins x 5 entries, 24 groups) already transcribed, so no new evidence was needed: a per-pin
+dword RMW selecting the entry whose func name matches and clearing the rest, plus the group-level
+mask/value RMW for `jtag_gpio2..5`. Builds locally: `luofu-pinctrl.ko` 15,420 B (was 11,536), zero
+errors. The pinconf setters (bias/drive/slew) stay stubs - still unverified. Commit `6decd10`.
+
+## C3 - `clk set_parent` REFUSES BY DESIGN (not a gap)
+
+`luofu_mux_set_parent` returns `-EPERM` because writing `0x138` switches the CPU PLL source
+(`wrdesign.md` sec 1). Correct as-is; `get_parent` (read) works.
+
+## C7 - ETHERNET: the inventory, and the concrete next action
+
+No driver exists anywhere (a repo-wide search for `hsan,mac`/`gemac` in `.c` returns nothing outside
+docs). The DT is READY: `gmac0..4` @0x14300000..0x14500000 (`hisilicon,luofu-gmac`, rgmii + 4x gmii),
+`mdio0` @0x14000000 with 5 PHYs, and the internal switch `luofu-dp` (7 windows) / `luofu-pfe`
+(10 windows) / `luofu-lsw-woe` (5 IRQs) - all `status="disabled"` (`luofu-r116.dts:408-546`).
+**Next action:** decode the register map from the vendor's own `hi_kmac`/`hi_kphy`/`hi_kmdio` +
+`hi_lsw_*` modules - the technique that worked for clk, pinctrl and NAND - then write a `luofu-gmac`
+platform driver that binds the existing DT. Reference: `hix5hd2_gmac.c` (different family).
+
+## ★ TWO DEFECTS FOUND AND FIXED
+
+1. **`luofu-fmc.c` had THREE `module_init`-expanding macros** (`late_initcall_sync` x2 +
+   `module_platform_driver`). A module may define `init_module` exactly once, so the file could never
+   have compiled. Caught by the new local build lane in seconds. Fixed: one initcall; the UBI probe is
+   now called from the driver probe tail. Commit `eba7094`.
+2. **`wifi-cal-snapshot.sh` captured NOTHING.** It forced password auth, which cannot run
+   non-interactively on this bench (OpenSSH for Windows ignores `SSH_ASKPASS_REQUIRE=force` with a
+   console), so every `run "iwpriv ... alg ..."` failed silently under `2>/dev/null` and the snapshots
+   held headers with no values (zero SUCC). `wifi-cal-restore.sh` had the same lane PLUS a literal
+   `echo <ROUTER-SSH-PASSWORD>` placeholder in its askpass, so it could never authenticate at all.
+   Both fixed to prefer the key lane. Verified: a fresh snapshot captures 9 SUCC calibration values
+   plus the full artifact set. Commit `d514a54`.
+
+## BUILD LANE - SC1 REPRODUCIBILITY VERIFIED
+
+`tools\local-build.bat kernel` produces all three artifacts locally; sha256 matches the recorded
+manifest exactly (zImage `2d492456…`, dtb `8f549305…`, uImage `85d11ab7…`). **CI is redundant for
+every build in this project.** Fixed an idempotency bug in the build script (a second run re-applied
+the patch and aborted under `set -e`).
+
+## C9 - WATCHDOG DECODE STARTED (the concrete next action)
+
+`hi_wdg.ko` (9,292 B) is a STANDARD `watchdog_device` driver (imports `watchdog_register_device`,
+`watchdog_init_timeout`; own symbols `hi_wdt_probe/remove/enable/disable/ping/set_timeout` +
+`hi_wdt_hw_*`). Register structure recovered by disassembly: a state struct `[+4]`=reg base,
+`[+0x18]`/`[+0x1c]`=enable/disable values, `[+0x20]`=TIMEOUT reg, `[+0x24]`=CONTROL reg;
+`_hw_enable` writes `[+0x18]` then `[+0x1c]` to `base[+0x24]`; `_hw_set_timeout` uses
+`bfi(v, secs-1, #3, #9)` (mode 0) / `bfi(v, secs-1, #10, #9)` (mode 2) on `base[+0x20]` - two 9-bit
+prescaler fields at bits 3 and 10; `_ping` -> `hi_wdt_hw_clear` (base[+0x24]).
+DT node ready (`luofu-r116.dts:202-207`, `hisilicon,luofu-wdt`, SPI 2, timeout-sec 30).
+NEXT: read the vendor DT's `reg` for the watchdog, then write `luofu-wdt.c`.
+
+## LANE ACCOUNTING (SC6)
+
+C1 DT 70% | C2 config 75% | C3 clk 45% (set_parent refuses BY DESIGN) | C4 pinctrl **IMPLEMENTED**
+| C5 PCIe 25% (staged writes still commented out) | C6 NAND **one fire from closed; the overlay
+already works on the vendor kernel** | C7 Ethernet 0% (**inventory done, next action named**)
+| C8 U-Boot 10% (needs vendor source) | C9 watchdog+thermal (**decode started**)
+D1 90% | D2 100% | D3 75% | D4 0% (needs all of C + the Wi-Fi driver) | D5 0% (external)
+
+OUT OF SCOPE THIS RUN (hardware walls): A9 interrupt (device-internal wire), A10 dialogue (same),
+B5 H2D (vendor TX-credit callback), B6 data path (1.24 MB vendor MAC).
