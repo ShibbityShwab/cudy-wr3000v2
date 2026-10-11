@@ -8740,3 +8740,53 @@ fetch - measured twice now, PHASE 50fn and here). A physical action, so it is th
 - Board: off the network; needs the RESET-hold dance.
 - Door: armed and verified holding UDP 69.
 - Rollback: `build/tmp/fire/kernela-backup.bin` restores the stock kernel to whichever slot.
+
+
+---
+
+# PHASE 56 (2026-10-11): THE FIRE'S AFTERMATH - BOARD FULLY RESTORED AND HEALTHY
+
+## THE RECOVERY, END TO END
+
+The operator did the cold RESET-hold. The door log then shows the whole story:
+
+    RRQ recovery.bin from ('192.168.1.1', 1150)
+    ... DONE 40969 blocks 20975775 bytes in 4.3s
+
+The board wrote the image, rebooted, and came back:
+
+    FW: 2.4.15-20251030-114751              (the web footer)
+    Linux version 5.10.201 (jenkins@cudyrd1)  (the decisive identity: the VENDOR's build, not ours)
+    ssh: root@192.168.10.1 works
+
+## WHAT THE FIRE ESTABLISHED (the real result, independent of the restore)
+
+1. **The whole flash path works**: erase (`flash_eraseall`), write (`mtd write`), read-back verify,
+   and boot-slot selection. Our uImage was accepted by the bootrom - a clean boot produced **no**
+   recovery fetch, which means the image is structurally valid.
+2. **Our kernel does not reach userspace.** It starts, fails before init, and the bootrom's failover
+   puts the recovery listener back up. THAT is the open question, and it is HOST-side work: the
+   pstore records plus the instrumented head.S breadcrumbs (`patched-head.S`, the C18 = 0xC0DE....
+   chain) already in the tree are the instruments.
+3. **The recovery door is a working, repeatable escape hatch** - proven twice now (PHASE 50fn and
+   here), with the OACK-less reader (`tftp_reader2.py`) as the piece that makes it work at all.
+
+## MISTAKES MADE AND CAUGHT IN THIS FIRE
+
+1. `dd` cannot write raw NAND: the first write died at `Operation not permitted`, leaving the slot
+   mixed. Fixed with `flash_eraseall` + `mtd write`.
+2. `mtd write ... <name>` resolves the NAME, so passing `kernelb` wrote the boot slot as well as the
+   intended one. Both kernel slots ended up holding our image - harmless (same payload) but it meant
+   the rollback was the LOCAL backup (`build/tmp/fire/kernela-backup.bin`), not the device.
+3. The detached TFTP door dies between turns; it must be re-armed and VERIFIED immediately before
+   the physical action. Done correctly this time (single listener, verified on UDP 69, then the fetch).
+
+## FINAL STATE (measured over ssh)
+
+release 2.4.15 (vendor `jenkins@cudyrd1` build) | uptime fresh | **2 wiphys / 6 interfaces** |
+**0 `.omo-*` leftovers** | JFFS2 overlay mounted | dropbear running AND durable via `/etc/rc.local` |
+`bootflag=a` (the door wrote slot A).
+
+The ssh lane was re-laid with the same systime-RCE chain (wizard login -> token -> base64-wrapped
+command), and the calibration snapshot taken before the fire
+(`build/cal-snapshots/20261011-125545`) is the rollback reference for Wi-Fi if it is ever needed.
