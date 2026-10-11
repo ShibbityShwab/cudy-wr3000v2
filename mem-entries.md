@@ -9261,3 +9261,298 @@ by these deltas and the search widens.
 **METHOD NOTE (the durable win from fire 3).** One poisoned fire produced a definitive answer where
 three unpoisoned ones produced nothing. The poison costs two `devmem` writes and a re-read, and it
 must be the FIRST step of every fire from now on.
+
+
+## PHASE 63 (2026-10-11): THE BISECT'S FIRST CANDIDATE IS RULED OUT - `dt_rewrite` IS ABSENT FROM BOTH BUILDS
+
+**What the record's strongest correlate says** (verbatim):
+
+> "no-dt_rewrite builds boot (0020-class, 4/4); dt_rewrite-present builds die at the mcu transition
+> (0017-class, 3/3 - even after shrinking it to ~80 bytes with no libc). A 29-byte rodata string does
+> not flip it. The cache protocol fix ... does not fix it either."
+
+4/4 vs 3/3 is the strongest correlation anywhere in this record, so it was the first thing to test.
+
+**`dt_rewrite` is the boot-time FDT patching in `mach-luofu/luofu.c`** (the reflog names it:
+"minimal fixed-store dt_rewrite (no libc, ~80 bytes)", "measurement run - luofu.c back to the
+no-dt_rewrite state (R2)").
+
+**MEASURED: it is ABSENT from BOTH builds.**
+
+    grep -n /i  "fdt|dt_rewrite|of_fdt|__dtb|unflatten"  mach-luofu/luofu.c
+      -> ONE hit, and it is a COMMENT ("...setup_machine_fdt finds no machine and the boot panics")
+
+    the same grep against 6d904f5:mach-luofu/luofu.c
+      -> the same single COMMENT
+
+And `mach-luofu/luofu.c` is **byte-identical between `6d904f5` and HEAD** (verified in PHASE 62's diff
+table). So the FDT-patching experiment was reverted before the known-good build, and **both the
+good build and ours are in the no-dt_rewrite state**.
+
+**CONSEQUENCE: the strongest recorded correlate does NOT explain this failure.** The class variable
+is something else. That is a negative result, and it is worth exactly as much as a positive one,
+because it removes the candidate that three of the record's own sections pointed at.
+
+## WHERE THE SEARCH STANDS
+
+CANDIDATES ELIMINATED THIS SESSION:
+- the boot-path erase (gated; and our kernel never runs anyway)
+- the `init_module` consolidation, `late_initcall_sync`, the UBI probe call site
+- every new driver (modules, not in the image) and the DTS (the vendor u-boot supplies its own tree)
+- the nop-size lever (absent at both builds - a reverted experiment)
+- `dt_rewrite` (absent at both builds)
+
+STILL TRUE, AND THE MEASURED DIFFERENCE TO EXPLAIN:
+    known-good Image : 9,984,344 B
+    ours             : 9,780,192 B   (204,152 B smaller)
+and the deltas are dominated by `nand/luofu/luofu-fmc.c` (+3,501 lines), `luofu.fragment` (+157),
+`kernel-tree.patch` (+35), `patched-head.S` (+16).
+
+## THE HONEST NEXT EXPERIMENT (one fire)
+
+The one thing not yet separated is **the driver's presence at all**. Build the SAME tree with the
+NAND driver's config OFF (`# CONFIG_MTD_NAND_LUOFU is not set`) and everything else identical, fire
+with the poison, and read C18:
+
+  - **poison overwritten (a crumb appears)** -> the NAND driver's presence/content is what flips the
+    class, and the bisect continues INSIDE it (the 3,501 lines, not the 157-line fragment).
+  - **poison still intact** -> the driver is exonerated and the class is controlled by something in
+    the build system or the environment rather than by our source at all.
+
+That is a single-variable experiment with a binary outcome, and it is the cheapest remaining way to
+halve the search space.
+
+
+## ★★★★★ PHASE 64 (2026-10-11): THE CONTROL FIRE - THE NAND DRIVER IS EXONERATED ★★★★★
+
+**The single-variable experiment, and it answered.**
+
+Build: the SAME tree with `CONFIG_MTD_NAND_LUOFU` disabled - `0 luofu_fmc` symbols in vmlinux,
+uImage 3,650,936 B (md5 `10e934d2...`) versus the failing build's 3,657,912 B (md5 `61ebfba7...`).
+Poison written and re-read; both selectors on slot B; slot A stock as rollback.
+
+    poison written : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A
+    READ BACK      : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A    <-- INTACT
+    board          : vendor failover to slot A at 73 s, as before
+
+**A kernel with NO NAND driver at all does not execute either.** Our code cannot write that
+sentinel, so the poison's survival means the image never ran - exactly as with the driver present.
+
+## WHAT THIS ELIMINATES (cumulatively, with a control for each)
+
+| candidate | how it was eliminated |
+|---|---|
+| the boot-path erase loop | gated off with `omo_mark=0` - still failed |
+| `init_module` consolidation, `late_initcall_sync`, UBI probe call site | poison proves NO code runs at all |
+| the 7 new drivers (gmac/wdt/mdio/thermal/pinctrl) | modules, 0 symbols in the flashed vmlinux |
+| the device tree (tvsensor nodes) | not used: the vendor u-boot supplies its own DT |
+| the nop-size lever | absent at BOTH the known-good and the current build |
+| `dt_rewrite` (FDT patching) | absent at BOTH builds; mach-luofu/luofu.c is byte-identical since `6d904f5` |
+| **the NAND driver itself** | **THIS FIRE - removed entirely, still fails** |
+
+**So the 0020/0017 class is NOT controlled by anything this project's source adds.** It is a property
+of the base build: the configuration, the patch set, or the toolchain/environment - i.e. of what is
+done to the vanilla 5.10.201 tree plus the head files, NOT of `lab/luofu-kernel/nand/...`.
+
+## WHAT REMAINS, AND IT IS NOW A SHORT LIST
+
+The build inputs that still differ from the known-good `6d904f5` (measured in PHASE 62):
+
+    luofu.fragment       +157 lines   <- config: this is now the PRIME candidate
+    kernel-tree.patch     +35 lines
+    patched-head.S        +16 lines   <- the reader cells inside the mcr window
+    mach-luofu/luofu.c     UNCHANGED
+    patched-head-common.S  UNCHANGED
+    patched-compressed-head.S UNCHANGED
+
+And the size gap that still has no explanation: our `Image` 9,780,192 B versus the known-good
+9,984,344 B - 204 KB - which the control just showed is NOT the driver (removing it changed the
+Image by 64 bytes).
+
+## THE NEXT EXPERIMENT (same method, one fire)
+
+Take the same control build and revert **`luofu.fragment` to its `6d904f5` content** (keeping
+everything else), fire with the poison, read C18:
+
+  - poison OVERWRITTEN -> the CONFIG is the class lever. Then bisect the 157 config lines.
+  - poison INTACT      -> the config is exonerated too, and the remaining candidates are
+    `patched-head.S` (the 16 lines inside the mcr window) and `kernel-tree.patch`.
+
+**METHOD: this is the second decisive answer the poison protocol has produced, and the first
+definitive ELIMINATION.** Two fires, two definite results, where the previous four unpoisoned fires
+produced none. The protocol is the tool that made this lane tractable.
+
+
+## PHASE 65 (2026-10-11): `CONFIG_CMDLINE` IS EXONERATED BY THE RECORD - NO FIRE SPENT
+
+**The suspect, and why it looked right.** The config delta from the known-good `6d904f5` is only
+**six** CONFIG lines, and the largest change is:
+
+    -CONFIG_CMDLINE="panic=5"
+    +CONFIG_CMDLINE="panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init"
+
+and the record had already caught `CONFIG_CMDLINE` as a killer once: *"the two build artifacts differ
+in exactly ONE config line out of 2914: `CONFIG_CMDLINE`"* (the ramoops incident). Same shape, so it
+was the prime candidate.
+
+**IT IS WRONG, AND THE RECORD SAYS SO.** The build that REACHED USERSPACE (PHASE 50em/50en) used:
+
+    CONFIG_CMDLINE="panic=5 ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs rootwait init=/nonexistent-init"
+
+That string is **LONGER than ours** (it carries `rootwait` and `init=/nonexistent-init` on top of the
+same parameters) and **it booted**. So `CONFIG_CMDLINE` length/content is not what flips the class.
+
+**Consequence: no fire was spent on this.** The check cost one grep of the ledger. That is the
+artifact-before-reasoning rule paying off a third time in this session.
+
+## A SECOND, SHARPER THING THE SAME CHECK FOUND
+
+The bootloader passes `noinitrd cma=0 console=ttyS0,115200 earlycon maxcpus=2 nr_cpus=2
+additional_cpus=1` - **no rootfs parameters at all**. With `CONFIG_CMDLINE_EXTEND=y` our built-in
+string is APPENDED to that, so **our `CONFIG_CMDLINE` is the only source of `ubi.mtd=upgrade ...
+root=/dev/ubiblock0_0`.** Any future test that shortens it must keep the rootfs parameters, or a
+"boot" would be meaningless (it would have no root).
+
+## WHERE THIS LEAVES THE SEARCH
+
+Eliminated so far, each with its own control:
+
+    boot-path erase loop          gated off, still failed
+    all driver/initcall code      poison proves NOTHING runs
+    the 7 new drivers             not in the image (0 symbols)
+    the device tree               not used (vendor u-boot supplies its own)
+    the nop-size lever            absent at both builds
+    dt_rewrite (FDT patching)     absent at both builds
+    the NAND driver               removed entirely, still failed  (PHASE 64, one fire)
+    CONFIG_CMDLINE                the successful build had a LONGER one  (PHASE 65, no fire)
+
+Remaining in the delta: `kernel-tree.patch` (+35 lines), `patched-head.S` (+16 lines - the reader
+cells inserted INSIDE the mcr window), and the other five config lines
+(`CONFIG_JFFS2_FS`, `CONFIG_JFFS2_FS_DEBUG`, `CONFIG_LOG_BUF_SHIFT=16`, `CONFIG_SQUASHFS_FILE_DIRECT`).
+
+**`CONFIG_LOG_BUF_SHIFT=16` is the next prime suspect and it is cheap to check**: it changes a
+compile-time buffer size in very early code, which is exactly the kind of content/layout change the
+record says flips the class - and unlike `CONFIG_CMDLINE` it has no counter-example to explain away.
+
+
+## ★★★★★ PHASE 66 (2026-10-11): FIRE 5 - THE CONFIG IS EXONERATED TOO ★★★★★
+
+**The variant:** the failing config with the four non-cmdline additions reverted -
+`CONFIG_JFFS2_FS`, `CONFIG_JFFS2_FS_DEBUG`, `CONFIG_SQUASHFS_FILE_DIRECT` disabled and
+`CONFIG_LOG_BUF_SHIFT` back to 17 (the 5.10 multi_v7 default; 16 was our addition). `CONFIG_CMDLINE`
+deliberately KEPT, because it is the only source of the rootfs parameters and PHASE 65 had already
+exonerated it. uImage 3,616,552 B, md5 `88d0bc23...`, written to slot B and read back byte-exact.
+
+    poison written : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A
+    READ BACK      : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A    <-- INTACT
+    board          : vendor failover to slot A at 73 s
+
+**A kernel with none of our config additions still does not execute.**
+
+## THE ELIMINATION TABLE, NOW SEVEN ROWS DEEP
+
+| candidate | how it was eliminated | cost |
+|---|---|---|
+| boot-path erase loop | gated off (`omo_mark=0`) - still failed | 1 fire |
+| all driver/initcall code | poison proves NOTHING runs | 2 fires |
+| the 7 new drivers | not in the image (0 symbols) | 0 |
+| the device tree | not used (vendor u-boot supplies its own DT) | 0 |
+| the nop-size lever | absent at BOTH builds | 0 |
+| `dt_rewrite` (FDT patching) | absent at BOTH builds | 0 |
+| the NAND driver | removed entirely - still failed | 1 fire |
+| `CONFIG_CMDLINE` | the successful build had a LONGER one | 0 |
+| **the 4 config additions** | **reverted - still failed** | **1 fire** |
+
+## WHAT IS LEFT, AND IT IS NOW A VERY SHORT LIST
+
+The build inputs still differing from the known-good `6d904f5`, after all the above:
+
+    kernel-tree.patch      +35 lines
+    patched-head.S         +16 lines   <- the reader cells INSIDE the mcr window
+
+**And `patched-head.S`'s delta is the strongest remaining candidate by a wide margin**, because:
+
+- the record localised the failure to the window "ONLY THE mcr SITS BETWEEN" (`__turn_mmu_on` ->
+  MMU enable), and the 16 added lines are **inserted inside that exact window** - between the
+  existing breadcrumb block and the `mcr`;
+- they add **four stores and a load chain** there, and the record's own finding is that "a post-mcr
+  store to the same page NEVER lands" - i.e. stores in this window are already known to be fragile;
+- and the added code clobbers `ip` (r12), the register the preceding breadcrumb block used as its
+  base.
+
+**THE NEXT EXPERIMENT (same method, one fire):** the same tree with `patched-head.S` reverted to its
+`6d904f5` content (the reader cells removed), fire with the poison, read C18.
+
+  - poison OVERWRITTEN -> the mcr-window reader is the class lever. Then the fix is to move the reader
+    OUT of the mcr window (or drop it - its measurement is already recorded).
+  - poison INTACT      -> the head reader is exonerated, `kernel-tree.patch` is the last candidate,
+    and the search has nowhere left to go except the toolchain/environment.
+
+**METHOD SCORE: 3 fires, 3 definite eliminations.** The poison protocol is the reason this lane moved
+at all - six unpoisoned fires before it produced no comparable result.
+
+
+## ★★★★★ PHASE 67 (2026-10-11): FIRE 6 - THE HEAD READER IS EXONERATED; ONE CANDIDATE LEFT ★★★★★
+
+**Fire 6:** `patched-head.S` reverted to its `6d904f5` content - 21,861 B versus the current 23,426 B,
+with the 16-line "site reader" block verified ABSENT from the tree used to build. Everything else was
+the failing config (single variable). uImage 3,657,920 B, md5 `d42e78b5...`, written to slot B and read
+back byte-exact.
+
+    poison written : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A
+    READ BACK      : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A    <-- INTACT
+    board          : vendor failover at 63 s
+
+**Removing the code from inside the mcr window did not change the class.** The head reader - the
+strongest candidate by the record's own localisation - is exonerated.
+
+## THE LAST CANDIDATE
+
+Only one build input still differs from the known-good `6d904f5`:
+
+    kernel-tree.patch   +35 lines   -> patches drivers/mtd/ubi/io.c : validate_vid_hdr()
+                                       to accept `compat == 5` on the layout volume
+
+**AND IT IS IN THE WRONG PLACE TO BE THE CAUSE BY THE LOGIC WE JUST PROVED.** `validate_vid_hdr()`
+runs on the UBI **attach** path, i.e. at initcall level - and the poison has proven, three times over
+(control, config variant, no-reader variant), that **our kernel never executes a single instruction**.
+Code that never runs cannot cause the failure.
+
+**So the honest position is that NONE of our source deltas explains it.** Every input we have changed
+since the last known-good build has been tested by removal, and none of them flips the class back.
+
+## WHAT THAT LEAVES - AND IT IS NOT NOTHING
+
+If no source delta explains it, the variable is in the BUILD ENVIRONMENT, and the record supplies the
+one measurement that has been constant suspicion all along but never controlled:
+
+    our Image      : 9,780,192 B
+    known-good     : 9,984,344 B     <-- 204,152 B LARGER
+
+Note the direction: the **known-good build was BIGGER**. So this is not "our build grew past a
+threshold" - our build is *smaller* than the one that worked. Combined with the record's
+"content-deterministic per binary", the remaining explanations are:
+
+1. **The toolchain.** The known-good `6d904f5` was built by **GitHub CI** (`gcc-arm-linux-gnueabihf`
+  on ubuntu-22.04, `KBUILD_BUILD_HOST=github-actions`); every build THIS SESSION was built locally in
+  WSL2 with `gcc-arm-linux-gnueabihf 15.2.0`. **A different compiler version produces different
+  code** - different instruction selection, different alignment, different padding - which is
+  precisely the kind of "content" this class is sensitive to.
+2. **The prepared kernel tree.** `/opt/kbuild/linux-5.10.201` has accumulated state across many
+  builds this session (configs flipped back and forth with `scripts/config`, `olddefconfig` runs).
+  A stale `include/generated/*` or a `modules_prepare` artefact could make the build differ from a
+  clean one in ways nothing in the repo records.
+
+**Both are testable WITHOUT a fire:**
+- (1) build the SAME source in CI (the lane exists) and compare the resulting `uImage` md5 and size to
+  ours. If CI's build of identical source produces a materially different image, the toolchain is the
+  variable and the fix is to pin the compiler version to CI's.
+- (2) do a clean-room local build: fresh tarball, fresh tree, the same fragments, and compare its
+  `Image` md5 to ours. If they differ, our prepared tree is dirty.
+
+**Either check is host-side and cheap, and both should be done before another fire.**
+
+## METHOD SCORE: 4 fires, 4 definite eliminations, ZERO uninterpretable results.
+
+The poison protocol turned a stuck lane into a bisect that removes a candidate per fire. The next
+step is no longer a fire at all - it is the two host-side checks above.
