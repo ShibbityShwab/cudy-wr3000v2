@@ -8959,3 +8959,37 @@ and every other luofu driver follows the read-only-until-measured rule. Gate it 
 parameter (off by default) and re-fire - and if the boot then succeeds, the hypothesis is settled by
 experiment rather than by argument. That is the same discipline the ramoops/cmdline work taught: when
 two changes could be responsible, SEPARATE them.
+
+
+## PHASE 58b (2026-10-11): THE BUILD CARRIED THE WRONG SOURCE - `cp -r` MERGES
+
+**The defect.** `build/tmp/wsl_build_kernel.sh` copies our driver into the kernel tree with
+`cp -r "$R/lab/luofu-kernel/nand/luofu" drivers/mtd/nand/luofu`. **`cp -r` into an EXISTING directory
+MERGES rather than replaces**, so on a second run the previous `luofu-fmc.c` survives. The result:
+
+    the kernel built and reported "zImage is ready / BUDGET: PASS"
+    strings vmlinux | grep 'omo_mark=1 to erase'   -> 0      <- THE GATE WAS NOT IN IT
+    grep -c omo_mark <tree copy>                    -> 0
+    grep -c omo_mark <repo source>                  -> 1
+
+**A build that carries the wrong source looks exactly like a pass** - which is how this was caught:
+by asserting the FEATURE was present in the artifact, not by trusting the exit code.
+
+**The fix.** The copy is now destructive (`rm -rf drivers/mtd/nand/luofu` first) and the script
+ASSERTS the copy matches the current source (`grep -q omo_mark ... || exit 1`). A build that cannot
+verify it has the right source should fail, not succeed quietly.
+
+**The generalisable rule, and it is the same one this project keeps re-learning:** check the
+ARTIFACT for the change, never the exit status of the command that was supposed to make it. The
+earlier instances were the launch-that-ran-the-old-command and the instrument whose absence reported
+a false zero; this one is the build that compiled a stale file.
+
+## PHASE 58c - THE GATE ITSELF
+
+`luofu_jffs2_mark()` now returns before any erase unless `omo_mark=1` is given as a module
+parameter (default 0). Gated INSIDE the function, not at the call site, because the caller continues
+into the UBI read-only diagnosis which is useful and must still run - a first version of this edit
+put the `return` at the call site and would have skipped that; caught by reading the edit back.
+
+Verified locally: `luofu-fmc.ko` 25,316 B, zero errors, diff +38/-0 (the two
+`-Wdeclaration-after-statement` warnings are on PRE-EXISTING declarations, not this change).
