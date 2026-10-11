@@ -10034,3 +10034,43 @@ is that inserting nops changes more than the nops.
   of this source;
 - the nop lever's compressed-size swing (26 KB from 64 bytes) is real gzip/alignment behaviour and is
   a good illustration of "ANY small content change" - it is just not an isolable lever.
+
+
+## PHASE 77 (2026-10-11): FIXED TREES - THE SIZE DRIFT VANISHES, THE nop LEVER IS CONFIRMED NON-ISOLABLE
+
+**With a FRESH TREE PER VARIANT** (`clean-variant.sh`: decompress, inject sources, apply the failing
+config, then the one change):
+
+    clean-nop0  uImage : 3,657,904 B      clean-nop64 uImage : 3,657,904 B   <-- IDENTICAL
+    clean-nop0  Image  : 9,780,192 B      clean-nop64 Image  : 9,780,192 B   <-- IDENTICAL
+    differing bytes    : 828
+
+**Two results, both useful:**
+
+1. **The 27 KB size drift was TREE STATE, not content.** With fresh trees on both sides the sizes match
+   exactly. That is the confirmation PHASE 76 asked for: the accumulated-tree effect is real and a
+   clean tree per variant removes it. (The earlier "26 KB swing" readings from dirty trees were
+   measuring the tree, not the variant.)
+
+2. **The nop lever is confirmed NON-ISOLABLE.** 64 bytes of padding still produce **828 differing
+   bytes** with everything else held constant. Inserting nops shifts alignment and perturbs downstream
+   code generation, so a nop-padding experiment cannot attribute its result to padding.
+
+**CONSEQUENCE: dimension A (nop padding) is DROPPED.** It cannot answer the question it was meant to
+answer - the record's `ea2276c` ("192 bytes of nops after stext = the real class lever") was testing a
+lever that also changes 800+ bytes of code, which is why its 5 dice throws never converged.
+
+## THE TEST THAT REPLACED IT - AND IT IS BETTER
+
+The record states a build that BOOTS exists: `6d904f5`, whose binary "fires 0020 on demand". That is a
+**known-good control**, and it answers the decisive question no variant can:
+
+    if 6d904f5 BUILDS AND BOOTS through this path -> the path is proven; bisect forward from it
+    if 6d904f5 does NOT boot                     -> something OUTSIDE the source changed, and no
+                                                    source bisect can find it
+
+**`6d904f5` predates the NAND driver entirely** (verified: `nand/luofu/luofu-fmc.c` does not exist at
+that commit), so the control build is kernel + mach + head files + config - a smaller, simpler tree
+than HEAD. Its files all fetch cleanly from git (kernel-tree.patch 2367 B, patched-head.S 21861 B,
+patched-head-common.S 5833 B, patched-compressed-head.S 39479 B, mach-luofu/luofu.c 5329 B,
+luofu.fragment 9780 B).
