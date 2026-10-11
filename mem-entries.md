@@ -11704,3 +11704,47 @@ squashfs), and **the only open write path accepts only vendor-signed containers*
 
 **The next move is either (A) or re-establishing shell access by a recorded route, and that choice
 belongs to the user because (A) writes flash.**
+
+
+## PHASE 107 (2026-10-11): THE REBUILD ARTIFACTS ALL SURVIVE - AND THERE IS A WORKING SLOT-IMAGE TEMPLATE
+
+## EVERYTHING THE RECORD USED IS STILL ON DISK, HASH-VERIFIED
+
+    build/custom/rootfs-custom.sqfs : sha256 2b21db248c40c881...  == the record's 2b21db24   MATCHES
+    build/custom/rootfs-custom.ubi  : sha256 22daf1dc59058e2c...  == the record's 22daf1dc   MATCHES
+    dumps/mtd14-rootfsb.gz          : the stock slot-B rootfs backup
+    dumps/mtd13-rootfsa.gz          : the stock slot-A backup
+    build/custom/env-bootflag-b.bin : the slot selector
+    build/custom/rootfs-0.2/0.3.tar : earlier iterations
+
+The access layer is six files, inventoried in `opensource/docs/FLASH-PLAN.md` lines 143-148:
+`etc/init.d/omosshd` (0755, starts dropbear on 22), `etc/rc.d/S95omosshd` (symlink),
+`root/.ssh/authorized_keys` (0600), `etc/shadow` (0600), `etc/custom-firmware-version`,
+`root/README-CUSTOM.md`. **The flash plan was EXECUTED successfully once** (FLASH-PLAN.md line 183:
+"Result (executed) - The custom image booted from slot B and is verified live"), so this is a
+known-good replay, not an invention.
+
+## THE TEMPLATE THAT MATTERS: A FULL SLOT IMAGE THAT PASSES THE GATE
+
+    build/custom/kernelb-2.5.24-full.img
+        8,650,752 B  (exactly the kernelb partition size)
+        uImage: size 4,292,080, load/ep 0x80608000
+        **container @4,323,444 magic 0xd7b7ab1e - THE GATE IS SATISFIED**
+
+**This proves the shape our own kernel must take, and it is the SAME shape our `r4fix-full.bin`
+already has** - a uImage plus the base DTB and the 96-byte descriptor table at
+`0x40 + ih_size + dtb_totalsize`. The difference is only that this template is padded out to the full
+8,650,752-B partition and carries the vendor's kernel rather than ours.
+
+## THE ROUTE, NOW CONCRETE
+
+    build:  our uImage (load/ep 0x80608000) + base DTB + 96-byte descriptor + overlays,
+            padded to 8,650,752 B  ->  a valid kernelb slot image
+    flash:  mtd write <img> kernelb   (the normal path - no signature, because it writes the partition)
+    switch: env bootflag=b on mtd3/mtd4 + boot_reg 0x21
+    verify: C18 - 0xC0DE0004 means the jump reached stext
+
+**The blocker is access**: the mtd/ssh path needs a shell, and the only open write path (the web
+upgrade endpoint) accepts only vendor-signed containers. Restoring the shell is the known-good replay
+above (flash `rootfs-custom.ubi` into slot B and switch), which is a device mutation and therefore
+belongs to the user's decision.
