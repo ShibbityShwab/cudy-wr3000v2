@@ -12118,3 +12118,57 @@ bring-up under our kernel, and with no fallback slot there is nothing to revert 
 
 **The next measurable step is unchanged and now better targeted: our kernel must bring up the NETWORK
 (and the rest of userspace) before the box is reachable - the watchdog is not what stops it.**
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 115 (2026-10-11): ★★★★★ WE REPRODUCED THE EXACT CRUMB OF THE RECORDED SUCCESSFUL BOOT ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE MATCH
+
+FIRE 21 returned **`C18 = 0xC0DE502D`**. The record's PHASE 50en (2026-10-10) opens with, verbatim:
+
+> "**TWO CONSECUTIVE FIRES: `C18 = 0xC0DE502D` (step 45, the tick), `C1C = 0x40080603` (phase 4), NO PANIC.
+> AND NOW THE LOG, IN FULL, FROM THE 3.5 KiB WINDOW:** ... **OpenWrt 25.12.5 IS RUNNING ON OUR OWN KERNEL**"
+
+**The crumb we measured is byte-identical to the one recorded at the successful userspace boot.** And the
+code's own three-way legend confirms it is the healthy case:
+
+    C18 = 0xc0de502d  ->  the timer ran, this many times        <-- THE READING WE GOT
+    C18 = 0xc0de502a  ->  the panic notifier overwrote it
+    C18 = 0xc0de0020  ->  a hang - the mach's crumb, no tick survived
+
+## THE CORRECTIONS THIS FORCED, BOTH AGAINST MY OWN EARLIER ENTRIES
+
+1. **The watchdog is NOT the obstacle.** I recorded that in PHASE 111; checking the built image refutes
+   it. `mach-luofu/luofu.c` disarms it in `init_machine` (`STOP0 0xabcd5116` / `STOP1 0xed574447` at
+   CRG `0x14880000+0x60`), and `arch/arm/boot/Image` CONTAINS both magics and the confirmation string
+   `"luofu: hsan watchdog disarmed"`. The disarm is compiled in and runs.
+2. **It is not a hang either.** The code defines `0xC0DE0020` as the hang signature; we got the tick.
+
+## WHAT THE RECORDED BOOT ACTUALLY REQUIRED (the recipe, from PHASE 50en)
+
+    - our kernel's CONFIG_CMDLINE mounts `ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0`
+      -> i.e. **mtd16 "upgrade"**, NOT rootfsa/rootfsb;
+    - mtd16 must hold a UBI volume named **`owrt`** whose payload is a **SOFT-FLOAT** squashfs;
+    - the recorded flow was: back up mtd16, `mtd erase /dev/mtd16`, `mtd write /tmp/owrt.sqfs /dev/mtd16`,
+      then `ubimkvol /dev/ubi1 -N owrt -s 16MiB` + `ubiupdatevol /dev/ubi1_0 /tmp/owrt.sqfs`;
+    - and the FPU finding that made it necessary: *"this part has no usable FPU, so only a soft-float
+      rootfs can run on it - which is why the vendor built soft-float and why both hard-float OpenWrt
+      rootfs tested died identically with SIGILL (signal 4)."*
+
+**The artifacts survive on disk**: `build/tmp/openwrt/owrt-a9.sqfs` (2,852,982 B, hsqs),
+`build/tmp/custombin/omo-custom.ubi` (16,646,144 B, UBI# + embedded squashfs at 266240),
+`build/custom/rootfs-custom.ubi` (15,597,568 B), plus the `owrt-rootfs_data.ubifs` overlay images.
+
+## THE STATE, HONESTLY
+
+**The board is dark** after FIRE 22 put our kernel into `kernela` (the A-first slot). The recovery door
+is armed and verified: a SINGLE listener on UDP 69 (PID 2948), serving 20,975,775 B, with the
+`192.168.1.88` alias `Preferred` on Ethernet. Recovery needs the user's cold reset-hold.
+
+**When it is back, the next experiment is fully specified and single-variable**: our kernel is already
+proven to reach the timer crumb; the remaining question is what userspace it finds. Either mtd16 does
+not hold the soft-float `owrt` volume any more (the recovery re-flashed, and the recorded state is from
+a different day), or it does and the network simply is not up. **The first thing to check on recovery is
+`ubinfo` / the mtd16 content, NOT another fire.**
