@@ -9914,3 +9914,43 @@ that differ only in ONE documented dimension each (a few hundred bytes of nop pa
 symbol, the head files with and without instrumentation), and record `boot_reg` for each, to find what
 correlates - exactly what `ea2276c` ("text-size dice throw 5 ... the real class lever") started and
 never finished. That is mechanical now that the path and the signal are proven.
+
+
+## PHASE 74 (2026-10-11): THE BISECT'S BASELINE IS FULLY CHARACTERISED (and a build-infrastructure lesson)
+
+**The board is running SLOT B with the known-good image, and this is now the bisect's control:**
+
+    boot_reg   = 0x11          (slot B, and the platform did NOT revert)
+    ubi0 on    = mtd14         (rootfsb = slot B)
+    kernel     = Linux WR3000 5.10.201 (the vendor build)
+    slot A     = 15c71e4f9211ea523ea01aa59b9afb4d   (mtd11 kernela)
+    slot B     = 15c71e4f9211ea523ea01aa59b9afb4d   (mtd12 kernelb)  <-- SAME CONTENT
+
+**Note: both slots now hold the same image.** The known-good backup I flashed into B is the same
+content as A held. That is not a problem for the bisect (B is what we write and boot), but the
+"slot A is a distinct stock rollback" assumption is now only true in the sense that A holds a
+known-good image - which it does, and which is what matters for recovery.
+
+**The device partition map, for the record (live /proc/mtd):**
+
+    mtd0 esbc 256K | mtd1 uboota 1M | mtd2 ubootb 1M | mtd3 enva 256K | mtd4 envb 256K
+    mtd5 fac 2M | mtd6 bdinfo 256K | mtd7 cfga 2M | mtd8 cfgb 2M | mtd9 log 4.25M
+    mtd10 pstore 256K | mtd11 kernela 8.25M | mtd12 kernelb 8.25M
+    mtd13 rootfsa 23.25M | mtd14 rootfsb 23.25M | mtd15 rootfs_data 22M | mtd16 upgrade 29.5M
+
+## THE BUILD-INFRASTRUCTURE LESSON (cost this session real time, three times)
+
+1. **A long build inside an eval cell dies at the cell's 300-s budget.** Three kernel rebuilds do not
+   fit. The cell was killed, the script died with it, and the orphaned `make` kept running.
+2. **A detached `nohup ... &` inside `wsl -- bash -c` does NOT survive** - WSL tears the job down when
+   the invoking command returns. (Same trap as the earlier detached device run.)
+3. **The pattern that works is a MONITOR**: it holds a live foreground command for the whole build and
+   delivers one notification at the end. One variant per monitor, sequential, so nothing collides.
+4. **Two `make` processes on one tree corrupt the output** - my monitor's build collided with the
+   orphan from (1). Killed both, restarted clean.
+5. **`pgrep -c make` matches its own command line** and reported a phantom build process; the honest
+   check is `pgrep -x make` / `pgrep -x cc1`. (The same false-positive class as the earlier
+   `grep | head -1` that printed a comment back at me.)
+
+**Variant built so far:** `build/tmp/bisect/nop0-uImage` (3,657,808 B, md5 `c06e7866...`) - the
+0-padding control, built from the clean-room tree. `nop64` is building under a monitor.
