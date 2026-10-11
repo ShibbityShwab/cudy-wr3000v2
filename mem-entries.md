@@ -12642,3 +12642,59 @@ Nothing changes about the sequence - the kernel already carries the patch. What 
 WITH TEETH for the next fire: **if our kernel fails to attach mtd16, the error will name `-22`/`bad
 compat`, and that would mean this patch is missing from the build that ran - a one-line check, not a
 mystery.**
+
+
+## PHASE 125 (2026-10-12): ★ THE WHOLE CHAIN VERIFIED END TO END - AND A SELF-CAUGHT PARSE ERROR ★
+
+## THE CONSISTENCY CHECK, RUN ACROSS EVERY ARTIFACT
+
+    1. KERNEL CONFIG (/opt/kbuild/linux-5.10.201/.config.good)
+         CONFIG_MTD_UBI=y  CONFIG_MTD_UBI_BLOCK=y  CONFIG_SQUASHFS=y  CONFIG_SQUASHFS_XZ=y   (4/4)
+         drivers/mtd/ubi/io.c:870  "compat != 5) {"     <- the vendor-layout-volume fix, PRESENT
+         vmlinux: `validate_vid_hdr` is compiled in (nm finds it; 49 instruction references)
+
+    2. KERNEL IMAGE  build/tmp/slice/r4fix-slot.bin
+         8,650,752 B  md5 00f338a74c92bb9f054a689d98b007f1
+         uImage load/ep 0x80608000 ; DTBO container magic 0xd7b7ab1e at the gate offset
+
+    3. ROOTFS IMAGE  build/tmp/owrt-ubi/owrt.ubi
+         3,276,800 B  md5 5c24486d97911e22ed1658b6262195e9
+         PEB 0/1 : vol_type=1 dynamic, compat=5, vol_id=0x7FFFEFFF  -> THE LAYOUT VOLUME
+         PEB 2+  : vol_type=2 **STATIC**, compat=0, vol_id=0        -> volume 0 = `owrt`
+
+    4. THE CMDLINE AGREES WITH ALL OF IT
+         `ubi.mtd=upgrade` -> mtd16 ; `ubi.block=0,0` -> volume 0 -> ubiblock0_0
+         volume 0 is STATIC, which is exactly what ubiblock requires
+
+    5. ROLLBACK  build/tmp/fire3/kernela-backup.bin
+         8,650,752 B  md5 bd5ae265ce47e3ed4299c434b1936385
+
+## ★ A SELF-CAUGHT ERROR WORTH RECORDING ★
+
+Mid-check I read a single VID header inline (`d[0x800:0x800+64]`) and got `vol_type=1 (dynamic)` - which
+contradicted the file-based parser's `STATIC`, and which would have been a REAL defect if true (ubiblock
+cannot be built on a dynamic volume). **Rather than pick one and move on, I read every PEB:**
+
+    PEB 0/1 -> the LAYOUT volume (dynamic by design, compat=5)
+    PEB 2+  -> volume 0, vol_type=2 STATIC
+
+**Both parses were correct; my inline line had read PEB 0, not the volume's own header.** The image is
+right. Recorded because the alternative - accepting the first number and either "fixing" a correct image
+or shipping a broken one - is the failure mode this project has hit repeatedly, and the check that
+resolved it was reading the same bytes at a different offset rather than trusting either result.
+
+## GOAL STATUS
+
+All three success criteria are MET with evidence (PHASE 122): the mechanism is named and byte-verified
+(bootfip's DTBO container gate; the CRC strings belong to a path `bootcmd` never calls); an independent
+verification node confirmed 6/6 and I reproduced the load-bearing three; and the next action carries a
+single-variable prediction.
+
+Two corrections were made to earlier entries tonight, both from reading artifacts rather than trusting
+notes: PHASE 114 (the watchdog is NOT the obstacle - our mach code disarms it, verified in the image)
+and PHASE 124 (the `kernel-tree.patch` UBI `compat` fix is NOT exonerated - it is LOAD-BEARING for a
+vendor-shaped layout volume, and mtd16 has exactly that shape).
+
+**The objective's device half remains gated on the user's cold reset.** The door is armed and verified
+(single UDP 69 listener, PID 2948, serving 20,975,775 B); the served firmware is 2.4.15, the release
+where the shell-restore route works.
