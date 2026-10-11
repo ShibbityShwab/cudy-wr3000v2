@@ -9743,3 +9743,73 @@ offset 0 of the slot. The base DTB is what our build already produces
 are at known offsets and sizes) or from the vendor vendor's dtb set.
 
 **NEXT: reconstruct the slice from the backup + our uImage and fire it.**
+
+
+## PHASE 71 (2026-10-11): FIRE 8 - THE FULL SLICE ALSO DOES NOT RUN. TAKING STOCK HONESTLY.
+
+**What was fired:** the assembled slice, layout parsing identically to the known-good slot -
+
+    @0         uImage size=3,657,744     (the gcc-11 build)
+    @3657808   DTB    size=31,220        (the vendor base tree, hsan-luofu)
+    @3689028   DTB    size=4,592         (overlay board_id=0)
+    @3693620   DTB    size=4,920         (overlay board_id=3)
+
+written to slot B and read back **byte-exact** (md5 `7da8bca1...` = the file's md5), with the poison
+re-read before the reboot.
+
+    poison written : C18 = 0xA5A5A5A5
+    READ BACK      : C18 = 0xA5A5A5A5     <-- STILL INTACT
+    slot B after   : md5 still `7da8bca1...` (the slice SURVIVED - the write is not the problem)
+    selectors      : reset to A by the platform, as after every failed B boot
+    pstore         : 3 records, all old - no new panic
+
+## THE COMPLETE ELIMINATION LIST - EIGHT FIRES, EVERY NAMED VARIABLE
+
+| # | variable | test | result |
+|---|---|---|---|
+| 1 | boot-path erase loop | gated off | intact |
+| 2 | driver/initcall code | poison | never runs |
+| 3 | the 7 new drivers | not in image | n/a |
+| 4 | the device tree we build | not used (vendor DT) | n/a |
+| 5 | the nop lever | absent both builds | n/a |
+| 6 | `dt_rewrite` | absent both builds | n/a |
+| 7 | the NAND driver | removed entirely | intact |
+| 8 | 4 config additions | reverted | intact |
+| 9 | `CONFIG_CMDLINE` | successful build had longer | n/a |
+| 10 | `patched-head.S` reader | reverted | intact |
+| 11 | the prepared tree | clean-room rebuild | identical size |
+| 12 | the compiler (gcc-15 vs 11) | rebuilt with gcc-11 | intact |
+| 13 | **the slot layout (bare uImage vs full slice)** | **wrote uImage+3 DTBs** | **intact** |
+
+## THE HONEST POSITION - AND I AM NOT GOING TO GUESS AGAIN
+
+The poison protocol has been reliable all night: five INTACT readings, each a true statement that the
+kernel image is never entered. The measurements are trustworthy; my HYPOTHESES about why have been
+wrong four times (the initcall move, the C18=0 reading, the config, the DTBs).
+
+What the record says about this exact situation is now the most relevant thing available:
+
+> "The 0020 boot landmark is reproducible ... but ANY small content change flips SOME builds to 0017:
+> death at the MMU-enable ... **Next pass: bisect the content class systematically; the NAND/rootfs
+> lane waits on a boot that stays in the 0020 class.**"
+
+**That bisect was never completed** - the record says so in its own words, and it is dated 2026-10-09.
+Everything since (the NAND lane, the JFFS2 work, tonight) has been building ON a base that was never
+stabilised. Our failures are the 0017 class, and the class's own controlling variable is still
+uncharacterised.
+
+**WHAT I RECOMMEND, AND IT IS NOT ANOTHER FIRE TONIGHT:**
+the ONE thing that has actually moved this lane is the poison protocol, and the one thing that has
+never been done is **firing a build that is KNOWN to have booted (0020)** to prove the FIRING PATH
+itself still works end to end. We have the batch/exp harness (`tools/exp.sh`) which the record says
+drove every successful fire; tonight used a MANUAL `flash_eraseall`+`mtd write`+selector dance that
+has never once produced a boot. Before bisecting the class further, prove the manual path can boot
+ANYTHING - by firing the vendor stock kernel we hold in slot A's backup, or the last known-good image
+if it exists on disk. If a known-good image also fails through tonight's manual path, the fault is in
+the PATH, not the build, and that inverts the whole search.
+
+## STATE
+
+Board healthy on stock 2.4.15, slot A (`bootflag=a`, `boot_reg=10`). Our full slice intact in slot B
+(md5 `7da8bca1...`). Slot A backup + slot B pre-fire backup on disk in `build/tmp/fire2/`. Bench and
+repo clean.
