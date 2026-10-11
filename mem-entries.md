@@ -12370,3 +12370,45 @@ way.
 **The board is dark and needs the user's cold reset-hold.** After that the sequence is: re-lay the shell,
 read mtd16 (does the `owrt` volume survive?), and if it does not, write this image to mtd16 with a single
 `mtd write` - then fire our kernel into `kernela` and read `C18`.
+
+
+## PHASE 120 (2026-10-12): ★ mtd16 SURVIVES THE RECOVERY - READ FROM THE DEVICE'S OWN UPGRADE CODE ★
+
+Read `rootfs-2.4.15/squashfs-root/lib/upgrade/platform.sh` in full, because the question that decides the
+next fire is whether the recovery flash destroyed the `owrt` volume our kernel mounts from mtd16.
+
+**THE WRITE PATH, verbatim:**
+
+    platform_do_upgrade() {
+        case "$board_flash" in
+        *snand*)
+            nand_do_upgrade_uboot "/tmp/uboot-sysupgrade.bin"      # -> uboota / ubootb ONLY
+            hi_do_upgrade "$1"                                      # -> the vendor's own flasher
+    ...
+    hi_do_upgrade() {
+        ... hi_ipc /home/cmd/upgrade/hi_upgrade_image_write_file -v flag $upgrade_flag filename ... }
+    nand_do_upgrade_uboot() {
+        local mtd_to_upgrade="uboot"$(get_upgrade_flag)
+        get_image "$1" | dd ... | mtd write - "${mtd_to_upgrade}"
+        ... then the same for the OTHER uboot copy }
+
+**Every mtd write in the file targets `uboota`/`ubootb`; the payload proper goes through the vendor's
+`hi_upgrade_image_write_file`, which writes the standard slot pair (kernela/rootfsa or
+kernelb/rootfsb - the `upgrade_flag` selects which).**
+
+    ★ **mtd16 ("upgrade", offset 0x6280000, size 0x1d80000) appears in NO write path.**
+      It is the vendor's STAGING partition and none of these flows touch it.
+
+## WHY THIS MATTERS, AND WHAT IT CHANGES
+
+Our kernel's cmdline mounts `ubi.mtd=upgrade` - **mtd16** - and the 2026-10-10 successful boot did exactly
+that (`ubi0: attached mtd16 (name "upgrade")` -> volume `owrt` -> `ubiblock0_0` -> squashfs -> init).
+
+**So the `owrt` soft-float volume should still be sitting in mtd16 right now**, untouched by the recovery
+that returned the box to 2.4.15. That in turn means the dark board after FIRE 22 is NOT explained by a
+missing rootfs - which moves the open question somewhere else, and makes the planned "read mtd16" step
+the right first move precisely because it settles this by measurement rather than by this inference.
+
+**Honest scope:** this is an argument from the vendor's own code, not a measurement of mtd16's bytes.
+It is strong (every write path is enumerated in the script) but it is still an inference, and the read on
+recovery is what turns it into a fact. Recorded as such.
