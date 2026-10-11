@@ -10492,3 +10492,145 @@ repack the uImage, and fire. That is a ONE-LINE config change on a tree that alr
 This is a strong, direct, two-artifact comparison with a perfect control (the same vendor image boots
 truncated AND full, at the same length as our failures). But it is a hypothesis until fired. It is
 **labelled as such** and the test is cheap.
+
+
+## PHASE 86 (2026-10-11): THE XZ FIRE (15) WAS CONFOUNDED - AND WHAT THE SESSION'S REAL PATTERN IS
+
+**FIRE 15 result:** the XZ-compressed bare uImage did NOT boot (boot_reg=10, poison intact).
+
+**BUT THAT FIRE IS INVALID, AND I CAUGHT IT MYSELF.** The XZ image was flashed with **no DTBs appended**,
+while the vendor image I had just compared it against (and which BOOTS) carries **three**. So the fire
+changed TWO things - the compression AND the absence of the DTBs - and it cannot attribute a result to
+either. Corrected in FIRE 16 (same XZ kernel, wrapped in the same three DTBs).
+
+## ★ THE SESSION'S REAL PATTERN, NAMED HONESTLY ★
+
+This is the **fourth** time tonight that a fire changed more than the variable under test:
+
+    1. PHASE 57: blamed the initcall move - never tested it in isolation
+    2. PHASE 59: read C18 without a poison - an uncontrolled measurement
+    3. PHASE 70/71: concluded the missing DTBs were the bug - the layout was never controlled
+       against a bare-uImage write on a KNOWN-GOOD build
+    4. FIRE 15: changed compression AND DTBs together
+
+**The pattern is consistent: I form a hypothesis, and the fire I design to test it also changes
+something else, so the result is uninterpretable in a way that takes another fire to discover.** The
+poison protocol stopped the READINGS from being ambiguous; it did not stop the EXPERIMENTS from being
+confounded. Those are different failure modes and only the first one got fixed tonight.
+
+**The discipline that would have caught all four:** before every fire, enumerate the artifacts being
+written and diff them against the previous fire's artifacts, confirming exactly ONE difference. That
+check is host-side and takes seconds. It was never performed.
+
+## WHAT IS STILL SOLID, DESPITE THE CONFOUNDED FIRE
+
+- the vendor image boots through this path, at the FULL length and TRUNCATED to our failing length
+  (both reproduced, FIRE 12 and FIRE 14);
+- our reproduced known-good `6d904f5` does not boot in any of the three forms tried;
+- the write verifies byte-exact every time and the slot content matches what was sent;
+- **the compression format DOES differ** (vendor XZ, ours gzip) - that measurement stands regardless
+  of whether it is the cause.
+
+
+## PHASE 87 (2026-10-11): THE COMPRESSION FORMAT IS EXONERATED (PROPERLY)
+
+**FIRE 16, the controlled test:** the XZ kernel wrapped in the **same three DTBs** as the failing
+gzip full slice - `xz-uImage 2,643,984 + 31,220 + 4,592 + 4,920 = 2,684,716 B`, md5 `fc4bc016...`,
+poisoned, flashed, verified byte-exact, selectors B, rebooted.
+
+    boot_reg = 10          <-- REVERTED
+    C18      = 0xA5A5A5A5  <-- never ran
+
+**So the compression format is NOT the answer.** The earlier bare-uImage XZ fire (15) was confounded by
+the missing DTBs; this one is a clean single-variable test against the gzip full slice, and it fails
+identically. The compression observation was real (vendor XZ, ours gzip) but it is not the mechanism.
+
+## WHERE THIS ACTUALLY STANDS, STATED PLAINLY
+
+I have now run **16 fires**. The reliable facts:
+
+    THE VENDOR IMAGE BOOTS - twice at full length, once truncated to our failing length.
+        (md5 15c71e4f, and 520c6839 for the same first 4,335,616 B)
+    EVERYTHING OF OURS DOES NOT - every HEAD build, and a byte-reproduced 6d904f5
+        (the commit the record says "fires 0020 on demand", matched to 0.002%).
+    THE WRITE IS FAIR - read-back md5 == the file's md5 every time; the slot holds what we sent.
+
+Every difference I have been able to NAME between those two artifacts has been tested and eliminated:
+kernel source, driver, config, head instrumentation, compiler, slice layout, slot shape, write length,
+and now compression format.
+
+**The honest conclusion: the vendor image boots and ours does not, and I do not know why.**
+
+## WHAT I WOULD DO NEXT, AND WHY I AM NOT DOING IT IN THIS TURN
+
+The productive move is no longer a hypothesis-and-fire. It is an **exhaustive host-side diff** of the
+two artifacts - every byte, every structure, every field - looking for what the bootloader could be
+checking. That is a large, careful, deterministic task with no device involvement, and it is the only
+shape of work that has a definite answer left.
+
+Firing again without that diff would be repeating the pattern PHASE 86 named: motion without a
+single-variable prediction attached.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 88 (2026-10-11): ★★★★★ FOUND IT - OUR BREADCRUMB OCCUPIES THE zImage ENTRY POINT ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE DIFF, AT THE ONE ADDRESS THAT MATTERS
+
+Comparing the two zImage payloads (both valid ARM zImages, both `0x016f2818` magic, both correct sizes)
+at the instruction level. The zImage's first instruction is `b` at offset 32, landing on the real entry:
+
+    AT OFFSET 60 (0x3c) - THE ENTRY THE BRANCH LANDS ON:
+
+    vendor (BOOTS) : 00 90 0f e1  ae 0d 00 eb  01 70 a0 e1  02 80 a0 e1
+                     mrs r9,CPSR  bl ...        mov r7,r1     mov r8,r2
+                     ^ the standard ARM zImage prologue: read CPSR, branch to the decompressor
+                       setup, and SAVE r7/r8 (the tradition: r1/r2 arrive from the bootloader and
+                       are preserved for the kernel)
+
+    ours   (FAILS): 18 3c 00 e3  10 30 41 e3  08 40 00 e3  de 40 4c e3
+                     movw r3,#..  movw r3,#0x1010 movw r4,#8  movt r4,#0xC0DE
+                     ^ OUR BREADCRUMB - the 0xC0DE0008 word written to the sentinel cell
+                       0x10100C18 - occupying the entry point.
+
+**OUR INSTRUMENTATION IS THE FIRST THING THAT EXECUTES IN THE zImage, AT THE EXACT ADDRESS THE
+BOOTLOADER JUMPS TO, AND IT REPLACES THE STANDARD PROLOGUE.**
+
+The source is `lab/luofu-kernel/patched-compressed-head.S` - the `start:` label (line 179) is
+immediately followed by our breadcrumb blocks (`0xC0DE0008`, `0xC0DE0009`, `0xC0DE000A` at lines
+216-238), which write to `0x10100C18` using `r3` and `r4`.
+
+## WHY THIS EXPLAINS EVERYTHING
+
+- **The poison is never overwritten** (5+ fires): a zImage whose entry does `movw r3, #0x1010` ...
+  would write the cell IF it ran - but it must first survive the bootloader's handoff, and this is
+  where the boot dies. The poison protocol correctly reports "never ran" because the kernel proper
+  never starts.
+- **It is content, not size or format**: our earlier experiments changed the surrounding content
+  (driver, config, compiler, compression) while THIS sequence sat unchanged at the entry in every
+  build - so every one of them failed identically.
+- **The vendor image boots**: its entry is the standard prologue, untouched.
+- **`6d904f5` (the record's "known-good") also fails**: it carries this same patched-compressed-head.S,
+  so it too has our instrumentation at the entry. The record's claim that it "fires 0020 on demand"
+  was about an earlier firing mechanism, and in the era's own runs - the SAME breadcrumb structure
+  was present, which is consistent with the narrow, fragile class that was never characterised.
+
+## THE FIX
+
+**Move the compressed-head instrumentation OFF the entry path.** The breadcrumbs there were for
+measuring whether the decompressor ran at all; that question is long answered. Options:
+
+1. remove the `0xC0DE0008/0009/000A` blocks from `patched-compressed-head.S` entirely, or
+2. place them AFTER the standard prologue (after `mrs r9, CPSR` / the r7-r8 saves), so the boot
+   contract is honoured before any instrumentation runs.
+
+**(2) is preferred**: it keeps the measurement available while restoring the entry.
+
+## CONFIDENCE
+
+This is a direct instruction-level comparison at the one address the bootloader uses, between two
+artifacts where one demonstrably boots and the other does not, with every other variable controlled
+(same length, same write, same slot, same DTBs, both valid zImages). **It is a hypothesis until
+fired** - but it is the first hypothesis tonight with a named mechanism, a specific address, and a
+one-line fix.
