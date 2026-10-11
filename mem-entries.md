@@ -8687,3 +8687,56 @@ Everything that can be decided without the device is decided. The flash is what 
 - `luofu-wdt` / `luofu-thermal` -> their first live reads.
 
 COMMITS: `0bc6c92` luofu-mdio + luofu-thermal (submodule).
+
+
+---
+
+# PHASE 55 (2026-10-11): THE FIRE - OUR KERNEL FLASHED, AND IT DID NOT REACH USERSPACE
+
+## WHAT WAS DONE (all preconditions passed)
+
+- Preconditions read-only: `mtd12=kernelb`, slot gate `ubi0` on `mtd14=rootfsb`, `bootflag=b`,
+  health `WIPHY=2 IFACE=6 PAT=0 OMO_OFF=0 LEFTOVERS=0`.
+- Calibration snapshotted: `build/cal-snapshots/20261011-125545` (9 SUCC + FIRMWARE.bin + the cfg/ini set).
+- Stock kernel backed up to `build/tmp/fire/kernela-backup.bin` (8,650,752 B, md5 `0ca1fde627aae581...`).
+- Recovery door armed: `build/tmp/tftp_reader2.py` (the OACK-less reader), UDP 69, serving the genuine
+  2.4.15 (20,975,775 B).
+- Our image verified present in the built kernel BEFORE flashing: 18 `luofu_fmc`/`luofu_jffs2` symbols,
+  the `wrote the jffs2 marker` string, `CONFIG_JFFS2_FS=y`, `CONFIG_MTD_NAND_LUOFU=y`,
+  `CONFIG_MTD_BLOCK=y`, `CONFIG_MTD_UBI=y`, and the tvsensor node in the DTB.
+
+## TWO ERRORS I MADE DURING THE FLASH
+
+1. **`dd` cannot write raw NAND.** The first write died partway with `Operation not permitted`,
+   leaving `mtd11` in a mixed state. Fixed by erasing properly with `flash_eraseall` and writing with
+   the device's own `mtd` tool.
+2. **`mtd write ... kernelb` resolved the NAME literally**, so it wrote to the BOOT slot as well as
+   the intended one. Verified at four independent offsets: **both `kernela` (mtd11) and `kernelb`
+   (mtd12) now hold our kernel payload.** Same image, so no corruption - but it means there is no
+   stock kernel in EITHER slot, and the rollback path is the LOCAL backup file, not the device.
+
+## THE RESULT
+
+The board rebooted and **did not reach userspace**: `192.168.10.1` never came back, and the
+`192.168.1.1` (bootrom recovery) address answered briefly then went silent. The door log shows **no
+RRQ**, i.e. the bootrom never entered its TFTP fetch.
+
+This is the SAME signature as PHASE 50fn: our kernel starts (the bootrom accepted the slot's uImage)
+but does not reach init, and a plain reboot does not clear it.
+
+**The recovery is the cold RESET-hold**: reset held WHILE power returns (a warm reset produces no
+fetch - measured twice now, PHASE 50fn and here). A physical action, so it is the operator's.
+
+## WHAT THIS FIRE DID ESTABLISH
+
+- The flash path itself works end to end (erase, write, verify, boot-slot selection).
+- Our kernel's uImage passes the bootrom's own validation (the slot was accepted; no recovery fetch).
+- It does NOT reach init - so the next diagnosis is the kernel's own early boot, and the pstore
+  records plus the instrumented head.S breadcrumbs (`patched-head.S`, the C18 = 0xC0DE.... crumb
+  chain) are the instruments for that. That is HOST-side analysis plus one more fire, not a guess.
+
+## STATE NOW
+
+- Board: off the network; needs the RESET-hold dance.
+- Door: armed and verified holding UDP 69.
+- Rollback: `build/tmp/fire/kernela-backup.bin` restores the stock kernel to whichever slot.
