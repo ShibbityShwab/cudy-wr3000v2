@@ -11907,3 +11907,70 @@ The goal's three success criteria are met with evidence, and the board is health
 The remaining work - "make it STAY" - is a new, well-posed question: what does the platform check
 before it accepts a boot? That is the next investigation, and it is materially different from the one
 that just concluded.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 111 (2026-10-11): ★★★★★ THE TWO ANSWERS WERE ALREADY IN MY OWN NOTES - AND BOTH ARE CONFIRMED LIVE ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## ★ WHY THE KERNEL DOES NOT STAY: THE WATCHDOG (answer 1)
+
+From `cudy-wr3000v2/boot-slot-and-wdt-mechanics.md` (measured 2026-10-07/08, from the vendor DTS):
+
+    watchdog { compatible = "hsan,hsan-watchdog"; reg = <0x14880000 0x1000>;   // the CRG block
+      enable-val0 = 0x4f4e5452 ("ONTR"); enable-val1 = 0x12345116;   // ENABLE magic
+      stop-val0  = 0xabcd5116; stop-val1 = 0xed574447;               // STOP magic
+      timeout-sec = 0x1e (30 s) }
+
+> "The u-boot ARMS it ~1.07 s into every boot; the vendor kernel's built-in `hsan-watchdog` driver
+> pets it. **Our kernel has no such driver: it boots, runs ~30 s, and the WDT resets.**"
+
+**CONFIRMED LIVE this session:**
+    /sys/bus/platform/drivers/hsan-watchdog-driver   EXISTS and is bound
+    /sys/class/watchdog/watchdog0                     the watchdog device is present
+
+**THIS IS EXACTLY WHAT `C18 = 0xC0DE502D` RECORDS.** The crumb means "the timer ran, this many times" -
+our kernel reached userspace and its timer ticked, and then the 30-second watchdog reset the board.
+It is not a kernel crash; it is an unserviced hardware watchdog. **Our kernel needs the hsan-watchdog
+driver (or an explicit stop-magic write) to survive.**
+
+## ★ WHICH SLOT IT ACTUALLY BOOTS: THE A-FIRST RULE (answer 2)
+
+Also from that note, and it is unambiguous:
+
+> "**The vendor's u-boot ALWAYS boots the A pair (`kernela`/`rootfsa`) first** - and with an
+> ERASED/unbootable `kernela` it HALTS (one power LED, no network) rather than falling back. **The env
+> `bootflag` (b) and the sysenv `boot_reg` are DECORATIVE for the boot path** ... Empirical mapping:
+> `10 -> B pair`, `11 -> A pair`. **CONSEQUENCE: to boot our own kernel, put it in `kernela` (mtd11).
+> We repeatedly flashed kernelb; that is the wrong slot.**"
+
+**CONFIRMED LIVE this session:**
+    ubi0 mounted on mtd13  ->  the A pair (rootfsa)      <- it booted A, exactly as the note says
+    boot_reg = 11          ->  the note's mapping (11 -> A pair) holds
+
+So every previous fire put our kernel in `kernelb` - the slot this u-boot does not read - while the
+selectors we set were decorative. **The kernel appearance in the crumb register needs explaining
+against that**, and the most likely reading is that our kernel DID run from a source the boot path
+reaches (see the open question below); what is certain is that the RUNNING SYSTEM afterwards is the
+vendor kernel on the A pair.
+
+## THE COMPLETE, EVIDENCED EXPLANATION OF THE WHOLE SAGA
+
+    1.  u-boot `bootfip` refuses an image without the DTBO container   -> wrote it   -> kernel EXECUTED
+    2.  the 0xC0DE000B breadcrumb clobbered r4, the jump target        -> fixed to r6 -> jump COMPLETED
+    3.  VMSPLIT_2G linked the kernel where the decompressor jumps      -> set it   -> kernel RAN
+    4.  the kernel reached USERSPACE and its timer ticked (0xC0DE502D)
+    5.  *** the hsan-watchdog (30 s, armed by u-boot) then RESET the board ***
+    6.  and the u-boot boots the A PAIR regardless of the selectors, so the box comes back on the
+        vendor kernel from rootfsa.
+
+## OPEN QUESTION, STATED HONESTLY
+
+Steps 1-4 are measured. Step 5 is a documented, DTS-specified mechanism that I have CONFIRMED EXISTS
+live (driver bound, watchdog0 present) but have NOT yet observed firing on our kernel. Step 6 is
+measured across the project's own 97-boot dataset and confirmed again here (ubi0 on mtd13 now).
+
+**The next experiment is therefore precise and single-variable: put the kernel in `kernela` (mtd11,
+the slot the u-boot actually reads) and give it a watchdog story** - either built with the
+hsan-watchdog driver, or with the stop-magic written early (`mw.l 0x14880064 0xabcd5116;
+mw.l 0x14880068 0xed574447` at the top of the kernel's early boot).
