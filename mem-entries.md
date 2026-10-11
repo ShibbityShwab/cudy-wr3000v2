@@ -11748,3 +11748,43 @@ already has** - a uImage plus the base DTB and the 96-byte descriptor table at
 upgrade endpoint) accepts only vendor-signed containers. Restoring the shell is the known-good replay
 above (flash `rootfs-custom.ubi` into slot B and switch), which is a device mutation and therefore
 belongs to the user's decision.
+
+
+## PHASE 108 (2026-10-11): ★ THE COMPLETE SLOT IMAGE IS BUILT AND VERIFIED - ALL SEVEN CHECKS PASS ★
+
+    build/tmp/slice/r4fix-slot.bin
+        8,650,752 B   (exact kernelb partition size)
+        md5    00f338a74c92bb9f054a689d98b007f1
+        sha256 512a5ea74ec8f67f81c07c7ebb21a216590265215df3e9cd041ec8f49e838d6d
+
+VERIFICATION, end to end:
+
+    1. uImage magic          27 05 19 56                      PASS
+    2. uImage size           2,643,024
+    3. load/ep               0x80608000 / 0x80608000           matches the VENDOR's own kernel exactly
+    4. base DTB @2,643,088   magic d00dfeed, totalsize 31,300 PASS
+    5. DTBO container @2,674,388  magic 0xd7b7ab1e            *** GATE PASS ***
+    6. header/data CRC       stored == computed (07d4b50c/1efd9159)  PASS
+    7. partition fit         8,650,752 == 8,650,752            PASS
+
+**It carries BOTH fixes**: the VMSPLIT_2G link address (entry 0x80608000, which the decompressor's
+own `r4 = (PC & 0xf8000000) + TEXT_OFFSET` computation reproduces) and the r4-clobber repair (the
+0xC0DE000B breadcrumb now writes r6, so the kernel jump target survives). Plus the DTBO container that
+gets the bootloader to hand over control at all.
+
+**Construction**: our `r4fix-uImage` + the vendor template's DTB region
+(`build/custom/kernelb-2.5.24-full.img`, which already satisfies the gate), padded with `0xff` to the
+full partition - i.e. the same shape as `kernelb-2.5.24-full.img`, with our kernel substituted.
+
+## THE ONLY THING STANDING BETWEEN THIS ARTIFACT AND A FIRE
+
+Access. Writing it needs `mtd write <img> kernelb` (or the equivalent), which needs a shell, and the
+board currently has no shell: the recovery re-flashed both slots and our access layer lived in slot B's
+squashfs. The one open write path (the web upgrade endpoint) accepts only vendor-signed containers.
+
+Restoring the shell is a KNOWN-GOOD REPLAY, not an experiment - `opensource/docs/FLASH-PLAN.md`
+records it executed successfully once ("Result (executed) - The custom image booted from slot B and is
+verified live"), and every artifact it needs still exists on disk with matching hashes
+(`build/custom/rootfs-custom.ubi` sha256 22daf1dc..., `dumps/mtd14-rootfsb.gz` as the rollback).
+
+**It is a device mutation, so it waits for the user's explicit approval.**
