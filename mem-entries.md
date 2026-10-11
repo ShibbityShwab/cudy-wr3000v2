@@ -11482,3 +11482,72 @@ Board: hung in slot B (the record's `fixed4-full.bin`), unreachable on both addr
 recovery door is ARMED and was verified answering (UDP 69, serving 20,975,775 B).
 The user has been asked for the physical cold reset; until then no device work is possible and every
 host-side question I can name has been answered.
+
+
+## ★★★★★ PHASE 103 (2026-10-12): THE WEB DOOR IS OPEN - AND THE ACCESS SITUATION IS FULLY MAPPED
+
+**After the user's cold reset, the recovery door served the full 20,975,775-B image, and the board came
+back on STOCK 2.4.15** (`2.4.15-20251030-114751`, LuCI up, ping answering).
+
+## WHAT WORKS AND WHAT DOES NOT
+
+    port 22 (ssh)    : DOWN   <- the recovery re-flashed BOTH slots with stock; our layer is gone
+    port 23 (telnet) : DOWN
+    port 80 / 443    : UP     <- the vendor web UI
+
+**The record's own explanation for why ssh is gone** (`mem-entries.md:3`, Phase 22g): our access layer
+(`/etc/init.d/omosshd`, `/etc/rc.d/S95omosshd`, `/root/.ssh/authorized_keys`) is **baked into slot B's
+squashfs**, i.e. it ships inside the flashed image rather than living in the mutable overlay. The
+recovery re-flashed both slots, so it is gone until an image carrying it is flashed again.
+
+## ★ THE WEB LOGIN WORKS - AND THE FIRST ATTEMPT'S "FAILURE" WAS MY MISREAD ★
+
+Logged in successfully with the project's own scheme:
+
+    GET  /cgi-bin/luci/admin/wizard        -> 403 + the sysauth form (403 is NORMAL for this page)
+    form fields: _csrf, salt, zonename, timeclock, luci_username, luci_password
+                 (this build serves NO `token` field, so the hash is sha256(sha256(pw+salt)))
+    POST /cgi-bin/luci/admin/wizard        -> HTTP/1.1 302 Found
+                                              Set-Cookie: sysauth=75884ca5cb... (persistent jar)
+
+**Lesson recorded because it cost time:** the record itself documents that the wizard page answers
+**403 while still rendering the login form** (`build/tmp/slotrestore/restore.md`, section 0a:
+"the login form renders (403 + the sysauth template)"). A 403 on that endpoint is NOT an auth failure,
+and reading it as one sent me down a wrong path. **Read the body and the Set-Cookie header, not just
+the status code.**
+
+## THE UPGRADE ENDPOINT IS OPEN AND MATCHES THE RECORDED RECIPE EXACTLY
+
+    /cgi-bin/luci/admin/system/upgrade   HTTP 200 (authenticated)
+    <input type="file" accept=".bin" name="cbid.upgrade.1.firmware" filesize="25600">
+    form action="/cgi-bin/luci/admin/system/upgrade"
+
+identical to `build/tmp/slotrestore/recipe.md`: field `cbid.upgrade.1.firmware`, accept `.bin`,
+cap 25600 KB. **This is a proven, vendor-native write path.**
+
+## ★ WHY I DID NOT UPLOAD OUR KERNEL SLICE ★
+
+The upgrade endpoint validates the body server-side: `lib/upgrade/platform.sh`
+`platform_check_image()` requires a **FIT magic (`d00dfeed`)** or the vendor's OEM check
+(`recipe.md` lines 15-16). Our `r4fix-full.bin` is a raw **uImage** (`27 05 19 56`) plus a DTBO
+container - **not** a FIT image and **not** a full sysupgrade image. The page's own text says
+"File is invalid. Please retry."
+
+**Uploading it would be the wrong move**: best case it is refused and nothing happens; worst case the
+endpoint begins a partial write before failing. The old failure mode this session kept repeating was
+acting on a plausible-looking plan without checking the consumer's contract - the gate here is
+explicit, so I am honouring it rather than testing it on the bench.
+
+## THE SAFE PATHS FORWARD (both use only the proven door)
+
+    A. Upload `firmware/2.5.24.bin` (22,024,351 B, under the cap, a genuine vendor sysupgrade) through
+       the upgrade endpoint -> the box is re-flashed onto a known stock image through the VENDOR's own
+       path. This is exactly the flow the record executed successfully before
+       (`build/tmp/slotrestore/restore.md`). It restores a known-good state; it does NOT by itself
+       restore ssh (the 2.5.24 stock image carries no omosshd either - the record hit this too).
+    B. Build a genuine sysupgrade image carrying our kernel so the vendor path can install it.
+       That is the real route to a deployed own-kernel, and it is a build task, not a device action.
+
+**The device is healthy, the web door is open and authenticated, and the next move is a BUILD, not a
+fire.** That keeps the goal's constraint (no device mutation without approval) and does not risk the
+one asset that took a physical reset to recover.
