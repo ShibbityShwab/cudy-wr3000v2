@@ -11551,3 +11551,51 @@ explicit, so I am honouring it rather than testing it on the bench.
 **The device is healthy, the web door is open and authenticated, and the next move is a BUILD, not a
 fire.** That keeps the goal's constraint (no device mutation without approval) and does not risk the
 one asset that took a physical reset to recover.
+
+
+## PHASE 104 (2026-10-12): THE VENDOR SYSUPGRADE'S KERNEL SITS AT OUR EXACT LOAD ADDRESS
+
+Decomposed the vendor container (`firmware/2.5.24.bin`, 22,024,351 B) with the project's own
+understanding of the format (`tools/extract_firmware.py` header: *"custom header, bootloader blob, a
+uImage kernel, and a UBI region whose root filesystem volume is a static squashfs"*):
+
+    container magic : "hboot1tag" at offset 0
+    **uImage kernel : @527,964 (0x80e5c)**
+                       declared size 4,292,080 B
+                       load = 0x80608000   <-- EXACTLY our kernel's link address
+                       ep   = 0x80608000   <-- and our artifact's declared entry
+                       name = "Linux-5.10.201"
+    FIT / DTB       : @163,288 (0x27dd8)
+    rootfs squashfs : 'hsqs' @5,127,316 (0x4e3c94)
+
+**★ This is an independent confirmation of the address work ★** - the vendor's own sysupgrade kernel
+loads and enters at `0x80608000`, which is precisely where our VMSPLIT_2G + `TEXT_OFFSET=0x608000`
+build links (`readelf` entry `0x80608000`) and what the decompressor computes as `r4`
+(`(0x83200000 & 0xf8000000) + 0x608000 = 0x80608000`). Three independent lines of evidence now agree on
+one address, and the vendor's image is the authority.
+
+**(Method note, the same trap this session keeps meeting:** a naive scan for `\x27\x05\x19\x56`
+found a FALSE uImage at offset 56,436 whose declared size was 3.7 GB and whose load address was
+nonsense. Validating the declared size against the remaining bytes and the load address against the
+RAM window is what separates a real uImage from a coincidental magic - and it is the rule now.)
+
+## THE PATH TO DEPLOY, USING ONLY PROVEN DOORS
+
+The vendor upgrade endpoint accepts this container format, not a raw uImage. So the route to a deployed
+own-kernel is:
+
+**build the `hboot1tag` container with OUR kernel in the uImage slot**, keeping the vendor's header,
+bootloader blob, DTB region and rootfs volume, then upload it through
+`/cgi-bin/luci/admin/system/upgrade` (open, authenticated, field `cbid.upgrade.1.firmware`,
+`accept=.bin`, cap 25600 KB - all verified against the live page and matching
+`build/tmp/slotrestore/recipe.md`).
+
+That is a BUILD task, not a device mutation, and it does not risk the recovery that took a physical
+reset to obtain.
+
+## CURRENT ACCESS STATE
+
+    ssh / telnet : DOWN (the recovery re-flashed both slots; our layer lived in slot B's squashfs)
+    web UI       : UP and AUTHENTICATED (sysauth session held in build/tmp/wj4.txt)
+    upgrade page : HTTP 200, field and cap verified
+    board        : stock 2.4.15-20251030-114751, healthy, ping answering
