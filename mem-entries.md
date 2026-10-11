@@ -8552,3 +8552,69 @@ D1 90% | D2 100% | D3 75% | D4 0% (needs all of C + the Wi-Fi driver) | D5 0% (e
 
 OUT OF SCOPE THIS RUN (hardware walls): A9 interrupt (device-internal wire), A10 dialogue (same),
 B5 H2D (vendor TX-credit callback), B6 data path (1.24 MB vendor MAC).
+
+
+---
+
+# PHASE 53 (2026-10-11): TWO NEW DRIVERS + THE MISSING THERMAL NODE
+
+Continuing the non-Wi-Fi lanes. This phase turned two 0% lanes into real, compiling drivers.
+
+## ★ C7 ETHERNET - A DRIVER NOW EXISTS (`luofu-gmac.c`)
+
+Decoding the vendor's `hi_kmac.ko` (75,116 B) BEFORE writing anything changed the estimate: it is not
+a proprietary MAC stack, it is a **phylink** driver (`phylink_create/start/of_phy_connect/mii_ioctl`)
+over `clk_bulk_*` and `devm_reset_control_array_get`, with plain `readl`-shaped register access
+(`hi_reg_hw_read` is literally `ldr r3,[r0,r1]; str r3,[r2]`). Binds `hsan,mac` AND `hsan,himac`.
+
+`opensource/lab/luofu-gmac/` added: a platform_driver + net_device + phylink frame that binds both
+the DT's `hisilicon,luofu-gmac` and the vendor's `hsan,mac`, takes the DT's clocks and reset array
+(the DT carries both per gmac node), and maps the MAC window with dword-only accessors.
+
+`opensource/lab/luofu-mdio/` NOT written - but decoded: `hi_kmdio.ko` is a standard **mdiobus**
+driver (`__of_mdiobus_register`, `devm_mdiobus_alloc_size`, `mdiobus_read/write`) whose read/write
+is a BIT-BANG that switches between TWO PINCTRL STATES per transfer (`pinctrl_select_state` at
+0x2b4, the `mdio1_mdc1`/`mdio1_mdc2` pair) and polls a busy/done bit ("MDIO bus is busy").
+Deliberately not written: a wrong guess at the busy bit or the state names hangs the bus on first
+touch and cannot be validated without the device. The decode is the receipt.
+
+## ★ C9 WATCHDOG - A DRIVER NOW EXISTS (`luofu-wdt.c`)
+
+The vendor DT carries a VENDOR BINDING (luofu-r116-pinned.dts:1512-1531): `en-offset="d"(0x64)`,
+`set-offset="P"(0x50)`, `clr-offset="p"(0x70)`, `int-status-offset=0x100`,
+`enable-val0="ONTR"(0x4f4e5452)`/`val1=0x12345116`, `stop-val0/val1`, `reset-val0=0x55aa5a5a`/`val1=0xaa55a5a5`,
+`timeout-min=1/max=0x200/sec=0x1e`. `hi_wdg.ko` is a standard watchdog_device over exactly those
+three registers, the timeout being two 9-bit fields at bits 3 and 10 of set-offset.
+
+`opensource/lab/luofu-wdt/` added: reads EVERY value from the DT (nothing invented), stores only
+from ->start/->stop/->ping/->set_timeout, so loading it cannot arm a timer.
+
+## ★ C9b THERMAL - THE DT NODE WAS MISSING ENTIRELY
+
+`hi_tvsensor.ko` is a standard thermal driver (`devm_thermal_zone_of_sensor_register` +
+`hw_get_temp/set_th/set_trim/set_int_mask/clr_int`, v1 and v4 variants), binding `hsan,tvsensor`.
+**But our reconstructed DTS had no thermal node at all.** The vendor's own tree carries both the
+sensor (`tvsensor@14900500`, reg 0x14, hwver 3, `int-base-offset=0xc`) and the
+`thermal-zones/cls0` zone (passive trip 115000, critical 125000).
+
+RESTORED into `opensource/docs/soc/luofu-r116.dts` against our own compatible
+(`hisilicon,luofu-tvsensor`), with the vendor's values and pinned: refs. Verified the DTS still
+compiles standalone (`cpp|dtc` -> 11,485 B, was 10,803); the only new warnings are the trip-point
+`unit_address_vs_reg` ones every kernel DTS carries.
+
+## BUILDS (all local, no CI)
+
+`luofu-gmac.ko` 9,008 B - zero errors, zero warnings (a first pass had 4 warnings from an unused
+helper and a nonsensical ternary; both removed, not silenced).
+`luofu-wdt.ko`  7,236 B - zero errors, zero warnings.
+
+## COMMITS
+`54a3c55` luofu-gmac | `3dd257e` luofu-wdt | `9435f1b` the tvsensor DT restore (submodule, pushed).
+
+## SC1 CORRECTION (honesty)
+
+The kernel build's DTB is byte-identical to the recorded manifest (`8f549305…`), but zImage/uImage
+differ by 8 bytes: the UTS banner bakes in KBUILD_BUILD_HOST + TIMESTAMP, and CI used
+host=github-actions while a local build uses host=local. Byte-identity with a CI-built artifact from
+a different host is not achievable without spoofing the host string - inherent, not a defect. The
+build IS correct, reproducible run-to-run, and passes the kernelb budget.
