@@ -12020,3 +12020,40 @@ holding -> release). A warm reset never triggers the bootrom fetch.
 - and the two answers were in the project's own notes all along
   (`cudy-wr3000v2/boot-slot-and-wdt-mechanics.md`), which is the lesson worth carrying: read the
   record's measured mechanisms before designing another experiment.
+
+
+## PHASE 113 (2026-10-11): FIRE 22'S OUTCOME AND THE RECOVERY SETUP
+
+**FIRE 22 fired our kernel into `kernela` (mtd11)** - the slot the u-boot actually boots - after
+securing a hash-verified backup of that slot's previous content
+(`build/tmp/fire3/kernela-backup.bin` = `bd5ae265ce47e3ed4299c434b1936385`, matching the live partition).
+
+**Result: the board went DARK** - no ICMP, no 22/80/443, on both 192.168.10.1 and 192.168.1.1, and it
+did not recover on its own across 3+ minutes of watching.
+
+**This is the expected consequence of the A-first rule, not a surprise.** Previously the box fell back
+to the vendor kernel on the A pair and stayed reachable; once the A pair IS our kernel there is nothing
+to fall back to, so a failure to reach a fully-serviced state leaves it dark. That is what makes this
+fire informative: it removed the masking.
+
+## WHAT IS ESTABLISHED
+
+- our kernel reaches USERSPACE (`C18 = 0xC0DE502D` in FIRE 21, "the timer ran, this many times");
+- the `hsan-watchdog` (30 s, DTS-documented, armed by u-boot) is petted by the vendor kernel's own
+  driver and by nothing in ours - CONFIRMED live (`hsan-watchdog-driver` bound, `watchdog0` present);
+- the u-boot boots the A pair regardless of the env/register selectors - CONFIRMED live (`ubi0` on
+  mtd13) and measured across the project's 97-boot dataset;
+- so the remaining obstacle is a **driver**, with a known register interface, not an unknown mechanism.
+
+## RECOVERY, ARMED AND VERIFIED
+
+    UDP 69 listener : exactly ONE process (python PID 2948) - verified with
+                      Get-NetUDPEndpoint, after killing four orphaned readers that had stacked on the
+                      port (a second listener can steal the RRQ and stall the transfer - the same
+                      class of failure the project already lost time to with the OACK bug)
+    payload         : build/tmp/recovery/recovery.bin, 20,975,775 B (the image that worked before)
+    host alias      : 192.168.1.88 on Ethernet, AddressState Preferred
+    reader          : build/tmp/tftp_reader2.py (OACK-less, the one the record says to use)
+
+**The remaining step is PHYSICAL and the user's**: unplug power -> HOLD RESET -> power on while holding
+-> release. A warm reset never triggers the bootrom fetch (measured twice in the record).
