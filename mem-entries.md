@@ -12172,3 +12172,59 @@ proven to reach the timer crumb; the remaining question is what userspace it fin
 not hold the soft-float `owrt` volume any more (the recovery re-flashed, and the recorded state is from
 a different day), or it does and the network simply is not up. **The first thing to check on recovery is
 `ubinfo` / the mtd16 content, NOT another fire.**
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 116 (2026-10-12): ★★★★★ THE SOFT-FLOAT ROOTFS IS IDENTIFIED AND VERIFIED ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE FINDING THAT MATTERS: ONLY ONE ARTIFACT CAN RUN ON THIS SILICON
+
+The record's PHASE 50en established that *"this part has no usable FPU, so only a soft-float rootfs can
+run on it - which is why the vendor built soft-float and why both hard-float OpenWrt rootfs tested died
+identically with SIGILL (signal 4)."*
+
+**I tested the ELF ABI of every rootfs candidate on disk** (`readelf -h` on `bin/busybox` inside each):
+
+    build/tmp/openwrt/owrt-a9.sqfs                  HARD-FLOAT   -> would die with SIGILL
+    build/tmp/openwrt/owrt-armel.sqfs               **SOFT-FLOAT**   <-- THE ONE THAT RUNS
+    build/tmp/openwrt/owrt-rootfs.trimmed.sqfs      HARD-FLOAT
+    build/tmp/openwrt128/owrt-128k.trimmed.sqfs     HARD-FLOAT
+    build/tmp/openwrt/owrt-rootfs.sqfs              HARD-FLOAT
+
+**Exactly one candidate is soft-float, and it is the one the recorded successful boot used.**
+
+    build/tmp/openwrt/owrt-armel.sqfs
+        2,881,866 B
+        sha256 f26a97aa35501ac8b2435092135e4960b4b715a78da5f11de4cee76b83029544
+        md5    fc079bad7802237c616f9d658ad3cce1
+
+**VERIFIED COMPLETE**: `unsquashfs -s` reports *"Found a valid SQUASHFS 4:0 superblock ... Compression
+xz ... Filesystem is exportable via NFS"*, and the tree contains `bin/busybox` plus
+`etc/init.d/{boot,bootcount,cron,dnsmasq,done,dropbear,firewall,...}`.
+
+**`etc/init.d/dropbear` IS PRESENT** - i.e. a successful boot of our kernel with this rootfs brings up
+SSH, which is precisely what makes the box reachable instead of dark. **That is the difference between
+the 2026-10-10 success and tonight's dark board.**
+
+## THE OTHER BACKUP, AND WHY IT DOES NOT HELP BOOT
+
+    dumps/mtd16-upgrade.gz  -> decompresses to 30,932,992 B, and its content is **0xff THROUGHOUT**
+                               (no UBI#, no 'hsqs', no 'owrt'): it is a backup of the ERASED partition,
+                               taken BEFORE the owrt volume was ever written. Good for reverting,
+                               useless as a rootfs.
+
+## THE COMPLETE RECIPE, NOW FULLY EVIDENCED
+
+    1. kernel   : ours, in `kernela` (mtd11) - the A-first slot the u-boot actually boots
+    2. rootfs   : a UBI volume named `owrt` inside mtd16 ("upgrade"), holding the SOFT-FLOAT squashfs
+    3. cmdline  : our built-in `ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0` finds it
+    4. userspace: OpenWrt's init runs, dropbear starts, the box becomes reachable
+
+    recorded construction (PHASE 50en):
+        mtd erase /dev/mtd16 ; mtd write /tmp/owrt.sqfs /dev/mtd16
+        ubimkvol /dev/ubi1 -N owrt -s 16MiB
+        ubiupdatevol /dev/ubi1_0 /tmp/owrt.sqfs
+
+**Every input for this is on disk and hash-verified. What it needs is a shell - which needs the board
+back, which needs the user's cold reset.**
