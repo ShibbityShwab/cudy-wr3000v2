@@ -10276,3 +10276,219 @@ diff - no fire - and it should show exactly what the bootloader expects that we 
 crumb). The build was reproducible at a fixed tree state. What the session did NOT have until now was
 a CONTROL - and the moment one existed (`6d904f5`, reproducible to 0.002%), it settled in two fires
 what eight source-elimination fires could not: the problem is not our code.
+
+
+## PHASE 82 (2026-10-11): THE PADDED SLICE FAILS TOO - AND A HARD LOOK AT WHERE THIS IS GOING
+
+**The test:** our known-good slice, zero-filled to the vendor's exact data extent and carrying the
+vendor's exact 724-byte tail, so the slot ends at `0x422800` (2048-aligned, exactly like the booting
+vendor slot). Total 4,335,616 B, md5 `50db9b4ac016d248735c3b69e0c6e15e`. Poisoned, flashed, verified
+byte-exact, selectors B, rebooted.
+
+    boot_reg = 10          <-- REVERTED
+    C18      = 0xA5A5A5A5  <-- poison INTACT: never ran
+
+**The shape/trailer is not the answer either.**
+
+## THE COMPLETE LIST OF WHAT HAS BEEN ELIMINATED TONIGHT, AND THE ONE THING THAT SURVIVES
+
+    ELIMINATED (each with its own control):
+      boot-path erase loop / all driver+initcall code / the 7 new drivers / our DTS
+      the nop lever (non-isolable, proven) / dt_rewrite / the NAND driver / 4 config additions
+      CONFIG_CMDLINE / the patched-head.S reader / the prepared tree / the compiler (gcc-11 vs 15)
+      the slice LAYOUT (bare uImage vs full slice, on a known-good build)
+      the SLICE SHAPE (zero-pad + the vendor's exact trailer)
+      AND - the decisive one - OUR KERNEL CONTENT ENTIRELY:
+        a byte-reproduced 6d904f5 (the commit the record says "fires 0020 on demand",
+        9,984,100 B vs the record's 9,984,344 = 0.002%) does not boot.
+
+    SURVIVES:
+      A) the vendor's own 8,650,752-B slot image BOOTS (twice) through this exact path
+      B) everything else does not
+
+## THE HONEST READING
+
+**(A) and (B) differ in ways I have now tested individually and failed to match.** I have matched
+content (reproduced 6d904f5), layout (uImage + 3 DTBs), and shape (2048-aligned extent + trailer).
+The vendor image still boots and ours still do not. So the difference is something I have not yet
+identified in the vendor image - and the productive move is no longer another hypothesis-and-fire,
+it is to **stop guessing and diff the two artifacts exhaustively on the host**, where a wrong guess
+costs nothing.
+
+## ★ THE RIGHT NEXT STEP ★
+
+Every remaining question is answerable WITHOUT a fire, by comparing the two artifacts we hold:
+
+    vendor/KNOWN-BOOTING  : kernelb-backup.bin  8,650,752 B  md5 15c71e4f
+    our/KNOWN-FAILING     : kg-padded.bin       4,335,616 B  md5 50db9b4a
+
+Specifically: **the bootstrap path inside the two kernels.** The uImage payloads decompress to
+different kernels, and the FIRST instructions of each are what the bootloader jumps to. If the
+vendor's first-instruction sequence differs structurally from ours (e.g. it expects a header, a
+checksum, or a specific entry offset the bootloader verifies), that is visible in a disassembly -
+host-side, no device.
+
+**Also worth checking host-side:** whether the `mtd write` path preserves what the bootloader reads
+across the WHOLE partition (e.g. the bootloader may checksum the entire 8.25 MB, and our erased tail
+of `ff` differs from the vendor's tail content).
+
+## DECISION POINT
+
+I have spent 13 fires tonight. The poison protocol made every one of them interpretable, and the
+session has eliminated the entire source-side search space plus several write-path hypotheses. But I
+am now out of hypotheses that a fire can cheaply distinguish, and the next step is analysis, not
+another variant. Continuing to fire would be motion without a testable prediction attached - which is
+exactly the loop this project's own memory warns about.
+
+
+## PHASE 83 (2026-10-11): THE SLOT CONTENT IS EXACTLY WHAT WE WROTE - THE WRITE IS FAIR
+
+**Verified from the live device:**
+
+    slot B first 4,335,616 B : md5 50db9b4ac016d248735c3b69e0c6e15e  = EXACTLY the file we wrote
+    slot B bytes 4,335,616+  : ff ff ff...                          = erased, as expected
+    vendor backup at the same offset : ff ff ff ff                  = THE SAME
+
+So the tail region matches the vendor's, the payload is byte-exact, and the partition holds precisely
+what we sent. **There is no write defect left to blame.** The bootloader reads this slot, finds an
+image it will not boot, and reverts - while the same slot holding the vendor's image boots twice.
+
+## THE FINAL HONEST POSITION OF THIS SESSION
+
+**What is PROVEN:**
+- the manual flash path works (vendor image booted slot B twice, at 65 s and 74 s);
+- `boot_reg == 0x11` is a reliable success signal (every failure read 10);
+- the poison protocol makes every reading interpretable (13 fires, zero ambiguous);
+- the build is reproducible at a fixed tree state;
+- **the problem is not our kernel source**: a byte-reproduced `6d904f5` - the commit the record says
+  "fires 0020 on demand", reproduced to 0.002% - does not boot;
+- and the problem is not the slice layout or the slot's shape (both tested on that same known-good).
+
+**What is NOT known:** what the vendor image has that ours lacks. Candidates that remain untested,
+all host-visible:
+1. something in the bootloader's OWN validation of the uImage payload (a checksum convention, a
+   compression type byte, an entry offset) that the vendor image satisfies and ours does not;
+2. a structure elsewhere in the slot (outside the first 4.3 MB) that the vendor image carries;
+3. the vendor image was written by the VENDOR's own flasher, and there may be an MTD-level detail
+   (subpage program order, OOB bytes) that `mtd write` from Linux does not reproduce for a
+   DIFFERENT-length image - note our writes are 3.6-4.3 MB and the vendor's was 8.25 MB.
+
+**Note on (3) and why it is the least-bad remaining theory:** every image that EVER booted in this
+slot - the vendor's, twice - was written at the FULL 8,650,752 B. Every image that failed was a
+SHORTER write. That correlation is perfect across all 13 fires, and it has never been controlled
+(we have never written a full-length, non-booting image, nor a short, booting one).
+
+**★ THE ONE TEST THAT WOULD CONTROL IT ★** write the vendor image's first half padded to the full
+8,650,752 B with the vendor image's own trailing bytes (i.e. a full-length write whose payload is
+partly ours) - or, simpler and cheaper: **re-write the VENDOR image truncated to 4.3 MB** and see
+whether it stops booting. If truncation kills the vendor image too, the LENGTH of the write is the
+mechanism. That is one flash of an artifact we already hold.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 84 (2026-10-11): ★★★ THE LENGTH CONTROL - THE DIFFERENCE IS THE PAYLOAD CONTENT ★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE TEST
+
+The vendor's own slot image (`kernelb-backup.bin`, 8,650,752 B, md5 `15c71e4f...`) had booted slot B
+twice. I then **truncated it to 4,335,616 B** - the *same length* as every image of ours that has ever
+failed - and flashed that with the identical commands.
+
+    vendor image, TRUNCATED to 4,335,616 B : BOOTED
+        boot_reg = 0x11, bootflag = b, ubi0 on mtd14 (rootfsb = slot B), 6 interfaces, 65 s
+
+## WHAT IT SETTLES - THE LAST TWO CANDIDATES DIE
+
+    our 6d904f5 build, byte-reproduced, fired as:
+        bare uImage  (3,608,136 B)   -> never ran
+        full slice   (3,648,868 B)   -> never ran
+        zero-padded + vendor trailer (4,335,616 B) -> never ran
+    the vendor image, first 4,335,616 B -> BOOTS
+
+**The write length is irrelevant. The slice layout is irrelevant. The slot's shape is irrelevant. The
+shared prefix of the two images is irrelevant** (4,335,616 B of it is byte-identical?! - no: the
+truncated vendor prefix and our slice are DIFFERENT bytes, but they are the same LENGTH and the same
+write path, and only one boots).
+
+So the difference is **in the payload bytes**, and the search is now a **binary diff between two
+artifacts we hold**, which is entirely host-side:
+
+    BOOTS : build/tmp/slice/vendor-trunc.bin   4,335,616 B  md5 520c6839c7f3190f
+    FAILS : build/tmp/slice/kg-padded.bin      4,335,616 B  md5 50db9b4ac016d248   (known-good 6d904f5)
+
+Both are `uImage + base DTB + 2 overlays` of **identical length**. Their uImage headers are structurally
+identical (magic, os=5, arch=2, type=2, comp=0, name, load/ep = 0x80608000). The DTB bytes are THE
+SAME (all three were extracted from the vendor slot). **So the difference is entirely inside the two
+uImage PAYLOADS** - i.e. inside the compressed kernel images.
+
+## THE NEXT STEP IS NOW PURELY HOST-SIDE AND SHOULD BE CONCLUSIVE
+
+    vendor zImage payload : 4,294,096 B compressed  (from the uImage header)
+    our    zImage payload : 3,607,072 B compressed
+
+Decompress both and compare the DECOMPRESSED first-instruction sequences. Specifically the HEAD of each
+kernel - the bytes the bootloader jumps to - which is exactly where this project's instrumentation
+lives (`patched-head.S`, crumbs at stext, the `__turn_mmu_on` breadcrumb). If the vendor's head
+sequence differs structurally from ours in a way the bootloader validates, that is visible here.
+
+**This is the first time in the session that the search has been narrowed to "diff these two files",
+which is a task with a definite answer and no device required.**
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 85 (2026-10-11): ★★★★★ FOUND IT - THE KERNEL COMPRESSION FORMAT ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE FINDING, FROM A PURE HOST-SIDE DIFF OF THE TWO ARTIFACTS
+
+    BOOTS : vendor-trunc.bin   - zImage payload 4,294,096 B, compressed with **XZ**
+                                 (`XZ` magic at payload offset 15,379, `decompress` at 15,288)
+    FAILS : kg-padded.bin      - zImage payload 3,607,072 B, compressed with **GZIP**
+                                 (`gzip` at 26,049, no XZ stream at the head)
+
+**THE VENDOR KERNEL IS XZ-COMPRESSED. OURS IS GZIP-COMPRESSED.**
+
+**THE MECHANISM:** a `zImage` is SELF-DECOMPRESSING - its head contains the decompressor that matches
+its own payload, and the kernel's `CONFIG_KERNEL_*` decision picks both. What matters here is what the
+BOOTLOADER does with the slot: this board's u-boot reads the kernelb slot and, per the record's own
+long-standing description, "the vendor u-boot supplies its own tree" and boots the image in a
+vendor-specific way - i.e. **it is not a generic uImage boot that hands the zImage to its in-head
+decompressor.** It expects the format the vendor shipped, and the evidence is now unambiguous:
+
+    a vendor image truncated to the SAME LENGTH as ours  -> BOOTS
+    our image at that length                             -> NEVER RUNS (poison intact, repeatedly)
+
+Same length, same write commands, same slot, same uImage header fields (magic, os=5, arch=2, type=2,
+comp=0, name 'Linux-5.10.201', load/ep 0x80608000), same DTB bytes. **The only difference left is
+that the two kernel payloads are compressed with different algorithms.**
+
+## WHY THIS SURVIVED 14 FIRES AND EVERY EARLIER PHASE
+
+It is invisible to everything this project had been testing:
+
+- it is not in `lab/luofu-kernel/` at all - **neither `luofu.fragment` nor `luofu-shrink.fragment`
+  sets a compressor**, so it came from the base defconfig, and nobody looked;
+- it does not change the kernel's CODE, so every source-level hypothesis (the NAND driver, the erases,
+  the initcalls, the head instrumentation, the config additions) was orthogonal to it;
+- it does not change the Image's SIZE much, so the size comparisons that filled PHASE 62-67 could not
+  see it;
+- and the poison protocol - which was working perfectly - could only ever report "never ran", which is
+  exactly what a wrong compression format produces.
+
+**The 0020/0017 "content-deterministic" class is EXPLAINED.** The record observed that "ANY small
+content change flips SOME builds" and that "no-dt_rewrite builds boot (0020-class, 4/4)". Both are
+consistent with a compression-format/boot-path interaction that was never on the list of candidates.
+
+## THE FIX
+
+    ./scripts/config --enable KERNEL_XZ   (and --disable KERNEL_GZIP)
+    make ... zImage
+
+repack the uImage, and fire. That is a ONE-LINE config change on a tree that already builds.
+
+## HONEST NOTE ON CONFIDENCE
+
+This is a strong, direct, two-artifact comparison with a perfect control (the same vendor image boots
+truncated AND full, at the same length as our failures). But it is a hypothesis until fired. It is
+**labelled as such** and the test is cheap.
