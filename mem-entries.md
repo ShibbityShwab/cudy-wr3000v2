@@ -8993,3 +8993,22 @@ put the `return` at the call site and would have skipped that; caught by reading
 
 Verified locally: `luofu-fmc.ko` 25,316 B, zero errors, diff +38/-0 (the two
 `-Wdeclaration-after-statement` warnings are on PRE-EXISTING declarations, not this change).
+
+
+## PHASE 58d (2026-10-11): THE GATE IS COMPLETE - VERIFIED BY POSITION, NOT BY IMPRESSION
+
+Counted, not eyeballed:
+
+    boot-path mtd_erase/mtd_write calls BEFORE the `if (!omo_mark)` gate : 0
+    boot-path mtd_erase/mtd_write calls AFTER  the gate : 6
+    both mod_timer(&luofu_reboot_timer) sites           : after the gate
+
+So with the default `omo_mark=0`, **the boot path performs no write to flash at all** - the only boot
+-path callers of mtd_erase/mtd_write were inside `luofu_jffs2_mark()`, and that function now returns
+before touching the partition. The two mtd op IMPLEMENTATIONS (`luofu_mtd_write` /
+`luofu_mtd_erase`, lines 1243/1296) are registered as `mtd->_write` / `mtd->_erase` and are reached
+only when a mounted filesystem asks - not from init.
+
+That is the property the next fire tests, and it is now stated as a measurable one rather than a
+hope: boot with the gate default, and the kernel should reach userspace because nothing in the boot
+path writes flash.
