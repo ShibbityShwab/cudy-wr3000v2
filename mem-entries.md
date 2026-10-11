@@ -12269,3 +12269,45 @@ above matters and why `owrt-armel.sqfs` is the only usable candidate.
     4. [mutation]   only if it does not: rebuild it (the recorded recipe), then fire our kernel
 
 **Step 3 is the deciding measurement and it costs nothing.** Everything after it is already prepared.
+
+
+## PHASE 118 (2026-10-12): THE MOUNT CHAIN IS FULLY SUPPORTED - THE GAP IS THE VOLUME'S CONTENT
+
+Checked every host-side link in the chain the recorded successful boot proved
+(`ubi_attach(mtd16) -> volume 'owrt' -> ubiblock0_0 -> squashfs -> init`):
+
+**1. The kernel config has every piece:**
+    CONFIG_MTD_UBI=y            CONFIG_MTD_UBI_BLOCK=y      CONFIG_MTD_BLOCK=y
+    CONFIG_SQUASHFS=y           CONFIG_SQUASHFS_XZ=y        CONFIG_MTD_UBI_WL_THRESHOLD=4096
+    (and the xz decompressor matches the soft-float image, which `unsquashfs -s` reports as "Compression xz")
+
+**2. The partition table our kernel uses defines mtd16:**
+    opensource/docs/soc/luofu-r116.dts line 440:
+        partition@6280000 { label = "upgrade"; reg = <0x6280000 0x1d80000>; };
+    `0x1d80000` = 30,932,992 B = exactly the mtd16 size the live device reports. The whole table
+    (esbc, uboota/b, enva/b, fac, bdinfo, cfga/b, log, pstore, kernela/b, rootfsa/b, rootfs_data,
+    upgrade) matches the live `/proc/mtd` name for name.
+
+**3. The cmdline points at it:**
+    CONFIG_CMDLINE="panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init"
+
+**=> Nothing in our build is missing.** Our kernel can attach the `upgrade` partition, resolve a
+volume, build `ubiblock0_0` and mount a squashfs - it demonstrably did exactly that on 2026-10-10.
+
+## THEREFORE THE REMAINING UNKNOWN IS EXACTLY ONE THING, AND IT IS A READ
+
+    DOES mtd16 STILL HOLD THE UBI VOLUME NAMED `owrt` WITH THE SOFT-FLOAT ROOTFS?
+
+The recorded construction wrote it there. Since then the box has been recovery-flashed more than once,
+and mtd16 is the vendor's own staging partition - it may have been erased, overwritten, or left alone.
+**`ubinfo` (or a read of mtd16's first PEB) answers it, needs no mutation, and is the single deciding
+measurement.**
+
+    - if the volume is PRESENT and soft-float -> the boot should reach userspace and dropbear; if it
+      does not, the rootfs ABI has changed on us and that is a genuinely new fact;
+    - if ABSENT -> rebuild it with the recorded recipe (`ubimkvol /dev/ubi1 -N owrt -s 16MiB`;
+      `ubiupdatevol /dev/ubi1_0 /tmp/owrt.sqfs`) using `build/tmp/openwrt/owrt-armel.sqfs`
+      (md5 fc079bad7802237c616f9d658ad3cce1), then fire.
+
+**Every input is on disk and hash-verified. The board needs the user's cold reset, and then the first
+action is read-only.**
