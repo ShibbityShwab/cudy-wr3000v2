@@ -9867,3 +9867,50 @@ bare uImage did. Both are now on the eliminated list.
 Board: **slot B, vendor kernel, healthy** (`boot_reg=0x11`, `bootflag=b`, `ubi0` on mtd14). This is a
 NEW steady state - the box is running from slot B for the first time tonight, with slot A holding the
 untouched stock image as the rollback.
+
+
+## PHASE 73 (2026-10-11): THE FRAME IS NOW CLEAN - HEADERS MATCH, SIZES ARE SANE, THE CODE IS THE VARIABLE
+
+**Header comparison, byte for byte:**
+
+    KNOWN-GOOD (vendor, boOTS)     : magic 27051956  load 80608000  ep 80608000
+                                     os=5 arch=2(arm) type=2 comp=0(none)  name 'Linux-5.10.201'  size 4,294,096
+    OURS (gcc-11, does NOT boot)   : magic 27051956  load 80608000  ep 80608000
+                                     os=5 arch=2(arm) type=2 comp=0(none)  name 'Linux-5.10.201'  size 3,657,744
+
+**Structurally identical.** Only the CRC/size/time differ, as expected for a different payload. So the
+container is right, the load address is right, and the payload is a well-formed zImage.
+
+**Sizes are sane and SMALLER than the one that boots:**
+
+    compressed   : ours 3.49 MB vs the vendor's 4.10 MB   (-637 KB)
+    uncompressed : ours 9,780,192 vs the recorded good 9,984,344  (-204,152 B)
+
+So it is not an over-size problem, and the recorded "known-good 9984344" (uncompressed `Image` at load
+address semantics) is the right comparison for the second number.
+
+**A wasted build, caught before it cost a fire:** the multi_v7 baseline came out with `ARCH_LUOFU = 0`
+and `uImage 9,876,032 B` - i.e. our machine was not even in it AND it exceeded the 8,650,752-B
+partition. **It could never have booted, so firing it would have produced another misleading INTACT
+reading.** Caught by checking the config and the size before flashing - the discipline that Phase 70's
+DTB mistake taught.
+
+## WHERE THE WORK STANDS - AND THE HONEST ASSESSMENT
+
+**PROVEN, and this is the session's real contribution:**
+- the manual flash path works (a known-good image booted slot B and stayed there);
+- `boot_reg == 0x11` after the reboot is a reliable SUCCESS signal (every failure left it at 10);
+- the poison protocol makes every fire interpretable (5 readings, 5 correct);
+- 13 candidate variables eliminated, each with its own control;
+- the problem is the 0017/0020 content class the record named on 2026-10-09 and NEVER finished.
+
+**NOT SOLVED:** what controls that class. The record's own words: "Next pass: bisect the content class
+systematically; the NAND/rootfs lane waits on a boot that stays in the 0020 class." That bisect is the
+remaining work, and it needs many builds - each one a fresh draw - with the now-proven instrument
+(`boot_reg`) rather than more hypotheses.
+
+**THE MOST USEFUL NEXT STEP IS NOT ANOTHER SINGLE HYPOTHESIS.** It is to fire a SMALL SERIES of builds
+that differ only in ONE documented dimension each (a few hundred bytes of nop padding, a single config
+symbol, the head files with and without instrumentation), and record `boot_reg` for each, to find what
+correlates - exactly what `ea2276c` ("text-size dice throw 5 ... the real class lever") started and
+never finished. That is mechanical now that the path and the signal are proven.
