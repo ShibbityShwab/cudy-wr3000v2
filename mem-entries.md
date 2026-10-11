@@ -9098,3 +9098,75 @@ the PHASE 50x-50z work had to fix repeatedly, including a breadcrumb pair that w
 NEXT (host-side, no fire): diff the CURRENT `patched-head.S` / `patched-compressed-head.S` against
 the versions that booted in PHASE 50em/50en, and against `8cebc05..15efe8f` - the same artifact-diff
 method that identified the ramoops cause in one command after three rounds of reasoning had failed.
+
+
+---
+
+# PHASE 60 (2026-10-11): ★ THE FIRE'S FAILURE IS THE KNOWN MMU-TRANSITION CLASS - AND MY C18=0 READING WAS UNCONTROLLED ★
+
+## WHAT PHASE 59 CONCLUDED, AND WHAT IS WRONG WITH IT
+
+PHASE 59 read `C18 = 0x00000000` on the vendor system and concluded "our kernel died before its first
+breadcrumb". **That reading was not a controlled measurement.** The record's own protocol says:
+
+    "Fresh instruments (C18 POISONED PER FIRE; RAM captures at 0x80600F00 ...)"
+
+The sentinel is **written with a known poison value BEFORE the fire**, so that the read-back
+distinguishes three cases: poison intact = our kernel never touched it; a `0xC0DE....` value = our
+kernel ran that far. **I did not poison it.** So a read of 0 is consistent with at least: (a) our
+kernel never ran, (b) the cell was left 0 by the previous vendor boot, (c) the vendor reset it during
+the failover. It cannot separate them. The conclusion overstated what the evidence supports.
+
+## ★ THE ACTUAL FRONTIER, ALREADY CHARACTERISED IN THE RECORD ★
+
+The ledger's "mcr-transition lottery" section states the mechanism in its own words:
+
+> "The 0020 boot landmark is reproducible ... but ANY small content change (the NAND stack, a 50-byte
+> string) flips some builds to 0017: death at the MMU-enable. ... the pre-mcr block runs in full with
+> canonical inputs and a post-mcr store to the same page NEVER lands. Only the mcr sits between. The
+> transition is CONTENT-DETERMINISTIC PER BINARY, not per boot."
+
+and the next section:
+
+> "No-dt_rewrite builds boot (0020-class, 4/4); dt_rewrite-present builds die at the mcu transition
+> (0017-class)."
+
+**So a known, dated failure mode already exists: which class a build lands in depends on the binary's
+exact content, deterministically.** Our 2026-10-11 kernel is a NEW binary (the fmc source changed),
+so it is a fresh draw in that lottery - and the observed outcome (bootloader accepts the image, board
+resets, vendor failover) is consistent with the 0017 class.
+
+**This sits ABOVE everything this session hypothesised.** The erase loop, the initcall ordering and
+the UBI probe call site all act at `late_initcall`, which the 0017 class never reaches. That is why
+gating the erase changed nothing: the failure is earlier than any code `luofu-fmc.c` runs.
+
+## THE DELTA, NARROWED HONESTLY (this is the useful part)
+
+The flashed kernel contains **only `luofu_fmc`** of our drivers (0 symbols for gmac/wdt/mdio/thermal/
+pinctrl in vmlinux; `CONFIG_MTD_NAND_LUOFU=y` is the only CONFIG_LUOFU set). So:
+
+- The seven new drivers written on 2026-10-11 are MODULES, not in the image - **irrelevant to this
+  failure**.
+- The DTB we build is **not used**: `mach-luofu/luofu.c` records that "the vendor u-boot's bootfip
+  hands the kernel ITS OWN DT", so the appended tree is ignored. My tvsensor DTS change is therefore
+  also not in play.
+- The boot-path delta is exactly **three** commits: `eba7094` (init_module consolidation),
+  `2e6fe19` (bounded erase verify), `507ce58` (late_initcall_sync restore) - all three act at
+  `late_initcall`, all three BELOW the 0017 boundary.
+
+## WHAT THE NEXT FIRE MUST DO DIFFERENTLY (so it answers something)
+
+1. **POISON C18 AND C1C BEFORE THE FIRE**, and read them back to prove the poison took. Without that
+   the read is uninterpretable - this is the same "an absence must name its own cause" rule the record
+   has already learned three times.
+2. Then the three cases separate cleanly: **poison intact = the 0017/MMU class** (our code never ran);
+   **a crumb = our driver reached that step**.
+3. Only after that is it worth bisecting the three boot-path commits - and the record already says
+   which way the bisect should go: the mcr-transition work ("bisect the content class systematically
+   ... the NAND/rootfs lane waits on a boot that stays in the 0020 class").
+
+## STATE
+
+Board healthy on stock 2.4.15 (slot A). Our kernel intact in slot B. Both selectors auto-reverted by
+the hardware - a failover that works and costs the full timeout. Bench clean, repo clean, everything
+pushed. `build/tmp/fire2/kernelb-backup.bin` holds the pre-fire slot B.
