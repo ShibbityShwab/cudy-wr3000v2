@@ -11446,3 +11446,39 @@ correct. **`0xC0DE000B` was the only crumb that touched a live `r4`, and it is f
 
 **`r4` is written at 0x54 (before it is computed at 0xc0) and nowhere between 0xc0 and the jump at
 0xa2c except by design. The register now reaches `mov pc, r4` intact.**
+
+
+## PHASE 102 (2026-10-11): PRE-FIRE AUDIT COMPLETE - r4 REACHES THE JUMP INTACT
+
+Checked every `r4` access on the linear entry path between the computation (`0xc0`) and the crumb
+(`0x358`). Every one is a **read** or a **deliberate adjustment**, never a clobber:
+
+    d0:  add r4, r4, r5          <- the computation itself
+    d8:  cmp r0, r4              <- read
+    e4:  cmpcc r4, r0            <- read
+    e8:  orrcc r4, r4, #1        <- the cache_on flag, by design
+    194: sub r0, r4, r3          <- read
+    1f4: cmp r4, sl              <- read
+    1fc: add sl, r4, r9          <- read
+    2f0: tst r4, #1              <- read
+    2f4: bic r4, r4, #1          <- clears the flag, by design
+    2fc: mov r0, r4              <- read
+    338: mov r0, r4              <- read
+
+**`r4` is intact at `mov pc, r4`.**
+
+## THE ARTIFACT READY TO FIRE
+
+    build/tmp/slice/r4fix-full.bin
+      2683916 B   md5 1b4c80e98d03b9e2b1fd15e1d5cdfb22
+      uImage 2643088 B (entry 0x80608000) + the verbatim 40,828-B vendor tail
+      container magic at 0x28ce84 = 0xd7b7ab1e (gate satisfied)
+
+**It differs from the already-fired `2g-full.bin` by exactly the register encoding in one breadcrumb.**
+
+## STATE
+
+Board: hung in slot B (the record's `fixed4-full.bin`), unreachable on both addresses. The TFTP
+recovery door is ARMED and was verified answering (UDP 69, serving 20,975,775 B).
+The user has been asked for the physical cold reset; until then no device work is possible and every
+host-side question I can name has been answered.
