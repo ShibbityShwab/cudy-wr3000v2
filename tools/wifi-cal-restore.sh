@@ -2,10 +2,16 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOST=root@192.168.10.1
-SSH_OPTS=(-o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
-export SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0
-printf '#!/bin/sh\necho <ROUTER-SSH-PASSWORD>\n' > /tmp/askpass.sh
-chmod +x /tmp/askpass.sh
+# Key auth when the project key is present (works non-interactively on this bench). The password
+# lane below cannot be driven from an agent: OpenSSH *for Windows* ignores
+# SSH_ASKPASS_REQUIRE=force with a console attached, and the placeholder askpass this script used
+# to emit could never authenticate anyway.
+KEY="$SCRIPT_DIR/../.omo-secrets/omo_rsa"
+if [ -f "$KEY" ]; then
+	SSH_OPTS=(-i "$KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
+else
+	SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
+fi
 
 SNAP="${1:-}"
 APPLY="${2:-}"
