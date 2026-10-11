@@ -9556,3 +9556,190 @@ threshold" - our build is *smaller* than the one that worked. Combined with the 
 
 The poison protocol turned a stuck lane into a bisect that removes a candidate per fire. The next
 step is no longer a fire at all - it is the two host-side checks above.
+
+
+## ★★★★★ PHASE 68 (2026-10-11): THE REMAINING VARIABLE IS THE COMPILER - AND IT WAS NEVER CONTROLLED ★★★★★
+
+**How the search arrived here.** Every SOURCE delta was eliminated by REMOVAL, each with its own
+control:
+
+    boot-path erase loop     gated off            -> still failed
+    the NAND driver          removed entirely     -> still failed   (1 fire)
+    4 config additions       reverted             -> still failed   (1 fire)
+    patched-head.S reader    removed              -> still failed   (1 fire)
+    (plus, at no fire cost: the 7 modules, the DTS, the nop lever, dt_rewrite, CONFIG_CMDLINE)
+
+And the poison protocol proved, in every one of those fires, that **our kernel never executes a single
+instruction** - so no code of ours can be the cause. `kernel-tree.patch` (the UBI `compat == 5` hunk)
+is in the UBI ATTACH path, i.e. initcall level, which the poison has already shown is never reached.
+
+**Nothing in the source explains it. So the variable is the BUILD ENVIRONMENT, and one candidate was
+never controlled:**
+
+    KNOWN-GOOD build  : CI, ubuntu-22.04, gcc-arm-linux-gnueabihf = GCC 11.x
+                        banner "Linux version 5.10.201 (luofu-lane@github-actions)"
+    EVERY build TODAY : local WSL2, Ubuntu 26.04, gcc-arm-linux-gnueabihf = GCC **15.2.0**
+
+**FOUR major compiler versions apart.** And the whole reason this session built locally at all is
+that I installed that toolchain to stop spending CI minutes - i.e. the one input that changed, and the
+one input nobody thought to hold fixed, because it was introduced as an infrastructure improvement
+rather than as a change to the kernel.
+
+**This fits every observation:** the record calls the failure "CONTENT-DETERMINISTIC PER BINARY" and
+says "ANY small content change ... flips SOME builds" - and a different major compiler version is
+precisely a content change to the ENTIRE binary: different instruction selection, different alignment,
+different padding, different inlining. It also explains why the search kept failing: we were bisecting
+the SOURCE while the variable was the TOOL.
+
+## ALSO CHECKED AND CLEARED (no fire needed)
+
+- **The prepared tree is not dirty.** A clean-room build from a fresh 5.10.201 tarball with the same
+  source and config produced the SAME Image size (9,780,192 B) - the only difference in `compile.h`
+  was the auto-incrementing version counter (`#12` vs `#1`). Timestamp, user, host and compiler
+  string were identical.
+- **Our Image is SMALLER than the known-good** (9,780,192 vs 9,984,344 = 204,152 B) - so this is not
+  "our build grew past a threshold"; the good build was bigger.
+
+## THE TEST NOW RUNNING (host-side, no fire)
+
+`gcc-11-arm-linux-gnueabihf` (11.5.0-11ubuntu2cross1) was installed in WSL - **it is still available
+in the 26.04 archive**, which is what makes this testable at all. The same clean-room source is being
+rebuilt in-tree with `CC=arm-linux-gnueabihf-gcc-11`. If the resulting Image differs MATERIALLY from
+the gcc-15 one (not just by the version counter), the toolchain is the variable.
+
+**If confirmed, the fix is not a kernel change at all:** pin the build to the CI compiler version
+(gcc-11), which `tools\local-build.bat` and `build/tmp/wsl_build_kernel.sh` must do explicitly.
+And it would also mean every local build this session - including the ones I reported as "verified" -
+was built by a toolchain the known-good build never used.
+
+
+## ★★★★★ PHASE 69 (2026-10-11): FIRE 7 - THE COMPILER IS EXONERATED TOO. THE SEARCH IS OUT OF SOURCE-SIDE CANDIDATES. ★★★★★
+
+**The test:** the same clean-room source and config, rebuilt with `arm-linux-gnueabihf-gcc-11`
+(11.5.0-11ubuntu2cross1, the CI-era compiler - still in the 26.04 archive, which is what made the
+test possible at all). It produced a **materially different** binary from our gcc-15 build:
+
+    gcc-15 Image : 9,780,192 B  md5 fd37ee6ac4462888d0c02f854eb06410
+    gcc-11 Image : 9,780,372 B  md5 9be1d987f41400202d90c77168b4c659     <-- 180 B apart
+
+so the toolchain IS a real content variable, exactly as the class predicts. Packed as a uImage
+(3,657,808 B, md5 `9ea4a052...`), written to slot B, read back byte-exact, poison verified, selectors
+set, fired.
+
+    poison written : C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A
+    READ BACK      : C18 = 0xA5A5A5A5                        <-- INTACT
+    board          : vendor failover at ~70 s
+
+**The CI compiler does not boot either.**
+
+## THE COMPLETE ELIMINATION TABLE - EVERY NAMED VARIABLE, EACH WITH ITS OWN CONTROL
+
+| # | candidate | how eliminated | cost |
+|---|---|---|---|
+| 1 | boot-path erase loop | gated off (`omo_mark=0`) | 1 fire |
+| 2 | all driver/initcall code | poison proves no code runs | (2 fires) |
+| 3 | the 7 new drivers | not in the image (0 symbols) | 0 |
+| 4 | the device tree | not used; vendor u-boot supplies its own DT | 0 |
+| 5 | the nop-size lever | absent at BOTH builds | 0 |
+| 6 | `dt_rewrite` (FDT patching) | absent at BOTH builds | 0 |
+| 7 | the NAND driver | removed entirely | 1 fire |
+| 8 | `CONFIG_CMDLINE` | the successful build had a LONGER one | 0 |
+| 9 | the 4 config additions | reverted | 1 fire |
+| 10 | `patched-head.S` reader | reverted to `6d904f5` content | 1 fire |
+| 11 | the prepared kernel tree | clean-room rebuild: SAME size, only the `#N` counter differs | 0 |
+| 12 | the compiler (gcc-15 vs CI gcc-11) | rebuilt with gcc-11 | 1 fire |
+
+**`kernel-tree.patch` is the only source file left un-reverted, and it is exonerated by LOGIC rather
+than by a fire:** its +35 lines patch `drivers/mtd/ubi/io.c : validate_vid_hdr()`, which runs on the
+UBI ATTACH path - and the poison has proven five separate times that **our kernel never executes a
+single instruction**. Code that never runs cannot cause the failure.
+
+## THE HONEST POSITION
+
+**Nothing we can vary in the source, the config, the tree, or the toolchain explains it.** Five fires
+with the poison protocol produced five INTACT readings - i.e. five confirmations that the kernel image
+is not entered - while every candidate we could name was removed one at a time.
+
+What that leaves is NOT another source candidate. It is one of:
+
+1. **The flash/write path itself.** Every image fired tonight went in via
+   `flash_eraseall` + `mtd write` **from the vendor system**. The known-good build was fired via the
+   CI artifact -> `exp.sh` path. It is possible that the write is fine (the read-back md5 matches
+   byte-for-byte) but that something about the SLOT or the bootloader's view of it differs - e.g. the
+   8,650,752-byte partition holding a 3.65 MB image with the rest erased, where the known-good
+   workflow may have written a differently-shaped blob.
+2. **The bootloader's own validation.** The record's fire protocol used `exp.sh`, which writes the
+   image a specific way; our manual `mtd write` may not reproduce it. NOTE: the read-back md5 equals
+   the file's md5, so the BYTES are right - but the record's `8cebc05..15efe8f` family wrote via a
+   different tool and there may be an alignment or a header the bootloader needs beyond the uImage
+   header, with the rest of the slot in a state our erase left different from the known-good runs.
+3. **Something environmental on the bench** - but the vendor kernel boots from slot A perfectly on
+   every one of those same boots, so the bench, the cable, the power and the failover all work.
+
+**THE NEXT STEP IS HOST-SIDE AND IT IS THE ONE THING NEVER COMPARED: what EXACTLY is in the rest of
+slot B, byte for byte, in a build that booted versus ours?** We hold `build/tmp/fire2/kernelb-backup.bin`
+(8,650,752 B) - the slot B content as it was BEFORE any of tonight's writes. That is a slot that the
+bootloader was happily booting from at some point. Diffing its post-image region against what our
+write leaves is free, needs no fire, and has never been done.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 70 (2026-10-11): ★ THE BUG IS FOUND - I WAS FLASHING A BARE uImage ★
+# WHEN THE SLOT REQUIRES kernel + THREE DEVICE TREES
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE MEASUREMENT (host-side, free, from a slot that the bootloader booted)
+
+`build/tmp/fire2/kernelb-backup.bin` - the slot B content captured BEFORE tonight's writes - maps as:
+
+    @0x000000  uImage  size=4,294,096 B   ends 0x418610
+    @0x418610  DTB      size=31,220 B     ends 0x420004
+    @0x420064  DTB      size=4,592 B      ends 0x421254
+    @0x421254  DTB      size=4,920 B      ends 0x4227FF
+    non-ff region total: 4,335,616 B of the 8,650,752 B partition
+
+**The kernelb slice is: the kernel uImage PLUS THREE device tree blobs** - the base DTB and two
+overlays. The record already says so, in its own words:
+
+> "vendor slice: uImage 4294160 B + base DTB 31220 B + **overlays 4592 + 4920 B** = 4334892 B"
+
+and the CI lane produces exactly that set (`linux-5.10.201/arch/arm/boot/dts/luofu-r116.dtb` +
+`luofu-uImage`, with the overlay DTBs from the dtbs build).
+
+## ★ WHAT I DID WRONG, IN ONE LINE ★
+
+**Every image fired tonight was a BARE uImage (~3.65 MB) with NOTHING appended, written after
+`flash_eraseall` wiped the whole slot - so all three device trees were erased and never replaced.**
+
+    our write leaves  : [uImage 3.65 MB][ff ff ff ... to the end of the 8.25 MB partition]
+    the slot requires : [uImage][base DTB][overlay DTB][overlay DTB][ff...]
+
+The bootloader reads the kernel, then looks for the device tree it has always had there, finds erased
+flash, and **never enters the kernel** - which is EXACTLY what the poison protocol reported, five
+separate times: C18 is never overwritten, because the kernel'first instruction never runs.
+
+## WHY THIS SURVIVED SEVEN FIRES
+
+It explains every observation and is invisible to every test we ran:
+
+- the poison intact in every fire -> correct: the bootloader never hands control over;
+- the vendor failover works -> correct: the bootloader treated the slot as invalid;
+- removing the driver/config/head-reader changed nothing -> correct: none of it is ever reached;
+- the compiler made no difference -> correct: same reason;
+- the read-back md5 matched -> correct: OUR bytes were written exactly, they were just the WRONG SET
+  of bytes for the slot;
+- and the record's `exp.sh` path (which booted 50em/50en) writes the full slice, so it never hit this.
+
+**THE LESSON, AND IT IS THE SESSION'S OWN: I verified the TRANSFER (md5 of what I sent == what landed)
+and never verified the LAYOUT (that what I sent was the thing the consumer expects).** The md5 match
+felt like proof and was proof of the wrong proposition. That is the same shape as the `cp -r` stale
+source earlier tonight: check the artifact against the CONSUMER'S contract, not against your own copy.
+
+## THE FIX (host-side, ready to test)
+
+Build the full slice and write it: uImage + luofu-r116.dtb + the two overlay DTBs, in that order, at
+offset 0 of the slot. The base DTB is what our build already produces
+(`build/luofu-kernel-image/luofu-r116.dtb`); the two overlays need identifying from the backup (they
+are at known offsets and sizes) or from the vendor vendor's dtb set.
+
+**NEXT: reconstruct the slice from the backup + our uImage and fire it.**
