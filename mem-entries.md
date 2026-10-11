@@ -11974,3 +11974,49 @@ measured across the project's own 97-boot dataset and confirmed again here (ubi0
 the slot the u-boot actually reads) and give it a watchdog story** - either built with the
 hsan-watchdog driver, or with the stop-magic written early (`mw.l 0x14880064 0xabcd5116;
 mw.l 0x14880068 0xed574447` at the top of the kernel's early boot).
+
+
+## PHASE 112 (2026-10-11): FIRE 22 - OUR KERNEL IN kernela: THE BOARD WENT DARK
+
+**What was fired:** `build/tmp/slice/r4fix-slot.bin` written to **`kernela` (mtd11)** - the slot the
+u-boot actually reads - after securing a verified backup of the slot's previous content
+(`build/tmp/fire3/kernela-backup.bin`, 8,650,752 B, md5 `bd5ae265ce47e3ed4299c434b1936385`,
+matching the live partition exactly). Poison written and re-read; both selectors set to B as well.
+
+**Result: the board is unreachable on every port** (22/80/443 on both 192.168.10.1 and 192.168.1.1)
+and does not come back on its own - the same hang signature as FIRE 20, not the clean revert that
+previous kernelb fires produced.
+
+## THE HONEST READING
+
+Two things are true and they are not in conflict:
+
+1. **Our kernel demonstrably reaches userspace** - FIRE 21 proved it with `C18 = 0xC0DE502D`
+   ("the timer ran, this many times", per the record's own crumb legend).
+2. **It does not survive.** The measured, DTS-documented mechanism is the `hsan-watchdog`
+   (`reg = <0x14880000>`, 30 s, armed by u-boot ~1.07 s in, petted by the vendor kernel's own driver).
+   Our kernel has no such driver. Confirmed live this session: `hsan-watchdog-driver` is bound and
+   `/sys/class/watchdog/watchdog0` exists.
+
+**Firing into `kernela` made the difference observable:** previously the box reverted to the vendor
+kernel on the A pair and stayed reachable; now that the A pair IS our kernel, there is nothing for it
+to revert to, so a failure to reach a serviced state leaves the box dark.
+
+## RECOVERY
+
+The RESET-hold TFTP door is the route (proven twice in the record, and earlier this session when the
+user cold-reset the board and the door served the full 20,975,775 B). It needs the host alias
+`192.168.1.88` and the OACK-less reader `build/tmp/tftp_reader2.py` on UDP 69.
+
+**This requires a physical cold reset by the user** (unplug power -> hold RESET -> power on while
+holding -> release). A warm reset never triggers the bootrom fetch.
+
+## WHAT FIRING INTO kernela TAUGHT US, REGARDLESS OF THE DARK BOARD
+
+- the A-first rule is real and now has a direct consequence: **`kernela` is the slot to target**, and
+  targeting it removes the fallback that masked every earlier attempt;
+- our kernel gets far enough to run userspace, so the remaining obstacle is **the watchdog**, which is
+  a driver problem with a known register interface - not an unknown;
+- and the two answers were in the project's own notes all along
+  (`cudy-wr3000v2/boot-slot-and-wdt-mechanics.md`), which is the lesson worth carrying: read the
+  record's measured mechanisms before designing another experiment.
