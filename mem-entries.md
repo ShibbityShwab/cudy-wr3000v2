@@ -8790,3 +8790,58 @@ release 2.4.15 (vendor `jenkins@cudyrd1` build) | uptime fresh | **2 wiphys / 6 
 The ssh lane was re-laid with the same systime-RCE chain (wizard login -> token -> base64-wrapped
 command), and the calibration snapshot taken before the fire
 (`build/cal-snapshots/20261011-125545`) is the rollback reference for Wi-Fi if it is ever needed.
+
+
+---
+
+# PHASE 57 (2026-10-11): ★ THE FIRE'S FAILURE IS EXPLAINED - AND IT WAS MY OWN "COMPILE FIX" ★
+
+## THE ROOT CAUSE, FOUND BY READING MY OWN COMMITS
+
+The fire (PHASE 55) flashed a kernel that starts but never reaches userspace. The record says our
+kernel **already booted userspace successfully** on 2026-10-10 (PHASE 50em: "THE USERSPACE RAN";
+50en: "OpenWrt 25.12.5 IS RUNNING ON OUR OWN KERNEL"), so the failure was introduced BETWEEN then
+and now. `git log` of the FMC file names the commit:
+
+    eba7094  luofu-fmc: fix the duplicate init_module (3 initcall macros -> 1)
+
+**What that commit did, and why it broke the boot.** The file had three `module_init`-expanding
+macros (`late_initcall_sync` x2 plus `module_platform_driver`) and therefore never compiled - a real
+defect. I "fixed" it by deleting both `late_initcall_sync`s and calling `luofu_fmc_ubi_probe()` from
+the tail of the DRIVER PROBE.
+
+But the file's own comment states the requirement verbatim:
+
+> "It runs at **late_initcall_sync** - after every late_initcall, and so after **UBI's own module_init
+> has attached whatever the command line named**, and after ubiblock_init has had its chance to
+> create the block device."
+
+Moving it into `probe()` runs it **before UBI attaches `mtd16`** - so the `owrt` volume is not there
+yet, `ubiblock0_0` is never created, the rootfs never mounts, and init never runs. **A compile fix
+that changes WHEN a step runs is not a compile fix.**
+
+## THE FIX (this phase)
+
+One initcall, and it is the right one: `platform_driver_register()` is now called from a single
+`late_initcall_sync(luofu_fmc_init)`, which then runs `luofu_fmc_ubi_probe()` - so the driver
+registers AND the UBI check still runs last, with no second `module_init`. `module_platform_driver`
+is gone. Builds clean: `luofu-fmc.ko` 24,676 B, zero errors.
+
+## WHAT ELSE THE INVESTIGATION ESTABLISHED (all read-only, on the vendor system)
+
+- **The rootfs the kernel needs is INTACT.** `mtd16` ("upgrade") attaches as a UBI device holding
+  volume 0 **`owrt`**: dynamic, 133 LEBs / 16.1 MiB, State **OK**. The recovery flash did NOT
+  destroy it. (Checked with `ubiattach -m 16 -d 1` + `ubinfo`, then detached.)
+- **The cmdline I flashed was the right one**: `panic=5 ubi.mtd=upgrade ubi.block=0,0
+  root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init`.
+- **The log ring at `0x80602000` no longer holds our failed boot's text** (it reads `0x66CC66CC`,
+  a filler pattern) - the vendor's own boot overwrote it. So a post-hoc readback was not available;
+  the diagnosis came from the source and the commit history instead.
+
+## THE GENERALISABLE LESSON
+
+The record already contains this class twice ("the artifact diff named the killer"; "a compile fix
+is not a behaviour fix"). Here it is a third time, and the tell was in the commit message I wrote
+myself: a change labelled as fixing a COMPILE error that also altered the ORDER of initcalls. When a
+compile fix touches ordering, the ordering is the thing to re-verify - and the file's own comment
+already stated the requirement.
