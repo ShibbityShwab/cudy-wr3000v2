@@ -11652,3 +11652,55 @@ whose kernel is ours and whose container is valid.
    container, it interacts with the DTBO gate.
 3. **Whether the endpoint accepts a container whose kernel differs from the embedded version string.**
    Cheap to find out: the response is read before anything is written.
+
+
+## PHASE 106 (2026-10-11): THE CONTAINER IS SIGNED AND THE KERNEL SITS INSIDE THE VERIFIED FIT
+
+Read from the DEVICE'S OWN upgrade code - `rootfs-2.4.15/squashfs-root/lib/upgrade/platform.sh`,
+function `image_demux()` - which documents the container in a comment:
+
+    # sysupagrade.bin: [bootloader(512KB) + sig(256 byte) + (2KB-256B) + ( FIT{kernel_fit+ubi(image+rootfs)}+ metadata )]
+
+and implements the split explicitly:
+
+    dd bs=2k if="$img" count=256   of=/tmp/uboot-sysupgrade.bin      # the bootloader
+    dd bs=2k if="$img" skip=257    of=/tmp/fit-ubi-sysupgrade.bin    # the FIT + UBI
+    fdt_dumpimage -T flat_dt -p 0 -w 1048576 -o /upgrade/ubi-sysupgrade.bin /tmp/fit-ubi-sysupgrade.bin
+
+VERIFIED AGAINST THE BYTES of `firmware/2.5.24.bin`:
+
+    [0       .. 524288)   bootloader (512 KB)
+    [524288  .. 524544)   **sig** (256 B)      <- a signature region
+    [524544  .. 526336)   padding (2KB-256B)
+    [526336  .. end)      FIT + UBI + metadata
+                            and the FIT magic `d0 0d fe ed` is at EXACTLY 526336 -
+                            the device's own stated boundary, byte for byte.
+
+**The uImage kernel (@527964, load/ep 0x80608000) sits INSIDE that FIT region.**
+
+## THE CONSEQUENCE: A REBUILD IS NOT A DROP-IN
+
+1. **The kernel is inside the FIT the device parses as a unit.** `platform.sh` extracts the UBI from
+   that same region with `fdt_dumpimage`, so the FIT is the payload's structural spine - replacing the
+   kernel means rebuilding the FIT, not swapping a uImage.
+2. **There is a 256-byte signature region immediately before it.** The header also carries a per-image
+   32-byte field at +24 that differs between the 2.4.15 and 2.5.24 images (both otherwise identical in
+   their first 24 bytes). The container is very likely signed or checksummed over the FIT.
+
+**Both facts point the same way: a hand-rebuilt container would fail the vendor's own validation, and
+the failure mode of a failed upgrade write is not something to discover on the bench.**
+
+## THE BLOCKER, STATED CONCRETELY
+
+The box has **no shell** (the recovery re-flashed both slots; our access layer lived in slot B's
+squashfs), and **the only open write path accepts only vendor-signed containers**. Routes that remain:
+
+    A. Flash the genuine vendor sysupgrade (firmware/2.5.24.bin - valid and signed) through the web
+       endpoint. Gets the box onto a known image via the vendor's own path, but does NOT restore our
+       access layer (the stock image carries no omosshd) - the record hit exactly this on 2026-10-07.
+    B. Rebuild a CUSTOM image carrying the access layer in its squashfs, which needs the project's own
+       image-build lane rather than the vendor's.
+    C. The device's own mtd flash path (tools/exp.sh and the mtd recipe), which needs the shell we lack.
+
+**The next move is either (A) or re-establishing shell access by a recorded route, and that choice
+belongs to the user because (A) writes flash.**
