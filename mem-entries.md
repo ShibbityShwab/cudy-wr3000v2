@@ -12057,3 +12057,64 @@ fire informative: it removed the masking.
 
 **The remaining step is PHYSICAL and the user's**: unplug power -> HOLD RESET -> power on while holding
 -> release. A warm reset never triggers the bootrom fetch (measured twice in the record).
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 114 (2026-10-11): ★★★★★ `0xC0DE502D` IS DEFINED - THE TIMER RAN, AND THAT IS NOT A HANG ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE CODE THAT WRITES IT, AND THE THREE-WAY LADDER IT BELONGS TO
+
+From `lab/luofu-kernel/nand/luofu/luofu-fmc.c` lines 2634-2647, verbatim:
+
+> *"THE CRUMB FIRST, THROUGH I/O RATHER THAN RAM. Six fires went into RAM addresses ... and none of them
+> landed, while a hang means the tick may fault before it finishes. C18/C1C are memory-mapped registers
+> this driver has written on every successful boot ...*
+>
+>      C18 = 0xc0de502d, C1C = tick count   the timer ran, this many times
+>      C18 = 0xc0de502a, C1C = log address  the panic notifier overwrote it
+>      C18 = 0xc0de0020                     a hang - the mach's crumb, no tick survived"
+
+**WE READ `C18 = 0xC0DE502D`.** That is the FIRST case in an explicitly three-way reading, and the code
+states the contrast in its own words: `0xC0DE0020` is what a HANG leaves behind, and it is not what we
+got. **Our kernel did not hang; its timer ran.**
+
+## ★ AND THE WATCHDOG IS NOT THE OBSTACLE RESERVE - IT IS ALREADY DISARMED BY OUR OWN CODE ★
+
+I had written (PHASE 111) that the kernel dies to the 30-second `hsan-watchdog`. **Checking the source
+against the built image refutes that**: `arch/arm/mach-luofu/luofu.c` disarms it in `init_machine`:
+
+    #define LUOFU_CRG_BASE      0x14880000
+    #define HSAN_WDT_EN_OFFSET  0x64
+    #define HSAN_WDT_STOP0      0xabcd5116
+    #define HSAN_WDT_STOP1      0xed574447
+    ...
+    writel(HSAN_WDT_STOP0, crg + HSAN_WDT_EN_OFFSET - 4);
+    writel(HSAN_WDT_STOP1, crg + HSAN_WDT_EN_OFFSET);
+    (void)readl(crg + HSAN_WDT_EN_OFFSET);
+
+**VERIFIED IN THE FIRED IMAGE**: `arch/arm/boot/Image` contains the stop magic `0xabcd5116` once, the
+stop pair's second word `0xed574447` once, `0x14880000` twice, and the confirmation string
+`"luofu: hsan watchdog disarmed (stop magic %08x %08x)"`. The disarm IS compiled in.
+
+**So the watchdog explanation I recorded an hour ago was WRONG, and I caught it by checking the built
+artifact rather than trusting the note.** That is the second time this session a plausible, documented
+mechanism turned out not to be the live one - and both times the check that caught it was reading the
+actual bytes.
+
+## WHAT THIS LEAVES
+
+    crumb ladder (mach):  0x01 setup_arch -> 0x02 init_machine -> 0x03 machine init returned
+                          -> 0x10 early_initcall -> 0x20 late_initcall
+    driver ladder:        0x5001..0x500A (probe, controller, flash, mtd, rootfs read)
+                          -> 0x502d  THE TIMER RAN (the deepest, and a KNOWN-GOOD sign)
+                          -> 0x502a  the panic notifier overwrote it
+
+**We are at the deepest rung either ladder defines, and it is the one the code describes as a healthy,
+running timer.** The board being unreachable afterwards is therefore NOT explained by a watchdog and
+NOT by a hang in the sense the code defines - it is explained by the platform's slot handling: our
+kernel is in `kernela` (the slot u-boot boots, by the A-first rule), the box has no working network
+bring-up under our kernel, and with no fallback slot there is nothing to revert to.
+
+**The next measurable step is unchanged and now better targeted: our kernel must bring up the NETWORK
+(and the rest of userspace) before the box is reachable - the watchdog is not what stops it.**
