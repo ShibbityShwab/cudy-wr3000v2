@@ -9813,3 +9813,57 @@ the PATH, not the build, and that inverts the whole search.
 Board healthy on stock 2.4.15, slot A (`bootflag=a`, `boot_reg=10`). Our full slice intact in slot B
 (md5 `7da8bca1...`). Slot A backup + slot B pre-fire backup on disk in `build/tmp/fire2/`. Bench and
 repo clean.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 72 (2026-10-11): ★ THE PATH TEST - THE MANUAL FLASH WORKS; OUR BUILDS ARE THE PROBLEM ★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE TEST THAT SEPARATED PATH FROM BUILD
+
+Eight fires failed identically through a MANUAL flash procedure
+(`flash_eraseall` + `mtd write` + `boot_reg=0x21` + `bootflag=b` + reboot), and never once did a
+build of ours boot. Before bisecting further, the question was whether the PATH or the BUILD is at
+fault. So a **known-good image was fired through the identical manual procedure**.
+
+**The known-good image:** `build/tmp/fire2/kernelb-backup.bin` (8,650,752 B, md5 `15c71e4f...`) - the
+contents of slot B captured before any of tonight's writes, i.e. a slot the bootloader was booting.
+
+**Result:**
+
+    down -> back in ~63 s
+    boot_reg = 0x11        <-- SLOT B, and NOT reset (the failover did not fire)
+    bootflag = b
+    ubi0 on  = mtd14       <-- rootfsb = SLOT B
+    kernel   = Linux WR3000 5.10.201   (the vendor kernel)
+    C18      = 0xA5A5A5A5  (still the poison - correct: the VENDOR kernel never writes it)
+
+**THE MANUAL FLASH PATH WORKS PERFECTLY.** The same procedure, the same slot, the same selectors, and
+the board boots slot B and stays there - with the selectors NOT reverting, which is the signature of a
+SUCCESSFUL B boot versus every previous failure.
+
+## ★ WHAT THIS SETTLES ★
+
+- **The write path is not the problem.** `flash_eraseall` + `mtd write` + `mtd3/mtd4` env + `boot_reg`
+  is a working flash recipe, now PROVEN END TO END on this bench.
+- **The `boot_reg` reset is a SUCCESS INDICATOR, not a side effect.** After every failed B boot it read
+  `10`; after this successful one it reads `11`. That is a cheap, reliable pass/fail signal for all
+  future fires: **if `boot_reg` is still `0x11` after the reboot, the slot BOOTED.**
+- **Our builds are genuinely the problem** - the 0017/0020 content class the record named on
+  2026-10-09 and never finished characterising ("Next pass: bisect the content class systematically").
+  Everything the record has been built on since then has been built on a base that was never
+  stabilised.
+
+## A CORRECTION TO PHASE 70/71
+
+PHASE 70 concluded that the missing DTBs were the bug and PHASE 71 fired the assembled slice - which
+did NOT boot. **The DTB conclusion was wrong**, and this test shows why the reasoning was wrong: the
+known-good slot DOES carry `uImage + 3 DTBs`, but booting it proves only that that LAYOUT is what the
+vendor's slot looks like - it does not prove our builds need it. Our slice failed exactly like the
+bare uImage did. Both are now on the eliminated list.
+
+## STATE
+
+Board: **slot B, vendor kernel, healthy** (`boot_reg=0x11`, `bootflag=b`, `ubi0` on mtd14). This is a
+NEW steady state - the box is running from slot B for the first time tonight, with slot A holding the
+untouched stock image as the rollback.
