@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cudy WR3000 v2 - reversal progress</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#141922; --panel2:#1b2230; --line:#26303f;
+    --tx:#e8edf5; --dim:#8b97a8; --dim2:#5f6b7c; --accent:#5b9dff;
+    --done:#2ee6a0; --part:#ffb838; --block:#ff5c72; --none:#4b5563;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#141b28,#0b0e14 60%);
+       color:var(--tx);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:30px 22px 90px}
+  h1{font-size:23px;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--dim);margin:0;font-size:13px}
+  .sub a{color:var(--accent)}
+  h2{font-size:14px;margin:36px 0 14px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+
+  /* ---- top: big overall ring + band rings ---- */
+  .hero{display:grid;grid-template-columns:260px 1fr;gap:26px;align-items:center;margin:24px 0 8px}
+  .overall{display:flex;flex-direction:column;align-items:center;text-align:center}
+  .overall .lbl{margin-top:8px;font-size:13px;color:var(--dim);line-height:1.4}
+  .bands{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .bandcard{background:linear-gradient(180deg,#182030,#131922);border:1px solid var(--line);
+            border-radius:16px;padding:16px 14px;text-align:center;transition:.2s}
+  .bandcard:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .bandcard .nm{font-size:12px;color:var(--dim);margin-top:6px;min-height:30px}
+  .bandcard .n{font-size:12px;color:var(--dim2);margin-top:2px}
+  .bandcard .mini{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:10px}
+  .bandcard .mini i{display:block;height:100%;border-radius:4px}
+
+  /* ---- split bar: reversal vs rebuild ---- */
+  .split{margin:30px 0 4px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+  .split h3{margin:0 0 14px;font-size:14px;color:var(--tx);font-weight:600}
+  .splitrow{margin:12px 0}
+  .splitrow .hd{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+  .splitrow .hd .mut{color:var(--dim)}
+  .sbar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--panel2)}
+  .sbar .seg{height:100%}
+  .sbar .b1{background:var(--done)}.sbar .b2{background:var(--part)}
+  .sbar .b3{background:var(--block)}.sbar .b4{background:var(--none)}
+
+  /* ---- per-band lane list ---- */
+  .band{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:14px 0;
+        position:relative;overflow:hidden}
+  .band .head{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+  .band .head .t{font-size:15px;font-weight:600}
+  .band .head .d{font-size:12px;color:var(--dim)}
+  .band .spark{margin-left:auto;opacity:.9}
+  .row{display:grid;grid-template-columns:250px 320px 48px 60px;gap:12px;align-items:center;margin:9px 0}
+  .row .name{display:block;font-size:13px;color:#cfd8e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .bar{display:block;height:14px;background:var(--panel2);border-radius:7px;overflow:hidden;position:relative;
+            box-shadow:inset 0 0 0 1px #202836}
+  .row .bar .f{display:block;height:100%;border-radius:7px;transition:width .6s cubic-bezier(.2,.8,.2,1);
+               box-shadow:0 0 10px -2px rgba(255,255,255,.25)}
+  .row .bar .f::after{content:'';position:absolute;right:0;top:0;bottom:0;width:2px;background:rgba(255,255,255,.35)}
+  .row .pct{display:block;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;color:var(--dim)}
+  .row .rc{display:block;font-size:10px;text-align:center;padding:2px 0;border-radius:20px;border:1px solid var(--line);color:var(--dim2)}
+  .st-done .f{background:linear-gradient(90deg,#1db583,#2ee6a0)}
+  .st-partial .f,.st-proven .f,.st-code .f{background:linear-gradient(90deg,#c98418,#ffb838)}
+  .st-blocked .f{background:linear-gradient(90deg,#d33c52,#ff5c72)}
+  .st-none .f{background:linear-gradient(90deg,#39424f,#4b5563)}
+  .rc.code{color:#7fd3ff;border-color:#1d3b52}
+  .rc.file{color:#c7a6ff;border-color:#3a2c57}
+  .rc.doc{color:#9aa4b2}
+  .ev{grid-column:1/-1;font-size:11px;color:var(--dim2);margin:-4px 0 2px 0;display:none}
+  .band.show-ev .ev{display:block}
+  .ctl{display:flex;gap:10px;align-items:center;margin-top:8px}
+  .ctl button{background:var(--panel2);color:var(--tx);border:1px solid var(--line);border-radius:9px;
+              padding:7px 13px;cursor:pointer;font-size:12px}
+  .ctl button:hover{border-color:var(--accent)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;color:var(--dim);font-size:12px;margin-top:12px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+  .d1{background:var(--done)}.d2{background:var(--part)}.d3{background:var(--block)}.d4{background:var(--none)}
+  .wall{background:linear-gradient(180deg,#2a1620,#141922);border:1px solid #5c2532;border-radius:14px;
+        padding:16px 20px;margin:18px 0}
+  .wall b{color:#ff9db0}
+  .foot{color:var(--dim2);font-size:12px;margin-top:26px;line-height:1.7}
+  code{background:#0a0d13;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  @media(max-width:860px){
+    .hero{grid-template-columns:1fr}.bands{grid-template-columns:repeat(2,1fr)}
+    .row{grid-template-columns:150px 1fr 44px;}.row .rc{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Cudy WR3000 v2.0 &mdash; progress toward our own OpenWrt</h1>
+  <p class="sub">Audited 2026-10-11 against the artifact record. Every score carries a
+  <b>receipt</b> badge: <span class="rc doc" style="padding:1px 6px;border:1px solid var(--line);border-radius:20px">doc</span> phase report,
+  <span class="rc file" style="padding:1px 6px;border:1px solid var(--line);border-radius:20px">file</span> byte/line count,
+  <span class="rc code" style="padding:1px 6px;border:1px solid var(--line);border-radius:20px">code</span> source grep'd this session.
+  Twin of <a href="PROGRESS.md">PROGRESS.md</a>.</p>
+
+  <div class="hero">
+    <div class="overall">
+      <svg id="bigring" width="240" height="240" viewBox="0 0 240 240"></svg>
+      <div class="lbl"><b style="color:var(--tx);font-size:15px">~51%</b> toward the goal<br>
+        <span style="font-size:12px">"our own fully-current OpenWrt &mdash;<br>our kernel, our drivers"</span></div>
+    </div>
+    <div class="bands" id="bandrings"></div>
+  </div>
+
+  <div class="split">
+    <h3>The two projects in one repo</h3>
+    <div class="splitrow">
+      <div class="hd"><span><b style="color:var(--done)">REVERSAL</b> &mdash; reading the closed Wi-Fi stack</span><span class="mut">~68%</span></div>
+      <div class="sbar"><div class="seg b1" style="width:68%"></div><div class="seg b4" style="width:32%"></div></div>
+    </div>
+    <div class="splitrow">
+      <div class="hd"><span><b style="color:var(--part)">REBUILD</b> &mdash; our own kernel + our own OpenWrt <span class="mut">(the long pole)</span></span><span class="mut">~35%</span></div>
+      <div class="sbar"><div class="seg b2" style="width:35%"></div><div class="seg b4" style="width:65%"></div></div>
+    </div>
+    <div style="color:var(--dim2);font-size:12px;margin-top:14px">
+      The reversal is most of the way done and hits a <b style="color:var(--block)">hardware wall</b>;
+      the rebuild is a third done and is the multi-month programme.
+    </div>
+  </div>
+
+  <div class="ctl">
+    <button onclick="document.querySelectorAll('.band').forEach(b=>b.classList.toggle('show-ev'))">Toggle receipts</button>
+    <span style="color:var(--dim);font-size:12px">show the artifact that verified each score</span>
+  </div>
+  <div class="legend">
+    <span><i class="dot d1"></i>done</span>
+    <span><i class="dot d2"></i>in progress / code exists</span>
+    <span><i class="dot d3"></i>blocked (HW or external)</span>
+    <span><i class="dot d4"></i>not started</span>
+  </div>
+
+  <div id="bands"></div>
+
+  <div class="wall">
+    <b>The wall (interrupt + dialogue):</b> every host-side move the verified maps name has been
+    performed to the vendor's own values. The last hop &mdash; the Wi-Fi chip's ctrl-rb delivering its
+    latched interrupt to the GIC &mdash; is <b>inside the device</b>, unreachable from the host by every
+    mechanism this bench contains (<code>phase48/host-side-closed.md</code>). Only two instruments could
+    open it and <b>both are confirmed unavailable</b>: JTAG (no hardware) and the vendor source (Cudy +
+    Jeton requests both silent).
+  </div>
+
+  <div class="foot">
+    <b>What changed in this audit (2026-10-11):</b> three scores were wrong and are corrected &mdash;
+    PCIe host driver <b>35&rarr;25%</b> (the LTSSM/mode/IATU writes are all commented out),
+    NAND/FMC driver <b>30&rarr;55%</b> (3,422 lines, erase measured working), Ethernet driver
+    <b>5&rarr;0%</b> (no file exists). Headline: overall 50.5&rarr;51.0%.<br><br>
+    <b>Left, in order:</b> (1) un-strand the board &mdash; bound the NAND erase-verify loop to a sample so
+    boot can't hang; (2) finish NAND (erase race + UBI/JFFS2 attach); (3) write the Ethernet/switch
+    driver (0%); (4) fill the stub drivers (clk mux, pinctrl set_mux, PCIe writes); (5) the Wi-Fi wall +
+    data path. A "score" means how far the record <i>proves</i> a subsystem was carried &mdash; no test
+    suite here, so this is evidence-graded. Weights are per-lane in <code>progress-data.json</code>.
+  </div>
+</div>
+
+<script>
+// ---------- data (mirrors progress-data.json, audited) ----------
+const AREAS = [
+ ["A. Reversal","Reading the closed Wi-Fi stack.",[
+   ["Device / SoC identification",100,"done","doc"],
+   ["Wi-Fi firmware blob opened",95,"done","doc"],
+   ["Register / BAR map",90,"done","doc"],
+   ["Vendor config API (alg table)",100,"done","file"],
+   ["Radio calibration store",95,"done","doc"],
+   ["HCC message protocol",90,"done","doc"],
+   ["ETE SR/DR ring map",90,"done","doc"],
+   ["FMC/NAND controller spec",85,"done","file"],
+   ["Interrupt path (ctrl-rb -> GIC)",70,"blocked","doc"],
+   ["Wi-Fi host<->device dialogue",55,"blocked","doc"],
+ ]],
+ ["B. Wi-Fi driver","Our own wifidrv line.",[
+   ["wiphy registration",100,"done","code"],
+   ["Endpoint claim + viewports",85,"done","doc"],
+   ["Firmware load + CPU release",90,"done","code"],
+   ["SR post + ring exchange",70,"partial","doc"],
+   ["H2D message send",40,"blocked","doc"],
+   ["Data path + cfg80211 + TXBF/rate/DFS",10,"none","doc"],
+ ]],
+ ["C. SoC bring-up","Our own kernel. The long pole.",[
+   ["Device tree (luofu-r116)",70,"partial","file"],
+   ["Kernel config fragment",75,"partial","file"],
+   ["CRG clock/reset driver",45,"code","code"],
+   ["Pinctrl / IOMUX driver",40,"code","code"],
+   ["PCIe host driver (DWC)",25,"code","code"],
+   ["NAND / FMC controller driver",55,"code","code"],
+   ["Ethernet GMAC / MDIO / switch driver",0,"none","file"],
+   ["Boot chain / U-Boot source",10,"none","file"],
+   ["UART / GPIO / watchdog / thermal",20,"partial","file"],
+ ]],
+ ["D. Userland + deployment","",[
+   ["Custom image + A/B flashing (slot B live)",90,"done","doc"],
+   ["Vendor web RCE + SSH lane",100,"done","file"],
+   ["Modern userland on vendor kernel",75,"proven","doc"],
+   ["Upstream OpenWrt target (hisilicon/luofu)",0,"none","doc"],
+   ["Vendor GPL source access",0,"blocked","doc"],
+ ]],
+];
+const EV = {
+ "Device / SoC identification":"DT compatible hsan-luofu, model R116",
+ "Wi-Fi firmware blob opened":"928,920 B = 0xE2C98; sections sum to exact size (phase4)",
+ "Register / BAR map":"viewports byte-identical to live vendor boot (phase18/23)",
+ "Vendor config API (alg table)":"ko_algtable.csv = 415 lines = 414 entries + header, both trees",
+ "Radio calibration store":"calread/calwrite built and run live (phase12/13)",
+ "HCC message protocol":"6 message tables / 77 named handlers (phase25/37)",
+ "ETE SR/DR ring map":"8-byte nodes, flag 0x6d2b, instruction-level (phase42)",
+ "FMC/NAND controller spec":"full register map + erase/program recipes (luofu-fmc.c)",
+ "Interrupt path (ctrl-rb -> GIC)":"host moves landed; delivery device-internal (phase48)",
+ "Wi-Fi host<->device dialogue":"id6->id2 + 9/9 CPU-start; H2D dispatcher never entered",
+ "wiphy registration":"wiphy_register() at wifidrv0.c:313; omo-drv0 + omowl0",
+ "Endpoint claim + viewports":"both EPs claimed, six viewports (phase23)",
+ "Firmware load + CPU release":"0x00005a5a @ BAR0+0x3b8108, diffs=0 (wifidrv1.c:633)",
+ "SR post + ring exchange":"SR post consumes (id6 trigger); DR no deposit (phase24)",
+ "H2D message send":"write lands, device rejects - needs vendor TX-credit callback",
+ "Data path + cfg80211 + TXBF/rate/DFS":"never reached; vendor MAC 1.24 MB / 3,847 fns",
+ "Device tree (luofu-r116)":"23,598 B / 647 lines; machine-produced by dt2dts.py",
+ "Kernel config fragment":"luofu.fragment CI-checked; 12 NEW symbols still driver-less",
+ "CRG clock/reset driver":"luofu-clk.c 1,014 lines, real clk_ops, CI builds; mux set_parent -EPERM",
+ "Pinctrl / IOMUX driver":"luofu-pinctrl.c 611 lines; set_mux + pinconf are NO-OP STUBS",
+ "PCIe host driver (DWC)":"luofu-pcie.c 1,367 lines; LTSSM/mode/IATU writes ALL COMMENTED OUT",
+ "NAND / FMC controller driver":"luofu-fmc.c 3,422 lines; ERASE WORKS; open = race + UBI/JFFS2",
+ "Ethernet GMAC / MDIO / switch driver":"NO driver file exists (only an unrelated hit in luofu-clk.c)",
+ "Boot chain / U-Boot source":"no U-Boot source in tree; blobs only",
+ "UART / GPIO / watchdog / thermal":"no driver files; DT nodes + plan only",
+ "Custom image + A/B flashing (slot B live)":"omo-minimal-0.3 flashed to slot B, verified 3 ways",
+ "Vendor web RCE + SSH lane":"gist + tools/web_login.sh + rce_probe.sh",
+ "Modern userland on vendor kernel":"phase26: '24.10.5 binaries run, verified end to end'",
+ "Upstream OpenWrt target (hisilicon/luofu)":"no target/subtarget upstream (DEPLOYMENT-DECISION)",
+ "Vendor GPL source access":"unanswered; 211 import_ns symbols block at link time",
+};
+const CHIP={done:"done",partial:"in progress",proven:"proven",code:"code",blocked:"blocked",none:"not started"};
+const CLS={done:"st-done",partial:"st-partial",proven:"st-proven",code:"st-code",blocked:"st-blocked",none:"st-none"};
+const COL={done:"#2ee6a0",partial:"#ffb838",proven:"#ffb838",code:"#ffb838",blocked:"#ff5c72",none:"#4b5563"};
+
+// ---------- SVG radial gauge ----------
+function ring(el, pct, color, size, stroke, label, sub){
+  const r=(size-stroke)/2, c=2*Math.PI*r, off=c*(1-pct/100), cx=size/2;
+  el.setAttribute("viewBox",`0 0 ${size} ${size}`);
+  el.innerHTML=`
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#1b2230" stroke-width="${stroke}"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+      stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}"
+      transform="rotate(-90 ${cx} ${cx})"/>
+    <text x="${cx}" y="${cx-2}" text-anchor="middle" fill="#e8edf5"
+      font-size="${size*0.24}" font-weight="700" font-family="system-ui">${Math.round(pct)}%</text>
+    ${label?`<text x="${cx}" y="${cx+size*0.16}" text-anchor="middle" fill="#8b97a8"
+      font-size="${size*0.09}" font-family="system-ui">${label}</text>`:""}`;
+}
+// big overall ring
+(function(){
+  const el=document.getElementById("bigring"), cx=120, r=104, c=2*Math.PI*r;
+  el.innerHTML=`
+    <defs>
+      <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#2ee6a0"/><stop offset="0.5" stop-color="#ffb838"/>
+        <stop offset="1" stop-color="#ff5c72"/>
+      </linearGradient>
+    </defs>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="#1b2230" stroke-width="18"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="url(#g1)" stroke-width="18"
+      stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-0.51)}"
+      transform="rotate(-90 ${cx} ${cx})"/>
+    <text x="${cx}" y="${cx+4}" text-anchor="middle" fill="#e8edf5" font-size="52"
+      font-weight="800" font-family="system-ui">~51%</text>
+    <text x="${cx}" y="${cx+30}" text-anchor="middle" fill="#8b97a8" font-size="12"
+      font-family="system-ui">toward the goal</text>`;
+})();
+// band rings
+const bandAvg=AREAS.map(([a,,rows])=>rows.reduce((s,r)=>s+r[1],0)/rows.length);
+const ringColors=["#2ee6a0","#ffb838","#ffb838","#5b9dff"];
+document.getElementById("bandrings").innerHTML=AREAS.map((a,i)=>
+  `<div class="bandcard"><svg id="br${i}" width="120" height="120" viewBox="0 0 120 120"></svg>
+   <div class="nm">${a[0]}</div>
+   <div class="mini"><i style="width:${bandAvg[i]}%;background:${ringColors[i]}"></i></div>
+   <div class="n">${a[2].length} lanes</div></div>`).join("");
+AREAS.forEach((a,i)=>ring(document.getElementById("br"+i), bandAvg[i], ringColors[i], 120, 11));
+
+// ---------- bands ----------
+let html="";
+for(const [area,note,rows] of AREAS){
+  html+=`<div class="band"><div class="head"><span class="t">${area}</span>`;
+  if(note) html+=`<span class="d">${note}</span>`;
+  html+=`<span class="spark"></span></div>`;
+  for(const [name,pct,st,rc] of rows){
+    html+=`<div class="row ${CLS[st]}">`
+       +  `<span class="name" title="${name}">${name}</span>`
+       +  `<span class="bar"><span class="f" style="width:${pct}%"></span></span>`
+       +  `<span class="pct">${pct}%</span>`
+       +  `<span class="rc ${rc}">${rc}</span>`
+       +  `<span class="ev">${EV[name]||""}</span></div>`;
+  }
+  html+=`</div>`;
+}
+document.getElementById("bands").innerHTML=html;
+</script>
+</body>
+</html>

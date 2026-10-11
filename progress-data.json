@@ -1,0 +1,277 @@
+{
+  "lanes": [
+    {
+      "area": "A. Reversal",
+      "name": "Device / SoC identification",
+      "pct": 100,
+      "w": 1,
+      "state": "done",
+      "ev": "VERIFIED: DT compatible hsan-luofu, model R116; DRIVER-BLACKBOX.md",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "Wi-Fi firmware blob opened",
+      "pct": 95,
+      "w": 4,
+      "state": "done",
+      "ev": "VERIFIED: 928,920 B = 0xE2C98 (phase4 line 1); sections sum to exact size; symbols phase6",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "Register / BAR map",
+      "pct": 90,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: viewports byte-identical to live vendor boot (phase18/23)",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "Vendor config API (alg table)",
+      "pct": 100,
+      "w": 2,
+      "state": "done",
+      "ev": "VERIFIED: ko_algtable.csv = 415 lines = 414 entries + header, in BOTH 2.4.15 and 2.5.24 trees",
+      "rec": "file"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "Radio calibration store",
+      "pct": 95,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: calread/calwrite tools exist and ran live (phase12/13)",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "HCC message protocol",
+      "pct": 90,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: 6 message tables / 77 named handlers (phase25/37)",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "ETE SR/DR ring map",
+      "pct": 90,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: 8-byte nodes, flag 0x6d2b, instruction-level (phase42 line 4)",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "FMC/NAND controller spec",
+      "pct": 85,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: full register map + erase/program recipes decoded in luofu-fmc.c comments",
+      "rec": "file"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "Interrupt path (ctrl-rb -> GIC)",
+      "pct": 70,
+      "w": 4,
+      "state": "blocked",
+      "ev": "VERIFIED: host moves landed, delivery device-internal (phase48); both instruments unavailable",
+      "rec": "doc"
+    },
+    {
+      "area": "A. Reversal",
+      "name": "Wi-Fi host<->device dialogue",
+      "pct": 55,
+      "w": 4,
+      "state": "blocked",
+      "ev": "VERIFIED: id6->id2 + 9/9 CPU-start elicited; H2D dispatcher never entered (phase24)",
+      "rec": "doc"
+    },
+    {
+      "area": "B. Wi-Fi driver",
+      "name": "wiphy registration",
+      "pct": 100,
+      "w": 2,
+      "state": "done",
+      "ev": "VERIFIED: wiphy_register() at wifidrv0.c:313; alloc_netdev/register_netdevice present; omo-drv0+omowl0",
+      "rec": "code"
+    },
+    {
+      "area": "B. Wi-Fi driver",
+      "name": "Endpoint claim + viewports",
+      "pct": 85,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: both EPs claimed, six viewports (phase23)",
+      "rec": "doc"
+    },
+    {
+      "area": "B. Wi-Fi driver",
+      "name": "Firmware load + CPU release",
+      "pct": 90,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: OMO_RELEASE_VAL 0x00005a5a @ BAR0+0x3b8108, readback match, diffs=0 (wifidrv1.c:633/848)",
+      "rec": "code"
+    },
+    {
+      "area": "B. Wi-Fi driver",
+      "name": "SR post + ring exchange",
+      "pct": 70,
+      "w": 3,
+      "state": "partial",
+      "ev": "VERIFIED: SR post consumes (id6 trigger); DR commit measured, no deposit (phase24)",
+      "rec": "doc"
+    },
+    {
+      "area": "B. Wi-Fi driver",
+      "name": "H2D message send",
+      "pct": 40,
+      "w": 4,
+      "state": "blocked",
+      "ev": "VERIFIED: write lands, device rejects - needs vendor TX-credit callback (phase24)",
+      "rec": "doc"
+    },
+    {
+      "area": "B. Wi-Fi driver",
+      "name": "Data path + cfg80211 ops + TXBF/rate/DFS",
+      "pct": 10,
+      "w": 10,
+      "state": "none",
+      "ev": "VERIFIED: never reached; vendor MAC 1.24 MB / 3,847 fns (PORT-SURFACE.md)",
+      "rec": "doc"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "Device tree (luofu-r116)",
+      "pct": 70,
+      "w": 3,
+      "state": "partial",
+      "ev": "VERIFIED: 23,598 B / 647 lines (not 1581 - that count included comments); machine-produced by dt2dts.py",
+      "rec": "file"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "Kernel config fragment",
+      "pct": 75,
+      "w": 3,
+      "state": "partial",
+      "ev": "VERIFIED: luofu.fragment CI-checked; 12 NEW CONFIG_*_LUOFU symbols still driver-less",
+      "rec": "file"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "CRG clock/reset driver",
+      "pct": 45,
+      "w": 4,
+      "state": "code",
+      "ev": "VERIFIED: luofu-clk.c 1,014 lines, real clk_ops (gate/pll/mux), CI builds .ko; mux set_parent refuses -EPERM by design; bounded WRITE_TEST present",
+      "rec": "code"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "Pinctrl / IOMUX driver",
+      "pct": 40,
+      "w": 3,
+      "state": "code",
+      "ev": "VERIFIED: luofu-pinctrl.c 611 lines; set_mux + pinconf are literal NO-OP STUBS (return 0); tables complete",
+      "rec": "code"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "PCIe host driver (DWC)",
+      "pct": 25,
+      "w": 5,
+      "state": "code",
+      "ev": "VERIFIED: luofu-pcie.c 1,367 lines but the LTSSM/mode/IATU writes are ALL COMMENTED OUT (lines 1229-1262); live path is read-only",
+      "rec": "code"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "NAND / FMC controller driver",
+      "pct": 55,
+      "w": 5,
+      "state": "code",
+      "ev": "VERIFIED: luofu-fmc.c 3,422 lines; ERASE WORKS (WREN 0x06 + FMC_OP 0x81, address-encoding bug fixed, read-back verify, JFFS2 marking); open = erase race + UBI/JFFS2 attach",
+      "rec": "code"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "Ethernet GMAC / MDIO / switch driver",
+      "pct": 0,
+      "w": 5,
+      "state": "none",
+      "ev": "VERIFIED: NO driver file exists; only hsan,mac mention is in luofu-clk.c (unrelated)",
+      "rec": "file"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "Boot chain / U-Boot source",
+      "pct": 10,
+      "w": 4,
+      "state": "none",
+      "ev": "VERIFIED: no U-Boot source in the tree (only jeton menu-bootstrap.js false hits); blobs only",
+      "rec": "file"
+    },
+    {
+      "area": "C. SoC bring-up",
+      "name": "UART / GPIO / watchdog / thermal",
+      "pct": 20,
+      "w": 2,
+      "state": "partial",
+      "ev": "VERIFIED: no driver files; only the DT nodes + the plan (dw-apb reuse for uart/gpio)",
+      "rec": "file"
+    },
+    {
+      "area": "D. Userland/Deploy",
+      "name": "Custom image + A/B flashing",
+      "pct": 90,
+      "w": 3,
+      "state": "done",
+      "ev": "VERIFIED: omo-minimal-0.3 flashed to slot B, verified 3 ways (TIMELINE, FLASH-PLAN)",
+      "rec": "doc"
+    },
+    {
+      "area": "D. Userland/Deploy",
+      "name": "Vendor web RCE + SSH lane",
+      "pct": 100,
+      "w": 2,
+      "state": "done",
+      "ev": "VERIFIED: gist + tools/web_login.sh + rce_probe.sh in repo",
+      "rec": "file"
+    },
+    {
+      "area": "D. Userland/Deploy",
+      "name": "Modern userland on vendor kernel",
+      "pct": 75,
+      "w": 4,
+      "state": "proven",
+      "ev": "VERIFIED: phase26 'Yes - 24.10.5 binaries run, verified end to end'",
+      "rec": "doc"
+    },
+    {
+      "area": "D. Userland/Deploy",
+      "name": "Upstream OpenWrt target (hisilicon/luofu)",
+      "pct": 0,
+      "w": 8,
+      "state": "none",
+      "ev": "VERIFIED: no target/subtarget exists upstream (DEPLOYMENT-DECISION)",
+      "rec": "doc"
+    },
+    {
+      "area": "D. Userland/Deploy",
+      "name": "Vendor GPL source access",
+      "pct": 0,
+      "w": 6,
+      "state": "blocked",
+      "ev": "VERIFIED: both requests unanswered; 211 import_ns symbols block the port at link time (PORT-SURFACE)",
+      "rec": "doc"
+    }
+  ],
+  "generated": "2026-10-11",
+  "audited": "2026-10-11",
+  "note": "Every score carries a receipt: doc (phase report), file (byte/line count), code (source lines grep'd this session)."
+}

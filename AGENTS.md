@@ -76,10 +76,35 @@ bash tools/wifi-cal-snapshot.sh                       # BEFORE any experiment
 pyenv/Scripts/python.exe tools/decrypt_bdinfo.py dumps/bdinfo.bin
 pyenv/Scripts/python.exe tools/extract_firmware.py <image.bin> --out rootfs-2.4.15
 pyenv/Scripts/python.exe tools/luadump.py patched/system.lua -c | grep -n 'date -s'
+
+tools\local-build.bat luofu-fmc                        # LOCAL ARM module build (WSL2 + arm-linux-gnueabihf)
+tools\local-build.bat luofu-clk                        #   ... luofu-clk/pinctrl/pcie/wifi too
+tools\local-build.bat kernel                           # LOCAL full image: zImage + dtb + uImage
 ```
+
+## BUILD LOCALLY, NOT IN CI
+Everything builds on THIS machine - do NOT push to GitHub Actions to check whether something compiles.
+A local ARM cross-toolchain is installed in WSL2:
+- WSL distro `Ubuntu` (root), with `gcc-arm-linux-gnueabihf` (CI parity), `make/bc/bison/flex`,
+  `build-essential`, `u-boot-tools` (mkimage), `device-tree-compiler`, and a prepared vanilla
+  5.10.201 tree at `/opt/kbuild/linux-5.10.201`.
+- One command from the repo root:
+  - `tools\local-build.bat <module>` -> builds a lab module `.ko` locally (luofu-fmc/clk/pinctrl/pcie/wifi).
+  - `tools\local-build.bat kernel`  -> builds the full image: `zImage` + `luofu-r116.dtb` +
+    `luofu-uImage` into `build/luofu-kernel-image/` with `MANIFEST.sha256`.
+- Measured 2026-10-11: zImage 3,657,736 B; luofu-r116.dtb 10,803 B; luofu-uImage 3,657,800 B;
+  **kernelb budget PASS** (8,650,752 B partition, ~4.99 MB margin).
+- The same lane catches real errors CI would: it found the duplicate-`init_module` in `luofu-fmc.c`
+  (three `module_init`-expanding macros) in seconds.
+- **GitHub Actions is now redundant for this project's builds.** It was only ever used because no
+  local ARM toolchain existed; that is no longer true. Push only to publish, never to check.
+
+WSL commands from Windows: `wsl -d Ubuntu -u root -- bash -lc '<cmd>'`. Note: `$VAR` in a `wsl -- bash -c`
+string is eaten by cmd.exe; write the script to a file and run it by `/mnt/c/...` path instead.
 
 ## NOTES
 - There is no build step and no test suite for the repo itself; `tools/tftp_test.py` is the only test file.
+- Build the lab modules LOCALLY (`tools\local-build.bat <module>`); see BUILD LOCALLY above.
 - `tools/tftp_server.py` is an unauthenticated UDP server that writes uploads into `tftp/inbox` - local lab only.
 - `tmp_manifest.txt` is a generated sha256 manifest of the device's `/lib/modules/5.10.201/*.ko`; do not hand-edit.
 - `wordlists/*.txt` are 14-byte Git LFS pointers; the real lists are not resolvable from a plain checkout.
