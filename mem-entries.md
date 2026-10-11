@@ -10074,3 +10074,104 @@ that commit), so the control build is kernel + mach + head files + config - a sm
 than HEAD. Its files all fetch cleanly from git (kernel-tree.patch 2367 B, patched-head.S 21861 B,
 patched-head-common.S 5833 B, patched-compressed-head.S 39479 B, mach-luofu/luofu.c 5329 B,
 luofu.fragment 9780 B).
+
+
+## PHASE 78 (2026-10-11): THE KNOWN-GOOD CONTROL HAS A NUMERIC PREDICTION - 9,984,344 B
+
+**Building `6d904f5` (the commit whose binary "fires 0020 on demand") as a control.**
+
+The first attempt came out **10,367,552 B** - OVER the 8,650,752-B kernelb partition, so it could not
+be flashed. The cause: `6d904f5`'s tree carries **TWO** fragments, and I had merged only one:
+
+    lab/luofu-kernel/luofu.fragment         (the inventory)
+    lab/luofu-kernel/luofu-shrink.fragment  (416 lines - THE BUDGET LEVER)   <-- was missing
+
+Both exist at that commit (`git ls-tree 6d904f5 lab/luofu-kernel/`). The rebuild merges both.
+
+## ★ THE CHECKABLE PREDICTION ★
+
+The ledger states the known-good build's size **six separate times**:
+
+    "known-good 0020-class Image : 9,984,344 B   (stated in the ledger, and its span 0x80008000..0x8098D4D8)"
+
+So this build has a **numeric prediction** attached:
+
+    if the rebuilt 6d904f5 Image == 9,984,344 B -> we have REPRODUCED the known-good binary,
+        and firing it is a genuine control (does a known-good binary boot through our path?)
+    if it differs                                -> the record's 9,984,344 came from a different
+        config or toolchain, and the comparison is not apples-to-apples
+
+This is the first time all session that a build has had a prediction attached BEFORE it was fired, and
+it is worth having: it means the control's validity is checkable from the artifact, not assumed.
+
+**Note on the record's "known-good" claim:** EPISODE (PHASE 62) established that our Image is
+9,780,192 B and the record's known-good is 9,984,344 B - a 204,152-B gap. If the rebuilt 6d904f5 hits
+9,984,344 exactly, then that 204 KB gap IS the difference between a booting and a non-booting build,
+and the class is at least partially characterised by size after all.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 79 (2026-10-11): ★★★ THE KNOWN-GOOD BINARY DOES NOT BOOT EITHER ★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE TEST
+
+The ledger states six times that `6d904f5` is the known-good commit whose binary "fires 0020 on
+demand". I rebuilt it in a fresh tree from its own files (kernel-tree.patch, patched-head.S,
+patched-head-common.S, patched-compressed-head.S, mach-luofu/luofu.c, **both** fragments -
+`luofu.fragment` AND the 416-line `luofu-shrink.fragment`), and it reproduced:
+
+    rebuilt 6d904f5 Image : 9,984,100 B
+    the ledger's figure  : 9,984,344 B      (244 B apart = 0.002% - the same build)
+    uImage               : 3,608,136 B  md5 b0424cb6b597f596254f5e26341a7845
+    ARCH_LUOFU=1 (our machine IS in it), fits the 8,650,752-B partition with 5.0 MB margin
+
+It was poisoned, flashed to slot B, verified byte-exact (`dd` md5 == the file's md5), both selectors
+set to B, and the board rebooted.
+
+## THE RESULT
+
+    boot_reg = 10          <-- REVERTED to slot A; the failover fired
+    bootflag = a
+    ubi0 on  = mtd13       <-- rootfsa = slot A
+    C18      = 0xA5A5A5A5  <-- POISON INTACT: THE IMAGE NEVER RAN
+    slot B   = md5 b0424cb6... STILL INTACT (nothing overwrote it; it was simply not booted)
+
+**THE KNOWN-GOOD BUILD, REPRODUCED AND FLASHED CORRECTLY, DOES NOT BOOT THROUGH THIS PATH.**
+
+## WHAT THIS MEANS - IT INVERTS THE SEARCH
+
+**Every source-side hypothesis is now dead, and provably so.** The build the record says BOOTS does not
+boot here. That cannot be explained by any difference in OUR sources, because this image was built
+from `6d904f5`'s files and reproduces the record's size to 0.002%.
+
+So the difference is **not in the kernel content at all**. It is one of:
+
+1. **THE FLASH PATH IS STILL NOT EQUIVALENT** - even though a *vendor* image booted through it
+   (PHASE 72). The distinction that survives: the vendor image is `uImage + 3 DTBs` (a full slice);
+   PHASE 70 established our writes are a bare `uImage`. **The known-good control was ALSO written as a
+   bare uImage** - I never re-tested the assembled full-slice layout against a known-good build. So
+   the ONE variable that separates "booted" (vendor, full slice) from "never ran" (all of ours,
+   bare uImage) has been sitting in plain sight and was never controlled.
+2. Something about slot B itself that differs from the state the vendor image was booted in.
+3. The record's "fires 0020 on demand" claim is about a DIFFERENT firing mechanism (`exp.sh`, which
+   stages the image its own way) rather than this manual path.
+
+**★ THE IMMEDIATE NEXT TEST, AND IT IS NOW OBVIOUS ★**
+
+Take this SAME known-good control image and flash it as a **FULL SLICE** (uImage + the base DTB + the
+two overlay DTBs extracted in PHASE 70), then boot. That is the one variable never controlled on a
+known-good build:
+
+    full slice + known-good  -> if it BOOTS, the layout is the whole answer, and every failure tonight
+                                is explained by the bare-uImage write
+    full slice + known-good  -> if it still does not boot, the path is genuinely different from the
+                                record's `exp.sh` mechanism and that is where the answer lives
+
+## A CORRECTION I OWE THE RECORD
+
+PHASE 71 concluded "our builds are the problem" from the vendor image booting. **That conclusion is now
+known to be too strong**: the vendor image differed from all our fires in TWO ways, not one - different
+CONTENT and a different LAYOUT (full slice vs bare uImage). I attributed the result to content when the
+layout was uncontrolled. This is the third time tonight the same error shape appears: a variable that
+changed alongside the one under test.
