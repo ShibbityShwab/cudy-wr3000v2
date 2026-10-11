@@ -12311,3 +12311,62 @@ measurement.**
 
 **Every input is on disk and hash-verified. The board needs the user's cold reset, and then the first
 action is read-only.**
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 119 (2026-10-12): ★★★★★ THE UBI IMAGE IS BUILT AND FULLY VERIFIED ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## BUILT HOST-SIDE, SO THE DEVICE STEP IS A SINGLE WRITE
+
+Installed `mtd-utils` in WSL and built the UBI image with `ubinize`, using the device's own geometry:
+
+    ubinize -o owrt.ubi -m 2048 -p 131072 -s 2048 -O 2048 ubi.cfg
+    (ubinize reports: LEB 126976, PEB 131072, min I/O 2048, sub-page 2048, VID offset 2048,
+     data offset 4096 - every value matching the device's geometry from the record and the DTS)
+
+        build/tmp/owrt-ubi/owrt.ubi
+            3,276,800 B
+            sha256 fed23ed050d00e193323f9be6d54a6a4e765b3929b90dccfb20a88948f5db253
+            md5    5c24486d97911e22ed1658b6262195e9
+            volume name 'owrt' at offset 4112; the squashfs payload follows at 266240
+            fits mtd16 (30,932,992 B)
+
+## ★ VERIFIED BY READ-BACK, NOT BY ASSERTION ★
+
+I wrote an extractor that walks the image PEB by PEB, strips each 131,072-byte block's 4,096-byte
+EC/VID header, and reassembles the volume payload - the same operation the kernel's UBI layer performs:
+
+    volume payload  : 3,174,400 B
+    'hsqs' at       : 253,952
+    -> truncate to the squashfs's own declared size and compare:
+
+    read-back sha256 : f26a97aa35501ac8b2435092135e4960b4b715a78da5f11de4cee76b83029544
+    source  sha256   : f26a97aa35501ac8b2435092135e4960b4b715a78da5f11de4cee76b83029544   **IDENTICAL**
+
+and the extracted tree is functional:
+
+    /tmp/vv/bin/busybox         426,001 B   Flags: 0x5000200, Version5 EABI, **soft-float ABI**
+    /tmp/vv/etc/init.d/dropbear  12,451 B   present -> SSH comes up on boot
+
+**NOTE ON THE FIRST ATTEMPT:** my initial extraction stripped only 4,096 of every 131,072 bytes and then
+looked for `hsqs` from offset 0 of the result, which put the magic at 253,952 but reported it at 0 - and
+`unsquashfs` refused the file. **The bug was mine, not the image's**: the correct read walks PEBs and
+locates the magic inside the reassembled payload. Recorded because "the artifact is bad" was the wrong
+first conclusion, and the check that settled it was reading the same bytes a second, differently-framed
+way.
+
+## WHERE THE GOAL STANDS
+
+**Everything needed is now prepared and verified:**
+
+    kernel   : build/tmp/slice/r4fix-slot.bin        8,650,752 B  md5 00f338a74c92bb9f054a689d98b007f1
+               (both defects repaired + the gate-satisfying DTBO container)
+    rootfs   : build/tmp/owrt-ubi/owrt.ubi           3,276,800 B  sha256 fed23ed050d00e193323f9be...
+               (the soft-float OpenWrt, read-back-verified)
+    rollback : build/tmp/fire3/kernela-backup.bin    8,650,752 B  md5 bd5ae265ce47e3ed4299c434b1936385
+    door     : ARMED - single UDP 69 listener PID 2948, serving 20,975,775 B
+
+**The board is dark and needs the user's cold reset-hold.** After that the sequence is: re-lay the shell,
+read mtd16 (does the `owrt` volume survive?), and if it does not, write this image to mtd16 with a single
+`mtd write` - then fire our kernel into `kernela` and read `C18`.
