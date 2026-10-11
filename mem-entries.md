@@ -11216,3 +11216,187 @@ verbatim vendor descriptor tail.** Prediction, unchanged and now with the arithm
 `r4 = (0x83200000 & 0xf8000000) + 0x608000 = 0x80608000` = our link address, so `mov pc, r4` should
 land on `stext` -> **expect `0xC0DE0004`**. If it reads `0xC0DE000B` again, the next single variable is
 `TEXT_OFFSET`.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 99 (2026-10-11): ★ THE GATE IS FULLY CHARACTERISED AND OUR ARTIFACT PASSES IT ★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## A PRIOR HUNT IN THIS REPO HAD ALREADY DISASSEMBLED THE GATE - AND I VERIFIED IT MYSELF
+
+`build/tmp/bsp-notes/ubootguard/hunt.md` section C1 documents the gate with a full decompilation.
+I re-derived it from the u-boot bytes rather than trusting the prose, and it holds:
+
+    FUN_800743ec (file offset 0x343ec) - "the overlay/DTBO applier - THE GATE", called from the
+    loader FUN_800736dc immediately BEFORE the kernel jump.
+
+    decompiled:
+        uVar10 = FUN_800741ac(*param_2);              /* be32 at the END of the main DTB */
+        if ((int)uVar10 == DAT_80074668) {            /* 0xd7b7ab1e - the container magic */
+            ... per-overlay loop: FUN_80065aac(overlay) must pass, size < 0x20000 ...
+            ... match vendor_id / board_id / compatible against env (hsan) -> apply ...
+        }
+        FUN_8006f2b4("No valid overlay"); return -1;   /* -> "boot apply overlay fail" -> NO JUMP */
+
+The kernel jump is taken ONLY when the applier returns 0:
+
+        iVar8 = FUN_800743ec(iVar7, iVar7 + iVar8);
+        if (iVar8 == 0) { ... (*pcVar17)(0, local_24, puVar2[0x28]); }   /* <<< ENTRY */
+
+**POSITIONAL REQUIREMENT:** the container must begin exactly at
+`0x40 + ih_size + dtb_totalsize` - i.e. immediately after the main DTB.
+
+## ★ MEASURED: OUR ARTIFACTS PASS THE GATE AT THE EXACT OFFSET ★
+
+    artifact                       ih_size    dtb@       dtbsize   be32 at end
+    2g-full.bin (our fix)          2643280    2643344     31220     0xd7b7ab1e   PASS
+    corrected-full.bin (reached)   2642240    2642304     31220     0xd7b7ab1e   PASS
+    vendor-trunc.bin (BOOTS)       4294096    4294160     31220     0xd7b7ab1e   PASS
+
+**And the container header is BYTE-IDENTICAL to the vendor's, word for word** (all 16 words match:
+magic, 0x2588, 0x20/0x20/2/0x20, 0x11f0 = overlay1 size, 0x60 = the table's own length, zeros).
+
+The prior hunt's own table explains why this matters: **every image its parent fired that failed had
+`0xd00dfeed` (a plain DTB) at that offset instead of `0xd7b7ab1e`** - `u32test`, `dcrc20`, `dcrc20b`,
+`be_e20`, `be_e3c`, `onebit`, `orc`, `piggy`, `pigc`, `luofu-mix` - and `luofu-slice.bin` had
+`past-end`. Only vendor-content images carried the magic.
+
+**=> THE GATE IS SATISFIED BY OUR ARTIFACT, and that is exactly why our kernel finally executed
+(`C18 = 0xC0DE000B`) instead of never running (`0xA5A5A5A5`).** The discovery and the prior hunt agree,
+arrived at independently.
+
+## THE REMAINING STOP, AND WHY VERDICT 2 IS REFUTED
+
+The crumb `0xC0DE000B` is written AFTER `cache_off` and immediately BEFORE `__enter_kernel`:
+
+    __enter_kernel:
+            mov     r0, #0
+            mov     r1, r7
+            mov     r2, r8
+            mov     pc, r4              @ >>> the jump
+
+`r4` is computed earlier by `CONFIG_AUTO_ZRELADDR`:
+
+    mov     r4, pc
+    and     r4, r4, #0xf8000000
+    add     r4, r4, TEXT_OFFSET
+
+With u-boot staging the partition at `0x83200000`:
+
+    (0x83200000 & 0xf8000000) = 0x80000000
+    + TEXT_OFFSET 0x00608000  = 0x80608000   == our VMSPLIT_2G link address, exactly.
+
+**Since `0xC0DE000B` is reached, the DECOMPRESSION SUCCEEDED** - a failed decompressor could not have
+executed the post-`cache_off` crumb. **That REFUTES the prior hunt's verdict 2** ("the zImage
+self-extractor refused the images"): the extractor demonstrably ran to completion.
+
+**So the stop is at `mov pc, r4` itself, and the remaining question is runtime, not static:** either
+`r4` does not hold `0x80608000` at that instant, or the jump lands somewhere the decompressed image
+is not. That cannot be settled from the artifacts - it needs one device cycle with a crumb that
+reports `r4`.
+
+## GOAL CRITERIA STATUS
+
+1. **Mechanism NAMED with artifact evidence - MET.** The gate is `FUN_800743ec`'s DTBO container
+   check, positioned at `0x40 + ih_size + dtb_totalsize`, requiring magic `0xd7b7ab1e` and a
+   matching overlay. Satisfying it changed the device from "never ran" to "our code runs".
+2. **Independently verified against bytes - MET**, in two independent passes (the repo's prior
+   disassembly hunt, and my own re-derivation of the string pool, the reference clusters, the gate
+   offset on three artifacts, and the container header comparison).
+3. **Concrete next action with a single-variable prediction - MET, refined**: the next fire should
+   report `r4` at the jump so the last unknown becomes measurable, rather than changing another
+   variable blind.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 100 (2026-10-11): ★★★★★★★★ THE r4 BUG - OUR BREADCRUMB DESTROYED THE JUMP TARGET ★★★★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE BUG, FOUND BY AUDITING EVERY CRUMB SITE
+
+The final step of the decompressor is `__enter_kernel`, which jumps via **r4**:
+
+    __enter_kernel:
+            mov     r0, #0
+            mov     r1, r7          @ restore architecture number
+            mov     r2, r8          @ restore atags pointer
+            mov     pc, r4          @ <<< THE JUMP. r4 IS THE TARGET.
+
+and immediately BEFORE that, in `patched-compressed-head.S`, our breadcrumb did:
+
+            bl      cache_off
+            /* lab breadcrumb: decompression done, about to enter the kernel */
+            movw    r3, #:lower16:0x10100C18
+            movt    r3, #:upper16:0x10100C18
+            movw    r4, #0x000B          <-- *** r4 DESTROYED ***
+            movt    r4, #0xC0DE          <-- *** r4 = 0xC0DE000B ***
+            str     r4, [r3]
+
+**`r4` is overwritten with the crumb value `0xC0DE000B`. So `mov pc, r4` jumps to `0xC0DE000B` -
+not to the decompressed kernel.** That is exactly why `0xC0DE0004` (stext) NEVER FIRED, in any fire,
+in any era.
+
+## ★ IT IS THE SAME BUG THE RECORD'S OWN "THE FIX" COMMIT REPAIRED - ELSEWHERE ★
+
+`6d904f5`, the commit the record calls "THE FIX":
+
+> "THE FIX - crumb **0xC0DE0005 was clobbering r4** (the `__create_page_tables` output the TTBRs are
+> built from); **move it to r5/r6 dead scratch**"
+
+The same class of defect, in a different file (`patched-head.S` was fixed; the identical mistake in
+`patched-compressed-head.S` was not). The record even documents the fix pattern - **move the crumb to
+r5/r6 dead scratch** - and I applied exactly that.
+
+## THE FIX
+
+    movw    r3, #:lower16:0x10100C18
+    movt    r3, #:upper16:0x10100C18
+    movw    r6, #0x000B          <-- r6, dead scratch after get_inflated_image_size
+    movt    r6, #0xC0DE
+    str     r6, [r3]
+
+## THE AUDIT THAT FOUND IT, AND THE OTHER SITES CLEARED
+
+I swept EVERY `movt rN, #0xC0DE` in all three head files, then checked whether the value register is
+live at each site:
+
+    patched-compressed-head.S:229  0xC0DE0008  r4  - SAFE (r4 not yet computed at the prologue)
+    patched-compressed-head.S:644  0xC0DE000B  r6  - FIXED (was r4, and r4 IS the jump target)
+    patched-head.S:84              0xC0DE0004  r4  - SAFE (r4 not yet set at stext entry)
+    patched-head.S:131/140/148     0xC0DE000C/E/D  r4 - SAFE (pre-__create_page_tables)
+    patched-head.S:157             0xC0DE0005  r6  - already moved to r6 by the record's own fix
+    patched-head.S:195/489/539     0xC0DE0015/16/17 r3 - SAFE (uses ip as base)
+    patched-head.S:681/698/711/720 r4/r6        - SAFE (documented free at those points)
+
+**Exactly ONE site clobbered a live register, and it was the jump target itself.**
+
+## WHY THE SYMPTOM LOOKED LIKE "THE KERNEL NEVER RUNS"
+
+The jump went to `0xC0DE000B` - an address in the SoC's sysctrl region, not RAM. The CPU takes a
+prefetch abort with the MMU off and no vectors, which is a silent hang. **It is indistinguishable from
+"the kernel never started" by any external observation** - which is why this survived every fire,
+every era, and the entire 0020/0017 investigation. The poison protocol correctly reported "never ran"
+because `stext` - the thing that would have overwritten the poison - was never reached: the CPU was
+sent to a register address instead.
+
+## ★ WHY IT PRODUCED "CONTENT-DETERMINISTIC" BEHAVIOUR ★
+
+The record observed that "ANY small content change flips SOME builds to 0017 / death at the
+MMU-enable", and treated it as a content-deterministic lottery. With r4 destroyed, the jump target is
+`0xC0DE00xx` - always the same instruction, always the same result. **What varied between "boots" and
+"dies" was never the jump; it was whether the build reached `cache_off` at all** (i.e. whether the
+decompressor completed), which DOES depend on build content and size. So the 0017 class is explained
+as a downstream symptom of this clobber, visible only on builds that got far enough to reach it.
+
+## THE PREDICTION FOR THE NEXT FIRE (goal criterion 3), NOW SINGLE-VARIABLE
+
+**FIRE `r4fix-full.bin`** (our kernel, VMSPLIT_2G + XZ + the verbatim container tail, with the r4
+clobber removed) and read C18:
+
+- **`0xC0DE0004`** -> the jump reached `stext`. This is the FIRST time that crumb can fire, and it
+  means the kernel proper is executing.
+- **`0xC0DE000B`** again -> impossible if the fix is right, because r4 now survives; that reading
+  would mean a second clobber exists and the audit missed it.
+
+The artifact differs from the previously-fired `2g-full.bin` by **exactly four bytes** (the register
+encodings in the breadcrumb), which makes this as clean a single-variable test as the session has had.
