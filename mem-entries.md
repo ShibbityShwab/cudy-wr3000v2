@@ -9954,3 +9954,83 @@ known-good image - which it does, and which is what matters for recovery.
 
 **Variant built so far:** `build/tmp/bisect/nop0-uImage` (3,657,808 B, md5 `c06e7866...`) - the
 0-padding control, built from the clean-room tree. `nop64` is building under a monitor.
+
+
+## PHASE 75 (2026-10-11): THE BUILD IS REPRODUCIBLE - AND THE nop SWING IS COMPRESSION, NOT CODE
+
+**Test 1 - is the build reproducible?** Built the identical source twice, same env
+(`KBUILD_BUILD_USER/HOST/TIMESTAMP` pinned):
+
+    RESULT: IDENTICAL - the build is reproducible
+
+So there is **no build nondeterminism**, and the class cannot be explained by the build rolling
+different dice each time. This was worth ruling out: if it had come back DIFFERENT, every comparison
+tonight would have been meaningless.
+
+**Test 2 - the nop64 anomaly, and what it actually is.**
+
+    nop0  uImage : 3,657,808 B
+    nop64 uImage : 3,631,072 B   <-- 26,736 B SMALLER
+    (both) Image : 9,780,192 B   <-- UNCOMPRESSED SIZE IDENTICAL
+
+The uncompressed `Image` is the arbiter, and it does not move. So the CODE is the same size and only
+the **gzip-compressed** output differs by 26 KB. The mechanism is legitimate and worth writing down
+because it is easy to mistake for a broken build:
+
+- 16 `nop` instructions are 16 copies of the same 4-byte word (`0xE1A00000` on ARM);
+- a long run of a REPEATING pattern is enormously compressible;
+- and inserting it SHIFTS every following byte, changing the alignment gzip sees, so its matches
+  across the whole rest of the image change.
+
+A 64-byte insertion producing a 26 KB compressed swing is therefore a real, expected effect - **and it
+is exactly the "ANY small content change" behaviour the record describes.** Whether it is the 0020/0017
+lever is what the fire will say; what it is NOT is evidence of a broken build.
+
+**Correction to my own earlier call:** I discarded the first nop64 as "mixed-state objects". The size
+anomaly was real, but the diagnosis was wrong - it is compression, not a stale link. The variant is
+valid after all, which is why the analysis re-derived it rather than trusting my first read.
+
+
+## ★★★ PHASE 76 (2026-10-11): THE MEASUREMENT IS NOT AS CONTROLLED AS I SAID - AND THE nop LEVER IS NOT CLEAN ★★★
+
+**Three facts, and together they change the bisect's validity.**
+
+**(1) The "reproducible" result was WEAKER than I reported.** The test built the same source twice
+*inside one script*, i.e. it proved "the same accumulated tree state produces the same output". It did
+NOT prove "a clean tree produces a stable output". The distinction matters, and here is the proof:
+
+    nop0-uImage built at ~22:16  : 3,657,808 B
+    nop0    zImage built ~23:0x   : 3,631,008 B     <-- SAME SOURCE, 26,800 B apart
+
+**Identical source, identical pinned env, different output.** So the tree carries state across builds
+that moves the compressed size by ~27 KB, and only a full clean rebuild would remove it.
+
+**(2) The nop insertion is NOT a single-variable change.** The uncompressed `Image` is the arbiter:
+
+    nop0  Image : 9,780,192 B  md5 11c1d7ca74a761663a1b2c06b0219417
+    nop64 Image : 9,780,192 B  md5 aca76479e06368757c771b85a94d6071
+    differing bytes: 830
+
+64 bytes of nops produced **830 differing bytes**. The insertion shifts alignment and changes
+downstream code generation, so "add N nops" is not one clean lever - it is a lever that also perturbs
+the code after it.
+
+**(3) Therefore the nop dimension cannot attribute a result.** If nop64 boots and nop0 does not (or
+vice versa), the cause is not isolable to padding, because 766 bytes of *other* change rode along.
+
+**WHAT THIS MEANS FOR THE PLAN, HONESTLY:** the naive "vary one dimension, score with boot_reg"
+bisect needs a CLEAN TREE PER VARIANT (a full `mrproper` + config + build, ~10 min each) or the
+results are not attributable. That is affordable, but it is not what the last hour was doing, and the
+variants built so far are not trustworthy as evidence.
+
+**Also corrected:** my earlier call that the first nop64 was "mixed-state objects" was wrong; the
+size anomaly is compression + alignment. The correct criticism of nop64 is not that it was stale, it
+is that inserting nops changes more than the nops.
+
+## WHAT IS STILL SOLID FROM THIS STRETCH
+
+- the build has NO nondeterminism *at a fixed tree state* (repeat builds inside one state match);
+- the uncompressed `Image` is the right arbiter and it is STABLE at 9,780,192 B across all variants
+  of this source;
+- the nop lever's compressed-size swing (26 KB from 64 bytes) is real gzip/alignment behaviour and is
+  a good illustration of "ANY small content change" - it is just not an isolable lever.
