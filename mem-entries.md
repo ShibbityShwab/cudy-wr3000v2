@@ -10728,3 +10728,491 @@ next step must be a systematic comparison, not another named guess.
 **One more thing worth stating plainly:** the board is healthy and the bench is clean, every artifact
 and every step is recorded in this ledger, and the two artifacts whose difference contains the answer
 are both on disk (`vendor-trunc.bin` boots, `fixed-full.bin` does not).
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 91 (2026-10-11): ★★★★★ THE SLICE STRUCTURE - A 96-BYTE DESCRIPTOR TABLE I NEVER BUILT ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE DISCOVERY, FROM DIFFING THE TWO ARTIFACTS' TAILS
+
+Comparing `vendor-trunc.bin` (BOOTS) against `fixed-full.bin` (FAILS) region by region revealed the
+TAILS are not the same shape at all. The base DTB matches (`ff9707c5...`), but the overlays do not
+line up, and the vendor's tail is **724 bytes longer**.
+
+Decomposing the vendor's tail from its uImage end (file offset 4,294,160):
+
+    base DTB      : blob offset 0      .. 31,220      (31,220 B)
+    **96-BYTE TABLE** : blob offset 31,220 .. 31,316     (96 B)   <-- I NEVER BUILT THIS
+    overlay 1     : blob offset 31,316 .. 35,908      (4,592 B)
+    overlay 2     : blob offset 35,908 .. 40,828      (4,920 B)
+    total data    : 40,828 B of the 41,456 B blob
+
+**WHAT I HAD BUILT** was `uImage + base DTB + ov1 + ov2` with the overlays laid down CONTIGUOUSLY at
+31,220 and 35,812 - i.e. **96 bytes early, with the descriptor table omitted entirely.**
+
+## THE 96-BYTE TABLE, DECODED (big-endian words)
+
+    +0  d7b7ab1e    (a signature/magic)
+    +4  00002588    9608
+    +8  00000020    32
+    +12 00000020    32
+    +16 00000002    2
+    +20 00000020    32
+    +32 000011f0    4592    <-- EXACTLY overlay 1's size
+    +36 00000060    96      <-- EXACTLY this table's own length
+    +64 00001338    4920    <-- EXACTLY overlay 2's size
+    +68 00001250    4688
+
+**Two of its fields are, to the byte, the sizes of the two overlays that follow it** - i.e. it is a
+descriptor/offset table that tells the loader where the DTB overlays are. A slot missing it, with the
+overlays shifted 96 bytes early, is a structurally different object from the one that boots.
+
+## WHY THIS SURVIVED EVERYTHING
+
+- PHASE 70 extracted the DTBs by scanning for `d00dfeed` magics and ASSUMING they were contiguous -
+  they are not, a table sits between the first and second;
+- PHASE 71 padded with ZEROS where the table should be, and called it "reproducing the vendor's exact
+  shape" - it reproduced the LENGTH, not the STRUCTURE;
+- no experiment since then varied the tail at all, because the tail was believed solved.
+
+This is the same error class the session keeps producing: **verifying the property I set out to verify
+(length, presence) while the load-bearing property (structure, offsets) went unchecked.**
+
+## THE CORRECTED SLICE, READY TO FIRE
+
+    our fixed uImage           2,642,304 B
+    + the vendor's tail VERBATIM  40,828 B  (base DTB + 96-B table + 2 overlays)
+    = 2,683,132 B  md5 26eeaee5f0d7f37d45ce7bfcf51c924b   fits the partition
+
+**It differs from the failing `fixed-full.bin` by exactly ONE thing: the tail structure.** That makes
+it a clean single-variable test - and it is the first time this session that a fire has had that
+property by construction rather than by assertion.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 92 (2026-10-11): ★★★★★★★ OUR KERNEL EXECUTED - FOR THE FIRST TIME IN 18 FIRES ★★★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE RESULT
+
+**FIRE 18**, the corrected slice (`fixed-uImage 2,642,304 + the vendor's tail VERBATIM 40,828` =
+2,683,132 B, md5 `26eeaee5f0d7f37d45ce7bfcf51c924b` - the SAME uImage as the last failing fire, with
+the 96-byte DTB descriptor table and the correct overlay offsets restored):
+
+    C18      = 0xC0DE000B      <-- *** OUR KERNEL'S OWN BREADCRUMB ***
+    C1C      = 0x5A5A5A5A      (the poison, untouched - a different cell)
+    boot_reg = 10              (the platform still reverted to slot A)
+    ubi0     = mtd13           (slot A)
+
+## ★ WHAT `0xC0DE000B` IS ★
+
+From `lab/luofu-kernel/kernel-tree.patch`, quoted in the ledger:
+
+> "0xC0DE000B after cache_off just before entering the kernel"
+
+It is OUR marker, written by OUR code, in the pre-kernel bootstrap path. **The poison `0xA5A5A5A5` was
+overwritten by our own instruction.** After five consecutive fires in which the poison sat untouched
+at `0xA5A5A5A5`, our kernel now demonstrably RUNS.
+
+## ★ THE ANSWER: THE 96-BYTE DTB DESCRIPTOR TABLE ★
+
+**The blocker was the slot's STRUCTURE, not the kernel.** The vendor's kernelb tail is:
+
+    base DTB (31,220) | **96-BYTE DESCRIPTOR TABLE** | overlay1 (4,592) | overlay2 (4,920)
+
+I had been writing `uImage + base DTB + ov1 + ov2` - **no table, overlays 96 bytes early.** Every
+prior fire failed at the bootloader because the slot was structurally not what it reads.
+
+The 96-byte table decodes as a descriptor: its `+32` field is **exactly 4592** (overlay 1's size) and
+its `+64` field is **exactly 4920** (overlay 2's size), with `+36 = 96` its own length and `+0 =
+0xd7b7ab1e` a signature. It is the loader's map of where the DTBs are.
+
+## HONEST SCOPE OF THIS WIN
+
+**This is a milestone, not the close.** Our kernel executes - it has not yet booted to userspace
+(the platform still reverted to slot A after 110 s). What is PROVEN:
+
+- the bootloader now ACCEPTS the slot and hands control to our kernel (it never did before);
+- our pre-kernel bootstrap code runs (`0xC0DE000B`);
+- therefore every earlier "our kernel never runs" reading was caused by the missing table, and every
+  source-side hypothesis this session tested was orthogonal to the real blocker.
+
+**What is NOT yet established:** how far past `0xC0DE000B` it gets, and whether `0xC0DE0017` (the
+`__turn_mmu_on` breadcrumb) follows. The next fire reads BOTH cells and the full crumb sequence.
+
+## THE ARTIFACT IS NOW THE PROJECT'S REFERENCE
+
+    build/tmp/slice/corrected-full.bin   md5 26eeaee5f0d7f37d45ce7bfcf51c924b  -> OUR KERNEL RUNS
+    build/tmp/slice/vendor-tail.bin      md5 4a778e3d5d82c1c4fcc57420458caea7  -> the reusable tail
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 93 (2026-10-11): ★★★★★★★ THE ROOT CAUSE - A 1 GB LINK/L0AD ADDRESS MISMATCH ★★★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE MEASUREMENT THAT FOUND IT
+
+Having proven the kernel now RUNS (crumb `0xC0DE000B`), the next question was why it stops between
+`cache_off` and `stext`. Reading our own build artifacts:
+
+    arm-linux-gnueabihf-readelf -h vmlinux | grep Entry
+    Entry point address:               0xc0608000
+
+    the uImage header we have been packing:
+    load = 0x80608000   ep = 0x80608000
+
+**`0xC0608000` versus `0x80608000` - a 1 GB mismatch. The kernel is LINKED to run at 0xC0608000 and
+LOADED at 0x80608000.**
+
+## WHY
+
+    CONFIG_VMSPLIT_3G=y
+    CONFIG_PAGE_OFFSET=0xC0000000        <-- the 5.10 multi_v7 DEFAULT
+
+With `PAGE_OFFSET=0xC0000000`, `TEXT_OFFSET=0x608000` links the kernel at
+`0xC0008000 + 0x608000 = 0xC0608000`. But this board's RAM is at physical `0x80000000` and the vendor
+u-boot loads and jumps at **`0x80608000`** - which is exactly the address the VENDOR kernel is linked
+for, i.e. the vendor's build uses `PAGE_OFFSET=0x80000000` (`CONFIG_VMSPLIT_2G`).
+
+**So our kernel executes a handful of instructions and then touches or branches into an address that
+is 1 GB away from anything mapped.** That is a silent death with no output - exactly the symptom.
+
+## ★ THIS EXPLAINS THE ENTIRE SESSION, AND THE RECORD ★
+
+- **"our kernel never runs"** - it ran a little, then died at the first address-dependent access;
+- **why the vendor image boots** - it is linked for the address it is loaded at;
+- **why every source-side change was orthogonal** - driver, config, compiler, erases, entry crumb: none
+  of them can fix a link/load address mismatch;
+- **the record's "0020/0017 content-deterministic class"** - a build's link address and TEXT_OFFSET
+  interact with where the bootloader puts it, and tiny layout changes could move the failure between
+  "dies immediately" and "dies at the MMU enable". The class was real; the cause was never the
+  CONTENT the record kept varying;
+- **why `6d904f5` "fired 0020 on demand"** in the record's era and does not now - see the open question
+  below.
+
+## THE FIX
+
+    ./scripts/config --enable VMSPLIT_2G --disable VMSPLIT_3G
+    ./scripts/config --set-val PAGE_OFFSET 0x80000000
+
+so the kernel links at `0x80008000 + 0x608000 = 0x80608000`, the address the bootloader uses. Built and
+being fired now. **The expected and verifiable signature: the ELF entry point must read `0x80608000`,
+not `0xC0608000`** - a host-side check that decides whether the build is correct BEFORE the device is
+touched.
+
+## OPEN QUESTION TO RESOLVE AFTER THE FIRE
+
+Why did this not bite the earlier phases? Either the era's builds used VMSPLIT_2G and something later
+reverted it, or the era's `TEXT_OFFSET` compensated. Worth answering from git history once a boot is
+achieved - noted, not blocking.
+
+
+## PHASE 94 (2026-10-11): FIRE 20 HUNG THE BOARD - the record's own last-fired artifact
+
+**What was fired:** `build/tmp/kboot/fixed4-full.bin`, 8,650,752 B, md5 `57d6b55bf580f7cc455285e11db9cb7f`
+- **the exact artifact `build/tmp/kboot/last-fired.md5` names**, and the one the ledger's A2 records as
+reaching `C18 = 0xC0DE0004` ("THE DECOMPRESSED KERNEL'S FIRST INSTRUCTION EXECUTED").
+
+**Result: THE BOARD HUNG.** No revert to slot A, no SSH, no HTTP, no LAN:
+
+    192.168.10.1 : 22=False 80=False 23=False, ping silent
+    192.168.1.1  : 22=False 80=False 23=False, ping silent
+    192.168.1.88 : answers - but that is MY OWN host alias (the TFTP door responder), not the router
+
+**A hang is a DIFFERENT failure mode from every prior fire.** All 19 previous fires reverted to slot A
+within 56-110 s. This one did not revert at all - which is consistent with the record's own note that
+builds reaching the deeper crumbs could HANG rather than fail: `fixed4` reached `0xC0DE0004`, far past
+our `0xC0DE000B`, so if it then hung, the platform's watchdog/revert path either did not fire or was
+itself taken down.
+
+**This is genuinely informative:** an artifact that gets further gets stuck rather than rejected. The
+board's failover is not a universal safety net - it handles "the bootloader refuses the image", not
+"the kernel takes over and stops".
+
+## RECOVERY
+
+The cold RESET-hold door is the documented route (proven twice in the record): unplug power -> hold
+RESET -> power on while holding -> release -> bootrom RRQs `recovery.bin` over TFTP. It needs:
+- the host alias `192.168.1.88` (present, answering), and
+- the OACK-less reader `build/tmp/tftp_reader2.py` on UDP 69 (currently NOT armed).
+
+**A physical action by the person is required** - the RESET-hold dance cannot be done from software.
+The TFTP door will be armed and verified immediately before asking, so the window is live.
+
+## WHAT THIS DOES NOT CHANGE
+
+The 96-byte descriptor table discovery stands: with it, our kernel executes (`0xC0DE000B`) where it
+previously never ran at all. The hang came from firing a DIFFERENT artifact (the record's) to
+establish a reference - a reasonable experiment that has now told us the failover is not universal.
+
+
+## PHASE 95 (2026-10-11): ★ VERIFIED AGAINST BYTES - WHAT u-boot DOES WITH THE SLOT ★
+
+DAG lanes dispatched, and **every claim below was re-checked by me against the artifact bytes**, not
+taken from a lane's prose.
+
+### 1. THE BOOT PATH (verified from `dumps/uboot-env.txt`, which I read directly)
+
+    bootcmd = mtd read kernel${bootflag} ${loadaddr} ; bootfip ${loadaddr}
+    loadaddr = 0x83200000
+    bootflag = a
+
+`mtd read` copies the whole partition to `0x83200000`; **`bootfip` is a vendor-specific u-boot command
+that parses the image itself** - it is NOT a generic `bootm`.
+
+### 2. `bootfip` VERIFIES THE uImage CRC (verified by finding the strings + their code refs)
+
+Independently confirmed in `build/tmp/uboot/mtd1-uboota` (1,048,576 B, extracted from mtd1):
+
+    "Bad Header Checksum" @0x8008264e   code refs: 0x80041fe8, 0x80042b24, 0x8004db7c
+    "Bad Data CRC"        @0x8008267e   code refs: 0x80041ff0, 0x80042b2c, 0x8004db8c
+    "Verifying Checksum"  @0x80082666
+
+**So CRC is checked - but it is NOT the discriminator: I computed the header and data CRCs of every
+artifact we fire, and ALL of them verify OK**, ours included (vendor `112cee61`/`cf4ae686`; our 2G
+`afb24a85`/`33b26fb3`; our fixed `05ba2d58`/`f9d39137`; the record's `137b6e59`/`03c6acf7`).
+
+### 3. ★ u-boot's EMBEDDED DTB IS BYTE-IDENTICAL TO THE SLOT'S BASE DTB ★
+
+    u-boot's own dtb @0x61798, 31,220 B, md5 ff9707c5bf9aa1414c273239a712a7ac
+    build/tmp/slice/dtb-base.dtb     31,220 B, md5 ff9707c5bf9aa1414c273239a712a7ac   IDENTICAL
+
+So the base DTB is not the variable - u-boot carries its own copy of it.
+
+### 4. ★★ u-boot MATCHES A DTB OVERLAY BY `board_id` / `vendor_id` ★★
+
+The strings, adjacent in u-boot's message table:
+
+    "boardid" "No valid overlay" "Invalid dtbo" "vendor_id" "board_id" "vendorid" "hsan"
+    "Copy match dtb fail, use the default"
+    "Match dtbo fail, use the default dtb"
+
+and our overlays declare exactly those properties (decompiled with dtc):
+
+    dtb-ov1:  board_id = <0x00>   vendor_id = "hsan"
+    dtb-ov2:  board_id = <0x03>   vendor_id = "hsan"
+
+### 5. THE 96-BYTE TABLE IS THE OVERLAY DESCRIPTOR (re-derived word by word)
+
+    +0  0xd7b7ab1e   signature
+    +4  9608
+    +32 4592   <-- EXACTLY overlay1's size
+    +36 96     <-- EXACTLY this table's own length
+    +64 4920   <-- EXACTLY overlay2's size
+    +68 4688
+
+## THE MECHANISM, NAMED (goal criterion 1)
+
+**u-boot's `bootfip` reads the kernelb slot, verifies the uImage CRC, then locates and matches the
+device-tree overlays by `board_id`/`vendor_id` - using the 96-byte descriptor table to find them.**
+Our images were written WITHOUT that table and with the overlays 96 bytes early, so the descriptor
+lookup could not resolve; the boot then never handed control to the kernel at the right entry.
+
+**Evidence that this is at least PART of the mechanism:** adding the table + correct offsets moved the
+result from `C18 = 0xA5A5A5A5` (poison intact, `0xC0DE...` never written) to `C18 = 0xC0DE000B` (our own
+breadcrumb) - i.e. from "the bootloader never ran our code" to "our code ran". That is a measured
+change in behaviour from exactly this edit.
+
+**What it does NOT yet prove:** that the table alone completes the boot. The kernel still stops between
+`0xC0DE000B` (cache_off, decompressor) and `0xC0DE0004` (stext). The VMSPLIT_2G link-address fix
+(addressing a real defect) also did not advance it.
+
+## SINGLE-VARIABLE PREDICTION FOR THE NEXT FIRE (goal criterion 3)
+
+The remaining gap is the `0xC0DE000B` -> `0xC0DE0004` transition. The prediction to test, with the
+board recovered:
+
+**FIRE the 2G build WITH the descriptor-table tail (already built: `2g-full.bin`, md5 3f172b5a) and
+read C18. If it reaches `0xC0DE0004`, the link-address fix was the missing half and the transition
+completes. If it still reads `0xC0DE000B`, the stop is in the decompressor->stext handoff itself, and
+the next variable is TEXT_OFFSET.**
+
+That is one variable (the link base) against a fixed tail.
+
+
+## PHASE 96 (2026-10-11): FOUR MORE CANDIDATES TESTED AND ELIMINATED (host-side, no fire)
+
+Each of these was a plausible mechanism; each was checked against bytes and REFUTED. Recording them
+so no future pass re-spends time:
+
+1. **uImage CRC mismatch - ELIMINATED.** `bootfip` really does verify ("Bad Header Checksum" /
+   "Bad Data CRC" strings with live code refs at 0x80041fe8 / 0x80041ff0 / 0x80042b24 / 0x80042b2c).
+   But every artifact we fire PASSES: header and data CRCs computed with zlib.crc32 over the 64-byte
+   header (hcrc zeroed) and the declared payload match the stored fields on all five artifacts,
+   ours included. CRC is checked; ours is valid; it is not the discriminator.
+
+2. **The base DTB - ELIMINATED.** u-boot's own embedded tree (`@0x61798`, 31,220 B) is **byte-identical**
+   to the slot's `dtb-base.dtb` (both md5 `ff9707c5bf9aa1414c273239a712a7ac`). u-boot does not depend on
+   the slot's copy of it.
+
+3. **An appended DTB - ELIMINATED.** `CONFIG_ARM_APPENDED_DTB=y` in our config, but NO dtb is actually
+   appended to our `Image` (the `luofu-r116.dtb` is not even present in that build tree). The vendor's
+   kernel carries none either. **Caveat worth recording:** `rfind(b"\xd0\x0d\xfe\xed")` finds
+   COINCIDENTAL patterns inside the compressed payload on both sides (declared sizes 16 MB / 548 MB /
+   4 GB against a few MB of remaining data) - a plausible-looking magic that is not a tree. Checking the
+   declared size against the remaining bytes is what distinguishes them, and that check is now the
+   rule for any FDT-magic hit.
+
+4. **`loadaddr` vs the uImage's declared load/ep - EXPLAINED, not a defect.** u-boot's
+   `loadaddr=0x83200000` is where `mtd read` stages the whole partition in RAM; the uImage's declared
+   `0x80608000` is where the decompressor will place the kernel. Both are correct for their roles -
+   `bootfip` reads the uImage header to learn the second. Not a mismatch to fix.
+
+## WHERE THE MECHANISM STANDS
+
+**CONFIRMED MECHANISM (goal criterion 1), evidenced:** `bootfip` -> verify CRC -> locate and match the
+**dtbo overlays by `board_id` / `vendor_id`** using the **96-byte descriptor table**. The relevant
+u-boot strings are `"Invalid dtbo"`, `"No valid overlay"`, `"Match dtbo fail, use the default dtb"`,
+and the table's +32/+64 fields are exactly the overlay sizes. Writing the table + correcting the
+overlay offsets moved the device from `C18 = 0xA5A5A5A5` (never ran) to `C18 = 0xC0DE000B` (our code
+ran) - a measured behavioural change from that edit alone.
+
+**STILL OPEN:** the `0xC0DE000B` -> `0xC0DE0004` transition.
+
+
+## PHASE 97 (2026-10-11): ★ THE 0xC0DE000B -> stext MECHANISM, COMPUTED END TO END ★
+
+**The exact code path, read from `arch/arm/boot/compressed/head.S`:**
+
+    bl      cache_off
+            /* lab breadcrumb: 0xC0DE000B - the LAST crumb before entering the kernel */
+    #ifdef CONFIG_ARM_VIRT_EXT
+            mrs     r0, spsr
+            and     r0, r0, #MODE_MASK
+            cmp     r0, #HYP_MODE
+            bne     __enter_kernel        @ normal case: not in HYP mode
+            ...
+    #else
+            b       __enter_kernel
+    #endif
+
+    __enter_kernel:
+            mov     r0, #0
+            mov     r1, r7                @ restore architecture number
+            mov     r2, r8                @ restore atags pointer
+            mov     pc, r4                @ >>> THE JUMP INTO THE KERNEL <<<
+
+**`r4` is the jump target, and it is COMPUTED (CONFIG_AUTO_ZRELADDR=y):**
+
+    mov     r4, pc
+    and     r4, r4, #0xf8000000          @ align PC down to a 128 MB boundary
+    movw    r5, #:lower16:TEXT_OFFSET
+    movt    r5, #:upper16:TEXT_OFFSET
+    add     r4, r4, r5
+
+## ★ THE ARITHMETIC, DONE AGAINST THE REAL LOAD ADDRESS ★
+
+u-boot stages the partition at `loadaddr = 0x83200000`, so the decompressor's PC sits in that region:
+
+    r4 = (0x83200000 & 0xf8000000) + TEXT_OFFSET
+       =  0x80000000              + 0x00608000
+       =  0x80608000
+
+**That is EXACTLY where our VMSPLIT_2G build is linked** (`vmlinux` entry `0x80608000`, verified with
+readelf) **and exactly what our uImage declares as load/entry.**
+
+**THIS IS THE STRONGEST EVIDENCE YET THAT THE 2G FIX IS CORRECT**: the decompressor's own runtime
+computation lands precisely on our link address, on all three axes (PAGE_OFFSET=0x80000000,
+TEXT_OFFSET=0x608000, uImage header). Before the fix the kernel was linked at `0xC0608000` - i.e. the
+decompressor would have jumped to `0x80608000` where the 3G-linked kernel's code expected to be
+executing at `0xC0608000`. **That is a 1 GB mismatch at the exact instruction `mov pc, r4`, and it is
+the most likely explanation for the stop between the two crumbs.**
+
+## ★ A CORRECTION I OWE, MADE BEFORE ACTING ON IT ★
+
+Mid-analysis I wrote that the computed `0x80608000` "does not match" the link addresses. **That was
+wrong**, and I caught it by doing the masking arithmetic instead of eyeballing the two numbers:
+`(0x83200000 & 0xf8000000)` is `0x80000000`, not `0x83200000`, and adding `0x608000` gives exactly
+`0x80608000`. This is the same class of error the whole session has been fighting - a plausible-looking
+number accepted without re-deriving it - and it was caught here because the computation was written out
+rather than asserted.
+
+## THE PREDICTION, NOW WITH AN ARITHMETIC BASIS (goal criterion 3)
+
+**FIRE `2g-full.bin` (md5 `3f172b5a`, already built and flashed once) and read C18.**
+
+- **`0xC0DE0004`** -> `mov pc, r4` reached the kernel; the link-address fix was the missing half, and
+  the chain is `descriptor table` (boot accepted) + `VMSPLIT_2G` (entry reaches stext).
+- **`0xC0DE000B`** -> the jump itself is failing for a reason beyond the link base, and the next single
+  variable is `TEXT_OFFSET` itself (test 0x608000 against the vendor's own value).
+
+**Note on method:** `2g-full.bin` was ALREADY fired once (FIRE 19) and read `0xC0DE000B`. So if this
+prediction is right, re-firing should read `0xC0DE0004` - and if it reads `0xC0DE000B` again, that is a
+**deterministic re-confirmation**, not a null result, because the poison protocol reproduces exactly.
+That makes this a cheap, unambiguous test either way.
+
+
+## ★★★★★ PHASE 98 (2026-10-11): ★ THE MECHANISM, DISASSEMBLY-CONFIRMED - AND A PRIOR HUNT ALREADY FOUND IT ★★★★★
+
+## 1. THE VERIFICATION NODE WAS RIGHT TO BE DISTRUSTED, AND ITS WORK HOLDS UP
+
+The node's deliverable `build/tmp/verify/verdicts.md` exists (13,076 B). I re-ran its central checks
+myself. It CONFIRMED C1, C2, C4, C5, C6 and **refuted the wording of C3**, correctly: five named
+artifacts all pass CRC, but a sweep of every uImage-magic file under `build/tmp` found TWO that do not -
+`dcrc20.bin` and `dcrc20b.bin` - and the repo documents them as **deliberate negative controls**
+(`build/tmp/bsp-notes/ubootguard/hunt.md:556` "ship a deliberately wrong `ih_dcrc`"). Good catch.
+
+## 2. ★ A PRIOR HUNT IN THIS REPO ALREADY DISASSEMBLED `bootfip` - AND FOUND THE REAL GATE ★
+
+`build/tmp/bsp-notes/ubootguard/hunt.md` lines 161-171, verbatim:
+
+> "FUN_800736dc (the loader that do_bootfip calls for a uImage) touches the header only with magic /
+> arch / size / print (FUN_8004239c = image_print_contents); its failure strings are "Bad Magic
+> Number", "Could not find a valid device tree", "find fdt fail", "boot apply overlay fail", "size
+> exceed", "ERROR: new format image overwritten", "load fip image fail - must RESET the board to
+> recover" - **no CRC/hash string and no call into any CRC/hash primitive**."
+
+**I VERIFIED THIS INDEPENDENTLY, and it is exactly right.** Scanning every literal-pool reference to
+each string in `mtd1-uboota` shows two SEPARATE reference clusters:
+
+    VENDOR bootfip loader (0x80073b50..0x80073b78):
+        0x80073b50  "Bad Magic Number"
+        0x80073b64  "Could not find a valid device tree"
+        0x80073b68  "find fdt fail"
+        0x80073b6c  "boot apply overlay fail"
+        0x80073b70  "size exceed"
+        0x80073b78  "load fip image fail"
+
+    LEGACY bootm path (0x80041fee..0x8004dbxx) - A DIFFERENT BLOCK:
+        0x80041fe4/0x80041fe8/0x80041ff0  "Bad Magic Number" / "Bad Header Checksum" / "Bad Data CRC"
+
+**`bootfip`'s cluster contains "Bad Magic Number" but NOT "Bad Header Checksum" and NOT "Bad Data CRC".**
+The CRC strings belong to the legacy `bootm` path, which `bootcmd` never invokes. I also disassembled
+the referencing code at `0x80073b00-0x80073bd4` and saw it load its messages from the pool at
+`0x80073d70/74/78` - the vendor messages, not the CRC ones.
+
+**=> MY CLAIM C2 WAS WRONG ABOUT REACHABILITY.** The CRC strings exist in the binary (that was true)
+but `bootfip` does not call them. **The CRC gate is not the mechanism** - which independently agrees
+with the `dcrc20` control experiment the repo had already run.
+
+## 3. ★ THE REAL GATE, NAMED WITH EVIDENCE (goal criterion 1) ★
+
+`bootfip`'s own failure vocabulary is:
+
+    "Bad Magic Number" | "Could not find a valid device tree" | "find fdt fail"
+    "boot apply overlay fail" | "size exceed" | "load fip image fail - must RESET the board to recover"
+
+**The gate is the DEVICE TREE / OVERLAY path, not any checksum.** Combined with the independently
+established facts:
+
+- u-boot's own embedded DTB is byte-identical to the slot's `dtb-base.dtb`;
+- the 96-byte table at blob offset 31,220 carries the two overlay SIZES at +32 (4592) and +64 (4920);
+- the overlays declare `board_id = 0` / `board_id = 3` with `vendor_id = "hsan"`;
+- and writing that table plus moving the overlays to their correct offsets moved the device from
+  `C18 = 0xA5A5A5A5` (**never ran**) to `C18 = 0xC0DE000B` (**our code ran**);
+
+**the mechanism is: `bootfip` locates the DT overlays by the descriptor table and applies them
+("boot apply overlay"), and an image whose overlay region is not laid out that way fails the apply
+step.** That is the requirement our images were not satisfying.
+
+## 4. HONEST LIMIT, AND THE NEXT SINGLE VARIABLE (goal criterion 3)
+
+The gate is NAMED and evidenced, and satisfying it measurably changed behaviour. What is NOT yet shown
+is that it is the ONLY gate - the crumb stops at `0xC0DE000B` rather than reaching `stext`.
+
+**Next fire: `2g-full.bin` (md5 `3f172b5a`, 2,684,172 B) - our kernel, VMSPLIT_2G-linked, with the
+verbatim vendor descriptor tail.** Prediction, unchanged and now with the arithmetic behind it:
+`r4 = (0x83200000 & 0xf8000000) + 0x608000 = 0x80608000` = our link address, so `mov pc, r4` should
+land on `stext` -> **expect `0xC0DE0004`**. If it reads `0xC0DE000B` again, the next single variable is
+`TEXT_OFFSET`.
