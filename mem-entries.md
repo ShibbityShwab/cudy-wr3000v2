@@ -9043,3 +9043,58 @@ of 6 mtd_erase/mtd_write calls precede the gate; both timer arms follow it). So:
 
 Either outcome is a real advance, which is why the fire is worth doing now rather than after more
 reasoning. Everything local that can be decided is decided.
+
+
+## PHASE 59 (2026-10-11): FIRE 2 - THE SWITCH WORKED, THE KERNEL DIED BEFORE ITS FIRST BREADCRUMB
+
+## WHAT WAS DONE (and what went right)
+
+- **Slot A (mtd11) left as STOCK** (`15c71e4f...`) - a strictly better rollback than fire 1, where
+  both slots were overwritten.
+- Our uImage written to **slot B (mtd12)**, read-back verified byte-exact (`61ebfba7...`).
+- Calibration snapshotted (`build/cal-snapshots/20261011-142406`, 9 SUCC).
+- Recovery door armed and verified (tftp_reader2.py, UDP 69).
+- `fw_setenv` does NOT exist on this build - found before relying on it. The REAL selector (from the
+  project's own FLASH-PLAN.md:195-201) is two things, and BOTH are needed:
+    env blocks mtd3/mtd4 <- `env-bootflag-b.bin`, then `fw_printenv bootflag` -> `b`
+    `/sys/devices/platform/sysenv/boot_reg` <- `echo 0x21`
+- Both were set and confirmed before the reboot.
+
+## ★ THE RESULT, AND IT IS A NEW AND SHARPER FACT
+
+The board came back after ~73 s **on the stock kernel**, and the selectors had been **reset by the
+hardware**:
+
+    before boot: boot_reg = 21 (B),  bootflag = b
+    after  boot: boot_reg = 10 (A),  bootflag = a
+
+**So the bootloader TRIED slot B, the kernel failed, and the platform automatically reverted both
+selectors to A and booted stock.** That is the failover the PHASE 50fn strand lacked - it exists, it
+just costs the full timeout, and it explains why a failed boot can look like "nothing happened".
+
+**And the diagnostic that matters:** read back on the running vendor system,
+
+    C18 (0x10100C18) = 0x00000000
+    C1C (0x10100C1C) = 0x00000000
+
+**C18 = 0 means our kernel died BEFORE THE FIRST BREADCRUMB**, which `patched-head.S` stamps at the
+`stext` entry (`0xC0DE0004`). So this is not a driver, not an initcall, and not the rootfs: the kernel
+image is accepted by the bootloader and dies in its own earliest entry code.
+
+pstore holds only OLD records (Oct 5) - no new panic - consistent with a death before printk/pstore
+can register.
+
+## WHAT THIS RULES OUT, AND WHAT IT POINTS AT
+
+RULED OUT (for this fire): the boot-path erase (now gated off), the UBI probe's call site, the
+rootfs/`ubiblock` path, and anything at initcall level - the kernel never got that far.
+
+POINTS AT: the kernel's earliest `head.S` path - specifically the things this port deliberately
+changed there. The record names them: the instrumented `patched-head.S` breadcrumbs themselves (which
+the PHASE 50x-50z work had to fix repeatedly, including a breadcrumb pair that wrote to
+`0x10100C18`+`0x10100C1C`), the `TEXT_OFFSET=0x608000` link address, and the
+`__fixup_pv_table` 16 MiB gate.
+
+NEXT (host-side, no fire): diff the CURRENT `patched-head.S` / `patched-compressed-head.S` against
+the versions that booted in PHASE 50em/50en, and against `8cebc05..15efe8f` - the same artifact-diff
+method that identified the ramoops cause in one command after three rounds of reasoning had failed.
