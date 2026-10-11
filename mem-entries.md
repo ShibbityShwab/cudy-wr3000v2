@@ -9012,3 +9012,34 @@ only when a mounted filesystem asks - not from init.
 That is the property the next fire tests, and it is now stated as a measurable one rather than a
 hope: boot with the gate default, and the kernel should reach userspace because nothing in the boot
 path writes flash.
+
+
+## PHASE 58e (2026-10-11): LOCAL WORK IS EXHAUSTED - THE FIRE IS THE ONLY REMAINING STEP
+
+Final sweep, all nine modules build locally:
+    luofu-fmc, luofu-clk, luofu-pinctrl, luofu-pcie, luofu-wifi,
+    luofu-gmac, luofu-wdt, luofu-mdio, luofu-thermal          -> 9/9 OK
+
+The flashable artifact set (`build/luofu-kernel-image/`), rebuilt WITH the omo_mark gate and verified
+present in vmlinux:
+    zImage        3,657,848 B   md5 4d016d2cc2d5f5ad
+    luofu-uImage  3,657,912 B   md5 61ebfba7d03c9ccd
+    luofu-r116.dtb    11,485 B  md5 ff56b71ec040bdaf
+    kernelb budget: PASS (4,992,840 B margin on 8,650,752 B)
+
+Device, right now: stock 2.4.15, uptime 4,023 s, 2 wiphys / 6 interfaces, **0 `.omo-*` leftovers**.
+`rootfs_data` (mtd15) first four bytes still `ff ff ff ff` - so the guard is in the state the fire
+will exercise.
+
+## WHAT THE NEXT FIRE TESTS, AS A FALSIFIABLE STATEMENT
+
+With `omo_mark=0` (the default) **nothing in our boot path writes flash** (verified by position: 0
+of 6 mtd_erase/mtd_write calls precede the gate; both timer arms follow it). So:
+
+  - If the kernel reaches userspace -> the boot-path erase WAS the cause, settled by experiment.
+  - If it still does not -> the erase loop is EXONERATED and the remaining candidates are the
+    `init_module` consolidation and the rest of the ~20 post-50en commits, which the next fire should
+    then separate one at a time.
+
+Either outcome is a real advance, which is why the fire is worth doing now rather than after more
+reasoning. Everything local that can be decided is decided.
