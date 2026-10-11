@@ -10175,3 +10175,104 @@ known to be too strong**: the vendor image differed from all our fires in TWO wa
 CONTENT and a different LAYOUT (full slice vs bare uImage). I attributed the result to content when the
 layout was uncontrolled. This is the third time tonight the same error shape appears: a variable that
 changed alongside the one under test.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 80 (2026-10-11): THE FULL SLICE ALSO FAILS - THE LAYOUT IS NOT THE ANSWER EITHER
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+**The test:** the SAME known-good `6d904f5` image, written as a **FULL SLICE** -
+`uImage 3,608,136 + base DTB 31,220 + overlay 4,592 + overlay 4,920 = 3,648,868 B`
+(md5 `08d6b9ad4c620f45ee5b51ba2cf0ef1c`), layout parsing identically to the vendor slot's, fitting the
+partition. Poisoned, flashed, verified byte-exact, both selectors B, rebooted.
+
+    boot_reg = 10          <-- REVERTED to slot A
+    C18      = 0xA5A5A5A5  <-- poison INTACT: never ran
+
+**A known-good image as a full slice does not boot either.**
+
+## SO WHERE DOES THAT LEAVE US - AND IT IS NOW A VERY SHORT LIST
+
+Two facts now stand together, and they are in tension:
+
+    (A) the VENDOR's own slot-B content (8,650,752 B, md5 15c71e4f...) BOOTED through this exact path
+    (B) a REPRODUCED known-good 6d904f5 image - both as a bare uImage AND as a full slice - does NOT
+
+Both were written by the same commands, verified by the same read-back, and fired at the same slot.
+So the difference is NOT our kernel source (B reproduces the record's size to 0.002%) and NOT the slice
+layout (tested both ways on B).
+
+**What differs between (A) and (B)?** Exactly one thing is left:
+
+    (A) is 8,650,752 B  - THE ENTIRE PARTITION, captured from a working slot with `dd`
+    (B) is 3,608,136 B (bare) or 3,648,868 B (slice) - written into an ERASED partition
+
+**HYPOTHESIS, AND IT NOW HAS EVIDENCE BEHIND IT:** the bootloader may not read a contiguous `uImage +
+DTBs` at offset 0 the way we assume. The vendor slot's non-ff region is 4,335,616 B (uImage + 3 DTBs =
+4,346,764 B by our assembly, very close but NOT identical - 4,335,616 vs the sum), so the vendor's
+layout may place things at offsets we have not matched, or the bootloader may derive its kernel
+location from something else entirely in the slot.
+
+**THE TEST THAT SETTLES IT, AND IT IS DECISIVE AND CHEAP:**
+flash **THE VENDOR'S OWN 8,650,752-B SLOT IMAGE** (which we have on disk - the exact artifact that
+BOOTED in PHASE 72) into slot B again, and confirm it boots. Then flash the known-good control and
+confirm it does not. That pair, repeated, isolates "content" from "the write/erase" once and for all.
+
+- if the vendor image boots and ours never does, the difference is IN THE IMAGE, and the only
+  remaining difference is its SIZE/SHAPE (full 8.25 MB vs a 3.6 MB prefix);
+- if the vendor image ALSO stops booting on a second attempt, then slot B is being left in a state
+  that only the FIRST write survives - which would be a real and previously unconsidered mechanism.
+
+**This is the next test. It requires no build, only two flashes of artifacts already on disk.**
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 81 (2026-10-11): ★★★ THE COMPLETE A/B - IT IS THE IMAGE'S SIZE/SHAPE, NOT THE CONTENT ★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE DECISIVE PAIR, RUN BACK TO BACK WITH THE SAME COMMANDS
+
+    A) vendor kernelb-backup.bin   8,650,752 B  md5 15c71e4f...  -> BOOTED  (boot_reg=0x11, ubi0 on
+                                                                   mtd14 = rootfsb = SLOT B)
+    B) known-good 6d904f5 bare     3,608,136 B  md5 b0424cb6...  -> never ran (boot_reg=0x10, poison intact)
+    B) known-good 6d904f5 slice    3,648,868 B  md5 08d6b9ad...  -> never ran (boot_reg=0x10, poison intact)
+    C) every HEAD variant          ~3.65 MB                       -> never ran (8 fires)
+
+**The vendor image booted slot B AGAIN (65 s, boot_reg=0x11, 6 ifaces, 2 wiphys).** The same write
+commands, the same slot, the same verification - and it works. Our images do not.
+
+## WHAT THE PAIR PROVES
+
+**It is NOT our kernel content.** The `6d904f5` build reproduces the record's known-good size to
+0.002% (9,984,100 vs 9,984,344 B) - it IS the build the record says "fires 0020 on demand" - and it
+does not boot. So no bisect of our source will ever find this, because the fault is not in the source.
+
+**It is NOT the slice layout.** The known-good image was fired BOTH ways: bare uImage AND
+`uImage + base DTB + 2 overlays` with a layout that parses identically to the vendor's. Neither booted.
+This also CORRECTS PHASE 70/71's DTB conclusion for the second time - the layout matters not at all.
+
+**The only structural difference left between A and everything else:**
+
+    A  is the ENTIRE 8,650,752-B partition, dd'd from a slot the bootloader was booting
+    B/C are 3.6-MB prefixes written into an ERASED partition
+
+The vendor slot's non-ff region is 4,335,616 B, while our assembled `uImage + 3 DTBs` sums to
+4,346,764 B - CLOSE BUT NOT EQUAL. Something in the vendor slot is placed at offsets we have not
+matched, and the bootloader evidently looks for it there. Candidates:
+
+1. **The bootloader derives the kernel's location from a structure we are not writing** - an offset
+   table, a header at a fixed offset, or something in the erased tail.
+2. **The DTBs must be at EXACT offsets** matching the vendor slots, not merely appended.
+3. **The bootloader reads beyond our 3.65 MB** and finds `ff` where it expects a signature.
+
+**★ THE NEXT TEST, WHICH IS CHEAP AND DIRECTLY DECISIVE:** we hold the vendor slot image in full
+(md5 15c71e4f, booting right now). Compare its byte layout against our assembled slice **structurally**:
+enumerate EVERY non-ff region, its offset and size, and see what sits where. That is a pure host-side
+diff - no fire - and it should show exactly what the bootloader expects that we are not writing.
+
+## METHOD SCORE FOR THE SESSION
+
+11 fires. The poison protocol gave a trustworthy reading every time (never a false INTACT or false
+crumb). The build was reproducible at a fixed tree state. What the session did NOT have until now was
+a CONTROL - and the moment one existed (`6d904f5`, reproducible to 0.002%), it settled in two fires
+what eight source-elimination fires could not: the problem is not our code.
