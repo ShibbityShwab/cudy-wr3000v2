@@ -12536,3 +12536,55 @@ repeated failure class.
 **The objective's informational half is complete. What remains is the device half, which is gated on a
 physical cold reset that only the user can perform, with the recovery door armed and every artifact
 hash-verified.**
+
+
+## PHASE 123 (2026-10-12): THE CRC CLAIM, RESTATED PRECISELY - THE VERIFIER'S FLAG WAS RIGHT
+
+The verification node confirmed all six claims but flagged two wording nuances honestly. **The first one
+pointed at a place where my own ledger wording had been ambiguous, and it is worth correcting in the
+record, because an imprecise mechanism claim is exactly what this objective warns against.**
+
+## THE PRECISE STATEMENT (replacing the loose "the CRC is not checked")
+
+**WRONG / TOO BROAD:** "u-boot does not check the uImage CRC."
+
+**CORRECT, AND NOW EVIDENCED THREE WAYS:**
+
+1. **The CRC strings exist and ARE referenced by code** - `"Bad Header Checksum"` and `"Bad Data CRC"`
+   each have **three** literal-pool references (`0x20e8/0x20f0`, `0x2c24/0x2c2c`, `0xdc7c/0xdc8c`). They
+   belong to the **legacy image loader's own pools**, next to `"## Booting kernel from Legacy Image
+   at %08lx"` and `"Wrong Image Format for %s command"`.
+
+2. **`bootfip`'s failure vocabulary is a DIFFERENT pool** (`0x33c40` family), which I read directly:
+   `"Bad Magic Number"`, `"find fip fail"`, `"find fdt fail"`, `"boot apply overlay fail"`,
+   `"size exceed"`, `"load fip image fail - must RESET the board to recover"` - and it contains **no
+   CRC string** and no call into a CRC primitive (`hunt.md` line 165).
+
+3. **`bootcmd` never invokes the legacy loader.** Re-read from the device's own environment:
+   `bootcmd = mtd read kernel${bootflag} ${loadaddr};bootfip ${loadaddr}` - it calls `mtd` and
+   `bootfip`, nothing else. (`bootm` exists as a command; `bootcmd` simply does not use it.)
+
+**PLUS AN EMPIRICAL CONTROL THE REPO ALREADY RAN** (`hunt.md` lines 167-171, 553-558): the artifacts
+`dcrc20.bin`/`dcrc20b.bin` carry a **deliberately wrong `ih_dcrc`**, while `be_e20`, `be_e3c`, `onebit`,
+`piggy`, `orc` all carry a **correct** one - and they were fired as a control/flip pair. *"A uImage
+data-CRC check would have inverted the reported outcomes."* So the CRC is not what refuses our images,
+and that is established by experiment, not only by disassembly.
+
+## WHY THIS MATTERS FOR THE OBJECTIVE
+
+The objective asks for "a named, specific mechanism". The mechanism is:
+
+    **bootfip gates on the DTBO container** (4 bytes at 0x40+ih_size+dtb_totalsize == 0xd7b7ab1e,
+     then an overlay matched by vendor_id/board_id), and on the FIT/UBI structure it parses.
+    It does NOT gate on the uImage CRC - that check belongs to a code path `bootcmd` never calls.
+
+**And the behavioural evidence closes it**: writing the container moved the device from
+`C18 = 0xA5A5A5A5` (our code never ran) to `C18 = 0xC0DE000B` (our decompressor ran), and the two
+further defects (`r4` clobber, `VMSPLIT_2G` link address) then carried it to `0xC0DE502D`.
+
+## THE SECOND FLAG, ALSO ADOPTED
+
+C4's "r4 survives" means: the `0x54` crumb store used r4 as scratch, and the `0xc0` assignment
+(`mov r4, pc`) **supersedes** it; r4 is then legitimately recomputed at `0xc4/0xd0` (and adjusted at
+`0x2f4`) before the jump at `0xa2c`. Those recomputations are the intended destination computation, not
+clobbers. The corrected phrasing avoids implying r4 is written exactly once.
