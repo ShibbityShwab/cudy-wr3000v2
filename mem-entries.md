@@ -8416,3 +8416,48 @@ afterwards**. A check is not worth re-creating the hazard it was added to catch.
 which is the more important half. **STILL TO DO: bound the verify to a sample** - every eighth block plus
 the last, roughly 22 reads - which is what the next session should implement before firing anything. An
 edit attempting exactly that failed on an anchor mismatch and was abandoned rather than guessed at.
+
+
+---
+
+# PHASE 51 (2026-10-11): LOCAL BUILD LANE + THE STRAND FIX VERIFIED LOCALLY
+
+## WHAT CHANGED (host-side, no device action)
+
+**The project builds entirely on this machine now - CI is redundant.** WSL2 (Ubuntu) was installed
+with `gcc-arm-linux-gnueabihf` (CI parity), `mkimage`, `dtc`, and a prepared vanilla 5.10.201 tree
+at `/opt/kbuild/linux-5.10.201`.
+
+    tools\local-build.bat luofu-fmc     -> a lab module .ko
+    tools\local-build.bat kernel        -> zImage + luofu-r116.dtb + luofu-uImage
+
+**MEASURED (all local, ~10 min at -j16):** zImage 3,657,736 B | luofu-r116.dtb 10,803 B |
+luofu-uImage 3,657,800 B | **kernelb budget PASS** (8,650,752 B partition, 4,992,952 B margin).
+Artifacts in `build/luofu-kernel-image/` with `MANIFEST.sha256`.
+
+## TWO REAL BUGS THE LOCAL LANE CAUGHT THAT CI HAD NOT
+
+1. **The duplicate `init_module`** - `luofu-fmc.c` had THREE `module_init`-expanding macros
+   (`late_initcall_sync` x2 + `module_platform_driver`). A module may define it EXACTLY once, so the
+   file could never have compiled. Fixed: one initcall; `luofu_fmc_ubi_probe()` is now called from the
+   driver probe tail (its `__init` dropped to clear the modpost section mismatch). Commit `eba7094`.
+2. (already known) the unbounded erase-verify - now bounded to a sample (block 1, every 8th, the last).
+
+## THE STRAND FIX, VERIFIED IN THE LINKED KERNEL
+
+- `CONFIG_JFFS2_FS=y`, `CONFIG_MTD_NAND_LUOFU=y`, `CONFIG_MTD_UBI=y`, `CONFIG_MTD_BLOCK=y`,
+  `CONFIG_CMDLINE_EXTEND=y` - all present in the built `.config`.
+- The driver's `wrote the jffs2 marker` string IS in `vmlinux` (the fix is compiled in, not just in source).
+- **The 64-bit-division class is CLEAN**: `__aeabi_uidiv`/`uidivmod` are DEFINED in the kernel (T),
+  zero undefined `__aeabi_` symbols, and **no `__aeabi_uldivmod`** - the one that cost two builds is gone.
+- Safety ordering verified in file order: `mod_timer` at line 1596 (jffs2_mark), first flash erase at
+  1647 - **the watchdog arms before anything writes flash**.
+
+## WHAT REMAINS: ONE FIRE
+
+The JFFS2 path on `/dev/mtd15` (rootfs_data) has had three distinct obstacles removed and the erase
+now works (the write-enable was the whole problem). The next step is the fire the record already
+speced: flash `kernelb`, `bootflag=b`, reboot, and observe whether `mount_root` mounts mtd15 as JFFS2.
+
+**This is a DEVICE-MUTATING operation and the one that stranded the board before** - the hazard is
+fixed, but it is a decision, not a default. Not run as of this entry.
