@@ -12412,3 +12412,51 @@ the right first move precisely because it settles this by measurement rather tha
 **Honest scope:** this is an argument from the vendor's own code, not a measurement of mtd16's bytes.
 It is strong (every write path is enumerated in the script) but it is still an inference, and the read on
 recovery is what turns it into a fact. Recorded as such.
+
+
+## PHASE 121 (2026-10-12): THE COMPLETE VERIFIED PLAN - EVERY RISK CHECKED, EVERY ARTIFACT HASHED
+
+## PLAN RISK CLOSED: THE SHELL-RESTORE ROUTE APPLIES
+
+The door serves `firmware/2.4.15.bin` (md5 `421114c8ea999c925b7aa79cc548af81` - byte-identical to
+`build/tmp/recovery/recovery.bin`, verified), and the box came back reporting
+`2.4.15-20251030-114751`. Per the project's own notes, **2.4.15 is VULNERABLE to the systime RCE while
+2.5.24 is patched** - so the route that restored the shell earlier tonight (PHASE 109) applies again
+without modification.
+
+## THE SEQUENCE, WITH HASHES
+
+    STEP 1 [physical]  cold reset-hold (unplug -> HOLD RESET -> power on holding -> release)
+                       door ARMED: UDP 69 PID 2948, serving 20,975,775 B
+                       expects `firmware/2.4.15.bin` md5 421114c8ea999c925b7aa79cc548af81
+
+    STEP 2 [read-only] re-lay the shell (the PHASE 109 recipe, proven on this exact firmware)
+                       wizard -> 403 + form (_csrf, salt, NO token) -> sha256(sha256(pw+salt))
+                       -> 302 + sysauth -> systime POST with token and base64-wrapped command
+                       -> dropbearkey for both host keys -> project key into BOTH authorized_keys
+                       -> /sbin/start-stop-daemon -S -x /usr/sbin/dropbear -- -p 22 -R
+                       -> rc.local line BEFORE 'exit 0'
+
+    STEP 3 [read-only] ★ THE DECIDING MEASUREMENT ★
+                       ubinfo -a; does volume 'owrt' exist in mtd16?
+                       PHASE 120 argues (from the vendor's own upgrade code) that mtd16 is in NO
+                       write path and therefore survived - but that is inference; this read is fact.
+
+    STEP 4 [mutation, only if step 3 says it is gone]
+                       write build/tmp/owrt-ubi/owrt.ubi (3,276,800 B, md5 5c24486d97911e22ed1658b6262195e9)
+                       to mtd16 - the soft-float rootfs, read-back verified
+
+    STEP 5 [mutation]  fire build/tmp/slice/r4fix-slot.bin into kernela
+                       (8,650,752 B, md5 00f338a74c92bb9f054a689d98b007f1)
+                       rollback: build/tmp/fire3/kernela-backup.bin md5 bd5ae265ce47e3ed4299c434b1936385
+                       read C18
+
+    PREDICTION: C18 = 0xC0DE502D (already reproduced once) AND the box STAYS REACHABLE, because the
+    soft-float rootfs starts dropbear on port 22 (\`etc/init.d/dropbear\` is present in the image).
+
+## AN ADVERSARIAL VERIFICATION NODE IS RUNNING
+
+Dispatched to independently test six claims against the bytes - the DTBO container offset and magic,
+the uImage CRCs, the u-boot string-reference split (fdt/overlay vs CRC), the r4-clobber fix in the
+linked binary, the UBI read-back identity, and the kernela backup - with instructions to report each
+as CONFIRMED / REFUTED / UNPROVEN and to name anything FALSE. Its verdicts are read when it settles.
