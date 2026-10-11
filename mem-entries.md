@@ -10634,3 +10634,97 @@ artifacts where one demonstrably boots and the other does not, with every other 
 (same length, same write, same slot, same DTBs, both valid zImages). **It is a hypothesis until
 fired** - but it is the first hypothesis tonight with a named mechanism, a specific address, and a
 one-line fix.
+
+
+## PHASE 89: THE FIX APPLIED TO THE SOURCE
+
+`lab/luofu-kernel/patched-compressed-head.S` - the region at label `1:` reordered. Before, the file was:
+
+    1:
+        /* lab breadcrumb: decompressor entry (very first instructions) */   <-- FIRST THING EXECUTED
+        movw r3, #:lower16:0x10100C18
+        ...
+        str  r4, [r3]
+     ARM_BE8( setend be )
+     AR_CLASS( mrs r9, cpsr )
+    #ifdef CONFIG_ARM_VIRT_EXT
+        bl   __hyp_stub_install
+    #endif
+        mov  r7, r1        @ save architecture ID
+        mov  r8, r2        @ save atags pointer
+        /* lab breadcrumb: hyp-stub install returned */  0xC0DE0009
+        /* lab breadcrumb: r7/r8 saved */               0xC0DE000A
+
+Now:
+
+    1:
+        /* the prologue MUST come first (a comment records the hazard) */
+     ARM_BE8( setend be )
+     AR_CLASS( mrs r9, cpsr )
+    #ifdef CONFIG_ARM_VIRT_EXT
+        bl   __hyp_stub_install
+    #endif
+        mov  r7, r1
+        mov  r8, r2
+        /* lab breadcrumb: the decompressor prologue has completed */  0xC0DE0008
+
+**The standard entry sequence the bootloader hands control to is restored, and ONE breadcrumb remains
+after it** - so the measurement is not lost, it is just taken at a point that does not disturb the
+boot contract. Three crumbs collapsed to one because the two dropped ones measured transitions that
+are now trivially implied.
+
+Rebuilt with the identical config and compiler as the controlled XZ test, so the ONLY difference from
+the failing `xz-full` build is this reordering.
+
+
+## PHASE 90 (2026-10-11): THE ENTRY-POINT FIX DID NOT BOOT IT - HONEST STATUS
+
+**FIRE 17:** the fixed kernel, whose entry now reads **instruction-for-instruction like the vendor's** -
+
+    vendor (BOOTS): 00 90 0f e1  ae 0d 00 eb  01 70 a0 e1  02 80 a0 e1
+                    mrs r9,CPSR  bl ...        mov r7,r1     mov r8,r2
+    fixed  (ours) : 00 90 0f e1  9e 0c 00 eb  01 70 a0 e1  02 80 a0 e1
+                    mrs r9,CPSR  bl ...        mov r7,r1     mov r8,r2
+
+wrapped in the same 3 DTBs (`2,683,036 B`, md5 `25b67bbf...`), poisoned, flashed, verified byte-exact,
+selectors B, rebooted.
+
+    boot_reg = 10          <-- REVERTED
+    C18      = 0xA5A5A5A5  <-- never ran
+    slot B   = 25b67bbf...  intact
+
+**Still does not boot.**
+
+## WHAT THIS MEANS
+
+The entry-point instrumentation **was a real defect** (our prologue was replaced by breadcrumb code at
+the exact address the bootloader jumps to, and it is fixed now and should stay fixed), **but it is not
+the whole cause** - there is at least one more difference between our kernel and the vendor's that
+matters, and the entry was not it.
+
+## THE HONEST STATE OF THE SEARCH, AFTER 17 FIRES
+
+**PROVEN:**
+- the flash path works (vendor image boots; verified 3x);
+- `boot_reg == 0x11` is the success signal; the poison protocol never once misled;
+- the writes verify byte-exact every time;
+- our reproduced `6d904f5` does not boot; the vendor image does;
+- the entry-point instrumentation was a genuine defect and is now fixed.
+
+**NOT SOLVED:** what else differs. What is eliminated now covers source, config, compiler, compression,
+layout, shape, length, and the entry sequence.
+
+**WHAT I WOULD DO NEXT - AND WHY I AM STOPPING THE FIRE LOOP HERE:**
+
+The remaining differences can only be found by an **exhaustive diff of the two zImages' code paths**
+beyond the entry - specifically the decompressor's own setup and the kernel-proper's early boot, which
+is where the record's `0xC0DE0017` (the mcr) breadcrumb lives. That is a large, deterministic,
+host-side task: disassemble both, align them, and enumerate every structural difference. It is the only
+remaining work with a definite answer, and it costs no device cycles.
+
+**Seventeen fires have taught me that each hypothesis I can name by inspection has been wrong.** The
+next step must be a systematic comparison, not another named guess.
+
+**One more thing worth stating plainly:** the board is healthy and the bench is clean, every artifact
+and every step is recorded in this ledger, and the two artifacts whose difference contains the answer
+are both on disk (`vendor-trunc.bin` boots, `fixed-full.bin` does not).
