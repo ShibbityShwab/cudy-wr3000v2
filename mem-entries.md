@@ -12698,3 +12698,56 @@ vendor-shaped layout volume, and mtd16 has exactly that shape).
 **The objective's device half remains gated on the user's cold reset.** The door is armed and verified
 (single UDP 69 listener, PID 2948, serving 20,975,775 B); the served firmware is 2.4.15, the release
 where the shell-restore route works.
+
+
+## PHASE 126 (2026-10-12): ★ THE ENTIRE MOUNT CHAIN VERIFIED LINK BY LINK - NO HOST-SIDE UNKNOWNS LEFT ★
+
+Checked every kernel capability the deploy needs, against the actual `Image`-building config and the
+actual rootfs image bytes:
+
+### The UBI attach (the link PHASE 124 identified as load-bearing)
+
+    io.c (source)          : "compat != 5" present at line 870
+    vmlinux (compiled)     : <validate_vid_hdr> contains `cmp r2, #4` - the bound that accepts 5
+    sudo sed confirmed     : the patched form of BOTH guards
+
+    guard 1: vol_id <  UBI_INTERNAL_VOL_START (0x7FFFEFFF) requires compat == 0
+    guard 2: vol_id >= UBI_INTERNAL_VOL_START             accepts {DELETE,RO,PRESERVE,REJECT,5}
+
+    OUR LAYOUT VOLUME : vol_id=0x7FFFEFFF, compat=5  -> guard 2 -> PASSES (only because of the patch)
+    OUR DATA VOLUME   : vol_id=0x0,        compat=0  -> guard 1 -> PASSES
+
+**Both volumes pass, verified against the actual image bytes AND the patched source. Without the patch
+the layout volume would fail with "bad compat" and the attach would return -EINVAL/-22.**
+
+### The block layer (ubiblock needs it)
+
+    CONFIG_BLOCK=y   CONFIG_BLK_DEV=y   CONFIG_MTD_BLOCK=y   CONFIG_MTD_UBI=y   CONFIG_MTD_UBI_BLOCK=y
+
+`ubi.block=0,0` builds `ubiblock0_0` from volume 0 - which the image confirms is **STATIC** (the only
+type ubiblock accepts).
+
+### The squashfs mount
+
+    image             : Compression xz, Block size 262144 (256 KiB)
+    kernel            : CONFIG_SQUASHFS=y  CONFIG_SQUASHFS_XZ=y  CONFIG_SQUASHFS_FILE_DIRECT=y
+                        CONFIG_SQUASHFS_DECOMP_SINGLE=y  (MULTI unset - fine, single is valid)
+    FRAGMENT_CACHE_SIZE set (checked earlier)
+
+**Every link in `mtd16 -> ubi_attach -> volume 0 -> ubiblock0_0 -> squashfs(xz) -> init` is present in
+the kernel we built and matching in the image we built.**
+
+## THE HOST-SIDE WORK IS NOW GENUINELY EXHAUSTED
+
+Across PHASE 116-126 every artifact and every capability the deploy depends on has been read, parsed and
+cross-checked:
+
+    kernel image   : geometry, container magic, both CRCs                     VERIFIED
+    kernel config  : UBI, UBI_BLOCK, SQUASHFS, SQUASHFS_XZ, BLOCK             VERIFIED
+    kernel patch   : compat != 5, both source and compiled form               VERIFIED
+    rootfs image   : 25 PEBs, vol 0 STATIC, layout compat=5, guards both pass  VERIFIED
+    rootfs content : sha256 identical to source, soft-float busybox, dropbear VERIFIED
+    cmdline        : ubi.mtd=upgrade + ubi.block=0,0 agrees with the image    VERIFIED
+    rollback       : kernela-backup.bin md5-verified                          VERIFIED
+
+**What remains cannot be advanced without the device**: the read of mtd16, and then the fire.
