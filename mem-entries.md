@@ -8845,3 +8845,117 @@ is not a behaviour fix"). Here it is a third time, and the tell was in the commi
 myself: a change labelled as fixing a COMPILE error that also altered the ORDER of initcalls. When a
 compile fix touches ordering, the ordering is the thing to re-verify - and the file's own comment
 already stated the requirement.
+
+
+---
+
+# PHASE 58 (2026-10-11): ★ CORRECTION - PHASE 57's ROOT CAUSE WAS WRONG; THE REAL ONE IS THE ERASE LOOP VS THE SAFETY TIMER ★
+
+## WHAT PHASE 57 CLAIMED, AND WHY IT IS WRONG
+
+PHASE 57 concluded that `eba7094` (moving `luofu_fmc_ubi_probe()` from `late_initcall_sync` into
+the driver's `probe()`) broke the boot. **The mechanism does not hold.** Reading the FUNCTION's own
+body:
+
+`luofu_fmc_ubi_probe()` is a **diagnostic/report** routine. It reads the mtd table, prints it, opens
+a UBI volume read-only, and stamps crumbs. Its own comment says so outright:
+
+> "THE MTD TABLE, REPORTED BY NAME RATHER THAN ASSUMED - AND REPORTED FROM HERE ON PURPOSE. This ran
+> from the probe at first and its output NEVER SURVIVED: the log ring keeps the TAIL..."
+
+So moving it earlier changes only which *messages* survive the log window. **It cannot stop a rootfs
+from mounting**, because the mounting is done by userspace `mount_root` from the kernel cmdline, not
+by this function. PHASE 57's "root cause" explained a logging artifact, not the failure.
+
+(My fix in `507ce58` is still correct and worth keeping - `late_initcall_sync` IS where the file says
+this must run, and the three-initcall defect was real - but it is NOT the fix for the boot failure.)
+
+## ★ THE REAL CAUSE: `luofu_jffs2_mark()` ERASES 176 BLOCKS AT BOOT, AND THE SAFETY TIMER IS 180 s ★
+
+Put the three measured facts together:
+
+1. **`luofu_fmc_ubi_probe()` calls `luofu_jffs2_mark(fmc)`** - the fmc source, line 1839.
+2. **`luofu_jffs2_mark()` erases the WHOLE partition**: `for (block = 1; block < nblocks; block++)`
+   with `nblocks = part->size / part->erasesize` - and `rootfs_data` (mtd15) is 0x1600000 = **176
+   blocks** at 128 KiB.
+3. **`LUOFU_SAFETY_SECS = 180`** (line 1547): the read-back timer reboots the box 180 s after boot,
+   via `emergency_restart()`.
+
+And the record's own comment names the hazard this creates:
+
+> "the check on top of it turned a 2-second erase into MINUTES, because a block that has not finished
+> erasing can sit in wait_ready for 200 ms"
+
+**176 blocks x even one retry each = 35 s of pure wait_ready; a failing block can spend 200 ms, and
+the verify/re-erase path multiplies it.** If the total exceeds 180 s, the timer fires and reboots -
+**the board starts, never reaches init, and cycles.** That is precisely the observed signature.
+
+## THE DECISIVE MEASUREMENT (read-only, on the vendor system)
+
+`mtd15`'s first four bytes read **`ff ff ff ff`** - so **the guard PASSES and the erase loop RUNS**
+on our kernel's next boot. (The guard is: only erase when block 0 is `ff`; a partition that has ever
+held a live overlay writes block 0 and the routine returns untouched.)
+
+Note the subtlety: the VENDOR currently mounts mtd15 as `/overlay` (jffs2, rw) - yet block 0 still
+reads `ff`, i.e. it is mounted but has never had block 0 written. So the guard sees `ff` and the
+erase path is live.
+
+## WHAT THE NEXT FIRE SHOULD ACTUALLY FIX (before flashing)
+
+1. **Do not erase 176 blocks inside the boot path.** Options, in preference order:
+   a. **Skip the mark when the partition is ALREADY mounted/valid** - the vendor proves JFFS2 mounts
+      an untouched partition fine; the mark may be unnecessary at all on a partition the vendor
+      already formats on first write.
+   b. Move the erase behind a **module parameter, off by default** (the same
+      read-only-until-measured discipline every other luofu driver already follows).
+   c. If it must run, **bound the total time**: erase at most N blocks per boot, or stop when the
+      elapsed time approaches the timer.
+2. **Re-check `LUOFU_SAFETY_SECS` against the worst case**: 180 s is the budget; the loop must be
+   provably inside it, and the record's own lesson is that "a check is not worth re-creating the
+   hazard it was added to catch".
+
+## THE MEASURED STATE RIGHT NOW
+
+Board: stock 2.4.15, healthy, ssh up. `mtd15` = `rootfs_data`, first 4 bytes `ff ff ff ff`, mounted
+by the vendor as `/overlay` (jffs2 rw). Every local artifact and commit from PHASE 51-57 is in place
+and pushed.
+
+
+## PHASE 58 ADDENDUM - WHAT IS PROVEN, WHAT IS A CANDIDATE, AND WHAT IS NOT MEASURED
+
+PROVEN (from the source, the git history, and read-only device reads):
+- `luofu_fmc_ubi_probe()` calls `luofu_jffs2_mark(fmc)` UNCONDITIONALLY (fmc line 1839).
+- `luofu_jffs2_mark()`'s guard is `mtd_read(part, 0, 4, ...)` returning early unless the word is
+  `0xffffffff` (lines 1634-1635).
+- mtd15's first four bytes ARE `ff ff ff ff` (measured on the device), so the guard PASSES.
+- The loop then erases **176 blocks** (mtd15 = 0x1600000 / 0x20000) with a sampled read-back.
+- `LUOFU_SAFETY_SECS = 180`; the timer calls `emergency_restart()`.
+- `luofu_jffs2_mark` was INTRODUCED by `9781e19`, which is AFTER the successful boot (50em/50en);
+  `15efe8f` then changed its ordering. So the successful boot did not carry this erase loop, and
+  every boot since has.
+
+MEASURED AS A PROXY: reading the whole 176-block partition takes **1.50 s**. Reading is the cheap
+half; the erase is the expensive one, and the record's own comment says a not-yet-finished block can
+sit **200 ms** in `wait_ready`.
+
+NOT MEASURED, AND THEREFORE NOT THE ESTABLISHED CAUSE: the actual duration of 176 erases + the
+sampled verify on this hardware. Without it I cannot say the loop exceeds 180 s - only that it is the
+one thing in the boot path that could, and that it did not exist at the successful boot.
+
+## SO THE HONEST STATEMENT OF THE FAILURE IS A RANKED HYPOTHESIS, NOT A PROVEN CAUSE
+
+1. **[most likely] The boot-path erase loop.** New since the successful boot; runs 176 erases inside
+   late_initcall; the only thing in that path with an unbounded-ish cost against a 180 s budget.
+2. **[not separated] The `init_module` consolidation** (`eba7094`). Changes WHEN the diagnostic runs;
+   shown above to be a reporting-only function, so it does not mount anything - downgraded, not
+   proved innocent.
+3. **[not excluded] Anything else in the ~20 commits between 50en and the strand.**
+
+## WHAT TO DO INSTEAD OF GUESSING (the next step, and it is host-side)
+
+The erase loop must not run in the boot path at all, for reasons that hold REGARDLESS of which
+hypothesis is true: it is a WRITE to flash performed by a diagnostic, it is unbounded in principle,
+and every other luofu driver follows the read-only-until-measured rule. Gate it behind a module
+parameter (off by default) and re-fire - and if the boot then succeeds, the hypothesis is settled by
+experiment rather than by argument. That is the same discipline the ramoops/cmdline work taught: when
+two changes could be responsible, SEPARATE them.
