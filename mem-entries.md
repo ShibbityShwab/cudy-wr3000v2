@@ -9170,3 +9170,94 @@ pinctrl in vmlinux; `CONFIG_MTD_NAND_LUOFU=y` is the only CONFIG_LUOFU set). So:
 Board healthy on stock 2.4.15 (slot A). Our kernel intact in slot B. Both selectors auto-reverted by
 the hardware - a failover that works and costs the full timeout. Bench clean, repo clean, everything
 pushed. `build/tmp/fire2/kernelb-backup.bin` holds the pre-fire slot B.
+
+
+## ★★★★★ PHASE 61 (2026-10-11): THE CONTROLLED READ - OUR KERNEL NEVER EXECUTES ★★★★★
+
+**The poison protocol worked, and the answer is unambiguous.**
+
+    poison written :  C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A     (disjoint from every 0xC0DE.... crumb)
+    switch         :  boot_reg = 0x21 (slot B)
+    reboot         :  board down, vendor failover, back at 63 s on slot A (stock)
+    READ BACK      :  C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A     <-- POISON INTACT
+
+**Our kernel overwrites C18 with `0xC0DE0004` at `stext`, its first instruction. The poison is
+untouched, so our kernel NEVER RAN - not one instruction.**
+
+This settles what three fires and four sessions of hypotheses could not:
+
+- NOT the boot-path erase (gated off anyway).
+- NOT the `init_module` consolidation, NOT `late_initcall_sync`, NOT the UBI probe call site.
+- NOT `luofu_jffs2_mark`, the rootfs, `ubiblock`, UBI, pstore, or anything at initcall level.
+- NOT the seven new drivers (modules, not in the image) and NOT the DTS (the vendor u-boot supplies
+  its own tree).
+
+**None of our code executes at all.** The failure is between "the bootloader reads slot B's uImage"
+and "the kernel's first instruction" - i.e. exactly the class the ledger named as the mcr-transition
+lottery: "ANY small content change flips some builds to 0017: death at the MMU-enable ... the
+transition is CONTENT-DETERMINISTIC PER BINARY".
+
+**AND THE METHOD IS NOW PROVEN.** Three fires produced nothing conclusive because the read was
+uncontrolled; ONE fire with the poison produced a definitive answer. The protocol costs one
+`devmem` write and one re-read. It should be the first step of every fire from now on.
+
+**Note on the earlier PHASE 59 read.** That fire's `C18 = 0` was read WITHOUT a poison, so it could
+not distinguish "never ran" from "cell was zero". This fire's poison shows the two readings
+(0 and 0xA5A5A5A5) lead to the SAME conclusion here - but only because the poison makes it provable
+rather than assumed.
+
+## STATE
+
+Board healthy on stock 2.4.15, slot A (`bootflag=a`, `boot_reg=10` - the vendor reset both after the
+failed B boot). Our kernel intact at slot B (`dc766232...`). Door armed. Bench and repo clean.
+
+
+## PHASE 62 (2026-10-11): THE BISECT FOUND A MEASURABLE DIFFERENCE - OUR Image IS 204 KB SMALLER THAN THE KNOWN-GOOD
+
+**(2) The content-class bisect, run on the anchor the record names.**
+
+**The anchor.** `6d904f5` - "THE FIX - crumb 0xC0DE0005 was clobbering r4" - is the commit whose
+binary "fires 0020 on demand", i.e. the known-good 0020-class build. HEAD is **193 commits** past it.
+
+**The deltas since that anchor** (measured, not assumed):
+
+| file | change |
+|---|---|
+| `patched-head.S` | +16 lines (the reader cells inserted just before the MMU-enable mcr) |
+| `kernel-tree.patch` | +35 lines |
+| `luofu.fragment` | +157 lines (the JFFS2/NAND config) |
+| `patched-head-common.S`, `patched-compressed-head.S`, `mach-luofu/luofu.c` | UNCHANGED |
+
+**The nop lever was checked and RULED OUT as the difference:** `ea2276c` added "192 bytes of nops
+after stext (the real class lever)", but the nops are absent BOTH at `6d904f5` and at HEAD - they were
+an experiment that was reverted. So the current tree is back to pre-experiment form and that is not
+what changed.
+
+**★ THE MEASURABLE DIFFERENCE ★**
+
+    known-good 0020-class Image :  9,984,344 B   (stated in the ledger, and its span 0x80008000..0x8098D4D8)
+    OUR current Image           :  9,780,192 B   (built this phase: `make Image`)
+    ------------------------------ -----------
+    ours is                      :    204,152 B SMALLER
+
+That lands squarely in the dimension the record says decides the class: "ANY small content change
+(the NAND stack, a 50-byte string) flips some builds to 0017 ... the transition is
+CONTENT-DETERMINISTIC PER BINARY". Our image is not 50 bytes different - it is **204 KB** different,
+which is the largest content change this port has ever made between a booting and a non-booting build.
+
+**The mechanism that makes this plausible rather than coincidental** (and it is a hypothesis, labelled
+as one): the record already localised the failure to the window *"only the mcr sits between"*
+(`__turn_mmu_on` -> MMU enable), and every one of the three deltas feeds the kernel's text/data
+layout. `patched-head.S` changes code INSIDE that window; the fragment's +157 config lines change
+which code exists at all; the patch adds more.
+
+**WHAT THIS SUGGESTS AS THE NEXT EXPERIMENT (bounded, and it needs one fire):**
+build the kernel with the fragment/patch/head content **as at `6d904f5`** (i.e. revert the three
+deltas while keeping the driver), fire with the poison protocol, and read C18. If the poison is then
+OVERWRITTEN (a crumb appears), the class is content-controlled and the bisect proceeds by
+re-introducing the deltas one at a time. If the poison is still intact, the class is NOT controlled
+by these deltas and the search widens.
+
+**METHOD NOTE (the durable win from fire 3).** One poisoned fire produced a definitive answer where
+three unpoisoned ones produced nothing. The poison costs two `devmem` writes and a re-read, and it
+must be the FIRST step of every fire from now on.
