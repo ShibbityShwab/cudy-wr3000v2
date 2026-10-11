@@ -8618,3 +8618,72 @@ differ by 8 bytes: the UTS banner bakes in KBUILD_BUILD_HOST + TIMESTAMP, and CI
 host=github-actions while a local build uses host=local. Byte-identity with a CI-built artifact from
 a different host is not achievable without spoofing the host string - inherent, not a defect. The
 build IS correct, reproducible run-to-run, and passes the kernelb budget.
+
+
+---
+
+# PHASE 54 (2026-10-11): EVERY LOCAL-ONLY LANE CLOSED - THE FLASH IS THE ONLY STEP LEFT
+
+Continuing the "finish what can be done locally" directive. Two more drivers were written from the
+vendor decodes, and the full kernel image now carries everything.
+
+## ★ C7b `luofu-mdio.c` - THE MDIO BUS DRIVER
+
+The vendor's `hi_kmdio.ko` is a standard **mdiobus** driver (`__of_mdiobus_register`,
+`devm_mdiobus_alloc_size`, `mdiobus_read/write`). Two facts settled the design:
+
+1. **The LIVE device tree** shows the running `mdio0` node carries only reg, clocks, resets,
+   reset-names and the five PHYs - and **none** of the optional properties the module can also read
+   (`pre-addr`/`pre-val`/`pre-reset`/`pre-assert-ms`/`pre-deassert-ms`/`pre-assert-val`,
+   `vendor-addr`/`vendor-value`, `pinctrl-sel`). Those are alternate-board paths; on this board they
+   are absent, so the plain clause-22 bit-bang is the whole job.
+2. **The live dmesg names the wiring exactly:**
+   ```
+   Hi-GEMAC 14380000.gemac eth0: PHY [14000000.mdio0:02] driver [Hisilicon Genius Phy] (irq=POLL)
+   Hi-GEMAC 14380000.gemac eth1: PHY [14000000.mdio0:03]
+   Hi-GEMAC 14480000.gemac eth2: PHY [14000000.mdio0:04]
+   Hi-GEMAC 14500000.gemac eth3: PHY [14000000.mdio0:05]
+   ```
+   i.e. mdio0 @0x14000000 serving PHY addresses 2..5, one per GEMAC.
+
+The driver registers the bus and enumerates the DT's PHY children. **The control register's bit
+positions are STAGED behind `layout_verified`**: until they are pinned against the hardware, every
+transfer returns `-EOPNOTSUPP` rather than pushing a guessed frame at the PHYs. That is the same
+read-only-until-measured rule the rest of the port follows.
+
+## ★ C9b `luofu-thermal.c` - THE TEMPERATURE DRIVER
+
+The `tvsensor` node was restored in PHASE 53; this is its driver. The conversion was decoded from
+`hi_tsensor_hw_v4_get_temp` (the DT's `hwver = <3>` selects the v4 path) and **verified numerically**:
+
+    raw = readl(base + 0x24) & 0xffff
+    millidegC = ((165 * raw - 32835) / 100) * 1000 - 40000
+
+raw 240 -> 27.0 C, slope 1.65 C/LSB - a sane SoC curve. Threshold/trim writes are staged (recoverable
+from the same module, unmeasured on the bench).
+
+## CONFIG ALIGNMENT
+
+The fragment already named the symbols the drivers now satisfy (`CONFIG_LUOFU_WATCHDOG`,
+`CONFIG_LUOFU_TVSENSOR`, `CONFIG_LUOFU_MDIO`, `CONFIG_LUOFU_GMAC`, `CONFIG_CLK_LUOFU`,
+`CONFIG_PINCTRL_LUOFU`, `CONFIG_PCIE_LUOFU`, `CONFIG_MTD_NAND_LUOFU`). Two of my new Makefiles used
+different names (`CONFIG_LUOFU_WDT`, `CONFIG_LUOFU_THERMAL`); they are now aligned to the fragment's,
+which is the convention the in-tree build uses.
+
+## THE FULL IMAGE
+
+`tools\local-build.bat kernel` -> zImage 3,657,752 B | **DTB 11,485 B** (grew from 10,803 - the
+thermal nodes are in) | uImage 3,657,816 B | **BUDGET: PASS** (4,992,936 B margin on the 8,650,752 B
+kernelb partition).
+
+## WHAT THE FLASH NOW UNBLOCKS (the only remaining step)
+
+Everything that can be decided without the device is decided. The flash is what converts:
+- `luofu-mdio`'s `layout_verified` gate -> the real bit positions (the only thing that makes the bus
+  drive, and it is the first thing that fails safe rather than guesses);
+- `luofu-gmac`'s MAC enable bit -> measured (currently staged);
+- C6's JFFS2 overlay on OUR kernel (preconditions already proven: mtd15 erased, slot gate read,
+  calibration snapshotted with real values, recovery door known-good);
+- `luofu-wdt` / `luofu-thermal` -> their first live reads.
+
+COMMITS: `0bc6c92` luofu-mdio + luofu-thermal (submodule).
