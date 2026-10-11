@@ -12228,3 +12228,44 @@ the 2026-10-10 success and tonight's dark board.**
 
 **Every input for this is on disk and hash-verified. What it needs is a shell - which needs the board
 back, which needs the user's cold reset.**
+
+
+## PHASE 117 (2026-10-12): EVERY HOST-SIDE INPUT IS VERIFIED - THE NEXT FIRE IS FULLY SPECIFIED
+
+    ✓ our kernel image (both fixes + gate-satisfying container)
+        build/tmp/slice/r4fix-slot.bin            8,650,752 B  md5 00f338a74c92bb9f054a689d98b007f1
+    ✓ THE SOFT-FLOAT rootfs (the only non-SIGILL candidate on disk)
+        build/tmp/openwrt/owrt-armel.sqfs         2,881,866 B  md5 fc079bad7802237c616f9d658ad3cce1
+    ✓ kernela rollback (the vendor kernel, verified against the live partition before I overwrote it)
+        build/tmp/fire3/kernela-backup.bin        8,650,752 B  md5 bd5ae265ce47e3ed4299c434b1936385
+    ✓ stock rootfs backups
+        dumps/mtd13-rootfsa.gz                    14,898,065 B
+        dumps/mtd14-rootfsb.gz                    14,896,396 B
+    ✓ mtd16 pre-write backup (the ERASED state - for reverting only)
+        dumps/mtd16-upgrade.gz                       30,635 B
+
+    recovery door: ARMED, single listener, UDP 69 PID 2948, serving 20,975,775 B
+    board        : DARK (needs the user's cold reset-hold)
+
+## WHY THE BOARD IS DARK, AND WHY THAT IS NOW EXPLAINED
+
+Our kernel reaches the timer crumb (`0xC0DE502D`, matching the recorded successful boot exactly). It is
+NOT a hang (`0xC0DE0020` is the hang signature) and NOT the watchdog (our mach code disarms it, and the
+stop magics are verified present in the built `Image`).
+
+**The remaining difference from the 2026-10-10 success is the ROOTFS.** That boot ran an audited
+soft-float OpenWrt 25.12.5 from an `owrt` UBI volume in mtd16. Tonight the board came back from a
+recovery that re-flashed both slots, and mtd16's content is not known to still hold that volume -
+`ubinfo` on the device is the first thing to check, and it needs a shell.
+
+**And this part has no usable FPU**, so a hard-float rootfs dies with SIGILL - which is why the ABI test
+above matters and why `owrt-armel.sqfs` is the only usable candidate.
+
+## THE PRECISE NEXT SEQUENCE (all four steps are single-purpose, and three of them are read-only)
+
+    1. [read-only]  user cold-resets; the door serves; the box returns on stock 2.4.15
+    2. [read-only]  re-establish the shell (the systime RCE on 2.4.15, per `unstrand-2026-10-11.md`)
+    3. [read-only]  `ubinfo` / read mtd16 - DOES the `owrt` soft-float volume survive?
+    4. [mutation]   only if it does not: rebuild it (the recorded recipe), then fire our kernel
+
+**Step 3 is the deciding measurement and it costs nothing.** Everything after it is already prepared.
