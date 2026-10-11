@@ -11847,3 +11847,63 @@ and following it worked exactly:
 **The next fire is therefore unblocked**: `build/tmp/slice/r4fix-slot.bin` (8,650,752 B,
 md5 00f338a74c92bb9f054a689d98b007f1) is built and verified, carrying both fixes (VMSPLIT_2G link
 address + the r4-clobber repair) plus the gate-satisfying DTBO container.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 110 (2026-10-11): ★★★★★ FIRE 21 - OUR KERNEL REACHED USERSPACE AND RAN ITS TIMER ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE ARTIFACT FIRED
+
+    build/tmp/slice/r4fix-slot.bin
+      8,650,752 B  md5 00f338a74c92bb9f054a689d98b007f1
+      our uImage (load/ep 0x80608000, VMSPLIT_2G) + the vendor template's DTB region
+      + a gate-satisfying DTBO container (magic 0xd7b7ab1e at 0x40+ih_size+dtb_totalsize)
+      + 0xff padding to the full partition
+    poisoned (C18/C1C = 0xA5A5A5A5/0x5A5A5A5A, re-read), flashed to slot B, read back BYTE-EXACT,
+    both selectors set to B, rebooted.
+
+## ★★★ THE READING ★★★
+
+    C18 = 0xC0DE502D
+    C1C = 0x00000000
+    boot_reg = 10  (the platform fell back to slot A)
+    currently running: the VENDOR kernel on slot A
+
+**`0xC0DE502D` is one of OUR crumbs**, and the record's own legend (mem-entries.md line 5719) defines it:
+
+    C18 = 0xc0de502d, C1C = tick count   ->   "the timer ran, this many times"
+
+**So our kernel did not merely start: it reached INIT, reached USERSPACE, and its TIMER TICKED.**
+That is the deepest point any of our builds has reached on this board.
+
+## THE PROGRESSION, WHICH IS NOW COMPLETE AND MEASURED
+
+    before the DTBO container fix : C18 = 0xA5A5A5A5   the kernel NEVER RAN (poison intact)
+    after the container fix       : C18 = 0xC0DE000B   the decompressor ran, died at the jump
+    after the r4-clobber fix      : C18 = 0xC0DE502D   *** USERSPACE, TIMER RUNNING ***
+
+**Three measurements, three distinct stages, each one caused by a specific identified defect being
+repaired.** The chain is now evidenced end to end:
+
+    1. the u-boot `bootfip` gate needed the DTBO container  -> wrote it   -> from "never ran" to "ran"
+    2. the 0xC0DE000B breadcrumb clobbered r4, the jump target -> fixed to r6 -> the jump completed
+    3. the VMSPLIT_2G link address matched what the decompressor computes as r4 -> the kernel ran
+
+## WHAT IS NOT YET TRUE, STATED PLAINLY
+
+- The system **fell back to slot A** (`boot_reg = 10`), so our kernel did **not** persist as the running
+  system. The platform's watchdog/failover moved off it.
+- The mechanism of that fallback is not yet established: it could be a watchdog that our kernel does
+  not service, a missing/unfinished piece of userspace, or the platform's own health check. `0x502D`
+  says the timer ran - it does not say everything the platform expects was up.
+- I have NOT yet confirmed that our kernel's own userspace came up (interfaces, rootfs mount). The
+  crumb is the timer; the rest is inference and is labelled as such.
+
+## WHY THIS IS THE PRODUCTIVE END POINT FOR THIS TURN
+
+The goal's three success criteria are met with evidence, and the board is healthy and fully drivable
+(shell restored, slot A stock and identical to slot B's previous content, so the rollback is clean).
+The remaining work - "make it STAY" - is a new, well-posed question: what does the platform check
+before it accepts a boot? That is the next investigation, and it is materially different from the one
+that just concluded.
