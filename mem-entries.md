@@ -15125,3 +15125,62 @@ board/ODM-specific.** That is a cheap, powerful diff we have the material for an
    unresolved-symbol refusal would name exactly what our kernel must provide.
 3. **Loading modules can crash the box**, and the slot selector is sticky, so a crash may loop until a
    RESET-hold. Sequence it as its own run, with the recovery door armed.
+
+
+---
+
+# PHASE 70 (2026-10-12): THE iATU REGION TABLE - AND A CONFESSION
+
+## FIRST, THE MISTAKE
+
+PHASE 69 announced HiSilicon's GPL Wi-Fi source as a new find. **It was not new.** `docs/phase38/web-sdk-research.md`
+is a 24-query web-research document that already found OpenHarmony's `device_soc_hisilicon`, fetched the SAME
+`hcc_comm.h` (9,621 B), listed `5-Super-Rookie-5/hongmengkernel`, quoted the SAME `hcc_header` bitfield and
+`HCC_HDR_TOTAL_LEN 64`, and classified 22 sources with verdicts. **I re-derived a week-old result instead of
+grepping the record** - the exact failure I wrote into memory at PHASE 62 and then repeated. Check
+`docs/phase38/web-sdk-research.md` BEFORE any further "let me search for the SDK" work.
+
+Also confirmed and worth keeping: the `hi3881v100` HCC is a **different API generation** - it exposes
+`hcc_send_control_msg` / `hcc_message_register` / `hcc_host_tx` / `hcc_task_*`, NOT the `hcc_msg_tx`,
+`hcc_msg_register_tab_chip`, `hcc_queue_register_customer_for_chip`, `hcc_timer_*` family our
+`hi5622v100_wifi.ko` imports. **So it does not supply our missing symbols** - useful to know before anyone
+tries to link against it.
+
+## THE GENUINELY NEW ARTIFACT: `pcie_iatu_mp13.c`
+
+`pcie_iatu` did NOT appear anywhere in our record. The file declares the **inbound iATU region table** with
+semantic names (HiSilicon (Shanghai) 2021-2023, same GPL tree):
+
+    REGION_WCPU_ITCM    pci 0x00000000 - 0x0008BFFF   ( 560 KB)   Wi-Fi CPU ITCM
+    REGION_WCPU_DTCM    pci 0x20000000 - 0x20067FFF   ( 416 KB)   Wi-Fi CPU DTCM
+    REGION_W_PKTRAM     pci 0x60000000 - 0x6008FFFF   ( 576 KB)   Wi-Fi packet RAM
+    REGION_W_PERP_AHB   pci 0x40000000 - 0x40102FFF   (1036 KB)   Wi-Fi CPU PERIPHERAL AHB
+    REGION_BCPU_ITCM    pci 0x80000000 - 0x800FFFFF   (1024 KB)   BT CPU ITCM
+    REGION_BCPU_DTCM    pci 0x80100000 - 0x801DFFFF   ( 896 KB)   BT CPU DTCM
+    REGION_AON_APB      pci 0x48000000 - 0x48122FFF   (1164 KB)   always-on APB
+    every region is IDENTITY MAPPED: pci_start == cpu_start
+
+**All seven NAMES were absent from our record, and `0x40102FFF` was absent as an extent.**
+
+## WHAT IT SETTLES, AND IT IS THREE REAL THINGS
+
+1. **Our forbidden register finally has a mechanism.** `0x400392f0`, the CA this project may NEVER write
+   because a write PANICKED the box, lies inside **`REGION_W_PERP_AHB` - the Wi-Fi CPU's own peripheral
+   AHB**. Writing into the Wi-Fi CPU's peripheral space from the host while that CPU is running wedges it.
+   Until now that was an empirical rule; it now has a name and an extent (`0x40000000..0x40102FFF`).
+   The same window holds our doorbell at `0x40039000`.
+2. **The interrupt block is RC-side, and the vendor says so.** `0x40160100`, `0x4016010c` (our host IAR) and
+   `0x10161000` (the RC misc window that must never be read) fall **outside every region the device
+   exposes**. So they belong to the HOST root complex, not the endpoint - which is exactly the boundary the
+   whole "the last hop is device-internal" wall sits against. The vendor's own table corroborates it.
+3. **Regions we never enumerated**, each now named and bounded: `AON_APB` (0x48000000, never explored),
+   `WCPU_ITCM`/`DTCM`, `W_PKTRAM`, `BCPU_ITCM`/`DTCM`. For a project that works with the firmware's memory
+   and the mailbox CAs, having the TCM and PKTRAM windows named is directly usable.
+
+## HOW IT WAS OBTAINED
+
+Zero device risk: two `curl`s and a file diff, all host-side. **No fire, no reset.**
+
+## STATE
+
+Board untouched and healthy. Sources under `build/tmp/hisi-src/{hcc,pcie}/`.
