@@ -16160,3 +16160,69 @@ The goal is "latest OpenWrt RUNNING on the device".  Two things are missing, and
 
 Both need the board, so both are queued behind the same power cycle.  The overlay is the cheaper of the
 two: one `ubimkvol` in a fire, against a driver-level fix for the NIC.
+
+
+---
+
+# PHASE 86 (2026-10-12): THE CRG NOW PROBES ("hsan,crg") - AND THE REMAINING GAP IS THE CLOCK MODEL
+
+## WHAT THE "hsan,crg" FIX BOUGHT (real progress, measured)
+
+    BEFORE:  C90 = 0x00000000          the CRG device never probed at all
+    AFTER:   C90 = 0xC0DE5002          CLOCK TREE REGISTERED
+
+The driver's match table lacked the alias the ACTIVE tree uses.  **The kernel does NOT run the DT we
+build and append**: the mach's own comment recorded it - vendor u-boot's bootfip hands the kernel ITS
+OWN tree - and the device confirms it:
+
+    /proc/device-tree/compatible          -> hsan-luofu
+    /proc/device-tree/crg@14880000/compat -> hsan,crg
+
+`luofu-gmac` and `luofu-mdio` already carried their vendor aliases ('hsan,mac', 'hsan,mdio'), which is
+why their probes always ran while the CRG's never did.  **Editing the DTS crg node could never have
+helped** - the kernel never reads it - and removing "syscon" from it changed nothing for the same reason.
+Lesson: before editing a DT, establish WHICH DT IS ACTIVE.
+
+## THE REMAINING GAP: THE VENDOR TREE'S CLOCK MODEL IS NOT OURS
+
+    mdio0/clocks   = 00 00 00 4c   -> a SINGLE cell, bare phandle 0x4c ('L')
+    gemac0/clocks  = 00 00 00 42   -> a SINGLE cell, bare phandle 0x42 ('B')
+
+Two different nodes live at 0x14880000 in the vendor tree:
+
+    crg@14880000   compatible = "hsan,crg"    the reset/gate block  (what we match - correctly)
+    clk@14880000   compatible = "hsan,clk"    the CLOCK node the peripherals reference
+
+and `clocks = <phandle>` with NO index cell means `#clock-cells = <0>`: one clock per node.
+
+**Our driver registers a ONE-CELL provider on the crg node** - `of_clk_add_hw_provider(crg_node,
+of_clk_hw_onecell_get, ...)` with `#clock-cells = <1>` - expecting consumers shaped
+`clocks = <&crg N>`.  The vendor tree's consumers are shaped `clocks = <&some_clk_node>` with
+`#clock-cells = <0>`.  **The two models cannot resolve each other**, which is precisely why
+`devm_clk_get` still fails after the provider registered:
+
+    gmac 0xC0DE6F03   FAILED at the clock step
+    mdio 0xC0DE7F03   FAILED at the clock step
+
+It also explains why the clock-table audit came back clean: the table was never the problem.  The
+BINDING MODEL is.
+
+## THE WORK THIS NAMES
+
+The clocks the peripherals reference are the CHILDREN of the clock node (the pinned tree's
+`clk@14880000` children - `clk-pll@0198`, `cpu_mux@01388`, ...), each an individual clock.  What is
+needed is a provider for THOSE nodes: each clock registered as its own provider with
+`#clock-cells = <0>` (e.g. `of_clk_add_provider(node, of_clk_src_simple_get, clk)`), matched on the
+vendor's clock-child compatibles, rather than one onecell provider on the crg.
+
+Bound the work first by listing the vendor tree's clock nodes and which phandle each NIC uses:
+
+    for n in /proc/device-tree/clk@14880000/*; do echo "$n $(cat $n/compatible | tr '\0' ' ')"; done
+    hexdump -C /proc/device-tree/mdio0/clocks      # the phandle to resolve
+
+## STATE
+
+Board healthy on the vendor slot (2.4.15, 6 interfaces, 0 leftovers, selector 0x10).  Committed: the
+hsan,crg match (submodule) and this note.  Kernel still boots OpenWrt to procd; the NIC is the last
+blocker, and it is now narrowed to "register a #clock-cells = <0> provider on the clock node the
+peripherals reference".
