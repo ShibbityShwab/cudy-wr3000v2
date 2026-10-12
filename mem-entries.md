@@ -16112,3 +16112,51 @@ Assignment: 0xC8C mach triage, 0xC90 CRG, 0xC94 gmac, 0xC98 mdio.  0xC80/0xC84/0
     compression               must be XZ; gzip produced an image that never executed
     mdio failure              measured: devm_clk_get (0xC0DE7F03)
     clock table               audited and CORRECT (struct field order, id mapping, onecell slot)
+
+
+---
+
+# OPEN TASK (device-free): THE OVERLAY - "running on the device" NEEDS ONE
+
+## THE SYMPTOM, FROM EVERY BOOT
+
+    mount_root: no usable overlay filesystem found, using tmpfs overlay
+    mount_root: BUG: no suitable fs found
+
+OpenWrt boots, `procd` starts - and every write the system makes lands in tmpfs and is lost at reboot.
+That is a booted OpenWrt, not a *running* one: no config, no packages, no persistent state.
+
+## WHY - FROM THE PARTITION LAYOUT (already recorded, no device needed)
+
+    mtd16 "upgrade"  = a UBI device holding exactly ONE volume: id 0 "owrt" (the squashfs rootfs)
+    mtd15 "rootfs_data" = RAW, not a UBI volume, and NOT attached by anything
+
+OpenWrt's `mount_root` looks for a writable overlay volume inside the SAME UBI device as the rootfs
+(normally a `rootfs_data` volume on `ubi0`).  Here `ubi0` has only `owrt`, so there is nothing to mount
+and it falls back to tmpfs.  mtd15 being raw does not help: it is not a UBI volume and nothing formats
+or mounts it.
+
+## THE FIX, IN ORDER OF PREFERENCE
+
+  1. CREATE AN OVERLAY VOLUME on the same UBI device as the rootfs:
+
+         ubimkvol /dev/ubi0 -N rootfs_data -m      # -m = all remaining space
+
+     This is the standard OpenWrt shape and needs no kernel change.  It is a device-mutating step, so it
+     belongs in a fire (and behind the watchdog backstop now committed), not done blind.
+
+  2. IF space on ubi0 is insufficient (it reported 79 available PEBs), attach mtd15 as a SECOND UBI
+     device and point the overlay at it - but that needs both the mtd layout and OpenWrt's mount_root
+     to agree, so (1) is the smaller change.
+
+  3. Do NOT format mtd15 and hope: `mount_root` does not look at raw mtd for the overlay on this layout.
+
+## WHY THIS IS NOT A DISTRACTION FROM THE NETWORK
+
+The goal is "latest OpenWrt RUNNING on the device".  Two things are missing, and they are independent:
+  - the NIC (measured: mdio dies at devm_clk_get, so no PHY bus, so no eth0)
+  - the overlay (this note) - without it nothing survives a reboot, so even a working network would not
+    leave a system behind
+
+Both need the board, so both are queued behind the same power cycle.  The overlay is the cheaper of the
+two: one `ubimkvol` in a fire, against a driver-level fix for the NIC.
