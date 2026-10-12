@@ -13067,3 +13067,43 @@ Between them they rule out the two most plausible remaining explanations for a f
 
 **What is left for the next fire to test is therefore the kernel's own execution past `stext`, which is
 exactly what the crumb `C18` reports.**
+
+
+## PHASE 134 (2026-10-12): THE INITCALL ORDERING VERIFIED IN THE BINARY - AND A TREE-CONFUSION ERROR CAUGHT
+
+## ★ THE BINARY PROOF
+
+The symbol names encode the initcall level, and the correct build tree
+(`/opt/kbuild/clean/linux-5.10.201` - the one `build-r4fix.sh` names as `SRC`) shows:
+
+    __initcall_luofu_early_crumb early   <- early_initcall
+    __initcall_luofu_late_crumb  7       <- late_initcall
+    __initcall_luofu_fmc_init    7s      <- **late_initcall_sync**  <- THE REQUIREMENT
+    luofu_fmc_init                        <- the function itself
+
+**`7s` IS `late_initcall_sync`.** So `luofu_fmc_init` -> `platform_driver_register` ->
+`luofu_fmc_ubi_probe()` runs AFTER UBI's own initcall has attached mtd16. The ordering defect recorded
+at `mem-entries.md` 8806-8821 is **absent from the kernel we intend to fire**, verified at the symbol
+level rather than by reading the source.
+
+## THE SEARCH ERROR, CAUGHT BEFORE IT BECAME A CLAIM
+
+My first check ran `nm vmlinux | grep -i luofu` against **`/opt/kbuild/linux-5.10.201`** and found
+NOTHING - which, combined with `CONFIG_MTD_NAND_LUOFU=y`, looked like a real contradiction (config says
+yes, binary says no).
+
+**It was my tree choice, not the artifact.** There are TWO build trees:
+
+    /opt/kbuild/linux-5.10.201        zImage 9,875,968 B   Image 26,377,760 B   <- an EARLIER tree
+    /opt/kbuild/clean/linux-5.10.201  zImage 2,643,024 B   Image  9,780,192 B   <- THE ONE WE FIRED
+
+and the fired image's uImage declares payload **2,643,024** - an exact match for the clean tree's zImage.
+`build/tmp/build-r4fix.sh` line 3 says `SRC=/opt/kbuild/clean/linux-5.10.201`, so the script was right
+and my check was pointed at the wrong directory.
+
+Against the correct tree: **55 luofu symbols**, including the driver's initcall. No contradiction.
+
+**Recorded because the failure mode was a confident-looking negative from a plausible command** - the
+same class as the `pgrep -c make` false positive and the narrow-directory tool search of PHASE 130.
+**A negative from a probe is a hypothesis about the probe first** - and the cheap second check (compare
+the fired payload size against each tree's zImage) is what settled it in one command.
