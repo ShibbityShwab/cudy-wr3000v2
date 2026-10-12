@@ -14542,3 +14542,55 @@ the box has ssh from boot and no web login is needed at all.
 
 Board: stock 2.4.15 (verified `FW: 2.4.15-20251030-114751`), 6 ifaces / 2 wiphys, web UI reachable,
 no ssh, no session. TFTP door killed, UDP 69 free, scratch files removed.
+
+
+---
+
+# PHASE 62 (2026-10-12): THE LOGIN WAS ALREADY SOLVED - I WAS GUESSING PASSWORDS INSTEAD OF READING THEM
+
+## THE OUTCOME
+
+ssh is re-laid and working. No browser, no operator input. The full loop, in order:
+
+    bash build/tmp/custombin/ui.sh login      -> LOGIN-OK   (sysauth in the jar)
+    systime RCE (token scraped from the authenticated page) -> proof file written, HTTP 200
+    the ssh re-lay script over that RCE       -> dropbear=1 listen=2
+    ssh root@192.168.10.1                     -> SSH_OK, rev 2.4.15, 6 ifaces / 2 wiphys / 0 leftovers
+
+`/etc/rc.local` carries the dropbear line, so it survives a reboot.
+
+## WHY I FAILED FOR NINE ATTEMPTS - AND IT WAS EMBARRASSINGLY SIMPLE
+
+I was **inventing passwords** (`test12345`, `test123`, `admin`, `cudy`) and varying the HASH SCHEME,
+when the real credential had been on disk the whole time:
+
+    .omo-secrets/CREDENTIALS.txt
+      Web admin user: <5 chars>
+      password:       <13 chars, begins "Wr">
+
+Two facts about that, and both matter:
+- **13 characters.** The page's own JS enforces 8..64, so several of my guesses could never have
+  submitted even with a perfect hash - I was debugging the wrong layer.
+- **A WORKING LOGIN SCRIPT ALREADY EXISTED**: `build/tmp/custombin/ui.sh login`, which reads the
+  credentials in-process from that file (`cred()` -> `sed -n 's/^password:[[:space:]]*//p'`) and
+  performs the exact double-sha256 the vendor expects. It printed `LOGIN-OK` on the FIRST run.
+
+**And the tool I had already read told me.** `tools/rce_probe.sh` does no login - it assumes a
+`sysauth` jar. That was the clue that a session-establishing step existed somewhere, and instead of
+searching for it I re-derived the hash from `sysauth.js` and guessed credentials. The answer was one
+`grep` away in `.omo-secrets/`.
+
+## THE LESSON, AND IT IS THE THIRD TIME IN THIS PROJECT THAT IT IS THE SAME LESSON
+
+**Consult the record and the secrets before re-deriving anything.** The previous instances were the
+artifact diff that named the ramoops cause, and the note that said "a cell must live BELOW 0x80608000"
+which I applied half of. Here it is again: the credential, the working script, and the shape of the
+problem were all written down, and I iterated on the hypothesis instead.
+
+Concretely, the rule to carry: before the FIRST attempt at anything involving a credential, a session,
+or a device door - **grep the repo and `.omo-secrets/` for an existing implementation of that exact
+step.** Nine guesses cost more than one search would have.
+
+## STATE
+
+Board: stock 2.4.15, ssh OK, 6 ifaces / 2 wiphys, 0 leftovers, dropbear durable, web session live.
