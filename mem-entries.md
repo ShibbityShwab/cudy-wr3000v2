@@ -13260,3 +13260,50 @@ initcall ordering are all still verified. What it changes is the ACCESS SITUATIO
 made this fire possible also removed the credential the shell-restore depends on, so the next step is
 to find a way back in **without the password** - and the reachable surface is the SETUP WIZARD, which
 by design runs before authentication.
+
+
+## PHASE 138 (2026-10-12): THE ACCESS SITUATION AFTER FIRE 23 - EVERY DOOR RE-PROBED
+
+    port surface on 192.168.10.1 : 21 -  22 -  23 -  80 UP  443 UP  8080 -
+    on 192.168.1.1               : all down
+
+    /cgi-bin/luci                -> 403
+    /cgi-bin/luci/admin          -> 403
+    /rpc                         -> 302
+    /cgi-bin/cstecgi.cgi         -> 302
+    a bare POST to the wizard
+      with no credentials        -> 403
+
+    the page identity is the VENDOR build: `git-25.272.36397-e3aa262`, title "WR3000", "V2.0"
+    (our OpenWrt 25.12.5 kirkwood rootfs would present a different build string)
+
+**Every credential in `.omo-secrets` fails**: the web admin password and the ssh password, tried with
+the two-round hash, the one-round hash, and a single round - all 403.
+
+## THE HONEST READING
+
+The recovery that made FIRE 23 possible also **reset the web credential**, which is the key the
+shell-restore route depends on. So:
+
+    - the board is HEALTHY on the vendor stack and reachable on the web UI
+    - the shell is CLOSED, and I have no credential that opens it
+    - C18 is therefore UNREADABLE, and **how far our kernel got on this fire is NOT KNOWN**
+
+**What the fire did establish**: the kernel+rootfs stack was deployed with every precondition verified
+(byte-exact kernel in `kernela`; the `owrt` volume confirmed present and MOUNT-OK; the poison written
+and re-read), and the platform still came back on the vendor stack. That is a real, recorded result -
+it just does not tell us whether our kernel ran, which is the one thing the crumb would have answered.
+
+## WHAT IS NEEDED NOW, AND WHY IT IS THE USER'S
+
+The obvious ways back in all require something only the user can supply:
+
+    1. the CURRENT web password (the recovery reset it; `.omo-secrets` holds the previous one), OR
+    2. a factory reset by the user (which restores a DEFAULT credential), OR
+    3. the setup wizard completed once through a real browser (the user sets a new password), OR
+    4. the RESET-hold dance again, which re-flashes and yields the same credential problem.
+
+**I will not guess or brute-force a credential** - that is both wrong and unlikely to work.
+
+**The board is left HEALTHY**: vendor stack up, web UI reachable, both slaves stock, the `owrt` volume
+untouched in mtd16. Nothing is stranded.
