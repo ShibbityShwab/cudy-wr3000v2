@@ -16456,3 +16456,60 @@ silence as data for two phases.
   3. The device-side read already gives a stronger lead and needs no cell at all: clk@14880000 is
      "hsan,clk syscon simple-mfd" with 16 clk_gate children, so the PLATFORM-DRIVER route is likely
      viable after all - the vgate crumb's silence at 0xC9C is no longer evidence against it.
+
+
+---
+
+# PHASE 91 (2026-10-12): THE ORDER BUG WAS MINE, THE LOOKUP IS REAL
+
+## THE ROOT CAUSE OF THREE IDENTICAL READINGS: MY OWN WRITE ORDER
+
+Reading the source instead of theorising about the hardware:
+
+    986   name stamp      writel(tag, sc + 0xc9c)
+    1007  pointer stamp   writel((u32)clk_np, sc + 0xc9c)
+    1013  of_node_put
+    1025  COUNTERS        writel(0xdec00000 | ...)      <-- LAST: overwrote both, every single fire
+
+Three builds, three different payloads, one identical read back (0xDED40000) because the counter block
+sat last and clobbered the others.  **The cell was never unsound.  My ordering was.**  In PHASE 90 I
+declared the instrument void and withdrew a conclusion on that basis; the correct read of the same
+evidence was "my instrument's writes disagree", and the correct next move was to read the source, not to
+re-plan around the hardware.
+
+Also fixed in the same edit: clk_np->full_name was dereferenced AFTER of_node_put(clk_np).
+
+## THE POSITIVE RESULT (new, and it is real)
+
+After removing the counter block the pointer is the last write and survives:
+
+    C9C = 0xC7EE77E0
+
+ARM32 kernel lowmem is 0xC0000000-0xEFFFFFFF, so **0xC7EE77E0 is a VALID struct device_node *** (my
+earlier validity test wrongly accepted only 0xC0/0x80 top bytes and called this "not a kernel pointer").
+It also CHANGED from 0xDED40000, which proves the ordered write lands.
+
+**Therefore: the path/compatible lookup returns a REAL node, and seen = 0xD4 = 212 is a real child count.**
+
+## THE OPEN QUESTION, SHARPLY POSED
+
+A real node with **212 children**.  The device's own /proc/device-tree/clk@14880000 has **24** and the root
+has **73**.  Neither is 212.  Since the pointer is valid, this is a question about WHICH node it is, not
+about whether the lookup worked.  Two explanations, distinguishable in one fire:
+
+  (a) the kernel's active tree differs from the vendor /proc/device-tree view, and some node really has
+      212 children;
+  (b) the walk iterates something other than direct children.
+
+## NEXT (one fire; the instrument is now trustworthy)
+
+Stamp, with the counter block deleted:
+  1. of_get_child_count(clk_np)                  - independent of the for_each loop
+  2. first four bytes of clk_np->full_name       - ASCII: "clk@" means the right node
+  3. clk_np itself                               - LAST, so it survives
+Comparing (1) against the loop's `seen` separates (a) from (b) in a single read.
+
+## STATE
+
+Board healthy on the vendor slot every fire (2.4.15, 6 interfaces, 0 leftovers, selector 0x10).  The CRG
+binds and registers its clock tree (0xC90 = 0xC0DE5002) - untouched by any of this.
