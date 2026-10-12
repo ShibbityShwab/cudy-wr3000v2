@@ -15520,3 +15520,77 @@ difference is elsewhere in the uImage/DTB pair and the next step is a byte-level
   the obvious candidate to build the slot's DTB from while our own tree is brought back into line.
 - The `f28dtb` fire was launched twice and the **lock refused the duplicate**, aborting with the reason
   spelled out. That hardening has now paid off twice.
+
+
+---
+
+# ★★★★★ PHASE 77 (2026-10-12): OUR OWN KERNEL BOOTED OPENWRT - THE ROOTFS MOUNTED AND INIT RAN ★★★★★
+
+## THE RESULT
+
+The `vendortail` fire - our kernel in a correctly-containerised slot - produced this ring:
+
+    [3.604376] ubi0: VID header offset: 2048 (aligned 2048), data offset: 4096
+    [3.611307] ubi0: good PEBs: 236, bad PEBs: 0, corrupted PEBs: 0
+    [3.617304] ubi0: user volume: 1, internal volumes: 1, max. volumes count: 128
+    [3.633600] ubi0: available PEBs: 79, total reserved PEBs: 157, ...
+    [3.643013] ubi0: background thread "ubi_bgt0d" started, PID 52
+    [3.649621] block ubiblock0_0: created from ubi0:0(owrt)          <-- THE PREDICTION
+    [3.655226] cfg80211: Loading compiled-in X.509 certificates
+    [4.029370] luofu-fmc 10a20000.fmc: FMC: ubi0 volume 0 begins 68 73 71 73, ubiblock0_0 resolves
+    [4.060673] VFS: Mounted root (squashfs filesystem) readonly on device 254:0.
+    [4.075955] Freeing unused kernel memory: 1024K
+    [4.093292] Run /sbin/init as init process                       <-- USERSPACE
+
+and `C18 = 0xC0DE502D` read back afterwards (the 5-second tick, i.e. the kernel lived with a running
+userspace). **The PHASE 63 prediction is confirmed end to end**, and the whole chain is ours: the
+fallback arm, the crumb-first ordering, and the initcall fix all ran in this image.
+
+## WHY IT TOOK THIS LONG: THREE INDEPENDENT FAULTS, EACH FIXED
+
+**1. THE SLOT IS A CONTAINER, NOT A uImage (+DTB).** `build-r4fix.sh` - the script that built the
+artifact everyone knew booted - does `slot = uImage + vendor-tail.bin`, and the tail is
+`FDT(31,220) + container` whose magic `0xd7b7ab1e` sits at tail+31,220. **Every fire before this one
+wrote a bare uImage, or a uImage+DTB; neither has the container**, so `bootfip` refused and u-boot fell
+over to the other slot. That is why there was never a crumb, why the board always "recovered", and why
+five fires in a row were silent no-ops.
+
+    my slot now:  uImage ends 0x2850a0, dtb 31220, container magic at 0x28ca94 = d7b7ab1e
+    fire28 slot:  uImage ends 0x285490, dtb 31300, container magic at 0x28ced4 = d7b7ab1e
+
+**2. THE COMPRESSOR.** The build produced `CONFIG_KERNEL_GZIP=y` while every image that has ever booted
+here carries **XZ**. Forcing `-e KERNEL_XZ -d KERNEL_GZIP` took the image from 3,657,968 to **2,642,016
+B** - within 1 KB of FIRE 28's 2,643,024 - and put the xz payload at the same offset (0x5fbf).
+
+**3. THE BUILD HARNESS DROPPED EDITS.** `cp -r ... mach-luofu arch/arm/mach-luofu` MERGES into an
+existing directory, so from the second build onward the source nested at `arch/arm/mach-luofu/mach-luofu/`
+and the STALE top-level file kept being compiled. **Every mach-luofu edit since the tree was first
+created was silently discarded.** A prior session fixed this identical bug for the NAND driver and did
+not notice line 40 had it too. Now `rm -rf` first, and the rule is recorded: **verify in the artifact
+(objdump), never by the build succeeding or the size moving.**
+
+## METHOD NOTES WORTH KEEPING
+
+- **A control must be a real control.** My first one used `d[64:]` of the known-good slot - the payload
+  WITHOUT its 64-byte uImage header - so it failed and sent me down a false DTB trail for many fires.
+  When a control fails, suspect the control before the hypothesis.
+- **The lock paid off twice**, refusing duplicate launches with the reason spelled out, after two
+  concurrent fires once erased and wrote the same mtd12 and hung both.
+- **`C18` was the discriminator throughout**: poison = nothing of ours executed; `0xC0DE502D` = ours ran.
+
+## WHERE THE GOAL STANDS
+
+**The kernel half is DONE: our kernel mounts our rootfs and starts init on the device.** What remains
+for "a latest OpenWrt running on the device" is the deployment half - it currently reaches userspace
+with no network driver bound, so it is unreachable and the safety timer returns the vendor slot.
+
+    1. confirm the userspace survives (the safety timer vs. a real init)   <- next
+    2. bring up networking on our kernel (luofu-gmac / mdio, or the vendor's)
+    3. make the boot persistent: the selector, the safety timer, ssh or console access
+    4. deployment: latest OpenWrt userland + our drivers, on OUR kernel
+
+## STATE
+
+Board healthy on the vendor slot (cell 0x10, A pair, 2.4.15). Kernel artifacts:
+`build/luofu-kernel-image/{zImage,luofu-uImage,luofu-r116.dtb,luofu-slot-vt.bin}`,
+slot md5 `038a87bdd94392147f7035b60ba5df2a`.
