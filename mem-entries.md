@@ -14134,3 +14134,50 @@ repeatedly in this session. **So whatever our kernel wrote there during FIRE 27 
 **Nothing else should be done before step 3.** The board is dark, both slots hold a kernel of known
 provenance (`kernelb` = our FIRE 27 image, `kernela` = our FIRE 23 image), and the host-side rollbacks
 are verified, so every option is still open.
+
+
+## PHASE 151 (2026-10-12): THE COMPLETE CRUMB LADDER, WITH SOURCE ATTRIBUTION
+
+Read from the kernel sources (`mach-luofu/luofu.c` and `nand/luofu/luofu-fmc.c`). This is the table the
+post-recovery `devmem 0x10100C18` will be interpreted against - **the instrument and its legend, both
+read from the artifacts rather than from memory.**
+
+### The boot ladder (`mach-luofu/luofu.c`) - how far the kernel got
+
+    C0DE0001   reach setup_arch / init_early
+    C0DE0002   reach machine init (init_machine)
+    C0DE0003   machine init RETURNED (the watchdog disarm ran)
+    C0DE0010   early_initcall ran (core init done)
+    C0DE0020   late_initcall ran (all initcalls done, rootfs mount next)
+               ** and 0xC0DE0020 doubles as the HANG signature **
+    C0DE502D   the timer ran (userspace) - established separately
+
+### The driver ladder (`nand/luofu/luofu-fmc.c`) - how far the NAND/FMC bring-up got
+
+    C0DE5001   probe entered, the report cell mapped
+    C0DE5002   controller + window mapped
+    C0DE5003   FMC_CFG read
+    C0DE5004   die reset completed and ready
+    C0DE5005   READ ID completed
+    C0DE5006   all stage-A steps completed
+    C0DE5007   the flash-spec operands were resolved
+    C0DE5008   a page was read through the DMA engine
+    C0DE5009   the mtd device registered and the partition table parsed
+    C0DE500A   rootfsb was read back through the mtd layer
+    C0DE500B   (stage-D hook)
+    C0DE502F   (a later step)
+
+### Why the two ladders overlap in one cell
+
+The driver writes `C0DE50xx` values as it progresses, and the mach code writes the `C0DE000x` values.
+**Whichever ran LAST is what `C18` holds** - so a single read distinguishes "died in early arch setup"
+(`C0DE0001`) from "died in the NAND driver" (`C0DE5001..500A`) from "reached userspace"
+(`C0DE502D`). The driver's own comments even record a previous run where `C18` "stayed at 0xC0DE5009
+with no step-10 value" - i.e. the driver got through partition parsing and the kernel died before the
+early_initcall crumb. **That is exactly the kind of discrimination FIRE 27 needs.**
+
+## SO THE RECOVERY READ IS NOT A FORMALITY - IT IS THE EXPERIMENT
+
+`devmem 0x10100C18` after the board comes back tells us, unambiguously, which stage FIRE 27 died in.
+Everything else about the dark state (why no panic, why no failover) becomes answerable from that one
+number, and the next kernel change can be aimed at the named stage instead of guessed at.
