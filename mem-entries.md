@@ -12751,3 +12751,51 @@ cross-checked:
     rollback       : kernela-backup.bin md5-verified                          VERIFIED
 
 **What remains cannot be advanced without the device**: the read of mtd16, and then the fire.
+
+
+## PHASE 127 (2026-10-12): ★ A THIRD SELF-CORRECTION - ubiblock DOES NOT REQUIRE A STATIC VOLUME ★
+
+## WHAT I HAD CLAIMED, AND WHY IT WAS WRONG
+
+In PHASE 124/126 I asserted: *"`ubi.block=0,0` / `ubiblock` requires a STATIC volume (a dynamic volume
+cannot be ubiblocked)"* - and used it to justify preferring my `ubinize`-built image over the recorded
+`ubimkvol` recipe. **I derived that from reasoning about the two volume types, not from the source.**
+
+**THE RECORD REFUTES IT DIRECTLY** (`mem-entries.md` lines 5631-5655, the recorded volume creation):
+
+    ubimkvol /dev/ubi1 -N owrt -s 16MiB
+        -> Volume ID 0, size 133 LEBs, **dynamic**, name "owrt"
+    ubiupdatevol /dev/ubi1_0 /tmp/owrt.sqfs
+    ubiblock --create /dev/ubi1_0   ->  /dev/ubiblock1_0
+    mount -t squashfs -o ro /dev/ubiblock1_0 /mnt/u     -> READ OpenWrt 25.12.5, busybox, sbin/init
+
+**A dynamic volume WAS ubiblocked and mounted, successfully, on this exact hardware.**
+
+## AND THE SOURCE AGREES
+
+`drivers/mtd/ubi/block.c` has exactly ONE volume-type reference in the whole file:
+
+    line 592:   if (nt->vi.vol_type == UBI_STATIC_VOLUME)
+                    ubiblock_resize(&nt->vi);
+
+and it sits inside `ubiblock_notify()`'s `UBI_VOLUME_UPDATED` case - i.e. it only decides whether to
+RESIZE an existing block device when a static volume's content changes. **It does not gate block-device
+creation**, and no probe path checks `vol_type`.
+
+## WHAT THIS CHANGES - AND WHAT IT DOES NOT
+
+**Does not change the artifact.** My `owrt.ubi` (volume 0 STATIC) is still valid - a static volume is
+perfectly ubiblock-able, and the kernel's `ubi.block=0,0` will build `ubiblock0_0` from it. Nothing needs
+rebuilding.
+
+**Does change the record.** The ledger now carries a claim ("ubiblock needs static") that is false, and
+the reason I caught it is the same one that caught the other two tonight: **reading the artifact
+(the recorded run's own log, and the driver source) instead of trusting a plausible inference.**
+
+**A NOTE ON THE PATTERN.** Three corrections in one session, all from the same class:
+    PHASE 114 - "the watchdog kills our kernel"      -> refuted by the mach source + the built Image
+    PHASE 124 - "the UBI patch is exonerated"        -> refuted by the patch being load-bearing
+    PHASE 127 - "ubiblock needs a static volume"     -> refuted by the recorded run + block.c
+Each was a confident, mechanism-shaped claim that would have shaped a fire. Each was wrong. The check
+that killed each one was cheap (one grep, one source read) - and none of them was ever validated by
+running the experiment, which is precisely why they survived as long as they did.
