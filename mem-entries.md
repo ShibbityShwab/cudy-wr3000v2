@@ -12928,3 +12928,34 @@ for each. Widening to a recursive search found all five immediately. **The empty
 fault, not the artifact's** - the same class as the earlier `pgrep -c make` matching its own command
 line, and the `grep | head -1` printing a comment back. A negative from a narrow probe is a hypothesis
 about the probe first.
+
+
+## PHASE 131 (2026-10-12): THE POST-RESET SEQUENCE IS NOW SCRIPTED - NOT IMPROVISED
+
+Built `build/tmp/step3-read.sh` (1872 B, md5 d64f235136bd11b731e43086ae7f6210) - the read-only step that
+runs on the device immediately after the shell is restored and decides whether any rootfs work is needed
+at all.
+
+**VERIFIED BEFORE USE:**
+    bash -n step3-read.sh                      -> SYNTAX OK
+    grep for mtd write/erase, ubiformat,
+        ubimkvol, ubiupdatevol, devmem <val>   -> NO WRITE COMMANDS - confirmed read-only
+    the commands it actually runs:
+        cat echo grep if ls mkdir readelf set ubiblock ubinfo umount
+
+**WHAT IT REPORTS** (the four facts the next decision needs):
+    1. C18 / C1C           - the crumb cells as the recovered box left them
+    2. /proc/mtd           - the upgrade partition is present
+    3. ubinfo -a / -d 1    - IS THERE AN `owrt` VOLUME, and in what state
+    4. ubiblock --create + mount + `cat /etc/openwrt_release` + `readelf -h bin/busybox | grep Flags`
+                           - whether it MOUNTS, and whether the userspace is SOFT-FLOAT
+                             (the ABI that decides SIGILL vs a running system)
+
+**WHY SCRIPTED RATHER THAN AD-HOC:** every command in it was named in advance and its availability
+verified against the stock rootfs (PHASE 130 - all fifteen tools present). Running it as one unit means
+the post-reset window is spent reading results rather than deciding what to type, and the READ-ONLY
+contract is checkable by grep instead of by hope.
+
+**DECISION RULE IT FEEDS:**
+    owrt volume present AND mounts AND soft-float  -> skip step 4 entirely; go to the kernel write
+    absent / will not mount / wrong ABI            -> route A (recorded, proven) then re-check
