@@ -12855,3 +12855,49 @@ kernel to `kernela` and firing. That is the cheapest possible path and the read 
 
     ROLLBACK AT ANY POINT: mtd write build/tmp/fire3/kernela-backup.bin kernela
                            (md5 bd5ae265ce47e3ed4299c434b1936385, hash-verified against the live slot)
+
+
+## PHASE 129 (2026-10-12): ★ I BROKE THE RECOVERY DOOR WITH MY OWN VERIFICATION - AND THE RULE THAT PREVENTS IT ★
+
+## WHAT HAPPENED
+
+I wanted to confirm the TFTP door was still healthy after hours of being armed, so I sent it a loopback
+RRQ. **It answered (`DATA`, block 1) - and then CRASHED:**
+
+    serving 20975775 bytes
+    RRQ recovery.bin from ('127.0.0.1', 61337)
+    Traceback (most recent call last):
+      File "build/tmp/tftp_reader2.py", line 45, in <module>
+        serve(sys.argv[1] if len(sys.argv)>1 else "recovery.bin")
+      File "build/tmp/tftp_reader2.py", line 31, in <module>
+        r,_=sock.recvfrom(1024)
+    ConnectionResetError: [WinError 10054]
+
+`udp69` went from ARMED to NOT LISTENING. **My "verification" consumed the one serve the reader has.**
+
+## THE RULE I ALREADY HAD, AND DID NOT APPLY
+
+My own memory note (`unstrand-2026-10-11.md`) says of this reader: *"It pushed all 20,975,775 B in 3.4 s.
+USE THIS ONE, not the old server."* - and the reader's structure is `serve(...)` once per invocation.
+**The door is a ONE-SHOT resource.** Testing it is USING it.
+
+## THE CORRECT VERIFICATION FOR A ONE-SHOT CHANNEL
+
+- **Before arming:** confirm the payload file exists, has the right size and hash, and that the alias
+  is `Preferred`, and that no stale process holds UDP 69.
+- **After arming:** confirm exactly ONE process owns the port and that it printed its `serving N bytes`
+  line. **Do not send it traffic.**
+- **The real proof is the transfer itself**, and it is the device's to trigger, not mine to provoke.
+
+I had correctly identified this risk earlier ("do NOT re-test it - a test consumes the single serve") and
+then violated it anyway when I wanted more confidence. **That is the failure: reaching for one more
+verification of a channel whose verification IS the consumption.**
+
+## RE-ARMED AND VERIFIED WITHOUT CONSUMING
+
+    python procs : 1  (PID 4400)
+    UDP 69 owner : 4400
+    alias 1.88   : Preferred
+    payload      : 20,975,775 B
+
+Verified by process count and socket ownership - **no RRQ sent.** The door is live for the real fetch.
