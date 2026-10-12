@@ -15986,3 +15986,80 @@ in a NUMBER naming the driver and the exact call.  Two things bought that: (a) a
 nothing else writes, established by a controlled stickiness test rather than assumed, and (b) putting
 the crumb at each STEP rather than at entry and exit.  A single entry/exit crumb would have said
 "mdio probed and failed" - true, but not where, and where is the whole answer here.
+
+
+---
+
+# PHASE 85 (2026-10-12): TWO BUGS, ONE OF THEM MINE - AND A RESTART PATH THAT STRANDED THE BOARD
+
+## WHAT HAPPENED
+
+The `cells` fire ran with per-driver diagnostic cells, and the board did not come back.
+
+## BUG 1 (MINE): THE CELL SCAN WROTE INTO THE SLOT SELECTOR
+
+To find a second free diagnostic cell I scanned `seq 2816 4 3324` = offsets 0xB00..0xCFC.  **0xC08 is in
+that range and 0xC08 is the slot selector.**  The fire's own pre-state read it back:
+
+    === [cells] pre-state ===
+      cell=0xCAFE0C08        <- the scan's marker, written over the selector
+
+Two process failures, not one: I chose a range without checking it against the register I knew was
+special, and I sprayed a marker across a window of SoC control registers instead of testing candidates
+against a known-safe list.  The correct scan is table-driven and excludes 0xC08 (selector), 0xC18/0xC1C
+(the FMC's crumb/payload pair), and anything whose function is unknown.
+
+## BUG 2 (THE REAL ONE, AND IT PREDATES MY MISTAKE): restart() CAN STRAND THE BOARD
+
+    static void luofu_restart(enum reboot_mode mode, const char *cmd)
+    {
+            ... write the vendor's reset-val0/1 to clr-offset (0x70) ...
+            /* if the reset magic did not take, park until the watchdog or a power cycle */
+            for (;;)
+                    ;
+    }
+
+**It can never return**, and `luofu_init_machine()` has already DISARMED the SoC watchdog:
+
+    writel(HSAN_WDT_STOP0, crg + HSAN_WDT_EN_OFFSET);
+    writel(HSAN_WDT_STOP1, crg + HSAN_WDT_EN_OFFSET);
+
+So if the reset magic does not take, there is no watchdog, no timer, and no reset: the box hangs and only
+a hand on the power returns it.  The 180-second safety timer in the FMC driver DID fire and DID call
+`emergency_restart()` - which routes straight into this function.
+
+**That is the mechanism behind the current state**, and it is independent of my selector write: any boot
+whose reset magic fails strands the board permanently.
+
+## THE FIX
+
+The vendor DT supplies everything needed (`opensource/docs/soc/luofu-r116-pinned.dts`):
+
+    watchdog { clr-offset = "p" -> 0x70   reset-val0 = 0x55aa5a5a   reset-val1 = 0xaa55a5a5
+               en-offset  = "d" -> 0x64   enable-val0 = "ONTR" = 0x4f4e5452, enable-val1 = 0x12345116
+               set-offset = "P" -> 0x50   stop-val0  = 0xabcd5116   stop-val1  = 0xed574447
+               timeout-sec = 0x1e = 30 }
+
+`luofu_restart()` now tries the reset pair AND THEN ARMS THE WATCHDOG before parking.  The watchdog's
+reset is a hardware event, independent of anything the kernel does afterwards, and the boot it triggers
+runs u-boot again - which reads the slot selector the fallback arm has already flipped, landing on the
+other pair.
+
+**So a failed reset can no longer strand the box.**  That is the difference between "a bad fire costs a
+power cycle" and "a bad fire comes back by itself", and it is the fix that matters most here.
+
+## STATE
+
+Board is up on our kernel, unreachable (no network driver), watchdog disarmed - i.e. exactly what a
+SUCCESSFUL boot with no NIC looks like now that the scheduler crash is gone.  It needs a plain power
+cycle; the selector is expected to read 0x10 (the fallback flipped it), so the A pair - vendor 2.4.15 -
+should boot.
+
+## NEXT, IN ORDER
+
+  1. power cycle; read 0x10100C08 and confirm 0x10
+  2. read the four cells: 0xC8C (mach) 0xC90 (CRG) 0xC94 (gmac) 0xC98 (mdio)
+  3. if 0xC90 shows the CRG device never completing its probe, that is the NIC root cause and the fix is
+     in that probe's early path; the clock table itself was audited and is CORRECT (struct field order,
+     id, and onecell slot all verified)
+  4. ship the watchdog-backstop restart before the next fire at minimum, since it is now known-good work
