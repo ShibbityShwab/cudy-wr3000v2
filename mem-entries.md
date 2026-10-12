@@ -14825,3 +14825,60 @@ and the env dumps remain in `build/tmp/fire-p04/`.
 2. Why our current image dies before its first crumb, when FIRE 28's artifact reached the tick.
    Host-side (head/decompressor), not another fire.
 3. The pre-write gate that fire 5 skipped: assert the OTHER slot still matches a known-good md5.
+
+
+---
+
+# PHASE 66 (2026-10-12): HOST-SIDE COMPARISON - THE +1 MB WAS ONLY THE COMPRESSOR, AND THE FIRES NOW HAVE A COHERENT MODEL
+
+## THE +1 MB DELTA IS EXPLAINED AND IS NOT A CONFIG DIFFERENCE
+
+    my image   uImage 3,657,952 B   -> decompresses to 9,780,192 B
+    FIRE 28    uImage 2,643,024 B   -> decompresses to 9,780,192 B
+    delta      +1,014,864 B         -> 0 B after decompression
+
+The inner kernels are the **same size to the byte**. The only difference is the compressor: mine is
+**gzip** (`1f 8b 08` at 0x6656), FIRE 28's is **xz** (`fd 37 7a 58 5a 00` at 0x5fbf), which compresses
+the same payload ~1 MB smaller. The remaining stub differences are the two decompressor
+implementations, not a head-patch difference.
+
+**And the embedded command line is IDENTICAL in both:**
+
+    panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init
+
+So there is no cmdline regression and no config regression between the image that reached the tick and
+the image that wrote no crumb. **The ordering fix is confirmed present in the fired build** - the
+linked ELF carries `__initcall_luofu_fmc_driver_init6`, `__initcall_ubi_init7` and
+`__initcall_luofu_fmc_ubi_diag7s` in that section order.
+
+## A COHERENT MODEL OF THE FIVE FIRES (supersedes the reading in PHASE 64)
+
+u-boot reads the ACTIVE env copy's `bootflag`, and it RE-STAMPS the other copy with its own choice each
+boot. Read against that, every fire is consistent:
+
+1. envb(active)=a -> read **kernela** (vendor) -> no-op.
+2. envb set to b -> read **kernelb** = our image -> ran, wrote NO crumb, poison intact.
+3. both copies b   -> read **kernelb** = our image -> same.
+4. kernelb=vendor, kernela=ours -> read **kernelb** = vendor -> clean vendor boot. **This is the fire
+   that PROVED the env is read**, and it is what reversed the PHASE 64 conclusion.
+5. env had re-stamped to mtd4=a -> read **kernela** = our image -> ran, failed, and BOTH slots held our
+   kernels so there was nothing to fall into: that is the outage.
+
+So: **the env lever works, our image IS booted, and it dies before `setup_arch` writes `C0DE0001`** -
+earlier than FIRE 28's identical-config image did. That is now the single open question, and it is not
+a config or cmdline difference.
+
+## WHY I AM NOT FIRING AGAIN WITHOUT A WORD
+
+The outcome of fire 5 proved the fallback is NOT automatic: it worked only because u-boot happened to
+read the *other* slot. Whether a failed boot causes u-boot to re-stamp and switch, or simply retry the
+same slot forever, is **inferred, not measured** - and if it retries, the board loops until a reset.
+Every fire design I can build still depends on that unverified step, so the next one is the operator's
+call rather than mine.
+
+The safe design, for when it is wanted:
+
+    kernela = VENDOR kernel (untouched, verified md5 in the run's own log)
+    kernelb = the image under test
+    env     = point at kernelb, BOTH copies
+    gate    = abort unless kernela still matches the vendor md5  <- what fire 5 skipped
