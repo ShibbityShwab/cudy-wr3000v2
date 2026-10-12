@@ -14181,3 +14181,58 @@ early_initcall crumb. **That is exactly the kind of discrimination FIRE 27 needs
 `devmem 0x10100C18` after the board comes back tells us, unambiguously, which stage FIRE 27 died in.
 Everything else about the dark state (why no panic, why no failover) becomes answerable from that one
 number, and the next kernel change can be aimed at the named stage instead of guessed at.
+
+
+## PHASE 152 (2026-10-12): THE FIRE 27 CRUMB READ 0x00000000 - AND THE INSTRUMENT IS BEING CALIBRATED
+
+## WHAT HAPPENED
+
+The user's reset triggered the door (`RRQ recovery.bin from 192.168.1.1`, `DONE 40969 blocks
+20975775 bytes in 4.5s`). The board returned on **192.168.10.1 at 72 s**, web up. The shell was re-laid
+first try:
+
+    page state: **setup=True** (salt changed again to bcd5c821..., no token)
+                -> the factory reset clears the credential, as measured before
+    login: 1-round hash, **with -c on the POST** -> cookie persisted (1 row) - the trap fix applied
+    RCE: proven by side effect (marker file fetched 200)
+    dropbear: host keys + project key into both authorized_keys + start-stop-daemon -> port 22 UP
+
+## ★ THE READ: C18 = 0x00000000, C1C = 0x00000000
+
+    boot_reg : 11
+    release  : 22.03.6 (vendor)
+    uname    : #0 SMP Sat Nov 25 18:18:57 2023
+    **kernelb : ecb3990e0c882bd50669ff8513d360dc**
+    **kernela : ecb3990e0c882bd50669ff8513d360dc**
+
+**Both kernel slots now hold the SAME kernel (`ecb3990e...`), and it is NEITHER of mine.** The recovery
+re-flashed the whole kernel pair, so FIRE 27's image is gone from flash.
+
+## ★★ AND THE CRUMB IS 0 - WHICH IS NOT IN THE LADDER AT ALL
+
+Every value in the known ladder is either `0xA5A5A5A5` (poison intact) or a `0xC0DE????` breadcrumb.
+**`0x00000000` is neither.** So this read does NOT say "our kernel never ran" - it says the cell holds
+ZERO, and there are two very different explanations:
+
+    (a) the recovery's own boot CLEARED the register (so the read is uninformative about FIRE 27); or
+    (b) our kernel RAN and something wrote 0 to it (e.g. a sysctrl reset path, or the vendor boot's
+        own initialisation of that register block).
+
+**I have been treating `C18` as persistent all session** - and it WAS, across reboots, a TFTP recovery
+and a factory reset (the `0xC0DE502D` from FIRE 23 survived all of those). So (a) contradicts that
+history, which makes this read genuinely ambiguous rather than decidable. **That is the honest state.**
+
+## ★★★ SO I AM CALIBRATING THE INSTRUMENT INSTEAD OF GUESSING
+
+A cheap experiment that settles how much the crumb can be trusted:
+
+    1. write C18 = 0xCAFEBABE, C1C = 0xDEADBEEF on the RUNNING VENDOR SYSTEM (no flash write)
+    2. reboot - a pure reboot, vendor stack, nothing flashed
+    3. read C18 back
+
+**If `0xCAFEBABE` survives a plain reboot, the register is persistent and FIRE 27's `0` is a REAL
+observation about our kernel.** If it does not survive, then the crumb's persistence depends on the boot
+path and several earlier readings need re-interpretation - which would be worth knowing before building
+another fire on it.
+
+**This costs one reboot and no flash write, so it is safe and it de-risks every future crumb read.**
