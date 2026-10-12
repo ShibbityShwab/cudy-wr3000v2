@@ -15764,3 +15764,69 @@ no new instrument needed.
 
 Board healthy on the vendor slot (2.4.15, 6 interfaces, 0 leftovers, cell 0x10) - every fire has
 returned unaided.  Ring-confirmed each time: `ubiblock0_0` created, rootfs mounted, init run, procd up.
+
+
+---
+
+# PHASE 81 (2026-10-12): THE SMP HYPOTHESIS - WELL-FOUNDED, BUT THE INSTRUMENT STILL CANNOT SEE IT
+
+## THE MECHANISM (this part is solid and worth keeping)
+
+The DTS states it outright:
+
+    cpus { enable-method = "hisilicon,hsan_smp";   /* no mainline method matches; TODO stage-1 SMP port */ }
+
+`mach-luofu/luofu.c` has NO `smp_ops` at all - its own comment says "a UP boot with a warning is the
+expected first-boot posture".  But the vendor u-boot's `bootfip` hands the kernel ITS OWN DT, whose
+/chosen bootargs are:
+
+    noinitrd cma=0 console=ttyS0,115200 earlycon maxcpus=2 nr_cpus=2 additional_cpus=1
+
+**`nr_cpus=2`** - and the ring confirms `additional_cpus=1` is in the live arg list.  So the kernel is
+asked for TWO CPUs on a mach that cannot bring up the second, with an enable-method that matches no
+handler.  A CPU that never comes up cleanly, whose per-CPU scheduler state is never initialised, is
+exactly the shape of the fault seen seconds later:
+
+    PC is at __cgroup_account_cputime+0x0/0x40
+    LR is at update_curr+0xc8/0x10c
+    Process ubusd (pid 209, stack limit = 0xd2df875a)
+
+## THE TEST, AND WHY IT STILL DID NOT READ
+
+`CONFIG_CMDLINE` is APPENDED to the bootloader's line (`CONFIG_CMDLINE_EXTEND=y`), so it wins.  It now
+carries `maxcpus=1 nr_cpus=1` - verified in the config AND in `vmlinux`:
+
+    CONFIG_CMDLINE="panic=5 maxcpus=1 nr_cpus=1 ubi.mtd=upgrade ubi.block=0,0 ..."
+    $ strings vmlinux | grep -o 'maxcpus=1 nr_cpus=1'   -> hits
+
+The fire then booted and its ring window ended at:
+
+    [10.760130] procd: - ubus -
+
+**The oops lived at ~13.9 s.  The visible window stops at 10.76 s.  The read cannot see the answer.**
+
+## THE PATTERN, NAMED SO IT STOPS COSTING FIRES
+
+The ring at 0x80603000 is 16 KiB and holds a VARIABLE window - the previous fire reached 13.69 s
+(`crng init done`), this one stops at 10.76 s - because the window is a fixed size and how far it
+advances depends on how much the boot prints.  **Any question about what happens late in userspace
+is unanswerable through it.**  Four fires have now been spent on instruments that cannot see their
+own subject: the ring (too short), a late_initcall print (runs before the window opens), 0xC18 (the
+FMC overwrites it), 0xC1C (reads back 0 where the fire set 0x5A5A5A5A - whatever clears it, it is not
+sticky across the vendor fallback).
+
+**The next step is not a fifth instrument.  It is to stop needing the ring for late userspace:**
+
+  (a) give the kernel a bigger console log - `CONFIG_LOG_BUF_SHIFT` is the kernel's own ring, read via
+      `/dev/kmsg`; if a shell is ever reachable this is the whole answer, and
+  (b) meanwhile, make the observation happen EARLY rather than late: the question "did CPU1 come up"
+      is answerable at boom time (`smp_init_cpus`, `/proc/cpuinfo` via a crumb), not at 14 s.
+
+The SMP hypothesis itself remains the best-supported lead in this project's boot work: it explains a
+late CFS fault, it is predicted by the DTS's own TODO, and the vendor's bootargs supply the trigger.
+
+## STATE
+
+Board healthy on the vendor slot (2.4.15, 6 interfaces, 0 leftovers, cell 0x10); every fire returns
+unaided.  Confirmed each time: ubiblock0_0 created, rootfs mounted, /sbin/init run, procd up, and
+userspace reaching ubusd/urngd/kmodloader/crng-init.
