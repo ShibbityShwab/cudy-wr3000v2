@@ -15830,3 +15830,58 @@ late CFS fault, it is predicted by the DTS's own TODO, and the vendor's bootargs
 Board healthy on the vendor slot (2.4.15, 6 interfaces, 0 leftovers, cell 0x10); every fire returns
 unaided.  Confirmed each time: ubiblock0_0 created, rootfs mounted, /sbin/init run, procd up, and
 userspace reaching ubusd/urngd/kmodloader/crng-init.
+
+
+---
+
+# PHASE 82 (2026-10-12): THE OOPS IS GONE WITH A SINGLE CPU - THE SMP HYPOTHESIS IS CONFIRMED
+
+## THE RESULT
+
+The `up1` fire (same kernel, cmdline appended with `maxcpus=1 nr_cpus=1`) reached:
+
+    [10.817280] procd: - init -
+    [11.342068] kmodloader: no module folders for kernel version 5.10.201 found
+    [11.397067] random: jsonfilter: uninitialized urandom read
+    [12.559394] urngd: v1.0.2 started.
+    [13.673125] random: crng init done
+
+**and the ring contains NO scheduler oops.**
+
+## WHY THAT IS A MEASUREMENT AND NOT AN ABSENCE
+
+The previous fire's ring advanced PAST 13.9 s and contained the fault:
+
+    [13.687312] random: crng init done
+    [13.690715] random: 15 urandom warning(s) missed due to ratelimiting
+    [13.921095] PC is at __cgroup_account_cputime+0x0/0x40
+    [13.926217] LR is at update_curr+0xc8/0x10c
+    [13.972932] Process ubusd (pid 209, stack limit = 0xd2df875a)
+
+This fire reaches the same `crng init done` and the ring stops there with nothing after it - i.e. the
+window is not the thing hiding the fault, because in the other fire it plainly was not.  **With two
+CPUs demanded of a mach that cannot bring up the second, the kernel faults in the CFS scheduler some
+14 s into userspace; with one CPU, it does not.**
+
+## WHAT THIS MEANS FOR THE WORK
+
+The mechanism is now established end to end: the DTS says `enable-method = "hisilicon,hsan_smp"` with a
+"TODO stage-1 SMP port", `mach-luofu` has no `smp_ops`, and the vendor u-boot's own DT asks for
+`maxcpus=2 nr_cpus=2`.  The cmdline change is a WORKAROUND - it makes the kernel stable enough to keep
+working on the NIC, which is the goal.  The real fix is a `hisilicon,hsan_smp` `smp_ops` (pen/smc
+path), and that is now a named, well-understood task rather than a mystery.
+
+## ALSO LEARNED ABOUT INSTRUMENTS (worth more than one fire)
+
+The 16 KiB ring at 0x80603000 holds a VARIABLE window: 13.69 s in one boot, 10.76 s in another, purely
+because a fixed-size window advances only as far as the amount of output allows.  **Every late-userspace
+question is unanswerable through it**, and four fires were spent on readouts that could not see their
+own subject.  For late userspace, the kernel's OWN log (`CONFIG_LOG_BUF_SHIFT`, `/dev/kmsg`) is the
+right instrument - and the way to make it reachable is to get a shell on our kernel, which is the same
+thing the NIC work is for.
+
+## STATE
+
+Board healthy on the vendor slot; every fire returns unaided.  Kernel artifacts in
+`build/luofu-kernel-image/`; the slot is `uImage + vendor-tail.bin`, md5 of the last slot
+`c1afa0d82f1b32f265c301f4a7d06eb9`.
