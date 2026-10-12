@@ -16063,3 +16063,52 @@ should boot.
      in that probe's early path; the clock table itself was audited and is CORRECT (struct field order,
      id, and onecell slot all verified)
   4. ship the watchdog-backstop restart before the next fire at minimum, since it is now known-good work
+
+
+---
+
+# READY-STATE FOR THE NEXT SESSION (written while the board is down)
+
+## WHAT IS BUILT AND COMMITTED (no work lost)
+
+    submodule 69b75cd  per-driver diagnostic cells (CRG 0xC90, gmac 0xC94, mdio 0xC98)
+    submodule 273c826  restart() arms the watchdog before parking - a failed reset can no longer strand the box
+    parent    ca12683, c0c6869
+    artifact  build/luofu-kernel-image/luofu-slot-vt.bin  md5 fd6c433f9820261dc15b4b62d2502f37
+              (built and verified, NOT YET FIRED - it carries the watchdog backstop)
+
+## THE SAFE DIAGNOSTIC CELL LIST - SO THE SCAN MISTAKE CANNOT RECUR
+
+Writable block, established by a controlled test (write, reboot, read back):
+
+    0xC80 0xC84 0xC88 0xC8C 0xC90 0xC94 0xC98 0xC9C
+
+**DO NOT USE, ever:**
+
+    0xC08   the SLOT SELECTOR (low byte 0x10 = A pair, 0x11 = B pair).  Writing 0xCAFE into it is the
+            mistake this session made; the fallback arm is what repairs it, not luck.
+    0xC18   the FMC's crumb cell   (re-written by its tick every 5 s)
+    0xC1C   the FMC's PAYLOAD cell (re-written by its tick every 5 s - this is why it always read 0)
+    0xC00 0xC04 0xC0C 0xC10 0xC14   function unknown - treat as off limits until identified
+    0xC20   drops writes (reads back 0), so it can never hold an answer
+
+Assignment: 0xC8C mach triage, 0xC90 CRG, 0xC94 gmac, 0xC98 mdio.  0xC80/0xC84/0xC88/0xC9C spare.
+
+## THE FIRST FOUR ACTIONS WHEN THE BOARD IS BACK
+
+    1. devmem 0x10100C08      -> expect 0x00000010 (the fallback flipped it; A pair = vendor)
+    2. devmem 0x10100C8C/C90/C94/C98
+    3. interpret 0xC90: 0xC0DE5000 entered, 5001 reached clk registration, 5F02 REGISTRATION FAILED,
+       5002 tree registered.  Never 0 = the CRG device does not probe, which is the NIC root cause.
+    4. if the cells did not survive, re-fire the committed artifact (it has the watchdog backstop, so a
+       failure now returns by itself instead of stranding the box).
+
+## WHAT IS ALREADY ESTABLISHED (do not re-derive this)
+
+    our kernel mounts our rootfs and runs OpenWrt:  ubiblock0_0 -> VFS mounted -> /sbin/init -> procd
+                                                    -> ubusd / urngd / kmodloader / crng init
+    scheduler crash           FIXED   no smp_ops + vendor DT nr_cpus=2; maxcpus=1 nr_cpus=1 in CONFIG_CMDLINE
+    slot format               uImage + vendor-tail.bin (container magic 0xd7b7ab1e); a bare uImage never boots
+    compression               must be XZ; gzip produced an image that never executed
+    mdio failure              measured: devm_clk_get (0xC0DE7F03)
+    clock table               audited and CORRECT (struct field order, id mapping, onecell slot)
