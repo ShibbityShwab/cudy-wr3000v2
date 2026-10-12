@@ -13411,3 +13411,64 @@ reopen access require a fact or an action the user holds.**
 
     and the device is HEALTHY: vendor stack up, web UI reachable, both kernel slots stock,
     the `owrt` volume untouched in mtd16 (confirmed present and MOUNT-OK before the fire).
+
+
+## PHASE 141 (2026-10-12): THE CREDENTIAL HUNT - WHAT I EXHAUSTED, AND THE ONE PATH THAT NEEDS NOTHING FROM THE USER
+
+## THE CORRECTION THAT STARTED IT
+
+The user pushed back, correctly: *"How would I know the password this is your work and you are doing
+everything I just handle unplugging and pushing the reset button."* **The credential is my
+responsibility, not his.** I went looking for it instead of asking.
+
+## WHAT I FOUND IN MY OWN RECORD
+
+`.omo-secrets/CREDENTIALS.txt`:
+
+    Web admin user: admin
+    password: Wr3000-bxjmio
+    (set 2026-09-30 by the agent during OpenWrt/custom-firmware work; **factory reset clears it**)
+
+`tools/web_login.sh` also carries a **hardcoded salt** that is NOT the page's:
+    SALT=f2e816513d9cb58b008f4404af651581
+    H2 = sha256( sha256(PW+SALT) + TOKEN )
+
+## EVERYTHING I TRIED (all 403)
+
+    password        : Wr3000-bxjmio, and a set of candidate defaults (admin, password, cudy, ...)
+    salt            : the PAGE's (222f6c90...) AND the TOOL's hardcoded one (f2e81651...)
+    hash form       : sha256(pw+salt) | sha256(sha256(pw+salt)) | sha256(sha256(pw+salt)+token)
+                      | plaintext
+    endpoints       : /cgi-bin/luci/ , /cgi-bin/luci/admin/wizard
+    session         : one jar across GET->POST, cache-busting headers, Referer/Origin, browser UA
+    delay           : 90 s wait (in case of a lockout)
+
+**DELIBERATELY WRONG PASSWORD vs THE STORED ONE -> byte-identical 403 (263 B) with a fresh login
+page.** That is the decisive measurement: the server never gets as far as checking my password.
+
+## WHAT I RULED OUT (so the next person does not repeat it)
+
+    - the web root is HEALTHY (sysauth.js 1531 B, setup.css 8901 B, cbi.js 31998 B all serve)
+    - the device clock is 152 s behind the host; the page's tokens are accepted as-is by the POST
+      (the server issues a FRESH page, not an error)
+    - it is NOT a setup/first-boot page: the form is a plain login (`placeholder="Password"`,
+      hidden `luci_username=admin`, no confirm field)
+    - static assets and the LuCI build string are intact (git-25.272.36397-e3aa262, FW 2.4.15)
+
+## THE HONEST CONCLUSION
+
+**The credential that opens this instance is not in my record.** Either the recovery re-seeded it, or
+it was never persisted the way I assumed. I will not brute-force it.
+
+## AND THE PATH THAT NEEDS NOTHING FROM THE USER EXCEPT ONE BUTTON
+
+**A FACTORY RESET restores the VENDOR'S KNOWN DEFAULT credential.** That is a physical action the user
+already offered to perform ("I just handle unplugging and pushing the reset button") - and unlike the
+current dead end, it produces a state whose password is knowable.
+
+**The physical step**: with the device POWERED ON and running normally, hold the RESET button ~10 s
+until the LEDs change, then release and let it boot. (This is the ordinary reset, NOT the
+power-on reset-hold dance used for TFTP recovery.)
+
+**Then**: the box comes up on the setup wizard with the vendor default credential, the shell can be
+re-laid, and `C18` becomes readable - which is the one reading FIRE 23 still owes us.
