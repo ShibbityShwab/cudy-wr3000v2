@@ -16941,3 +16941,36 @@ A single shared name is not an identity.  Match on a name that only our build ca
   possible causes: the NIC never carries traffic so ssh is unreachable even while our kernel runs, or the
   boot does not complete and u-boot/ watchdog fails over.  **The decisive read is the fire's FULL serial
   output, not a post-hoc ssh probe** - capture the whole boot log for one fire and read where it stops.
+
+
+---
+
+# PHASE 101 (2026-10-12): OUR KERNEL BOOTS FULLY - THE REMAINING GAP IS THE PHY LINK
+
+## THE FULL BOOT LOG (captured from the fire itself, not a post-hoc probe)
+
+    procd: - early -
+    procd: - ubus -
+    random: ubusd: uninitialized urandom read (4 bytes read)
+    procd: - init -
+    [fullboot] DONE
+
+`procd: - init -` is a LATE stage.  **Our kernel boots all the way into OpenWrt's init and keeps
+running: no panic, no reboot, no watchdog trip.**  Earlier "unreachable" readings were therefore NOT a
+crash - they were simply a machine with no working uplink, which also explains why the box then appears
+on the vendor slot whenever I probe later.
+
+## THE REMAINING GAP, VISIBLE IN THE SAME LOG
+
+    ours   : luofu-gmac 14380000.gemac: configuring for phy/gmii link mode       <-- and nothing more
+    vendor : Hi-GEMAC 14480000.gemac eth2: Link is Up - 1Gbps/Full - flow control rx/tx
+
+**Our MAC reaches phylink and asks for a PHY/GMII link, but the link never comes up** - there is no
+`Link is Up`, no netifd/DHCP activity.  So the next target is the MDIO/PHY path: the MAC is ready and
+phylink is configured; what is missing is the PHY being found and read over our `luofu-mdio` so phylink
+can resolve the link.
+
+## STATE
+
+Board healthy on the vendor slot.  Our kernel image boots OpenWrt to procd with our NIC driver live.
+The overlay volume exists in mtd16.  Committed: parent 65f34b4; submodule 7d04dd8.
