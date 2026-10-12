@@ -15350,3 +15350,67 @@ Artifacts and `MANIFEST.sha256` refreshed in `build/luofu-kernel-image/`. Commit
     phase 1 Self-recovering fires            [3/3] COMPLETE
     phase 2 Confirm the boot fix             [0/3] next
     phase 3 Latest OpenWrt on the device     [0/4]
+
+
+---
+
+# PHASE 74 (2026-10-12): THE FALLBACK ARM IS PROVEN LIVE - NO RESET WAS NEEDED
+
+## WHAT HAPPENED
+
+Gated fire of the ordering-fixed kernel into slot B, selector set to `0x11`:
+
+    GATE PASS (kernela first-64B = 8a324b7a... = vendor, so a failure had somewhere to fall into)
+    wrote 512b5818... == want; verified on the device
+    cell 0x11 -> reboot
+    AFTER:  cell = 0x00000010   pair = mtd13 (the A pair, VENDOR)   boot_id CHANGED
+            C18  = 0xA5A5A5A5   (the poison, intact)
+
+**The board came back on its own. No RESET-hold, no recovery door, no operator action.**
+
+## WHY THE CELL FLIP IS OURS AND NOT u-boot's
+
+This is the load-bearing inference, and it was pre-empted by two earlier controlled tests:
+
+    wrote cell 0x10 -> reboot -> cell still 0x10, booted the A pair
+    wrote cell 0x11 -> reboot -> cell still 0x11, booted the B pair
+
+**u-boot does not flip that cell.** So the `0x11 -> 0x10` transition across the fire can only have
+been made by code running out of slot B - i.e. **our kernel ran, and `luofu_early()` ran.**
+
+**That is also the first hard evidence that our kernel is genuinely booted by a fire.** Every earlier
+"no crumb" fire was ambiguous (the cell/lpair reading could be explained without our kernel executing);
+this one is not, because a cell flip happened that only our code performs.
+
+## AND THE CRUMB STILL DID NOT APPEAR - which is now an ORDERING BUG OF MINE
+
+`C18` stayed at the poison, so `luofu_crumb()` did not write even though the fallback did. The two
+writes are in the same function, and I had put the fallback FIRST:
+
+    luofu_arm_fallback();            /* ioremap, read, flip, write, iounmap, pr_info */
+    luofu_crumb(LUOFU_CRUMB_EARLY);  /* ioremap, write, iounmap */
+
+So this fire could not distinguish "died between the two writes" from "the fallback itself faulted after
+its write". Fixed by inverting the order and collapsing to ONE mapping:
+
+    static void __init luofu_early(void)
+    {
+        void __iomem *sysctrl = ioremap(LUOFU_SYSCTRL_BASE, 0x1000);
+        ...
+        writel(LUOFU_CRUMB_EARLY, sysctrl + LUOFU_CRUMB_OFFSET);   /* the instrument FIRST */
+        (void)readl(sysctrl + LUOFU_CRUMB_OFFSET);
+        val = readl(sysctrl + LUOFU_BOOTREG_OFFSET);                /* then the safety */
+        if ((val & 0xff) == 0x10 || (val & 0xff) == 0x11) { writel(val ^ 1u, ...); (void)readl(...); }
+        iounmap(sysctrl);
+    }
+
+Principled reason, not just debugging convenience: **the instrument must be written before anything
+that can fail, or a failure hides its own location.** The safety may be sacrificed to the diagnostic;
+the reverse loses the diagnostic and keeps no safety either. Verified by disassembly: `str r3, [r4, #0xc18]`
+now precedes `ldr r5, [r4, #0xc08]`.
+
+## LEDGER
+
+    phase 1 Self-recovering fires            [3/3] COMPLETE
+    phase 2 Confirm the boot fix             [1/3] fire done; crumb-first re-fire in flight
+    phase 3 Latest OpenWrt on the device     [1/4] the owrt volume verified intact (id 0, 133 LEBs, State OK)
