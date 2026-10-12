@@ -13107,3 +13107,34 @@ Against the correct tree: **55 luofu symbols**, including the driver's initcall.
 same class as the `pgrep -c make` false positive and the narrow-directory tool search of PHASE 130.
 **A negative from a probe is a hypothesis about the probe first** - and the cheap second check (compare
 the fired payload size against each tree's zImage) is what settled it in one command.
+
+
+## PHASE 135 (2026-10-12): ★ CHAIN OF CUSTODY CLOSED - THE FIRED ARTIFACT PROVABLY CONTAINS THE VERIFIED KERNEL
+
+Every property I have verified about "our kernel" (the `r4` fix, the `compat != 5` UBI patch, the
+`late_initcall_sync` ordering, the containers's geometry, both CRCs) was verified in a SOURCE TREE and
+its compiled output. **None of that transfers to the artifact unless the artifact was built from that
+tree.** Checked directly:
+
+    r4fix-slot.bin's uImage payload  : 2,643,024 B  md5 2def5cc1ad969c85003efcc8922521dc
+    /opt/kbuild/clean/.../zImage     : 2,643,024 B  md5 2def5cc1ad969c85003efcc8922521dc
+                                       ------------------
+                                       **IDENTICAL**
+
+    (the payload begins `00 00 a0 e1 00 00 a0 e1` - the zImage head's nops, as expected)
+
+**So the artifact we intend to fire contains, byte for byte, the kernel built from the tree where every
+property was checked.** The chain is:
+
+    lab/luofu-kernel sources  ->  /opt/kbuild/clean/linux-5.10.201  ->  arch/arm/boot/zImage
+                              ->  md5 2def5cc1...  ==  the payload inside r4fix-slot.bin
+                              ->  + vendor DTB/container tail, padded to 8,650,752 B
+                              ->  md5 00f338a74c92bb9f054a689d98b007f1   (the whole slot image)
+
+**This closes the last unverified link.** Until now the argument was "we verified the tree, and the
+script says it uses that tree" - true, but it is an argument about the script, not about the bytes.
+It is now an argument about the bytes: the md5 of the payload equals the md5 of that tree's build.
+
+**Recorded because this is the check that would have caught a wrong-tree build** - the same confusion
+that produced the false "no luofu symbols" negative in PHASE 134 came from there being TWO trees, and
+the only thing that distinguished them was matching a size. Matching the md5 is the strong form.
