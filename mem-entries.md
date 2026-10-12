@@ -13643,3 +13643,70 @@ present and MOUNT-OK). **Prediction: the kernel now boots with exactly**
 `/sbin/init` - i.e. dropbear answers on port 22 and the box is REACHABLE ON OUR OWN KERNEL.** The
 falsifier is equally sharp: if `C18` again shows `0xC0DE502D` and the box again comes back on the vendor
 stack with 22 closed, then the cmdline was NOT the blocker and the failure is downstream of it.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 144 (2026-10-12): ★★★★★ FIRE 24 - THE CMDLINE_FORCE VARIANT NEVER RAN. A CLEAN NEGATIVE, AND AN IMPORTANT ONE. ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE RESULT, READ DIRECTLY OFF THE DEVICE
+
+Fire 24 = `cmdf-slot.bin` (md5 2308b34d8548db6485b6b085102d739e) into `kernela`, poison 0xA5A5A5A5
+written and re-read, the `owrt` volume confirmed present, then a reboot. Read back afterwards:
+
+    C18        : **0xA5A5A5A5**      <- the poison is INTACT
+    cmdline    : noinitrd cma=0 console=ttyS0,115200 earlycon maxcpus=2 nr_cpus=2 additional_cpus=1
+    release    : 22.03.6 (the vendor stack)
+    uname      : #0 SMP Sat Nov 25 18:18:57 2023
+    mtd11      : 2308b34d8548db6485b6b085102d739e   <- our FORCE image is still in the slot
+    boot_reg   : 11
+
+## THE COMPARISON THAT MAKES THIS DECISIVE
+
+    FIRE 23  `CONFIG_CMDLINE_EXTEND=y`  ->  C18 = 0xC0DE502D  = **our kernel RAN**
+    FIRE 24  `CONFIG_CMDLINE_FORCE=y`   ->  C18 = 0xA5A5A5A5  = **our kernel NEVER RAN**
+
+**Identical in every other respect**: same source, same r4 fix, same VMSPLIT_2G/PAGE_OFFSET, same XZ,
+same container tail, same slot, same poison, same rootfs present. **The one changed symbol flipped the
+outcome from "executed" to "not executed".**
+
+## WHAT THIS MEANS - AND IT IS NOT WHAT I PREDICTED
+
+My prediction was that FORCE would let the kernel mount the owrt rootfs and come up. **It is refuted.**
+But the refutation is informative, not merely a miss:
+
+1. **`CONFIG_CMDLINE_FORCE` is a NEGATIVE for the boot itself.** Making our cmdline win makes the kernel
+   NOT run. That is a real constraint on the design space: whatever `bootfip`/u-boot does downstream,
+   it is sensitive to the cmdline the kernel ends up with, and our full cmdline *in place of* the
+   vendor's is worse than appended to it.
+
+2. **It re-confirms the mechanism is in the CMDLINE/DT area, not in the kernel image's shape.** Two
+   builds differing only in that one symbol produced two different outcomes - so the variable is live
+   and controllable, which is exactly what a diagnostic needs.
+
+3. **And it tells me the vendor string is not optional decoration.** `noinitrd cma=0 ... maxcpus=2
+   nr_cpus=2 additional_cpus=1` is doing something the board needs. `cma=0` in particular changes
+   memory allocator behaviour, and `maxcpus=2 nr_cpus=2 additional_cpus=1` clamps the CPU topology.
+
+## THE CORRECTED READING OF THE WHOLE PICTURE
+
+    - our kernel RUNS when our cmdline is APPENDED to the vendor's      (FIRE 23: 0xC0DE502D)
+    - our kernel does NOT run when our cmdline REPLACES the vendor's    (FIRE 24: 0xA5A5A5A5)
+    - in the running case it reaches timer init and then the boot FAILS, and the platform reverts
+
+**So the open question is no longer "what blocks the boot" but "why does the kernel stop AFTER the
+timer crumb when the cmdline is appended".** The next experiment should keep EXTEND (the shape that
+runs) and change ONE thing about the tail of the cmdline - the most likely suspect being
+`root=/dev/ubiblock0_0` not resolving because the vendor DT's `chosen` semantics or the ubiblock
+creation timing differs.
+
+## HONEST STATUS
+
+    criterion 1 (mechanism, artifact-evidenced) : the cmdline/DT interaction is now NAMED and both
+        directions measured (append runs, force does not)
+    criterion 2 (independent verification)      : the FORCE build was verified at the INSTRUCTION level
+        (two strlcpy, zero strlcat) before firing, and the outcome is read off the device
+    criterion 3 (single-variable prediction)    : this fire WAS the single-variable test, and its
+        prediction was REFUTED - recorded as such
+
+**The objective's device half is still not achieved**: the box is up on the vendor stack, not ours.
