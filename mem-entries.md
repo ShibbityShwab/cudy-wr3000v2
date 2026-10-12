@@ -16655,3 +16655,40 @@ encodes as 0xf.  `/proc/device-tree/gemac@0x14300000/resets` on the running box 
 The clock bug cost many fires precisely because I composed provider shapes before establishing what the
 consumers actually reference.  The same question is open here, and it is answerable from the device in one
 read.  Establish the specifier's meaning first; then the provider shape follows.
+
+
+---
+
+# PHASE 95 (2026-10-12): *** THE NIC PROBE NOW PASSES RESETS AND REACHES phylink_create ***
+
+## MEASURED
+
+    gmac   0xC0DE6004   reached step 4 (resets) and CONTINUED past it
+    panic trace:
+        BUG at phylink_validate+0x18/0x2c
+          phylink_validate  <- phylink_create+0x134
+          phylink_create    <- luofu_gmac_probe+0x128
+        Kernel panic - not syncing: Fatal exception in interrupt
+
+**The chain of blockers is now: clock (FIXED) -> resets (FIXED) -> phylink_create.**  Binding the reset
+controller to `/reset0` (the node consumers actually reference, phandle 0x0f, "hsan,hsan-reset",
+#reset-cells = <2>) cleared step 4.
+
+## THE NEXT CAUSE IS VISIBLE IN OUR OWN SOURCE
+
+    luofu-gmac.c:285   iface = PHY_INTERFACE_MODE_NA;
+    luofu-gmac.c:289   phylink_create(&g->pl_config, pdev->dev.fwnode, iface, &luofu_gmac_phylink_ops);
+
+while the active tree declares
+
+    gemac@0x14300000 { ... phy-mode = "rgmii"; ... }
+
+Creating the phylink with PHY_INTERFACE_MODE_NA is what trips phylink_validate.  The fix is to read
+"phy-mode" from the DT (of_get_phy_mode) instead of hardcoding NA.
+
+## NOTE ON THE CELL READ AFTER A PANIC
+
+After the panic the board falls back to the vendor slot, and the sysctrl cells read 0 - so gmac showed
+0xC0DE6004 (last milestone before the crash) while mdio/mach read 0 in the post-reboot sample.  Read cells
+in the SAME turn the fire settles, before any automatic reboot, or they are lost.  The panic trace in the
+serial tail is what carried the real information here.
