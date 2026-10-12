@@ -13207,3 +13207,56 @@ and mtd12) - the recovery re-flashed them, overwriting the previous r4fix image.
 vendor kernel right now, and I have a hash-verified copy of it
 (`build/tmp/fire3/kernela-backup.bin` is the PREVIOUS content; the CURRENT one should be re-backed-up
 before overwriting, so the rollback matches what is actually on the device).
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 137 (2026-10-12): FIRE 23 - THE FULL STACK DEPLOYED, AND THE BOARD REVERTED. HONEST OUTCOME.
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## WHAT WAS FIRED, WITH EVERY PRECONDITION VERIFIED
+
+    kernel  : build/tmp/slice/r4fix-slot.bin (md5 00f338a74c92bb9f054a689d98b007f1)
+              -> written to **kernela (mtd11)**, read back BYTE-EXACT
+              -> the slot the u-boot actually boots (the measured A-first rule)
+    rootfs  : the `owrt` volume in mtd16, CONFIRMED PRESENT and **MOUNT-OK** before the write
+              (OpenWrt 25.12.5, kirkwood/generic, dropbear init present)
+    rollback: build/tmp/fire4/kernela-stock.bin, md5 ba868bd449631964525fd620b5480646
+              (a FRESH dump matching the live slot, not the stale fire3 copy)
+    poison  : 0xA5A5A5A5 written to C18 and RE-READ before the reboot
+    selectors: bootflag=b on both env copies; boot_reg untouched (A-first is automatic)
+
+**This is the first fire in the session where kernel AND rootfs were both correct and verified.**
+
+## THE RESULT
+
+    after the reboot:
+        192.168.10.1 : 22 DOWN, 80 UP, 443 UP
+        192.168.1.1  : all down
+    the serving stack is the VENDOR one (title "WR3000", the setup wizard page)
+    => our kernel did NOT persist; the platform moved off the A pair.
+
+**And I cannot read C18.** The recovery that put this state here also **reset the web password**
+(neither credential in `.omo-secrets` authenticates; 403 on every hash form), so the systime RCE route
+is closed until the shell is re-laid by some other means. SSH is down because our rootfs's dropbear
+never came up.
+
+## WHAT IS HONESTLY ESTABLISHED VS UNKNOWN
+
+    ESTABLISHED:
+      - the artifact was correct and byte-exact on the device
+      - the rootfs was present and mountable immediately before the write
+      - the poison was in place
+      - and the box came back on the VENDOR stack, not ours
+
+    UNKNOWN, and it is the important one:
+      - **how far our kernel got on this fire.** C18 is unreadable without a shell.
+        Previous fire (kernela, same image family) read 0xC0DE502D = "the timer ran".
+        Whether this one got as far, further, or nowhere is NOT KNOWN.
+
+## WHAT THIS CHANGES
+
+Nothing about the mechanism work - the gate, the r4 fix, the link address, the UBI compat, the
+initcall ordering are all still verified. What it changes is the ACCESS SITUATION: the recovery that
+made this fire possible also removed the credential the shell-restore depends on, so the next step is
+to find a way back in **without the password** - and the reachable surface is the SETUP WIZARD, which
+by design runs before authentication.
