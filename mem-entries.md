@@ -16837,3 +16837,53 @@ into one claim.
   - arm the fire, and in the SAME turn the next fire settles, read on the LIVE box: `uname -a`, the
     driver name for the netdev, its operstate, and the ring's luofu-gmac lines - all before any reboot.
   - a node that our driver names `luofu-gmac` is the independent confirmation that is still missing.
+
+
+---
+
+# PHASE 99 (2026-10-12): WHAT IS PROVEN, AND WHAT IS NOT
+
+## THE ONE UNIMPEACHABLE PIECE OF EVIDENCE: THE FIRE'S OWN SERIAL LOG
+
+The fire's captured console output (bash_77) IS our kernel's boot, in sequence:
+
+    luofu-fmc 10a20000.fmc: FMC: geometry: ...
+    luofu-fmc 10a20000.fmc: FMC: upgrade is mtd16, and the master is mtd0
+    luofu-fmc 10a20000.fmc: FMC: ubi0 volume 0 begins 68 73 71 73, ubiblock0_0 resolves
+    VFS: Mounted root (squashfs filesystem) readonly on device 254:0.
+    Run /sbin/init as init process
+    <6>[5.815617] luofu-gmac 14380000.gemac: configuring for phy/gmii link mode
+    mount_root: no usable overlay filesystem found, using tmpfs overlay
+    procd: - ubus -
+
+**Our kernel boots, OUR gmac driver probes and configures a phy/gmii link, and the system reaches procd -
+with NO PANIC.**  That is ours: `luofu-fmc` and `luofu-gmac` are our drivers, and they only exist in our
+build.
+
+## WHAT IS *NOT* PROVEN, AND I WILL NOT CLAIM IT
+
+  - **That OUR netdev carries traffic.**  Every live inspection I made landed on the VENDOR slot:
+    `uname` shows the vendor build date, `eth0..eth3` are owned by `Hi-GEMAC` binding `hsan,mac`, and
+    `grep luofu_(gmac|crg|mdio) /proc/kallsyms` returns NOTHING.  `Hi-GEMAC` appears in OUR tree only
+    inside a comment quoting the vendor log we set out to replace.
+  - **That the board stays on our kernel.**  It boots ours, then fails back to the vendor slot; the ssh
+    timeout right after the fire was the board in that window.
+  - **The overlay**: `mount_root: no usable overlay filesystem found` - still open.
+
+## THE METHOD ERROR THAT COST THIS TURN (and the fix)
+
+**The sysctrl diagnostic cells PERSIST ACROSS WARM REBOOTS.**  A cold power cycle clears them; a warm
+reboot (which is what the failover does) does not.  So a cell reading is evidence ONLY about the boot
+that wrote it.  I read `C90=0xC0DE5002 / C8C=0xC0DE8D10` and treated them as "our kernel is up now",
+when they were residue - and my "wait for our kernel" loop was VACUOUS (it tested for a valid boot_id
+UUID and a cell prefix, both already true), so it returned in 0 s and I read the pre-fire state.
+
+**RULE: to prove a specific kernel is running, use a quantity tied to that boot - the SERIAL LOG of the
+fire, or `/proc/kallsyms` for our symbols, or a boot_id captured BEFORE the fire and required to DIFFER.
+A persistent cell, a ring tail, and a valid-looking UUID are all consistent with the previous boot.**
+
+## STATE
+
+Board healthy on the vendor slot.  Committed: parent `781675d`; submodule `7d04dd8`.
+Our kernel image (md5 2675161cc45c8e2796f04fc68f2d2c80 slot) boots OpenWrt with the NIC driver live and
+no panic.  Independent confirmation of OUR netdev, link-up, overlay persistence and deployment remain.
