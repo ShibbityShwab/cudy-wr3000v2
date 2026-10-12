@@ -16513,3 +16513,58 @@ Comparing (1) against the loop's `seen` separates (a) from (b) in a single read.
 
 Board healthy on the vendor slot every fire (2.4.15, 6 interfaces, 0 leftovers, selector 0x10).  The CRG
 binds and registers its clock tree (0xC90 = 0xC0DE5002) - untouched by any of this.
+
+
+---
+
+# PHASE 92 (2026-10-12): THE ACTIVE TREE IS ON DISK - AND THE CLOCK NODES ARE EXACTLY WHERE WE EXPECT
+
+## FOUND: the active device tree, captured, with its clock nodes intact
+
+    build/tmp/dt-spec/tar_base.dts     (39 KB; also build/tmp/dtbq/dtb-all.dts)
+        depth-1 children of the root: 64
+        hsan,clk    = 1        hsan,crg = 1        clk-gate = 16
+
+    __symbols__ resolves every clock BY PATH:
+        mdio_clk0   = "/clk@14880000/clk_gate@002003"
+        gemac_clk0  = "/clk@14880000/clk_gate@002019"
+        gemac_clk1  = "/clk@14880000/clk_gate@002020"
+        pcie0_clk   = "/clk@14880000/clk_gate@002012"
+        ... 16 clk_gate + clk_pll1@0198 + clk_pll2@01e0 + cpu_mux@01388 + efuse_mux@0138
+
+**So the vendor tree the kernel consumes HAS the gate nodes, at exactly the paths my driver derives from
+their reg, and the geometry matches my own table (docs/soc/luofu-r116.dts documents GMAC0 ->
+clk_gate@002019 and MDIO -> clk_gate@002003, which is precisely what __symbols__ says).**  The lookup
+target was never in doubt.
+
+## AND YET: 212 MATCHES NOTHING
+
+    this captured tree, root children : 64
+    the device's /proc/device-tree, root children : 73
+    the device's clk@14880000, children : 24
+
+No node in any tree I can inspect has 212 children.  So `seen = 0xD4 = 212` is a real reading from a node
+I have not identified, and further guessing about WHICH node wastes fires.
+
+## WHAT IS SETTLED, AND WHAT IS NEXT
+
+Settled by static evidence (no fire needed):
+  - the CRG binds and registers its clock tree          (0xC90 = 0xC0DE5002, changed in response to a fix)
+  - the active tree has 16 hsan,clk-gate nodes under clk@14880000, at known paths
+  - our clock table's geometry for MDIO and GMAC0 matches the tree exactly
+  - the diagnostic write path now works and the node pointer is a valid kernel pointer (0xC7EE77E0)
+
+Open:
+  - which node the compatible lookup returns, and why it reports 212 children
+
+**NEXT, and it removes the lookup entirely: do not search the tree at all.**  The path and the child names
+are now known from __symbols__ and from the tree text:
+
+    /clk@14880000  ->  clk_gate@002003 (mdio), clk_gate@002019 (gemac0), ...
+
+So register the gate providers from a TABLE OF EXACT PATHS and exact (offset,bit) pairs, looked up with
+of_find_node_by_path() per entry - no for_each_child_of_node, no compatible scan, no child counting.
+That sidesteps the unidentified-node question completely, and each provider's node is provable because a
+path either resolves or it does not.
+
+Write the guard in the same edit: stamp how many of the N paths resolved, so partial success is visible.
