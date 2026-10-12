@@ -15939,3 +15939,50 @@ evidence than bit4=0; the driver-level steps will settle it.
 scheduler oops: the mach has no smp_ops while the vendor DT demands maxcpus=2 nr_cpus=2.  Verified as
 evidence, not absence - the crashing fire's ring advanced past 13.9 s and contained the fault; the
 UP-only boot reaches the same point with nothing after it.
+
+
+---
+
+# PHASE 84 (2026-10-12): THE NIC FAILURE IS MEASURED - mdio DIES ON devm_clk_get
+
+## THE MEASUREMENT
+
+Driver-level crumbs were added to luofu-gmac and luofu-mdio, depositing their progress into 0xC8C
+(the free cell - see PHASE 83; 0xC18/0xC1C belong to the FMC tick).  Last write wins, so the value
+read back is HOW FAR THE PROBE GOT.  Result:
+
+    C8C = 0xC0DE7F03
+
+Decoded: **mdio driver, FAILED at step 3.**
+
+    1 = entry (the probe was reached)        reached
+    2 = after devm_platform_ioremap_resource reached
+    3 = after devm_clk_get(dev, NULL)        *** FAILED HERE ***
+    4 = after devm_reset_control_array_get   not reached
+
+**`luofu_mdio_probe` runs, maps its registers, and then fails to acquire its clock and bails.**
+
+## WHY THIS IS THE ROOT CAUSE OF "NO eth0"
+
+`mdio` IS the PHY bus.  Without it there is no PHY; without a PHY the gmac has nothing to link to and
+never presents a netdev.  The chain is now measured end to end rather than argued:
+
+    crg driver registers (measured, PHASE 83 bit8=1)
+      -> mdio probe runs, maps, then devm_clk_get FAILS
+      -> no PHY bus
+      -> no eth0 (measured, PHASE 83 bit4=0)
+
+## WHERE THE FIX GOES
+
+The node says `clocks = <&crg LUOFU_CLK_MDIO>`.  The provider exists, so the gap is narrower: the CRG
+driver does not RESOLVE `LUOFU_CLK_MDIO` (and by the same construction, `LUOFU_CLK_GMAC0` for the gmac's
+clk_bulk_get_all).  Check the CRG's registered clock table against the LUOFU_CLK_* ids the DTS uses -
+one of them is missing from the onecell table, or registered under a different index.
+
+## METHOD NOTE - WHAT MADE THIS FIRE DIFFERENT
+
+Every earlier NIC fire ended in an inference: "no eth0, therefore something is wrong".  This one ended
+in a NUMBER naming the driver and the exact call.  Two things bought that: (a) a diagnostic cell that
+nothing else writes, established by a controlled stickiness test rather than assumed, and (b) putting
+the crumb at each STEP rather than at entry and exit.  A single entry/exit crumb would have said
+"mdio probed and failed" - true, but not where, and where is the whole answer here.
