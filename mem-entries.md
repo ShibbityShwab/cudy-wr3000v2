@@ -14424,3 +14424,57 @@ disagree with the bootloader.**
 **The objective's device half is still NOT achieved**: our kernel reaches the timer and then the boot
 fails; the running system is the vendor's. But **the failure now has a reproducible, cleanly-measurable
 signature** (`0xC0DE502D` in `C18` after a revert), which is what every previous fire lacked.
+
+
+## PHASE 155 (2026-10-12): ★ THE CRUMB CELL IS A RICHER INSTRUMENT THAN I HAVE BEEN USING - `C1C` IS A BITFIELD
+
+Reading the driver's own comment block (not my summary of it) gives the FULL legend, which every
+previous reading in this session used only in part:
+
+    C18 = 0xC0DE502D   (step 45) - THE TICK, and **by construction the LAST writer**
+
+    C1C = (writes << 24) | (erases << 16) | (err << 15) | (wr_cmd << 4) | (mismatches >> 8)
+
+    writes/erases clamp to 0xff ; err = 1 if any MTD entry point returned an error ;
+    mismatches >> 8 so a clean page reads 0 and a wholly wrong one reads 8.
+
+And the driver explains WHY the tick carries it:
+
+> "The write reported on itself into crumb step 47 and the next fire read step 45 back - **the TICK
+> writes that cell every five seconds and LAST WRITE WINS**, so a report made once at 9 seconds was
+> gone by 180."
+
+## ★★★★★ SO `C18 = 0xC0DE502D` MEANS THE KERNEL WAS ALIVE AT THE TICK, AND `C1C` SAYS WHAT THE STORAGE PATH DID
+
+Decoding this session's clean reading:
+
+    C1C = 0x00000000  ->  writes=0  erases=0  err=0  wr_cmd=0  mismatches=0
+
+**Zero writes and zero erases is the CORRECT and EXPECTED signature for a read-only squashfs mount** -
+mounting it must not write anything. So `C1C = 0` does not indicate a broken storage path; it indicates
+the write path was never exercised, which is right for this boot.
+
+## ★★★ WHAT THE TICK ACTUALLY PROVES, AND ITS LIMIT
+
+**The tick writes every 5 s and last-write-wins.** Therefore:
+
+    - `C18 = 0xC0DE502D` proves the kernel ran far enough to have a live timer and a repeating thread;
+    - it does NOT tell us HOW LONG it stayed alive, because the cell holds only the latest write;
+    - and a revert afterwards means the failure is AFTER that point, not before it.
+
+**The limit is now explicit:** the cell proves a lower bound on progress ("reached the tick") and cannot
+bound it above. A value of `0xC0DE0020` would have meant an earlier death; `0xC0DE502D` means the
+kernel got past timer setup and into its own driver's periodic work.
+
+## WHAT THIS CHANGES FOR THE NEXT FIRE
+
+The failure is **downstream of the tick** - i.e. in whatever runs after timer/thread init on the way to
+mounting the rootfs. The candidate sites are now narrow and nameable:
+
+    - the ubiblock creation and the rootfs mount itself (our cmdline's `root=/dev/ubiblock0_0`)
+    - our own luofu_fmc `late_initcall_sync` UBI probe (ordering verified correct in the binary)
+    - anything the vendor DT describes that our kernel's drivers disagree with
+
+**And the instrument to discriminate them already exists**: the driver writes intermediate crumbs
+(`C0DE0001..0020`, `C0DE5001..500B`) that the tick can overwrite - so a fire designed to die FAST (no
+tick) would leave an intermediate crumb visible. That is a concrete next experiment, not a guess.
