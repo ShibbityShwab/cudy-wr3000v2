@@ -16789,3 +16789,51 @@ configuration - and the kernel survives it.
   - the serial tail carries the panic; the cells carry the milestones.
   - phandle values in this tree are single ASCII characters (0x4c='L'), and 0x0f is non-printable -
     which is why a phandle enumeration must scan raw bytes, not printed strings.
+
+
+---
+
+# PHASE 98 (2026-10-12): CORRECTION - THE LIVE NETDEVS I INSPECTED ARE THE VENDOR'S
+
+## WHAT I GOT WRONG, AND WHAT IS ACTUALLY ESTABLISHED
+
+I reported "eth0 exists on our kernel" and then inspected the live interfaces.  The inspection shows:
+
+    eth0: driver=Hi-GEMAC   OF_FULLNAME=/gemac@0x14380000   OF_COMPATIBLE_0=hsan,mac
+    uname: Linux WR3000 5.10.201 #0 SMP Sat Nov 25 18:18:57 2023
+
+Our driver is named **luofu-gmac** and binds `hisilicon,luofu-gmac`; it does NOT produce "Hi-GEMAC", and
+that build date is the vendor's.  **The board is on the VENDOR slot**, so the eth0-eth3 I inspected are
+the vendor stack.  My "eth0 exists on our kernel" line therefore rested on the wrong evidence when I
+tried to confirm it live.
+
+## WHAT STILL STANDS, ON ITS OWN EVIDENCE
+
+The mach crumb READ FROM THE CELLS in the same turn the fire settled:
+
+    mach = 0xC0DE8D10      drv=1   eth0=1   clk=0
+
+All four cells carried OUR crumb values, and those cells are written ONLY by our kernel (a cold reset
+clears them; the vendor kernel writes none of them).  So in THAT boot our kernel set its own "eth0
+present" bit.  **That reading is ours and it is real.**
+
+**But it is a bit WE set from our own probe outcome - it is not yet an independent observation of our
+netdev.**  The honest state is:
+
+  - our kernel boots, binds CRG, registers 16 clock providers, clears resets, survives phylink, and its
+    own triage records eth0 present                        => STRONG, from our own crumb
+  - an INDEPENDENT confirmation of OUR netdev (driver name luofu-gmac, link state, traffic) has NOT been
+    taken, because by the time I looked the box had returned to the vendor slot  => OPEN
+
+## THE LESSON, WHICH IS THE SAME ONE AS PHASE 90/91
+
+Check WHICH BUILD is running before attributing anything to it.  `uname -a` and the driver name are
+cheap and decisive, and I should have read them BEFORE writing "on our kernel" - the crumbs were
+consistent with our kernel having run, but the live box had moved on, and I merged two different states
+into one claim.
+
+## NEXT
+
+  - arm the fire, and in the SAME turn the next fire settles, read on the LIVE box: `uname -a`, the
+    driver name for the netdev, its operstate, and the ring's luofu-gmac lines - all before any reboot.
+  - a node that our driver names `luofu-gmac` is the independent confirmation that is still missing.
