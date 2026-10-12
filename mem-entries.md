@@ -14085,3 +14085,52 @@ The ledger's newest entries are from a LATER session doing env-block flashing on
 let the write run anyway"). So the board's state is owned by that work, not by anything recorded
 here. **The recovery door is available** (the OACK-less reader plus the genuine 2.4.15 at
 `build/tmp/recovery/recovery.bin`) and needs the cold RESET-hold, which is the operator's.
+
+
+## PHASE 150 (2026-10-12): THE DARK STATE IS A **HANG, NOT A PANIC** - AND THE CRUMB SURVIVES TO PROVE IT
+
+## ★★ THE CONFIG EVIDENCE
+
+    CONFIG_PANIC_TIMEOUT=0            <- the compiled default: hang forever on panic
+    CONFIG_PANIC_ON_OOPS_VALUE=0
+    CONFIG_PSTORE=y  PSTORE_RAM=y  PSTORE_CONSOLE=y   <- pstore IS enabled (a panic WOULD be recorded)
+
+and `core_param(panic, panic_timeout, int, 0644)` at `kernel/panic.c:763` means the cmdline `panic=5`
+**does** override the compiled 0 - our CONFIG_CMDLINE begins with `panic=5`, so a panic would enter
+`panic()` and print `Rebooting in 5 seconds..` then reset.
+
+## ★★★ SO THE OBSERVED DARK STATE IS NOT A PANIC
+
+**We saw no reboot on the wire** - no link up/down cycling, no ARP, no ports at any moment. A `panic=5`
+kernel that panicked would have reset within ~5 s and either looped or failed over. **The box sat
+there.** Therefore our kernel **hung before reaching the panic path** - early init, clocks, DDR, the
+decompressor, or a driver blocking with interrupts off.
+
+## ★★★★ AND THE RECOVERY IS ALSO A MEASUREMENT
+
+`0x10100C18` is **not RAM** - it is a latched sysctrl register, which is exactly why the poison
+`0xA5A5A5A5` and then the crumb `0xC0DE502D` both survived reboots, a TFTP recovery AND a factory reset
+repeatedly in this session. **So whatever our kernel wrote there during FIRE 27 is still there.**
+
+**The recovery therefore answers the objective's central question in one read.** The crumb ladder:
+
+    C0DE0001 -> setup_arch entered        (hangs in the very earliest code)
+    C0DE0002 -> machine init started      (our mach-luofu code runs)
+    C0DE0003 -> machine init RETURNED     (the hang is downstream, in driver/initcall)
+    C0DE0010 -> early_initcall reached
+    C0DE0020 -> late_initcall / the hang signature
+    C0DE502D -> the timer ran             (userspace reached; a dark box is then a NETWORK problem)
+    A5A5A5A5 -> never executed            (u-boot did not take the jump after all)
+
+**Each value names a different failure site. That is the whole experiment.**
+
+## THE PLAN, IN ORDER
+
+    1. [user]  RESET-hold -> the armed door serves firmware/2.4.15.bin (20,975,775 B)
+    2. [read]  re-lay the shell (the PHASE 147 recipe, with -c on the login POST)
+    3. [READ]  **devmem 0x10100C18** - the FIRE 27 crumb, the objective's central measurement
+    4. [judge] map the value with the table above and name the failure site
+
+**Nothing else should be done before step 3.** The board is dark, both slots hold a kernel of known
+provenance (`kernelb` = our FIRE 27 image, `kernela` = our FIRE 23 image), and the host-side rollbacks
+are verified, so every option is still open.
