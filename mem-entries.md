@@ -14478,3 +14478,67 @@ mounting the rootfs. The candidate sites are now narrow and nameable:
 **And the instrument to discriminate them already exists**: the driver writes intermediate crumbs
 (`C0DE0001..0020`, `C0DE5001..500B`) that the tick can overwrite - so a fire designed to die FAST (no
 tick) would leave an intermediate crumb visible. That is a concrete next experiment, not a guess.
+
+
+---
+
+# PHASE 61 (2026-10-12): THE WEB LOGIN - WHAT I TRIED, AND THE ONE FACT I NEED
+
+## THE USER'S POINT, AND IT IS FAIR
+
+"you should be able to do everything I never had to use the browser ever" - and the record agrees: the
+systime RCE was driven from the shell repeatedly (`tools/rce_probe.sh`), and I re-laid ssh this same
+way earlier in this session. So the browser is not necessary in principle.
+
+## WHAT I FOUND WHILE FAILING TO REPRODUCE IT
+
+`tools/rce_probe.sh` is the tell, and I read it only after several failed attempts: **it performs NO
+login.** It does `curl -b wj.txt ...` - a cookie jar that must ALREADY hold a `sysauth` session - and
+then scrapes the csrf/token from an authenticated page. So the tool assumes the session exists; it
+does not create one.
+
+That means the earlier success in this session was not the tool being clever - it was a session that
+had already been established. **The reflash reset the auth state, and I have not re-created it.**
+
+## WHAT I TRIED (and every one returned HTTP 403)
+
+- the project's own `opensource/tools/web-login.sh` (which uses a HARDCODED salt
+  `f2e816513d9cb58b008f4404af651581`) - LOGIN-FAIL
+- the page's own `salt` field with `sha256(sha256(pw+salt)+token)` (the exact scheme read out of
+  `sysauth.js`)
+- single-hash `sha256(pw+salt)`; both hash orders (salt/token swapped)
+- passwords 7 and 11 characters (the page's JS requires 8..64)
+- fresh cookie jars, a browser User-Agent, and a Referer from the meta-refresh stub
+- GET on `/`, `/cgi-bin/luci/`, `/cgi-bin/luci`, `/cgi-bin/luci/admin/wizard`, `/login.html`
+
+## THE DECISIVE OBSERVATION
+
+**`/cgi-bin/luci/` returns the wizard form INSIDE a 403 page, and the server sets NO `Set-Cookie`
+anywhere I probed** (`/`, `/cgi-bin/luci/`, `/cgi-bin/luci/admin/wizard`, `/cgi-bin/luci/admin/system/reboot`,
+`/login.html`). With no session cookie, every POST is rejected on csrf - which is exactly the 403 seen.
+
+`/login.html` 302s to `/?url=...`, and `/` is a 604-byte **meta-refresh** stub that `curl -L` does NOT
+follow (it follows HTTP 30x only, not `<meta http-equiv=refresh>`). That is a real difference between
+curl and a browser - but even requesting the target directly with a Referer produced no cookie.
+
+## WHAT I AM NOT DOING
+
+Not retrying further. Nine variants is past the point where another guess is honest, and the failure
+is not in the hash (the scheme is known verbatim from `sysauth.js`) - it is that no session is being
+established. Guessing a tenth time would be motion, not progress.
+
+## THE ONE FACT THAT WOULD UNBLOCK IT
+
+What the browser carries that curl does not, on THIS build. The cheapest way to get it is a one-line
+paste from a browser that is already on the page: open `http://192.168.10.1`, and after the wizard
+submits successfully, copy the `sysauth` cookie value from devtools. With that one value in `wj.txt`,
+everything else in this project works as it did before - the systime RCE, the ssh re-lay, the cal
+tools.
+
+Alternatively: say the word and I will flash the custom image (which carries the `omosshd` layer), so
+the box has ssh from boot and no web login is needed at all.
+
+## STATE
+
+Board: stock 2.4.15 (verified `FW: 2.4.15-20251030-114751`), 6 ifaces / 2 wiphys, web UI reachable,
+no ssh, no session. TFTP door killed, UDP 69 free, scratch files removed.
