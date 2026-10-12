@@ -16226,3 +16226,69 @@ Board healthy on the vendor slot (2.4.15, 6 interfaces, 0 leftovers, selector 0x
 hsan,crg match (submodule) and this note.  Kernel still boots OpenWrt to procd; the NIC is the last
 blocker, and it is now narrowed to "register a #clock-cells = <0> provider on the clock node the
 peripherals reference".
+
+
+---
+
+# PHASE 87 (2026-10-12): THE CRG BINDS AND REGISTERS ITS CLOCK TREE - THE GATE WALK IS STILL WRONG
+
+## REAL, MEASURED PROGRESS (this is the first movement in the whole NIC chain)
+
+    BEFORE this session:  C90 = 0x00000000   the CRG device never probed at all
+    NOW:                  C90 = 0xC0DE5002   the clock tree registers
+
+The cause was a NAME: the kernel does not run the DT we build and append.  Vendor u-boot's bootfip
+hands it ITS OWN tree (root compatible "hsan-luofu", confirmed at /proc/device-tree/compatible), and in
+that tree the block is "hsan,crg".  Our driver matched only "hisilicon,luofu-crg", so it registered and
+then matched NO device - probe never ran, provider never registered, and gmac + mdio both died at clock
+acquisition.  luofu-gmac and luofu-mdio already carried their vendor aliases ('hsan,mac', 'hsan,mdio'),
+which is why their probes always ran.
+
+**Corollary worth keeping: editing the DTS is useless for anything the kernel consumes, because the
+kernel never reads it.**  Removing "syscon" from the crg node changed nothing for exactly that reason.
+
+## THE VENDOR'S CLOCK MODEL IS NOT OURS (measured on the device)
+
+    mdio0/clocks   = 00 00 00 4c     one cell: bare phandle 'L' = 0x4C
+    gemac0/clocks  = 00 00 00 42     one cell: bare phandle 'B' = 0x42
+
+Two nodes at 0x14880000:  crg@14880000 ("hsan,crg", what we match) and clk@14880000 ("hsan,clk", the
+clock node consumers reference).  `<phandle>` with no index means #clock-cells = <0> - one clock per
+node - where our onecell provider expects `clocks = <&crg N>`.  The models cannot resolve each other.
+
+Resolved on the device: the gates live under /proc/device-tree/clk@14880000 as
+
+    clk_gate@002003   hsan,clk-gate   phandle 'L'   <- mdio0
+    clk_gate@002019   hsan,clk-gate   phandle 'B'   <- gemac0
+    (plus ~18 more, all hsan,clk-gate; pll/mux siblings)
+
+reg encodes the geometry: 0x2003 -> offset 0x20, bit 0x03 - which matches our own LUOFU_CLK_MDIO0 row,
+though gemac0 points at 0x2019 where our table says bit 0x13 (another reason to read reg, not the table).
+
+## WHY THE PLATFORM-DRIVER ROUTE COULD NOT WORK
+
+A per-node gate provider as a platform_driver never ran: `of_platform_default_populate` creates devices
+for the ROOT's children and recurses only into nodes matching of_default_bus_match_table (simple-bus,
+simple-mfd, ...).  clk@14880000 is "hsan,clk" - not a bus - so its children are never turned into
+devices.  Measured: the vgate probe's crumb stayed 0.
+
+Rewritten as a DT walk from the CRG probe.  Instrument in the function that actually runs, counting
+stages, gives:
+
+    vgate @0xC9C = 0xDED40000     seen = 0xD4 = 212 children, matched 'hsan,clk-gate' = 0, providers = 0
+
+**212 children and zero gates** - while /proc/device-tree/clk@14880000 shows ~20 gate children.  So the
+node being walked is NOT the node the device exposes.  Addressing it by exact path
+(`of_find_node_by_path("/clk@14880000")`, then the compatible as fallback) produced the SAME 0xDED40000,
+so both lookups land on whatever node has 212 children.  A node with ~212 children in a large DT is
+plausibly the ROOT itself.
+
+**NEXT STEP, and it is narrow:** in the walk, record the found node's NAME (and its first child's
+compatible) into the crumb, so the next fire says which node was walked instead of inferring it.  That
+is one fire, and it settles path-vs-compatible-vs-root in a single read.
+
+## STATE
+
+Board healthy on the vendor slot every fire (2.4.15, 6 interfaces, 0 leftovers, selector 0x10); our
+kernel reliably boots OpenWrt to procd.  Committed: hsan,crg match, the DT-walk provider, the per-driver
+diagnostic cells, the watchdog-backstop restart.
