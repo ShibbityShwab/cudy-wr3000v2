@@ -16352,3 +16352,53 @@ shape falls out of it.  This is the single highest-value next action and it cost
 ## STATE
 
 Board healthy on the vendor slot every fire (2.4.15, 6 interfaces, 0 leftovers, selector 0x10).
+
+
+---
+
+# PHASE 89 (2026-10-12): THE DEVICE CORRECTS TWO OF MY CONCLUSIONS
+
+Read directly off the running box (no fire):
+
+    /proc/device-tree/clk@14880000/compatible  = "hsan,clk syscon simple-mfd"
+    /proc/device-tree/clk@14880000/            = 24 children: 16 clk_gate@*, clk_pll1@0198,
+                                                 clk_pll2@01e0, cpu_mux@01388, efuse_mux@0138
+                                                 + compatible/name/phandle/reg property files
+    /proc/device-tree/ (root)                  = 73 children
+
+## CORRECTION 1: THE WALK WAS NEVER ON THIS NODE
+
+My walk reported seen = 212 children.  This node has 24.  The root has 73.  212 matches NEITHER, so
+neither `of_find_node_by_path("/clk@14880000")` nor `of_find_compatible_node(NULL,NULL,"hsan,clk")`
+returned this node - even though "hsan,clk" is an exact member of its compatible list and the path is
+exactly right.  Something else is being returned, and the earlier "212 children" reasoning (which I
+attributed to the root) was itself unfounded.
+
+## CORRECTION 2: THE PLATFORM-DRIVER ROUTE WAS DISCARDED ON A FALSE PREMISE
+
+I concluded that the gate nodes "never become platform devices" because clk@14880000 is not a bus.
+**It is: its compatible includes `simple-mfd`, which IS in of_default_bus_match_table.**  So
+of_platform_default_populate should recurse into it and instantiate its children.  The vgate
+platform_driver should have bound them, and its crumb stayed 0 for some OTHER reason.
+
+**Both corrections point the same way: stop composing more ways to FIND the node, and first establish
+what the lookups actually return.**  The node-name stamp was the right instrument and it did not reach
+the cell (the counters still read 0xDED40000), so the instrument itself needs verifying before the
+question is asked again.
+
+## THE HONEST BOTTOM LINE FOR THIS STRETCH
+
+WON and measured:
+    C90 = 0xC0DE5002   the luofu-crg driver binds and registers its clock tree (was 0x00000000 always)
+    scheduler oops gone; restart can no longer strand the board; our kernel boots OpenWrt to procd
+    the diagnostic-cell map (0xC8C/C90/C94/C98, never 0xC08, never 0xC18/0xC1C; volatile on power cycle)
+
+STUCK:
+    the vendor clock model - consumers use `clocks = <&clk_gate@002003>` (#clock-cells = <0>) while our
+    provider is a onecell on the crg.  Four fires have produced one fact (seen=212) that this read
+    shows is not about the node I thought.
+
+NEXT, and it is deliberately small: make the instrument PROVE ITSELF.  Write the node handle (or a
+constant) into 0xC9C from the same place and confirm the write lands BEFORE using it to name the node -
+because the last stamp did not land and I read its absence as data.  A crumb that cannot be shown to
+have run is not evidence.
