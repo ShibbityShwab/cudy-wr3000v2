@@ -16402,3 +16402,57 @@ NEXT, and it is deliberately small: make the instrument PROVE ITSELF.  Write the
 constant) into 0xC9C from the same place and confirm the write lands BEFORE using it to name the node -
 because the last stamp did not land and I read its absence as data.  A crumb that cannot be shown to
 have run is not evidence.
+
+
+---
+
+# PHASE 90 (2026-10-12): THE 0xC9C INSTRUMENT IS UNSOUND - EVERY READING FROM IT IS VOID
+
+Three consecutive builds wrote three DIFFERENT payloads into 0xC9C and all three reads returned the
+IDENTICAL value:
+
+    build "counters"  -> stage counters   0xDEC00000 | (212<<16) | ...   read back 0xDED40000
+    build "nodename"  -> ASCII name bytes (should read "clk@" = 0x636c6b40)   read back 0xDED40000
+    build "ptr"       -> the device_node pointer (should be 0xC0xxxxxx/0x8xxxxxxx)   read back 0xDED40000
+
+Three different values cannot all read back as one value.  So 0xC9C is not holding my writes: either
+another writer owns that cell, or the writes do not stick there.
+
+**CONSEQUENCE, and it is the important one: every reading I took at 0xC9C is VOID.**  That includes
+"seen = 212 children, matched = 0", on which I then built TWO conclusions:
+
+    "the walk lands on the wrong node"                -> not established
+    "the gate nodes never become platform devices"    -> WITHDRAWN (the device shows clk@14880000 carries
+                                                         "hsan,clk syscon simple-mfd", and simple-mfd IS
+                                                         in of_default_bus_match_table, so its children
+                                                         SHOULD be instantiated)
+
+The second was already suspect from the device read; this makes it official.
+
+## WHAT REMAINS SOLID (independent of 0xC9C)
+
+    C90 = 0xC0DE5002   the luofu-crg driver BINDS and REGISTERS ITS CLOCK TREE.
+                       This is trustworthy because it CHANGED in response to a specific fix
+                       (0x00000000 -> 0xC0DE5002 when "hsan,crg" was added), on a cell that was
+                       verified writable by a controlled test.
+    gmac 0xC0DE6F03 / mdio 0xC0DE7F03   both still die at the clock step
+    mach 0xC0DE8D00   drv registered, eth0 absent
+    the scheduler oops is gone; restart cannot strand the board; OpenWrt boots to procd every fire
+
+## THE RULE THIS EARNS
+
+A diagnostic cell must be PROVEN to carry the value you write before any inference rests on it, and the
+proof must use a payload that could not coincidentally match.  I wrote three different payloads to 0xC9C
+and read one value back three times; the correct first move was a single write-read of a unique
+sentinel, checked in the SAME fire that added the instrument.  Instead I read an instrument's consistent
+silence as data for two phases.
+
+## NEXT (deliberately narrow, and no inference until it passes)
+
+  1. Pick a DIFFERENT cell from the verified-writable set (0xC80..0xC88, 0xC8C..0xC98 are in use) and
+     write a UNIQUE sentinel; read it back in the same fire.  If it sticks, that cell becomes the
+     instrument; if it does not, the write path itself is the problem.
+  2. Only then re-ask the clock-node question.
+  3. The device-side read already gives a stronger lead and needs no cell at all: clk@14880000 is
+     "hsan,clk syscon simple-mfd" with 16 clk_gate children, so the PLATFORM-DRIVER route is likely
+     viable after all - the vgate crumb's silence at 0xC9C is no longer evidence against it.
