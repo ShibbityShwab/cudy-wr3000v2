@@ -15184,3 +15184,67 @@ Zero device risk: two `curl`s and a file diff, all host-side. **No fire, no rese
 ## STATE
 
 Board untouched and healthy. Sources under `build/tmp/hisi-src/{hcc,pcie}/`.
+
+
+---
+
+# PHASE 71 (2026-10-12): THE HiSilicon REGISTER MAP VS OURS - IT CONFIRMS US, AND ONE BASE DISAGREES
+
+Continuing the vendor-source thread. Two results, one a confirmation and one a concrete discrepancy.
+
+## 1. THE CONFIRMATION: OUR REVERSED CHANNEL MAP MATCHES THE VENDOR'S HEADERS
+
+`platform/inc/oal/mp16/host_ctrl_rb_regs.h` (138,756 B, HiSilicon 2021-2023) defines the host-control
+register block. Its TX-channel offsets are offsets OUR docs ALREADY carry:
+
+    0x400 TX_CH0_EN          0x404 TX_CH0_MODE        0x408 TX_CH0_PRI
+    0x410 TX_CH0_SR_BASE     0x414 TX_CH0_SR_ENTRY_NUM 0x418 TX_CH0_SR_HEAD_PTR
+    0x41C TX_CH0_SR_TAIL_PTR 0x420 SR_AFULL_TH        0x424 SR_AEMPTY_TH
+    0x428 TX_CH0_DR_BUFF_SZ  0x430 TX_CH0_DR_BASE_ADDR
+    ... 321 registers named by the vendor in total
+
+and its interrupt block matches too (`0x874` ETE_INTR_STS, `0x884` CH_DR_EMPTY_INTR_STS, `0xF00`
+PCIE_CTL_ETE_INTR_MASK, `0xF08` ...STS - all four are already in `docs/phase42/ete-registers-reconciled.md`).
+**So our hand-reversed register map is corroborated by the vendor's own header.** That is worth having.
+
+Also from `host_irq_mp16.h`, the COMPLETE list of MAC interrupt sources (new as a list):
+`rpt_host_intr_{rx_complete, tx_complete, rx_ppdu_desc, norm_ring_empty, small_ring_empty,
+data_ring_overrun, ba_info, ba_info_ring_overrun, ba_win_exceed, common_timer, location_complete,
+location_intr_fifo_overrun, msdu_table_rptr_mismatch, msdu_table_rptr_overtake}` - i.e. the host writes
+`hal_set_host_mac_int_mask(hal_dev, 0xffffffff)` and the device asserts on any unmasked one, and the ISR
+reads `irq_status_reg` then `mp16_clear_host_mac_int_status()`.
+
+## 2. ★ THE DISCREPANCY: THE BLOCK'S BASE
+
+    vendor:  HOST_CTRL_RB_BASE = 0x40113000        (host_ctrl_rb_regs.h)
+    ours:    the same offsets paired with 0x40039000
+
+Check the correspondence - it is exact, offset for offset:
+
+    vendor HOST_CTRL_RB_HOST_CTRL_GP_REG0_OFF = 0x010   <->   our doc: 0x40039010
+    vendor block base                         0x40113000 <->   our block base 0x40039000
+
+**Same layout, two bases.** Every offset we know (`0x2D4`, `0x2E8`, `0x2F0`, `0x400`, `0x874`, `0xF00`)
+is identical; only the base differs. The plausible reconciliation is that these are the two VIEWS of one
+register block - the chip-side address (`0x40113000`, which the vendor's own headers use) and the
+host-side window (`0x40039000`, which is what our BAR0 mappings produced) - but that is a hypothesis,
+NOT something either source states, and **our `0x40039000` is inside the vendor's `REGION_W_PERP_AHB`
+(`0x40000000..0x40102FFF`) while `0x40113000` is NOT.** Those are different regions, so this is not a
+trivial alias and it should not be assumed away.
+
+**Why it matters:** if our base is wrong, every register our driver touches in that block is at the wrong
+address - and yet our experiments have produced plausible results, which is exactly the failure shape
+this project keeps warning about ("a wrong base produces a plausible number"). It is worth one
+read-only check: read a known-constant register of the block through both bases and compare.
+
+## 3. AND THE SOURCE WAS ALREADY FOUND - AGAIN
+
+`docs/phase38/web-sdk-research.md` (the SDK search) AND `docs/phase45/hi1105-mailbox-irq.md` (the
+hi1105 register reconciliation) already cover this ground; our record even carries the string
+`HOST_CTRL_RB`. So this thread re-trodden known territory a second time. **The durable rule, now twice
+violated: grep `docs/phase38` and `docs/phase45` before touching any HiSilicon web source.**
+
+## ARTIFACTS
+
+`build/tmp/hisi-src/{hcc,pcie,irq}/` - the fetched vendor sources (HCC, PCIe iATU + region table,
+HAL IRQ, per-chip register maps).
