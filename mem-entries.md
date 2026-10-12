@@ -14690,3 +14690,67 @@ artifact). The generalisable rule, and it is the same one recorded after the log
 
 Board: stock 2.4.15, ssh OK, 6 ifaces / 2 wiphys, 0 leftovers. Fix committed; image builds and its
 initcall order is verified in the binary. The next fire is the confirmation of the prediction above.
+
+
+---
+
+# PHASE 64 (2026-10-12): THE FIX IS RIGHT, THE FIRES WERE MIS-READ, AND I TOOK THE BOX DOWN
+
+## THE FIX ITSELF STANDS
+
+Root cause found from our kernel's own log (the ring at `0x80603000`, which the vendor's boot
+preserves): `ubi.mtd=<name>` is resolved by `get_mtd_device_nm()` INSIDE `ubi_init()`, which is a
+`late_initcall` (level 7) - so the partition named "upgrade" must already be REGISTERED by then, and
+only our driver registers it. `eba7094` had moved registration to `late_initcall_sync` (7s, AFTER 7),
+so UBI found nothing, attached nothing and the kernel panicked on `ubiblock0_0`. Fixed by restoring
+`module_platform_driver` (device_initcall, level 6) plus a separate `late_initcall_sync` diagnostic,
+and verified in the linked binary: `__initcall_luofu_fmc_driver_init6` -> `__initcall_ubi_init7` ->
+`__initcall_luofu_fmc_ubi_diag7s`.
+
+## FOUR FIRES, AND TWO READING ERRORS OF MINE
+
+1. env: enva=b, envb=a (active). u-boot read **kernela** (vendor). No-op. Correct.
+2. set envb=b -> u-boot read **kernelb** (our image). Our kernel ran and **died before its first
+   crumb**; poison intact. I read this as "never entered" - WRONG.
+3. set BOTH copies to b (CRC-verified) -> same. I then concluded "the env is not the selector" -
+   **WRONG, and this was the costly mis-read.**
+4. moved our image to **kernela**, vendor to kernelb -> u-boot read **kernelb** (the vendor) and booted
+   the vendor cleanly - which is what PROVED the env works and reversed error 3.
+
+**The intact poison is consistent with two different worlds** - "never entered" and "entered, died
+before `setup_arch` writes `C0DE0001`" - and I only ever considered the first. Fire 4 was the
+discriminator: it booted the vendor from the slot our image had just vacated, which is only possible
+if u-boot reads `bootflag` from the env.
+
+## THE MISTAKE THAT TOOK THE BOX DOWN
+
+Fire 4 moved the LAST VENDOR KERNEL from kernela into kernelb. Fire 5 (the control) then wrote FIRE
+28's artifact into kernelb - **overwriting that only vendor copy**. Both slots now hold OUR kernels,
+so there is no good slot to fall back to, u-boot loops, and the board is down
+(`192.168.10.1` no ping, no ARP, no port 22).
+
+**The rule I broke, in my own record already:** the pre-flash GO/NO-GO gate exists to stop exactly
+this - "a stale `kernelb` backup caught by the pre-flash gate" is cited in `boot-slot-and-wdt-mechanics.md`
+as a SUCCESS of that gate. Fire 5 had no such gate: it verified the write it was making but never
+checked that the OTHER slot still held something bootable.
+
+## RECOVERY - THE OPERATOR'S ACTION, AND IT IS READY
+
+    unplug power -> HOLD RESET -> power on WHILE HOLDING -> release -> the bootrom RRQs recovery.bin
+
+The TFTP door is **armed right now** (UDP 69, serving the genuine `build/tmp/recovery/recovery.bin`,
+20,975,775 B = stock 2.4.15), and the host alias 192.168.1.88 is up. This exact sequence has restored
+the board three times.
+
+## HELD ASSETS (nothing is lost)
+
+    build/tmp/fire-p04/kernela.bin   8,650,752 B  md5 ecb3990e...  the VENDOR kernel
+    build/tmp/fire-p04/kernelb.bin   8,650,752 B  md5 00f338a7...  FIRE 28's artifact
+    build/tmp/fire-p04/enva.bin / envb.bin                        both env copies
+    build/tmp/recovery/recovery.bin  20,975,775 B                 the recovery image
+
+## WHAT THE NEXT SESSION MUST DO DIFFERENTLY
+
+Before ANY write to a kernel slot, assert that the OTHER slot still holds a kernel whose first bytes
+match a known-good md5 - and print both md5s in the run's own log so the check is visible in the
+artifact. Fire 5 checked only the slot it was writing.
