@@ -16692,3 +16692,46 @@ After the panic the board falls back to the vendor slot, and the sysctrl cells r
 0xC0DE6004 (last milestone before the crash) while mdio/mach read 0 in the post-reboot sample.  Read cells
 in the SAME turn the fire settles, before any automatic reboot, or they are lost.  The panic trace in the
 serial tail is what carried the real information here.
+
+
+---
+
+# PHASE 96 (2026-10-12): WHICH TREE IS ACTIVE - SETTLED. AND THE phylink BUG NEEDS ONE MORE READ
+
+## SETTLED: OUR DTB IS THE ACTIVE ONE
+
+    build/tmp/wsl_build_kernel.sh:  cp "$R/docs/soc/luofu-r116.dts" arch/arm/boot/dts/luofu-r116.dts
+
+So the kernel runs the DTB built from opensource/docs/soc/luofu-r116.dts.  That resolves the recurring
+"which tree" question, and it explains several earlier observations at once:
+
+  - our gmac/mdio nodes are `status = "okay"` while the vendor's are `status = "disabled"` - and our
+    driver PROBES them, which only happens with our tree
+  - the vendor's gemac node carries `hsan,mac`/`hsan,mdio`; ours carries `hisilicon,luofu-gmac` plus the
+    vendor aliases we added - which is why both name matches now bind
+
+## CORRECTION TO MY OWN PHASE-95 READ
+
+I wrote that `of_get_phy_mode` failed and fell back to PHY_INTERFACE_MODE_NA.  **Our DTS actually sets
+`phy-mode = "rgmii"` on gmac0 (line 464)**, so that fallback should NOT be taken.  The panic is at
+phylink_validate+0x18 reached from phylink_create, with a valid-looking rgmii - so the cause is
+ELSEWHERE in the phylink setup, not the mode string.
+
+Candidates to check, in order, from the source we control:
+  - g->pl_config.mac_capabilities never set (phylink_validate reads it; an unset/zero value changes the
+    path taken)
+  - luofu_gmac_phylink_ops missing an op phylink requires (mac_config/mac_link_up/down)
+  - pl_config.type = PHYLINK_NETDEV while no netdev is attached yet at create time
+
+## MILESTONE THIS SESSION ACTUALLY REACHED (measured)
+
+    CRG binds (hsan,crg match)                          FIXED
+    clock tree registers (0xC90 = 0xC0DE5002)           FIXED
+    16/16 gate providers register by exact path         FIXED
+    gmac/mdio clear clock acquisition (step 3)          FIXED
+    gmac/mdio clear resets (step 4)                     FIXED
+    luofu_gmac_probe reaches phylink_create             REACHED  <-- new high-water mark
+    panic inside phylink_validate                       OPEN
+
+The probe now walks a real, increasing distance through the driver; each fix moved the failure one step
+further rather than to a different random place.
