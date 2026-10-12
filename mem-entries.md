@@ -13768,3 +13768,60 @@ reproduce it; if it does not, the difference is the answer.
 
     the board is on the vendor stack, ssh restored (dropbear re-laid), the owrt volume intact in mtd16,
     kernela holding the rootwait image (md5 11cb22b0509a196c95ba9b12f7374cde) and kernelb stock.
+
+
+## PHASE 146 (2026-10-12): THE REPRODUCIBILITY GAP, MEASURED - AND A RE-FIRE OF THE EXACT ARTIFACT THAT RAN
+
+## ★★★ THE REPRODUCIBILITY TEST FAILED, AND THAT IS THE FINDING
+
+Running `build-r4fix.sh` NOW, unchanged, does **not** reproduce the artifact that ran:
+
+    FIRED (and RAN)        : payload 2,643,024 B  md5 2def5cc1ad969c85003efcc8922521dc
+    SAME SCRIPT, REBUILT   : payload 2,642,496 B  md5 d1ca2b26b4030e5bda4ee3be67566405
+                             (528 bytes smaller)
+
+**So every fire since FIRE 23 has been measured against a baseline I cannot reproduce.** That alone
+explains why my EXTEND-vs-FORCE model failed to predict FIRE 25: the variable I thought I was holding
+constant was not held constant, because I could not re-make the control.
+
+## WHAT IS AND IS NOT THE DIFFERENCE (measured, not guessed)
+
+Both payloads are **raw zImages** (ARM nops at the head), and their 64-byte self-extractor headers are
+**byte-identical except for ONE field**:
+
+    fired   : 0000a0e1 x8, 050000ea, 18286f01, 00000000, **50542800**, 01020304, 45454545, a05e0000, 00900fe1
+    rebuilt : 0000a0e1 x8, 050000ea, 18286f01, 00000000, **40522800**, 01020304, 45454545, a05e0000, 00900fe1
+                                                                   ^^^^^^^^^^ the only difference
+
+That field (`0x00285450` vs `0x00285240` = 2,643,536 vs 2,642,496) is the **compressed payload length**.
+Same magic, same `EEEE` marker, same decompressor instructions, same entry code.
+
+**So the decompressor is identical and the COMPRESSED BODY differs by 528 bytes.** In an XZ stream that
+could correspond to a small or a large source change - compression hides it - so this comparison cannot
+tell me WHAT changed, only THAT something did.
+
+**What I checked and ruled out:**
+    - `.config.good` is INTACT (still `CMDLINE_EXTEND=y`, no `rootwait`) - md5 12dfee757497f0cbc5b64e415999f3de
+    - `patched-compressed-head.S` (39544 B) and `patched-head.S` (23426 B) are present and unchanged
+    - the build tree's `arch/arm/boot/compressed/head.S` and `arch/arm/kernel/head.S` were refreshed by
+      the script at build time
+
+**What I have NOT yet isolated:** whether the difference is the kernel tree's stale build objects (the
+script never cleans), or a source/config delta introduced between FIRE 23 and now.
+
+## THE DECISIVE DISAMBIGUATION: FIRE 26 = RE-FIRE THE EXACT ARTIFACT THAT RAN
+
+`build/tmp/slice/r4fix-slot.bin` (md5 `00f338a74c92bb9f054a689d98b007f1`) is still on disk, unmodified.
+It was written to `kernela` **byte-exact** (read back and verified), the poison was armed with
+`0xA5A5A5A5` and re-read, the `owrt` volume was confirmed present, and the box was rebooted.
+
+**This separates the two remaining hypotheses in ONE fire:**
+
+    if C18 comes back 0xC0DE502D  -> the ARTIFACT is what decides, and my rebuilds differ in a way that
+                                     stops execution. The difference is then the thing to find.
+    if C18 comes back 0xA5A5A5A5  -> the image is NOT the variable: something about the DEVICE STATE
+                                     (env, boot_reg, the way the slot is reached) changed between
+                                     FIRE 23 and now.
+
+**Either answer is decisive and neither is currently known.** Recorded before the result is read, so the
+prediction cannot be fitted to it afterwards.
