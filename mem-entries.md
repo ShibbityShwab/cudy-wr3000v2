@@ -15248,3 +15248,49 @@ violated: grep `docs/phase38` and `docs/phase45` before touching any HiSilicon w
 
 `build/tmp/hisi-src/{hcc,pcie,irq}/` - the fetched vendor sources (HCC, PCIe iATU + region table,
 HAL IRQ, per-chip register maps).
+
+
+---
+
+# PHASE 72 (2026-10-12): A BUILD-HARNESS BUG THAT WAS SILENTLY DISCARDING EVERY mach-luofu EDIT
+
+Found while trying to verify the fallback-arm change: the rebuilt kernel's `luofu_early` still
+tail-called straight to `luofu_crumb`, with none of the new code in it.
+
+## THE BUG
+
+    build/tmp/wsl_build_kernel.sh:40   cp -r "$R/lab/luofu-kernel/mach-luofu" arch/arm/mach-luofu
+
+`cp -r` MERGES into an existing destination, so on the second and every later build the source landed
+at `arch/arm/mach-luofu/mach-luofu/` and the STALE file at the top level kept being compiled. Measured:
+
+    /opt/kbuild/.../arch/arm/mach-luofu/mach-luofu     EXISTS  (nested)
+    kernel tree's arch/arm/mach-luofu/luofu.c contains luofu_arm_fallback :  0
+    our source lab/luofu-kernel/mach-luofu/luofu.c contains it            :  2
+
+**So every edit to `mach-luofu/*` since the tree was first created has been silently ignored** - which
+includes the whole crumb ladder being frozen at whatever it was on that first build. Any change made to
+`mach-luofu/luofu.c` in the interim was never in any image that was flashed.
+
+**AND A PRIOR SESSION ALREADY HIT THIS EXACT BUG AND FIXED IT - FOR THE NAND DRIVER ONLY:**
+
+    line 45-50: # FORCE the NAND driver copy, and then CHECK it. `cp -r` MERGES into an existing ...
+                rm -rf drivers/mtd/nand/luofu
+                cp -r "$R/lab/luofu-kernel/nand/luofu" drivers/mtd/nand/luofu
+
+They wrote the comment, added the `rm -rf`, and did not notice that line 40 had the same defect.
+
+## THE FIX
+
+    rm -rf arch/arm/mach-luofu
+    cp -r "$R/lab/luofu-kernel/mach-luofu" arch/arm/mach-luofu
+
+and the pre-existing comment block extended to name this instance. Verified afterwards by DISASSEMBLING
+the linked `luofu_early`, not by trusting the size delta - the previous build's -8 B looked like a code
+change and was compressor noise, which is exactly how this bug stayed invisible.
+
+## RULE
+
+**A rebuilt image is not evidence that the change is in it.** After any edit to a file that a build
+script copies, verify it in the ARTIFACT (`objdump`/`nm`/`strings` on `vmlinux` or the zImage), never
+by the build succeeding and the size moving.
