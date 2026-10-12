@@ -14957,3 +14957,17 @@ cell persists across a reboot. The env `bootflag` is an OUTPUT that u-boot re-st
 
 Board: stock 2.4.15 on the **A pair**, ssh OK, 6 interfaces / 2 wiphys, 0 leftovers, both slots vendor.
 Cell `0x10100C08` = 0x10.
+
+### ADDENDUM to PHASE 67 - the reverse direction confirms the mapping
+
+    cell 0x11 -> B pair (mtd14)      [observed before the forward test]
+    write 0x10 -> reboot -> cell 0x10, mtd13 (A pair)     [forward]
+    write 0x11 -> reboot -> cell 0x11, mtd14 (B pair)     [reverse]
+
+Both directions with a controlled write, both tests zero-risk because both slots held the vendor
+kernel. The cell survives a reboot and no kernel driver restores it.
+
+**Failover, stated honestly: UNKNOWN, and assume there is none.** The selection branch only
+re-validates when the low byte is 0; a recorded value is reused, so a boot that fails in the recorded
+slot looks like a retry loop. `FUN_8004ea60` is u-boot's own TFTP `recovery.bin` fetch loop and it did
+NOT fire during the 2026-10-12 outage despite an armed door - so it is not an automatic safety net.
