@@ -14594,3 +14594,99 @@ step.** Nine guesses cost more than one search would have.
 ## STATE
 
 Board: stock 2.4.15, ssh OK, 6 ifaces / 2 wiphys, 0 leftovers, dropbear durable, web session live.
+
+
+---
+
+# PHASE 63 (2026-10-12): ★★★★★ THE BOOT FAILURE IS FOUND AND FIXED - AND IT WAS MY OWN "COMPILE FIX" ★★★★★
+
+## THE ROOT CAUSE, FROM OUR KERNEL'S OWN WORDS
+
+FIRE 28 left its log in the ring at `0x80603000` - which the record says is BELOW `0x80608000`, the
+window the vendor preserves. The vendor system was still running, so the log was **readable
+afterwards, with no recovery and no pstore**:
+
+    [3.945103] /dev/root: Can't open blockdev
+    [3.949232] VFS: Cannot open root device "ubiblock0_0" or unknown-block(0,0): error -6
+    [4.076902] Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0)
+    [4.180338] Rebooting in 5 seconds..
+
+(and that last line also corrects PHASE 150: the dark state IS a panic, and `panic=5` DID fire.)
+
+**`ubiblock0_0` never existed**, so `root=` could not open, so the kernel panicked. All 17 mtd
+partitions WERE registered (mtdblock0..mtdblock16 are all listed) - so the driver ran. What never
+happened was the **UBI attach**.
+
+## WHY UBI NEVER ATTACHED - THE ORDERING, VERIFIED IN SOURCE
+
+`ubi.mtd=<name>` is **not** resolved when the command line is parsed. Read from 5.10.201:
+
+    drivers/mtd/ubi/build.c:1390  ubi_mtd_param_parse()   -> strcpy(&p->name[0], tokens[0])   ONLY STORES IT
+    drivers/mtd/ubi/build.c:1322  late_initcall(ubi_init);
+    drivers/mtd/ubi/build.c:1201  mtd = get_mtd_device_nm(mtd_dev);    <- resolved INSIDE ubi_init()
+
+So the partition named "upgrade" must already be REGISTERED when `ubi_init` runs - and **only this
+driver registers it**. `device_initcall` is level 6; `late_initcall` is level 7; `late_initcall_sync`
+is **7s, which runs AFTER 7**.
+
+**`eba7094` ("fix the duplicate init_module") had moved this driver's registration from
+`module_platform_driver` (level 6) to `late_initcall_sync` (level 7s).** That single move put the
+mtd registration AFTER `ubi_init`: UBI looked for "upgrade", found nothing, attached nothing, no
+`ubiblock0_0` was created, and the kernel panicked. `507ce58` then kept the same wrong level, and
+`e5a9feac` gated the erase without touching it.
+
+## THE FIX (this phase)
+
+    module_platform_driver(luofu_fmc_driver);     /* device_initcall, level 6 - BEFORE ubi_init */
+    late_initcall_sync(luofu_fmc_ubi_diag);       /* level 7s - the diagnostic, AFTER ubi_init  */
+
+Two initcalls, which is legal **built-in** (init.h gives them distinct levels) and illegal for a
+module (module.h collapses every initcall to one `init_module`).
+
+## THE VERIFICATION, AT THE BINARY LEVEL
+
+    __initcall_luofu_fmc_driver_init6      <- section 6
+    __initcall_ubi_init7                   <- section 7
+    __initcall_luofu_fmc_ubi_diag7s        <- section 7s
+
+Execution order is 6 -> 7 -> 7s: the partitions exist before UBI looks, and the diagnostic reports
+after. `zImage` 3,657,888 B, `DTB` 11,485 B, `uImage` 3,657,952 B, `BUDGET: PASS`.
+
+**PREDICTION FOR THE NEXT FIRE:** the ring should show `ubi0: attached mtd16 (name "upgrade")` and
+`ubiblock0_0`, and there should be NO `VFS: Cannot open root device`.
+
+## ★ AND THE DETOUR THAT CAUSED IT: MY HARNESS CHANGED THE CONFIGURATION
+
+`eba7094` was written because my local build reported *"redefinition of init_module"*. That error is
+**real only for a loadable module**, and `luofu-fmc` was **never a module**:
+
+    CLI matrix lab-module-build.yml : [luofu-clk, luofu-pinctrl, luofu-pcie, luofu-wifi]  <- not fmc
+    the Kconfig's own header       : "the rootfs lives on this controller, so a module would only
+                                      load after the kernel had already failed to find its root"
+    the image                      : CONFIG_MTD_NAND_LUOFU=y
+
+`build/tmp/local-build.sh` (MY harness, written this session) built it as a module anyway - and a
+harness that changes the configuration is not a check, it is a different subject. The conflict I
+"fixed" could not occur in the artifact that actually boots.
+
+**AND THE FIRST THING I CHECKED WHEN REBUILDING WAS THE WRONG THING TOO:** the kernel build failed
+with `drivers/mtd/nand/luofu/Kconfig:22: syntax error`, which looked like a broken driver. It was a
+broken CHECKOUT: `core.autocrlf=true` in this submodule means a `git checkout`/merge rewrites the
+WORKING TREE to CRLF (the repository still stores LF), and kconfig cannot parse a file whose help
+text ends in `\r`. My own git operations (fast-forwarding master across 283 files) caused it.
+Both build scripts now normalise line endings on every file they import, so a build no longer
+depends on how the tree was checked out.
+
+## WHAT THIS COST, AND THE RULE
+
+Three of my own changes in a row were made from a configuration that could not have been the
+problem (`eba7094` from a module build, `507ce58` preserving it, and my first rebuild checking a CRLF
+artifact). The generalisable rule, and it is the same one recorded after the login detour:
+
+    Before "fixing" an error, confirm the error is one the REAL artifact can produce.
+    If the harness had to change a config to produce it, the harness is the finding.
+
+## STATE
+
+Board: stock 2.4.15, ssh OK, 6 ifaces / 2 wiphys, 0 leftovers. Fix committed; image builds and its
+initcall order is verified in the binary. The next fire is the confirmation of the prediction above.
