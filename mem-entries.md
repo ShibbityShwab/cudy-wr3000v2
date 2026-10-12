@@ -13964,3 +13964,51 @@ what separated the real finding (a stale default branch) from the imagined one (
 
 master `fbcce42` (629 commits) | working branch `omo/phase22-hccaccept` | 9/9 lab modules build
 locally | device healthy on stock 2.4.15 with ssh.
+
+
+## PHASE 148 (2026-10-12): FIRE 27 = OUR KERNEL INTO `kernelb`, THE SLOT `bootcmd` ACTUALLY READS
+
+## WHAT IS ON THE DEVICE RIGHT NOW
+
+    bootflag (live, parses cleanly): **b**
+    bootcmd (from the env):          mtd read kernel${bootflag} ${loadaddr};bootfip ${loadaddr}
+    => u-boot reads **kernelb (mtd12)**
+
+    mtd11 kernela : 00f338a74c92bb9f054a689d98b007f1  (our r4fix image, unread by the current env)
+    mtd12 kernelb : 00f338a74c92bb9f054a689d98b007f1  <- **FIRE 27 wrote our image HERE, byte-exact**
+    mtd16 upgrade : owrt volume present, State OK
+
+    rollback host-side : build/tmp/fire4/kernelb-stock.bin, 8,650,752 B,
+                         md5 ba868bd449631964525fd620b5480646 - dumped from the live mtd12 and
+                         VERIFIED against it before the write
+
+    poison at C18 : 0xA5A5A5A5 written and re-read immediately before the reboot
+
+## THE PREDICTION, STATED BEFORE THE RESULT
+
+**FIRE 27 writes the artifact that has ALREADY RUN (the FIRE 23 image) into the slot the CURRENT
+`bootflag=b` selects.** Therefore:
+
+    if C18 reads **0xC0DE502D** -> FIRE 23's result is REPRODUCED, the `bootflag` lever is CONFIRMED as
+        the explanation for the 24/25/26 zeros, and the whole "artifact cannot be reproduced" line of
+        investigation is explained: those fires were writing to a slot nothing read.
+    if C18 reads **0xA5A5A5A5** -> the lever is NOT the explanation and the earlier reproducibility gap
+        stands as an independent, still-open problem.
+
+**Both outcomes are decisive.** The prediction is recorded here BEFORE the measurement, so it cannot be
+fitted to the result afterwards.
+
+## WHAT WAS LEARNED ON THE WAY (each one independently useful)
+
+1. **`fw_setenv` DOES NOT EXIST on stock 2.4.15** - only `fw_printenv`. Any recipe that claims to set an
+   env value with `fw_setenv` silently does nothing. The env must be written by flashing a prepared
+   block into mtd3/mtd4 (`build/custom/env-bootflag-{a,b}.bin`, 131,072 B each).
+2. **The "A-first rule" I have repeated all session is WRONG as a general claim.** `bootcmd` reads
+   `kernel${bootflag}`; the selector is load-bearing. The earlier measurements that supported
+   "the selectors are decorative" were taken when the selectors happened to agree with the observation.
+3. **The two env copies DISAGREED on the live device** (mtd3 `bootflag=b`, mtd4 `bootflag=a`), while the
+   recorded recipe writes the SAME block to both. Which one u-boot consumes has not been measured.
+4. **A failed `scp` followed by a write destroyed the env CRC**, and the recovery was possible only
+   because the backups had been pulled to the host in the same command that did the damage. The env is
+   now byte-for-byte restored (`fw_printenv` parses, no CRC warning). **A non-zero `scp` must abort the
+   chain - I saw rc=1 and let the write run anyway.**
