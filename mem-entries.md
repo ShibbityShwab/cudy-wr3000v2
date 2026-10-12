@@ -14971,3 +14971,85 @@ kernel. The cell survives a reboot and no kernel driver restores it.
 re-validates when the low byte is 0; a recorded value is reused, so a boot that fails in the recorded
 slot looks like a retry loop. `FUN_8004ea60` is u-boot's own TFTP `recovery.bin` fetch loop and it did
 NOT fire during the 2026-10-12 outage despite an armed door - so it is not an automatic safety net.
+
+
+---
+
+# PHASE 68 (2026-10-12): WEB RESEARCH - WHERE THIS PROJECT SITS, AND WHAT ELSE IS POSSIBLE
+
+Asked to search for others doing the same work and assess the possibilities. Findings, with sources.
+
+## 1. THE PUBLIC STATE OF THE ART IS FAR BEHIND US - CONFIRMED INDEPENDENTLY
+
+Multiple Chinese community sources (the main venue for these devices) say the same thing:
+- 九联 UNR030H (Hi5671T + Hi5622): **"目前刷不了 OpenWrt ... 海思这套 SoC 的 SDK 是封闭的，OpenWrt
+  官方和恩山等社区都没有对 Hi5671 的适配"** (right.com.cn thread 8419435).
+- 兆能 ZN-M5 (Hi5671Y version): **"目前网上没有任何 Hi5671 版本 ZN-M5 成功刷入 OpenWrt 的案例"**
+  (efxn.net.cn teardown thread).
+- RW6860 (Hi5671Y + Hi5622): **"海思 Hi5671Y 方案缺少公开驱动/BSP ... 目前没有可刷的 OpenWrt 固件"**
+  (smyz.net 13006).
+- Hi5622 driver: **"不在内核主线，也不在 OpenWrt 的 mac80211/backports 里 ... 以预编译 .ko + 固件 blob
+  形式提供给方案商"**, kernel-locked (4.4/4.9/4.19) - i.e. the NDA blob path.
+
+**So: no published case anywhere of a Hi5671 device running anything but stock, and no public Wi-Fi
+driver.** Our kernel already boots with a mounted rootfs and running userspace, we have our own
+mach/clk/pinctrl/FMC/PCIe/thermal/watchdog drivers, the HCC protocol is reversed, and the boot slot
+selector is now solved. **We are ahead of the public frontier, and the wall we hit is the real one,
+not a missing document.**
+
+## 2. SAME-SoC DEVICES - A REAL ACQUISITION LIST (new)
+
+Hi5671YV200 = dual-core Cortex-A9 @1.2GHz + Hi5622V100 Wi-Fi (vendor PDF, tianyisc.com). Devices:
+H3C Magic AX3001/NX500, 九联 UNR035H, 友华 SR5370-H01, RW6860 WIF16, 兆能 ZN-M5 (HiS), 亚亿讯 RS6Pro,
+Huawei TC7102/TC7620 (V700 variant may be Cortex-A510 - verify per unit).
+**Value: their firmware images are diffable BSP/kernel artifacts.** H3C and 亚亿讯 maintain a root-shell
+scene (right.com.cn thread 8464791), so newer images are obtainable.
+
+## 3. HUAWEI'S OPEN SOURCE RELEASE CENTER - A NEW, PLAUSIBLE SOURCE (new)
+
+`https://consumer.huawei.com/en/opensource/` - "an open channel to download or REQUEST any open source
+codes used in your products". Huawei ships Hi5671-family routers (TC7102 = AX3 family, TC7620).
+**This is a different class of counterparty from Cudy/Jeton: a large vendor with a GPL compliance
+process and a request form.** Caveat, stated honestly: such drops are usually the kernel + userland,
+and Wi-Fi drivers are often still shipped as blobs - so treat it as a possible source for the **BSP /
+board code**, not as a promised Hi5622 driver.
+
+## 4. THE BANANA PI TR6560 OpenWrt BSP - REAL, BUT A DIFFERENT SoC
+
+`https://github.com/BPI-SINOVOIP/THG6500-TAX2-OPENWRT-BSP` is a COMPLETE OpenWrt target
+(`CONFIG_TARGET_tr6560`, `CONFIG_LINUX_5_10=y`, `arm_cortex-a9`) with `mach-triductor`, PCIe, LSW
+switch, watchdog and UBIFS-rootfs patches - the same shapes of work we did by hand.
+
+**But it is not our SoC.** Zero hits for every one of our register bases (`0x10a20000` FMC,
+`0x400392f0`, `0x10161000`, `0x14880000`, `0x10100c18`). And the device's own DT is
+`model = "hsan luofu/R116"`, `compatible = "hsan-luofu"`, with `hisilicon,hsan_smp` - **so the Cudy
+forum claim that the WR3000 v2 is a Triductor is WRONG**, and our chip is HiSilicon.
+
+**What it IS good for, and it is concrete:** the BSP's NAND driver is the **same `.o` object set we
+link against** (`drivers/mtd/triductor/nfc_tr6560/tri_*.o`, `tri_fmc.o`, `tri_mtd_parts.o`,
+`ofpart_triductor.o`) - the source is NOT there either, but the BSP DOES carry the register headers
+(`include/tr6560/tri_register.h`, `tri_sysdef.h`, `tri_hal_chip.h`, ...) and the DTS NAND node
+(`triductor-tr6560.dtsi`). **If the NAND controller is the TR6560 IP, those headers document the
+registers our blind-linked objects use.** Cheap to check, and the only live lead for that lane.
+
+## 5. WHAT THIS MEANS FOR THE REMAINING WORK
+
+The three open lanes rank the same way they did, but now with public confirmation:
+1. **Ethernet / switch** - our own driver; the vendor `hisilicon,luofu-dp`/`-pfe`/`-lsw-woe` nodes
+   remain unported. No public help exists.
+2. **Wi-Fi interrupt wall** - confirmed closed. Nobody has the driver; the only route is the reversal
+   we are already doing.
+3. **NAND polish** - the one place a public artifact MAY help (the TR6560 headers).
+
+## SOURCES
+
+- https://www.cudy.com/en-apac/blogs/news/cudy-wr3000-now-supports-openvpn-and-wireguard-vpn (v2 not OpenWrt)
+- https://en.tianyisc.com/Uploadfiles/Files/2025-9-15/20259151136298648.pdf (Hi5671YV200 specs)
+- https://www.right.com.cn/forum/thread-8419435-1-1.html (UNR030H: no OpenWrt, closed SDK)
+- https://www.efxn.net.cn/threads/... (ZN-M5 teardown: no Hi5671 OpenWrt case)
+- https://www.smyz.net/luyouqi/13006.html (RW6860: no public driver/BSP)
+- http://tac.cl/wordpress/wp-content/uploads/RW6860-ROUTER-WIFI-6-KT-1.pdf (Hi5622 driver status)
+- https://github.com/BPI-SINOVOIP/THG6500-TAX2-OPENWRT-BSP (TR6560 full OpenWrt BSP)
+- https://www.cnx-software.com/2024/03/12/banana-pi-30-wifi-6-router-triductor-tr6560-openwrt/
+- https://consumer.huawei.com/en/opensource/ (Huawei Open Source Release Center)
+- https://www.ixbt.com/live/nw/obzor-wi-fi-routera-jeton-tech-ax3000-core.html (Jeton AX3000 review)
