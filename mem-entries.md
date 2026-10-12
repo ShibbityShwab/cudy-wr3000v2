@@ -15885,3 +15885,57 @@ thing the NIC work is for.
 Board healthy on the vendor slot; every fire returns unaided.  Kernel artifacts in
 `build/luofu-kernel-image/`; the slot is `uImage + vendor-tail.bin`, md5 of the last slot
 `c1afa0d82f1b32f265c301f4a7d06eb9`.
+
+
+---
+
+# PHASE 83 (2026-10-12): THE READOUT WORKS AT LAST - CRG REGISTERED, NO eth0
+
+## THE INSTRUMENT IS FIXED, AND THE CAUSE OF FOUR EMPTY READS IS NAMED
+
+The FMC driver's own header comment holds the answer:
+
+     * reports by depositing words in the SoC's two sysctrl scratch registers,
+     * 0xc18 (staged breadcrumb) and 0xc1c (its payload)
+       writel(payload, fmc->crumb + (PAYLOAD_OFF - CRUMB_OFFSET));   <- 0xC1C
+       writel(LUOFU_CRUMB_NAND | (step & 0xff), fmc->crumb);        <- 0xC18
+    #define LUOFU_CRUMB_NAND 0xc0de5000
+
+**0xC18 and 0xC1C are a PAIR owned by the FMC, and its tick crumb rewrites BOTH every 5 seconds.**
+`C18 = 0xC0DE502D` IS that tick (step 0x2D = 45).  So a triage written to 0xC18 is clobbered by the
+tick, and one written to 0xC1C is clobbered by the tick's PAYLOAD - which is why 0xC1C read
+0x00000000 no matter what was written.  The anomaly that misled me for so long: 0xC1C SURVIVED the
+stickiness test only because the VENDOR does not run our FMC driver.  It was never a free register.
+
+**0xC8C is free**: verified writable, verified sticky across a vendor reboot, written by nothing in
+this tree.  It is now the project's diagnostic cell.
+
+## THE MEASUREMENT (first trustworthy NIC answer in this whole stretch)
+
+    C8C = 0xC0DE8D00
+
+  (my own verification line was buggy - it tested (v>>8)&0xff == 0x8C, but bit 8 is INSIDE that byte;
+   0xC0DE8C00 | 0x100 = 0xC0DE8D00.  The data was fine; the check was wrong.)
+
+    bit8 = 1   luofu-crg driver IS registered
+    bit4 = 0   eth0 does NOT exist
+    bit0 = 0   the crg clock provider did not answer ok at index 0
+
+**So: the late_initcall runs, the mach's crumb path works, the CRG driver registers - and the NIC is
+still not up.**  The question is now a narrow one: why do gmac/mdio not bind, given the CRG driver is
+registered?
+
+## NEXT
+
+Instrument the DRIVERS themselves, now that there is a cell to write to: have `luofu-gmac_probe` and
+`luofu-mdio_probe` deposit a step into 0xC8C as they run, so the answer is which probe is reached and
+where it stops - instead of inferring from `eth0` alone.  Note that `of_clk_get(crg_np, 0)` may be
+asking for an index that does not exist (LUOFU_CLK id 0 may be a placeholder), so bit0=0 is weaker
+evidence than bit4=0; the driver-level steps will settle it.
+
+## THE CRASH FIX CARRIES FORWARD
+
+`maxcpus=1 nr_cpus=1` in CONFIG_CMDLINE (appended after the vendor's own line, so it wins) removes the
+scheduler oops: the mach has no smp_ops while the vendor DT demands maxcpus=2 nr_cpus=2.  Verified as
+evidence, not absence - the crashing fire's ring advanced past 13.9 s and contained the fault; the
+UP-only boot reaches the same point with nothing after it.
