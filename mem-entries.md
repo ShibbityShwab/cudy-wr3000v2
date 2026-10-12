@@ -15697,3 +15697,70 @@ Second, independent: `CONFIG_RESET_CONTROLLER` must be on for `#reset-cells` to 
 
 **Our kernel mounts our rootfs and runs OpenWrt's `procd` reliably** - three fires in a row now - so the
 boot path is settled and the only thing left before "a running OpenWrt you can reach" is this provider.
+
+
+---
+
+# PHASE 80 (2026-10-12): A SCHEDULER OOPS IN userspace, AND AN INSTRUMENT THAT STILL WILL NOT READ
+
+## THE NIC: FOUR REASONED FIXES, STILL NO MEASUREMENT
+
+Four real, layered causes were found and fixed (all verified IN the artifact, not by the build passing):
+
+    1. every gmac/mdio node was status = "disabled"        -> gmac0 + mdio0 enabled (5 PHY children)
+    2. the crg clock provider was not built                -> luofu-clk wired in; luofu_crg_probe in vmlinux
+    3. no reset controller existed at all - a literal
+       "TODO: struct reset_controller_dev rcdev;",
+       while gmac/mdio request resets with optional=false
+       (a FATAL failure, not a defer)                      -> implemented: of_xlate (reg-offset, bit), assert/deassert
+    4. CRG mapped with devm_platform_ioremap_resource
+       (-> request_mem_region) on a node that is also
+       "syscon", which claims the region first             -> devm_ioremap, as the driver's own note prescribes
+
+**And there is STILL no measurement that any of it worked.** The NIC does not appear in userspace.
+
+## WHY THE INSTRUMENTS KEEP FAILING - THREE DISTINCT REASONS
+
+  (a) The ring at 0x80603000 is only 16 KiB (0x80603000-0x80607000) and a boot writes more, so its
+      visible window starts ~4.0 s - at the FMC's messages.  The CRG's initcall (c0e31e14) and
+      gmac/mdio's (c0e31e5c/e60) run BEFORE that, so their prints are older than the window.
+      "No luofu-crg line" proves nothing.
+  (b) A triage in late_initcall printing the answer: late_initcall runs BEFORE late_initcall_sync, so
+      its output is outside the window too - the same trap one level down.
+  (c) A triage writing the answer into sysctrl 0xC18: the FMC's own late_initcall_sync deposits
+      0xc0de502d into 0xC18 and runs AFTERWARDS, so it simply overwrites the triage.
+  (d) A triage writing 0xC1C instead: the function is in the image (luofu_late_crumb at c0e075e4,
+      __initcall_luofu_late_crumb7 present) and its FIRST act - the 0xC18 crumb - demonstrably ran
+      (later overwritten by the FMC).  Yet 0xC1C reads 0x00000000, where the fire had set 0x5A5A5A5A
+      and where earlier fires showed the poison surviving both our boot and the vendor fallback.
+
+**The lesson, stated plainly: I have now spent four instrument designs on this one question and every
+one of them has come back empty for a DIFFERENT reason.  The right move is not a fifth design - it is
+to stop treating the NIC as the question and fix the thing that is demonstrably broken.**
+
+## THE DEMONSTRABLY BROKEN THING: A SCHEDULER OOPS IN userspace
+
+    [13.916137] Hardware name: HiSilicon Hi5671Y (luofu)
+    [13.921095] PC is at __cgroup_account_cputime+0x0/0x40
+    [13.926217] LR is at update_curr+0xc8/0x10c
+    [13.972932] Process ubusd (pid: 209, stack limit = 0xd2df875a)
+
+`ubusd` (pid 209) was RUNNING - further into userspace than any previous boot - and the kernel then
+faulted in the CFS scheduler.  A stack limit that is not a kernel stack pointer (`0xd2df875a`) says
+the faulting context is garbage, i.e. `current`/thread_info is corrupt or the call target is wrong.
+**A kernel whose scheduler faults during early userspace cannot be trusted to bring up a NIC either**,
+and this oops is concrete, localised and fixable in a way that "no luofu-crg line" never was.
+
+## THE NEXT STEP
+
+Stop instrumenting the NIC.  Chase the scheduler fault: it is reproducible (three fires now reach
+`ubusd`), it is localised to `update_curr` -> `__cgroup_account_cputime`, and it is the difference
+between "our kernel runs OpenWrt's init" and "our kernel runs OpenWrt".  Suspects, in order:
+`CONFIG_...GROUP_SCHED`/`CGROUP` interacting with this mach's CPU setup, and `mach-luofu`'s SMP/CPU
+bring-up leaving `current` inconsistent.  The evidence for each is readable from the oops itself, with
+no new instrument needed.
+
+## STATE
+
+Board healthy on the vendor slot (2.4.15, 6 interfaces, 0 leftovers, cell 0x10) - every fire has
+returned unaided.  Ring-confirmed each time: `ubiblock0_0` created, rootfs mounted, init run, procd up.
