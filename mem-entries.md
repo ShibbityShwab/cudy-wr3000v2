@@ -12799,3 +12799,59 @@ the reason I caught it is the same one that caught the other two tonight: **read
 Each was a confident, mechanism-shaped claim that would have shaped a fire. Each was wrong. The check
 that killed each one was cheap (one grep, one source read) - and none of them was ever validated by
 running the experiment, which is precisely why they survived as long as they did.
+
+
+## PHASE 128 (2026-10-12): THE REFINED DEPLOY PLAN - TWO ROUTES, RANKED BY PROOF
+
+## ROUTE A (PREFERRED) - THE RECORDED DEVICE-SIDE RECIPE, PROVEN ON THIS HARDWARE
+
+    ubiformat /dev/mtd16 -y
+    ubiattach -m 16 -d 1
+    ubimkvol /dev/ubi1 -N owrt -s 16MiB
+    ubiupdatevol /dev/ubi1_0 /tmp/owrt.sqfs
+    ubinfo /dev/ubi1_0
+    ubiblock --create /dev/ubi1_0 ; mount -t squashfs -o ro /dev/ubiblock1_0 /mnt/u ; ls /mnt/u
+
+uploading `build/tmp/openwrt/owrt-armel.sqfs` (2,881,866 B, md5 fc079bad7802237c616f9d658ad3cce1) to
+`/tmp/owrt.sqfs` first.
+
+**WHY PREFERRED:** the record executed exactly this and mounted OpenWrt 25.12.5 from the result
+(`bin/busybox`, `sbin/init`, `DISTRIB_RELEASE='25.12.5'`). Every command is proven on this device.
+
+## ROUTE B (FALLBACK) - MY HOST-BUILT ubinize IMAGE
+
+    mtd erase /dev/mtd16 ; mtd write /tmp/owrt.ubi /dev/mtd16
+
+uploading `build/tmp/owrt-ubi/owrt.ubi` (3,276,800 B, md5 5c24486d97911e22ed1658b6262195e9).
+
+**WHY A FALLBACK, NOT THE DEFAULT:** it is verified only host-side (read-back sha256-identical to the
+source squashfs, volume 0 STATIC, both compat guards pass). It has NEVER been run on the device. Route A
+has.
+
+## AND THE STEP BEFORE EITHER - A READ THAT MAY MAKE BOTH UNNECESSARY
+
+`mtd16` is in NO write path of the device's own upgrade code (PHASE 120), so the `owrt` volume from the
+recorded construction should STILL BE THERE. **So the first action after the shell is back is:**
+
+    ubinfo -a                      # list every UBI device and volume
+    ubinfo /dev/ubi1_0             # is there an 'owrt' volume, and what state?
+    ubiblock --create /dev/ubi1_0  # can it still be block-mounted?
+    mount -t squashfs -o ro /dev/ubiblock1_0 /mnt/u && ls /mnt/u && cat /mnt/u/etc/openwrt_release
+
+**If the volume is intact and mounts, no rootfs work is needed at all** - go straight to writing our
+kernel to `kernela` and firing. That is the cheapest possible path and the read costs nothing.
+
+## THE COMPLETE ORDERED PLAN (final)
+
+    1. [user]   cold reset-hold -> the TFTP door serves firmware/2.4.15.bin
+    2. [read]   re-lay the shell (systime RCE, 2.4.15 is vulnerable; dropbear via start-stop-daemon)
+    3. [read]   ubinfo -a / mount the owrt volume   <- MAY MAKE STEP 4 UNNECESSARY
+    4. [write]  only if step 3 fails: Route A (preferred) or Route B (fallback)
+    5. [write]  mtd write build/tmp/slice/r4fix-slot.bin kernela
+    6. [write]  selectors + reboot
+    7. [read]   devmem 0x10100C18
+                PREDICTION: 0xC0DE502D (the timer ran - already reproduced once)
+                AND the box STAYS REACHABLE via dropbear on the soft-float rootfs
+
+    ROLLBACK AT ANY POINT: mtd write build/tmp/fire3/kernela-backup.bin kernela
+                           (md5 bd5ae265ce47e3ed4299c434b1936385, hash-verified against the live slot)
