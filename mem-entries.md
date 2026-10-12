@@ -13905,3 +13905,62 @@ That is a one-variable change with a sharp prediction: **write the artifact that
 and C18 should read `0xC0DE502D` again** - reproducing FIRE 23's result exactly and confirming the lever.
 
 **No env manipulation is needed at all** - which avoids the tool that does not exist on this device.
+
+
+---
+
+# PHASE 58 (2026-10-12): REPO HYGIENE - THE WORK WAS INVISIBLE, NOW IT IS NOT
+
+## WHY THE REPO LOOKED DEAD FOR TWO WEEKS
+
+`master` last moved **2026-10-01**. Every session since had been pushing correctly - to
+`omo/phase22-hccaccept`, a feature branch. GitHub's repo page shows the DEFAULT branch, so 514
+commits of work were invisible. **Nothing was lost; it was unfindable.** Fixed by fast-forwarding
+master (`master` was a verified ancestor of the branch) and pushing: `1d58761..a0bbb52`, 283 files,
+78,658 insertions. Confirmed from GitHub's API: `pushed_at 2026-10-12T06:53:58Z`.
+
+## BRANCH CLEANUP
+
+Nine branches were fully merged into master (`ahead=0` for each) and were deleted, locally and on
+the remote: the eight `omo/phase21-*` branches plus `tmp/extract-a9`. Verified afterwards:
+**629 commits still reachable from master**, and the remote is down to `master` + the working branch.
+
+**One branch was NOT deleted blindly.** `tmp/extract-a9` was UNMERGED (9 commits ahead) - so it was
+read first, not assumed stale. It held a 269-line CI workflow (`extract-owrt-a9.yml`) whose purpose
+is documented in its own header: the vendor kernel **cannot read the squashfs's xz data blocks**
+("I/O error" on `bin/busybox`), so extracting the Cortex-A9 binaries for disassembling a SIGILLing
+instruction has to happen in CI. That is a reusable tool, and it was **merged onto master** rather
+than deleted. `omo/phase21-srpump` also needed care: its remote was 1 ahead, and the extra commit
+(`ad5f9d4`) was verified to be an ancestor of master before the local branch was force-deleted.
+
+## WHAT WAS CHECKED FOR "OLD WORK", AND WHAT WAS FOUND
+
+- **Unreferenced tools in `tools/`** (the `…2/…3/…4` scratch variants: `cryptdis2-4.py`,
+  `bdinfo_sweep2-3.py`, `dis_bootreg2-3.py`, `cryptbrute2.py`): **kept deliberately.** They are
+  one-off analysis scripts run by hand, and `AGENTS.md` states the convention - a numbered suffix is
+  deliberate scratch lineage and the highest number is the most developed. Their FINDINGS are in the
+  ledger (`bdinfo` 12 mentions, `boot_reg` 22). Deleting them would destroy the record of how the
+  findings were obtained.
+- **A credential scare that was NOT one, and the check that settled it.** 20 files in the public repo
+  contain `C:/Users/ShibbityShwab/...`. Rewriting them to a placeholder looked like "cleanup" - and
+  it was WRONG: `LICENSE:3` reads `Copyright (c) 2026 ShibbityShwab` (rewriting that would have
+  destroyed the licence), and most other hits are `https://github.com/ShibbityShwab/...` URLs.
+  **`ShibbityShwab` is the public GitHub account that owns this public repo - it is public by
+  construction and there is no leak.** The edit was reverted before it was committed, and the real
+  checks were run instead: no private keys, no ssh private key, no GitHub token, no AWS key; the
+  `gho_` hit is `docs/phase3/verification.md`, a credential-audit document recording that it SEARCHED
+  for that prefix and found zero.
+- **No runaway tasks.** Nothing running: no TFTP door, no WSL build, no stray agent process.
+
+## THE LESSON WORTH KEEPING
+
+Two of them, and they are the same shape from opposite sides. **A repo can be perfectly pushed and
+still look abandoned** - the default branch is the one people see, so work on a feature branch is
+work nobody can find. And **"cleanup" that rewrites text it did not read is damage, not tidiness**:
+the path rewrite would have silently edited a copyright notice. Reading the hits before acting is
+what separated the real finding (a stale default branch) from the imagined one (a username leak).
+
+## STATE
+
+master `fbcce42` (629 commits) | working branch `omo/phase22-hccaccept` | 9/9 lab modules build
+locally | device healthy on stock 2.4.15 with ssh.
