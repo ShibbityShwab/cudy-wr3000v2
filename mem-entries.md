@@ -13825,3 +13825,83 @@ It was written to `kernela` **byte-exact** (read back and verified), the poison 
 
 **Either answer is decisive and neither is currently known.** Recorded before the result is read, so the
 prediction cannot be fitted to it afterwards.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 147 (2026-10-12): ★★★★★ THE FIRE-23-vs-24/25/26 CONTRADICTION RESOLVED: `bootflag` ★★★★★
+#   AND AN ENV-WRITE ACCIDENT, CAUGHT AND FULLY REVERTED
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## ★ THE CONTRADICTION IS RESOLVED, AND IT WAS A SOUTHBOUND LEVER
+
+The device's live env, read while the box was up:
+
+    bootcmd=mtd read kernel${bootflag} ${loadaddr};bootfip ${loadaddr}
+    bootflag=**b**
+
+**`bootflag=b` means u-boot reads `kernelb` (mtd12 = the STOCK kernel) and never touches `kernela`
+(mtd11), where every one of my images has been written.** That is exactly why C18 held `0xA5A5A5A5` on
+FIRES 24, 25 and 26 - the kernel in the slot was never read at all.
+
+**And it explains FIRE 23.** My own PHASE 142 note says:
+
+> "selectors: bootflag=b on both env copies; boot_reg untouched (A-first is automatic)"
+
+I wrote that I had set `bootflag=b` during FIRE 23's staging. **But `fw_setenv` DOES NOT EXIST on this
+device** (verified: `fw_setenv: not found`, rc=127). So that "write" was a silent no-op, and the env
+value has been whatever it already was. The two observations are consistent once you know the tool was
+missing: the lever I believed I had pulled was never connected.
+
+**This also corrects a claim I have repeated all session**: the "A-first rule" (u-boot always boots the
+A pair; the selectors are decorative) was WRONG, or at least not general. `bootcmd` reads
+`kernel${bootflag}` - **the selector is load-bearing**, and it currently reads `b`.
+
+## ★★ THE ACCIDENT: I BROKE THE ENV CRC, THEN FULLY RESTORED IT
+
+Attempting to write `build/custom/env-bootflag-a.bin` (131,072 B) to mtd3+mtd4:
+
+    scp  -> rc=1  (FAILED)
+    the write proceeded anyway with a nonexistent /tmp file
+    -> mtd3 read back as **all 0xff**
+    -> `fw_printenv` -> "Warning: Bad CRC, using default environment"
+    -> the box still booted (u-boot fell back to its built-in defaults) but `bootflag` was undefined
+
+**WHAT SAVED IT:** in the same command I had first dumped both live env partitions to
+`/www/luci-static/enva-now.bin` / `envb-now.bin` and pulled them down BEFORE touching anything:
+
+    build/tmp/enva-now.bin  262,144 B  md5 9516a26f1de9020b82ff2f674fd1184c  (bootflag=b)
+    build/tmp/envb-now.bin  262,144 B  md5 917906ad1bcf7df47f4938ed42992c5a  (bootflag=a)
+
+**Restore, verified by read-back:**
+
+    mtd3 -> 9516a26f1de9020b82ff2f674fd1184c   IDENTICAL to the backup
+    mtd4 -> 917906ad1bcf7df47f4938ed42992c5a   IDENTICAL to the backup
+    fw_printenv bootflag -> b                  parses cleanly, NO CRC warning
+
+**The device is byte-for-byte back to its pre-accident state.** No lasting harm.
+
+**Two lessons recorded properly:**
+    (1) a backup that is pulled to the HOST before the write is what made this recoverable - the same
+        command that did the damage had already secured the undo;
+    (2) **check `scp`'s exit code before writing** - I checked it and saw rc=1 and STILL let the write
+        run in the same shell chain. A failed upload must ABORT the sequence, not continue into it.
+
+## ★★ AND A REAL FINDING: THE TWO ENV COPIES DISAGREED
+
+    mtd3 (enva) : bootflag=**b**
+    mtd4 (envb) : bootflag=**a**
+
+The record's own recipe writes the SAME block to both. The live device had them **different** - so the
+recorded "write both env copies" recipe and the observed state disagree, and the mechanism by which
+u-boot chooses between mtd3/mtd4 has not been measured.
+
+## WHAT THIS MEANS FOR THE NEXT FIRE - AND IT IS NOW TRIVIAL TO TEST
+
+**`kernelb` (mtd12) currently holds the STOCK vendor kernel and `bootflag=b`, so u-boot boots stock.**
+To boot OUR kernel under the CURRENT env, our image must go into **`kernelb`**, not `kernela`.
+
+That is a one-variable change with a sharp prediction: **write the artifact that has ALREADY RUN
+(`build/tmp/slice/r4fix-slot.bin`, md5 00f338a74c92bb9f054a689d98b007f1) into `kernelb`, poison, reboot,
+and C18 should read `0xC0DE502D` again** - reproducing FIRE 23's result exactly and confirming the lever.
+
+**No env manipulation is needed at all** - which avoids the tool that does not exist on this device.
