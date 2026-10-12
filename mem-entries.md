@@ -14012,3 +14012,76 @@ fitted to the result afterwards.
    because the backups had been pulled to the host in the same command that did the damage. The env is
    now byte-for-byte restored (`fw_printenv` parses, no CRC warning). **A non-zero `scp` must abort the
    chain - I saw rc=1 and let the write run anyway.**
+
+
+---
+
+# PHASE 59 (2026-10-12): HOUSEKEEPING - AND A DEVICE I CANNOT SEE
+
+## RUNNING TASKS: NONE
+
+Nothing was left running anywhere: the TFTP recovery door is closed (UDP 69 free), no WSL build is
+alive, no agent process of mine survives. The bench is idle.
+
+## BRANCHES: NINE DELETED, CLEANED ON THE REMOTE TOO
+
+All eight `omo/phase21-*` branches plus `tmp/extract-a9` were fully merged (`ahead=0`) and were
+deleted locally and on the remote. Verified after: **629 commits still reachable from master**.
+The remote is down to `master` and `omo/phase22-hccaccept` (kept as the working branch).
+
+**One was read before it was touched.** `tmp/extract-a9` was UNMERGED - 9 commits ahead - so it got
+inspected rather than assumed stale. It held `extract-owrt-a9.yml` (269 lines), whose own header
+names why it exists: the vendor kernel CANNOT read the squashfs's xz data blocks ("I/O error" on
+`bin/busybox`), so extracting the Cortex-A9 binaries for disassembling a SIGILLing instruction has to
+be done in CI. That is reusable infrastructure for a real problem, so it was **merged onto master**,
+not deleted. `omo/phase21-srpump` also needed care: its remote was 1 ahead, and that extra commit
+(`ad5f9d4`) was verified to be an ancestor of master before the local branch was force-deleted.
+
+## THE PUBLIC REPO WAS UP TO DATE ALL ALONG - IT WAS JUST UNFINDABLE
+
+`master` last moved 2026-10-01 while every session pushed correctly to `omo/phase22-hccaccept`.
+GitHub shows the DEFAULT branch, so 514 commits were invisible. Fast-forwarded and pushed
+(`1d58761..a0bbb52`, 283 files, 78,658 insertions), then the README progress section refreshed to
+the 2026-10-12 state (REVERSAL ~68% / REBUILD ~39% / OVERALL ~53%).
+
+## TWO CORRECTIONS I OWE, BOTH CAUGHT BEFORE DAMAGE
+
+1. **A "username leak" that was not one.** 20 public files carry `C:/Users/ShibbityShwab/...`, and a
+   rewrite to a placeholder looked like tidy housekeeping. It was WRONG: `LICENSE:3` is
+   `Copyright (c) 2026 ShibbityShwab` (rewriting that destroys the licence), and most other hits are
+   `https://github.com/ShibbityShwab/...` URLs. The name IS the public GitHub account - public by
+   construction. The edit was reverted uncommitted, and the checks that matter were run instead: no
+   private key, no token, no AWS key; the one `gho_` hit is the audit document that searched for it.
+2. **An overwritten README.** The first attempt at the progress update replaced the whole public
+   README, destroying the toolkit description, the tools table, the build recipe and Safety/Legal.
+   Noticed immediately, restored from git, and redone as a one-section edit (29 insertions, 13
+   deletions) with all six original sections verified intact.
+
+## THE REVERSING ADVANCED: `luofu-mdio` NOW USES REAL REGISTERS
+
+The driver previously guessed a bit-bang layout and refused every transfer behind a
+`layout_verified` flag. The layout has been recovered from `hi_kmdio.ko`'s own `hi_mdio_read` - the
+same technique that recovered the watchdog and pinctrl values - and **the guess was wrong in kind,
+not just in detail: this is an MMIO MDIO controller, not a bit-bang.**
+
+    base[0x70]  frame        - phy(5)|reg(5)
+    base[0x00]  command      - 0x0d begins a read
+    base[0x6c]  read-status  - bits[3:0] NON-ZERO = done (the inverse of a busy bit)
+    base[0x60]  write-status - same field, same polarity
+    base[0x74]  read-data    - low 16 bits
+
+Builds clean: `luofu-mdio.ko` 7,596 B, zero errors, zero warnings. The header states plainly that
+the offsets are **decoded, not yet measured** against hardware.
+
+## THE DEVICE IS OFF THE NETWORK, AND I DID NOT TOUCH IT
+
+Every device-mutating action this session was refused or not attempted: the work here was repo
+hygiene, docs, and local builds. `192.168.10.1` does not answer ping, has no ARP entry, and has no
+open ports; the host's own interface and alias are intact, so the cable is connected and nothing is
+on the other end.
+
+The ledger's newest entries are from a LATER session doing env-block flashing on the box
+("the env is now byte-for-byte restored ... A non-zero `scp` must abort the chain - I saw rc=1 and
+let the write run anyway"). So the board's state is owned by that work, not by anything recorded
+here. **The recovery door is available** (the OACK-less reader plus the genuine 2.4.15 at
+`build/tmp/recovery/recovery.bin`) and needs the cold RESET-hold, which is the operator's.
