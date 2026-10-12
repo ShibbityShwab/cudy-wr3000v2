@@ -16620,3 +16620,38 @@ class of fix is likely: make the reset provider resolve for the consumers' exact
 
 Board healthy on the vendor slot every fire.  Our kernel boots OpenWrt to procd every fire.  The CRG has
 bound and registered its clock tree since the "hsan,crg" name fix; now the 16 gate providers register too.
+
+
+---
+
+# PHASE 94 (2026-10-12): THE RESET MODEL - WHAT THE TREE SAYS, AND WHAT IT DOES NOT
+
+Step 4 is now the blocker (gmac 0xC0DE6F04 / mdio 0xC0DE7F04).  The consumers' specifiers, straight from
+the captured active tree:
+
+    gmac0: resets = <0xf 0x30 0xd  0xf 0x30 0xe>;  reset-names = "mac_logic_reset" "mac_reset"
+    mdio : resets = <0xf 0x30 0x6  0xf 0x30 0x1a 0xf 0x30 0x1b ...>;
+           reset-names = "mdio_reset" "gephyall_reset" "gephy0_reset" ... "gephy3_reset"
+
+So a 3-cell specifier (phandle, offset, bit): offset 0x30, bits 0x6/0xd/0xe/0x1a..0x1f.
+
+**BUT phandle 0xf DOES NOT APPEAR in the tree as a normal phandle.**  Enumerating every node's phandle
+gives 0x33-0x3b, 0x43, 0x50, 0x52-0x65, 0x69-0x77 - ASCII-character phandles - and 0xf is not among them.
+That was also why the earlier probe of "which node is 0xf" came back empty.
+
+Two readings, and they matter for the fix:
+  (a) 0xf is a phandle whose encoded form is a non-printable character and my enumeration missed it, or
+  (b) the vendor's reset specifier is NOT a standard 3-cell reset specifier at all - the leading cell may
+      be something other than a phandle (a provider index or a literal), in which case no Linux #reset-cells
+      provider will ever resolve it and the reset must be driven directly (the crg block has the rstinfo
+      shape already captured: rstinfo@0x14880000, "hsan,rstinfo", rstinfo-offset = <0xe>).
+
+DO NOT guess between these.  The next read is cheap and device-free: dump the raw bytes of the gmac0
+node's `resets` property and of every plausible provider node's `phandle`, and see whether any phandle
+encodes as 0xf.  `/proc/device-tree/gemac@0x14300000/resets` on the running box answers it exactly.
+
+## WHY THIS IS RECORDED RATHER THAN GUESSED
+
+The clock bug cost many fires precisely because I composed provider shapes before establishing what the
+consumers actually reference.  The same question is open here, and it is answerable from the device in one
+read.  Establish the specifier's meaning first; then the provider shape follows.
