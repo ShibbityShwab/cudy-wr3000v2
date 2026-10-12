@@ -15053,3 +15053,75 @@ The three open lanes rank the same way they did, but now with public confirmatio
 - https://www.cnx-software.com/2024/03/12/banana-pi-30-wifi-6-router-triductor-tr6560-openwrt/
 - https://consumer.huawei.com/en/opensource/ (Huawei Open Source Release Center)
 - https://www.ixbt.com/live/nw/obzor-wi-fi-routera-jeton-tech-ax3000-core.html (Jeton AX3000 review)
+
+
+---
+
+# PHASE 69 (2026-10-12): "WHY NOT JUST REVERSE THE BLOB?" - WE DID, AND THE THING WE NEVER DID IS RUN IT
+
+Operator's question, and it deserves a straight answer. Three parts: what we have done, what a blob
+cannot give, and the experiment nobody ran.
+
+## 1. WE DID REVERSE IT - THAT IS WHAT OUR DRIVER IS
+
+`lab/wifidrv1/wifidrv1.c` (4,110 lines) + `lab/hccaccept` + the maps in `docs/phase37` (the HCC
+protocol, 77 handlers), `phase38` (the D2H vocabulary), `phase42/43` (the ring and channel maps),
+`phase45` (the mailbox). That IS "reversing the blob into our own driver". **Not rocket science - done.**
+
+## 2. WHAT A `.ko` GENUINELY CANNOT GIVE YOU
+
+- **It is one half of a two-half system.** The Wi-Fi chip runs its OWN firmware - we load it, we did not
+  write it. The blob is the HOST half; the chip's state machine is what asserts interrupts and moves
+  data. Reversing the blob tells you what the host WRITES, never what the DEVICE requires.
+- **Some hardware behaviour is in no code at all.** A write can be necessary but not sufficient: the
+  hardware asserts only if an internal enable is present, and that enable may be set by the firmware.
+  Reading the blob harder cannot reveal it. This is the real reason the last hop is slow - it is
+  INFORMATION-limited, not effort-limited.
+
+## 3. ★ THE EXPERIMENT THAT WAS NEVER RUN: LOAD THE VENDOR'S DRIVER ON *OUR* KERNEL
+
+Checked, and every gate is OPEN:
+
+    vermagic     vendor: "5.10.201 SMP mod_unload ARMv7"   ours: 5.10.201 SMP ARMv7   -> MATCH
+    MODVERSIONS  vendor ko has ZERO __crc_ symbols, no __versions section             -> no CRC gate
+    imports      308, all standard kernel APIs (cfg80211, mac80211, skb, netdev, pci)
+    vendor deps  22, and they are the `hcc_*` family only:
+                 hcc_msg_alloc / hcc_msg_tx / hcc_msg_tx_to_core / hcc_get_state / hcc_set_state /
+                 hcc_msg_register_tab_{chip,core} / hcc_queue_register_customer_for_{chip,core} /
+                 hcc_timer_register / hcc_timer_process / hcc_timer_dump ...
+
+**The only vendor symbols it needs come from the vendor's own HCC module - which is ALSO a 5.10.201
+.ko** (`/lib/hisilicon/ko/`, alongside `hi_acp.ko`, `hi_basic.ko`, `hi_clk.ko`, `hi_crg.ko`, ...).
+So the chain `(vendor HCC) -> hi5622v100_plat.ko -> hi5622v100_wifi.ko` should load on our kernel.
+
+**And `DEPLOYMENT-DECISION.md`'s recorded reason for not doing this - "vendor binaries cannot load on a
+modern kernel" - does not apply: that is about a MODERN kernel. Ours is the SAME 5.10.201.**
+
+**Why it matters, and it reframes the whole wall:** if the vendor's driver runs on our kernel, then OUR
+KERNEL IS SUFFICIENT and the gap is purely our driver's incompleteness. We would then **kprobe/ftrace
+the real driver live** and watch exactly which registers it touches, in what order - replacing "read
+3.5 MB of unsymbolised ARM and infer semantics" with "watch the working driver and copy what it does".
+That is the standard technique, and it is dramatically less work than the static path.
+
+## 4. AND THE VERSION DIFFS ARE REAL
+
+Four distinct `hi5622v100_wifi.ko` builds on disk, from TWO different ODMs on the same silicon:
+
+    1745ef77  3,581,748 B   Cudy 2.4.15   (the stock running image)
+    4737fcb2  3,564,728 B   Cudy 2.5.24
+    7f1fb14a  3,597,904 B   Jeton        <- an INDEPENDENT ODM build of the same driver
+    e21629d2  3,564,728 B   our patched copy of 2.5.24
+
+**The intersection of two independent ODM builds is the hardware-essential set; the differences are
+board/ODM-specific.** That is a cheap, powerful diff we have the material for and have not exploited.
+
+## HONEST CAVEATS, SO THIS IS NOT SOLD AS A FREE WIN
+
+1. **It is a hybrid at the DRIVER level** - vendor modules on OUR kernel. As a *research instrument* it
+   is legitimate and standard; it is NOT the deliverable (the operator's goal is our own drivers), and
+   it should be labelled as an instrument wherever it is used.
+2. **It may still fail**, and informatively: the Wi-Fi chip sits behind PCIe, so the vendor's ACP/PCIe
+   host module may be needed too, and our kernel's `luofu-pcie` is a read-only scaffold. An
+   unresolved-symbol refusal would name exactly what our kernel must provide.
+3. **Loading modules can crash the box**, and the slot selector is sticky, so a crash may loop until a
+   RESET-hold. Sequence it as its own run, with the recovery door armed.
