@@ -13009,3 +13009,61 @@ The recovery returns the box with no shell and the vendor UI refuses custom imag
 **this route is the only way back in.** Verifying the sink exists in the served image - rather than
 assuming the recipe transfers - is what makes the post-reset window predictable. If the sink were
 patched, the plan would need a different door and I would want to know that NOW, not at the bench.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 133 (2026-10-12): ★★★★★ TWO LOAD-BEARING FACTS RECOVERED FROM THE HISTORICAL RECORD - BOTH VERIFIED AGAINST OUR BUILD ★★★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## ★ FACT 1: THE `owrt` VOLUME'S SURVIVAL IS A MEASUREMENT, NOT AN INFERENCE ★
+
+I had carried this as an inference ("mtd16 is in no write path, so the volume should survive"). **The
+record already MEASURED it, on the live device, after a recovery flash** (`mem-entries.md` 8832-8834):
+
+> "**The rootfs the kernel needs is INTACT.** `mtd16` ("upgrade") attaches as a UBI device holding volume
+> 0 **`owrt`**: **dynamic**, 133 LEBs / 16.1 MiB, State **OK**. **The recovery flash did NOT destroy
+> it.** (Checked with `ubiattach -m 16 -d 1` + `ubinfo`, then detached.)"
+
+Three things this settles:
+    - the `owrt` volume SURVIVES a recovery flash - observed, not argued;
+    - it is **DYNAMIC** (133 LEBs, 16.1 MiB) - which independently corroborates the PHASE 127 correction
+      that ubiblock does not require a static volume;
+    - and the exact check (`ubiattach -m 16 -d 1` + `ubinfo`, then detach) is already recorded as having
+      been run - which is precisely the read `build/tmp/step3-read.sh` performs.
+
+**So the plan's step 3 has been executed before, successfully, on this hardware.** It is not a novel
+probe; it is a re-run.
+
+## ★ FACT 2: THE INITCALL ORDERING THAT ONCE BROKE THE BOOT - VERIFIED CORRECT IN OUR BUILD ★
+
+`mem-entries.md` 8806-8821 records a REAL boot-breaking defect and its requirement, verbatim from the
+driver's own comment:
+
+> "It runs at **late_initcall_sync** - after every late_initcall, and so after **UBI's own module_init
+> has attached whatever the command line named**, and after ubiblock_init has had its chance to create
+> the block device."
+>
+> "Moving it into `probe()` runs it **before UBI attaches `mtd16`** - so the `owrt` volume is not there
+> yet, `ubiblock0_0` is never created, the rootfs never mounts, and init never runs. **A compile fix that
+> changes WHEN a step runs is not a compile fix.**"
+
+**VERIFIED IN THE SOURCE WE BUILT** (`lab/luofu-kernel/nand/luofu/luofu-fmc.c`):
+
+    [3483] static int __init luofu_fmc_init(void)
+    [3487]     ret = platform_driver_register(&luofu_fmc_driver);
+    [3492]     luofu_fmc_ubi_probe();
+    [3497] late_initcall_sync(luofu_fmc_init);
+
+**Exactly one initcall, at the correct level, with the UBI probe inside it.** The ordering defect is
+absent from the kernel we intend to fire. Had it still been present, the boot would fail with "the
+owrt volume is not there yet" - a symptom that looks like a missing rootfs and would have sent the next
+investigation in exactly the wrong direction.
+
+## WHY THESE TWO MATTER TOGETHER
+
+Between them they rule out the two most plausible remaining explanations for a failed next fire:
+    - "the volume is gone" -> measured FALSE after a recovery flash
+    - "the probe runs too early" -> verified ABSENT from our build
+
+**What is left for the next fire to test is therefore the kernel's own execution past `stext`, which is
+exactly what the crumb `C18` reports.**
