@@ -16292,3 +16292,63 @@ is one fire, and it settles path-vs-compatible-vs-root in a single read.
 Board healthy on the vendor slot every fire (2.4.15, 6 interfaces, 0 leftovers, selector 0x10); our
 kernel reliably boots OpenWrt to procd.  Committed: hsan,crg match, the DT-walk provider, the per-driver
 diagnostic cells, the watchdog-backstop restart.
+
+
+---
+
+# PHASE 88 (2026-10-12): WHERE THE NIC QUESTION ACTUALLY STANDS - HONEST ACCOUNTING
+
+## WHAT IS WON (measured, and it was zero for the whole session before this)
+
+    CRG @0xC90 = 0xC0DE5002     the luofu-crg driver BINDS and REGISTERS ITS CLOCK TREE
+    (was 0x00000000 for every fire before the "hsan,crg" fix)
+
+That fix was the root cause of "the CRG device never probes": the kernel does not run the DT we build.
+Vendor u-boot's bootfip hands it its own tree (root compatible "hsan-luofu", verified at
+/proc/device-tree/compatible), where the block is "hsan,crg" - and our driver matched only
+"hisilicon,luofu-crg".  luofu-gmac and luofu-mdio already carried their vendor aliases, which is exactly
+why their probes always ran and the CRG's never did.  Confirmed at /proc/device-tree/crg@14880000.
+
+**Also won, and separately durable:**
+  - the scheduler oops is GONE (mach has no smp_ops while the vendor DT demands nr_cpus=2; maxcpus=1
+    nr_cpus=1 removes it) - verified as evidence, not absence
+  - the restart path can no longer strand the board (it arms the watchdog before parking)
+  - the diagnostic-cell map is established and safe: 0xC8C mach / 0xC90 CRG / 0xC94 gmac / 0xC98 mdio /
+    0xC9C spare; NEVER 0xC08 (slot selector), 0xC18/0xC1C (the FMC crumb+payload pair, tick-rewritten)
+  - **these cells are VOLATILE across a power cycle** - read them before one, or the data is gone
+  - our kernel reliably boots OpenWrt to procd on every fire
+
+## WHAT IS STUCK
+
+The NIC clock model.  The vendor's consumers are `clocks = <&clk_gate@002003>` - a bare phandle,
+#clock-cells = <0> - while our driver registers a onecell provider on the crg expecting
+`clocks = <&crg N>`.  Measured attempts:
+
+  1. per-node provider as a platform_driver   -> never ran: clk@14880000 ("hsan,clk") is not a bus, so
+                                                 of_platform_default_populate never makes its children
+                                                 devices (vgate crumb stayed 0)
+  2. DT walk from the CRG probe               -> ran, registered 0: counters showed
+                                                 seen=212 children, matched 'hsan,clk-gate'=0
+  3. same walk, node addressed by exact path  -> IDENTICAL (0xDED40000)
+  4. stamp the walked node's name (ASCII)     -> did NOT reach the cell; the counters still read
+                                                 0xDED40000, so the name block did not execute or was
+                                                 overwritten by the counter block that follows it
+
+Four fires on the same question, the last two returning the same value.  **That is the point to stop
+grinding and re-plan rather than fire again.**
+
+## WHAT TO DO INSTEAD OF A FIFTH VARIANT
+
+The difficulty is not the register work - it is that the DT the kernel actually consumes has never been
+READ on the device as a whole.  One read would collapse most of this:
+
+    dtc -I fs -O dts /proc/device-tree > /tmp/active.dts      # on the VENDOR kernel, no fire needed
+
+That gives the complete active tree - every clock node, every compatible, every consumer's clocks
+property - and the vendor tree is the same one our kernel gets from bootfip.  From that, the gate
+consumers and their phandles can be resolved BY CONSTRUCTION instead of by probing, and the provider
+shape falls out of it.  This is the single highest-value next action and it costs no device cycle.
+
+## STATE
+
+Board healthy on the vendor slot every fire (2.4.15, 6 interfaces, 0 leftovers, selector 0x10).
