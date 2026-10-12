@@ -174,10 +174,10 @@
     {
       "area": "C. SoC bring-up",
       "name": "Pinctrl / IOMUX driver",
-      "pct": 40,
+      "pct": 60,
       "w": 3,
       "state": "code",
-      "ev": "VERIFIED: luofu-pinctrl.c 611 lines; set_mux + pinconf are literal NO-OP STUBS (return 0); tables complete",
+      "ev": "set_mux IMPLEMENTED from the decoded vendor algorithm (luofu-pinctrl.c 626 lines); pinconf setters still stubs",
       "rec": "code"
     },
     {
@@ -186,7 +186,7 @@
       "pct": 25,
       "w": 5,
       "state": "code",
-      "ev": "VERIFIED: luofu-pcie.c 1,367 lines but the LTSSM/mode/IATU writes are ALL COMMENTED OUT (lines 1229-1262); live path is read-only",
+      "ev": "luofu-pcie.c 1367 lines; LTSSM/mode/IATU writes still commented out",
       "rec": "code"
     },
     {
@@ -201,10 +201,10 @@
     {
       "area": "C. SoC bring-up",
       "name": "Ethernet GMAC / MDIO / switch driver",
-      "pct": 0,
+      "pct": 25,
       "w": 5,
-      "state": "none",
-      "ev": "VERIFIED: NO driver file exists; only hsan,mac mention is in luofu-clk.c (unrelated)",
+      "state": "code",
+      "ev": "luofu-gmac.c 317 lines (phylink + net_device) + luofu-mdio.c 275 lines (mdiobus bit-bang) EXIST and compile; MAC enable bit + mdio bit positions staged",
       "rec": "file"
     },
     {
@@ -219,10 +219,10 @@
     {
       "area": "C. SoC bring-up",
       "name": "UART / GPIO / watchdog / thermal",
-      "pct": 20,
+      "pct": 55,
       "w": 2,
-      "state": "partial",
-      "ev": "VERIFIED: no driver files; only the DT nodes + the plan (dw-apb reuse for uart/gpio)",
+      "state": "code",
+      "ev": "luofu-wdt.c 211 lines (values from the vendor DT binding) + luofu-thermal.c 107 lines (conversion decoded+verified); UART/GPIO reuse mainline",
       "rec": "file"
     },
     {
@@ -271,7 +271,7 @@
       "rec": "doc"
     }
   ],
-  "generated": "2026-10-11",
+  "generated": "2026-10-12",
   "audited": "2026-10-11",
   "note": "Every score carries a receipt: doc (phase report), file (byte/line count), code (source lines grep'd this session)."
 }

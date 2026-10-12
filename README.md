@@ -31,8 +31,8 @@ found and corrected three scores - see `PROGRESS.md`.
 | | score |
 | --- | --- |
 | **REVERSAL** (reading the closed Wi-Fi stack) | **~68%** |
-| **REBUILD** (our own kernel + our own OpenWrt) | **~35%** |
-| **OVERALL** toward the stated goal | **~51%** |
+| **REBUILD** (our own kernel + our own OpenWrt) | **~39%** |
+| **OVERALL** toward the stated goal | **~53%** |
 
 This is **two projects wearing one repo's clothes**: the reversal (phases 2-49)
 is most of the way done and hits a genuine hardware wall; the rebuild (the
