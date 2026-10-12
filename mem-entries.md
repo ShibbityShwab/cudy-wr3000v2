@@ -13576,3 +13576,70 @@ container. One config symbol.
 The log ring at `0x80602000` reads `0x66CC66CC` throughout - the filler pattern the record already
 identifies as "the vendor's boot overwrote it". **So the crumb is the only surviving evidence of FIRE 23,
 and it is unambiguous.**
+
+
+## PHASE 143 (2026-10-12): THE CMDLINE_FORCE VARIANT - BUILT AND VERIFIED AT THE INSTRUCTION LEVEL
+
+## THE CHANGE, ISOLATED TO ONE CONFIG SYMBOL
+
+`build/tmp/build-cmdf.sh` is `build-r4fix.sh` with exactly one edit:
+
+    ./scripts/config --disable CMDLINE_EXTEND
+    ./scripts/config --enable  CMDLINE_FORCE
+
+**Everything else identical**: same `.config.good`, same KERNEL_XZ, same VMSPLIT_2G + PAGE_OFFSET,
+same patched head.S files, same TEXT_OFFSET=0x608000, same container tail.
+
+## THE BUILD
+
+    sanity PAGE_OFFSET=0x80000000
+    sanity VMSPLIT2G=1
+    sanity CMDLINE=present
+    sanity FORCE=1 EXTEND=0                 <- the change
+    vmlinux entry: 0x80608000               <- correct link address
+
+    cmdf-uImage 2,642,632 B  md5 64403425ee4ce7f0790271754b74bc5f
+    cmdf-slot  8650752 B  md5 2308b34d8548db6485b6b085102d739e
+
+## ★ THE VERIFICATION THAT MATTERS (and two false alarms I caught)
+
+**False alarm 1 - "30% of the image differs".** I byte-diffed the two slot images and found 2,635,298
+differing bytes. That is MEANINGLESS: the zImage is XZ-compressed, so one changed symbol recompresses
+the whole stream. A byte-diff between compressed artifacts cannot show how small the source change was.
+
+**False alarm 2 - "our cmdline strings are not in the image".** I grepped the slot image for
+`ubi.mtd=upgrade`, `root=/dev/ubiblock0_0`, `init=/sbin/init` and found NONE - which looked like a
+broken build. **It is the same compression fact**: strings are not greppable inside XZ. Checked against
+the UNCOMPRESSED `vmlinux` instead:
+
+    strings vmlinux | grep 'ubi.mtd=upgrade'
+      -> panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init
+
+**The cmdline IS in the kernel.** Both alarms were my probes, not the artifact - the recurring lesson.
+
+## ★★ THE DECISIVE PROOF: THE FORCE BRANCH IS COMPILED, NOT THE EXTEND BRANCH
+
+The source at `drivers/of/fdt.c:early_init_dt_scan_chosen()` generates different CALLS per branch:
+
+    EXTEND : strlcat(data, " "); strlcat(data, CONFIG_CMDLINE)   <- APPEND
+    FORCE  : strlcpy(data, CONFIG_CMDLINE)                       <- COPY (overwrites)
+
+`objdump -d vmlinux` around the symbol:
+
+    80e1ce74:  bl  8097846c <strlcpy>     <- the DT bootargs
+    80e1ce84:  bl  8097846c <strlcpy>     <- OUR cmdline, as a COPY
+
+**TWO strlcpy AND ZERO strlcat.** The FORCE path is what was compiled - so on the next boot the kernel
+will take OUR command line verbatim instead of appending it to the vendor DT's string.
+
+## THE SINGLE-VARIABLE PREDICTION FOR FIRE 24
+
+Fire `build/tmp/cmdf/cmdf-slot.bin` into `kernela` with the `owrt` volume present (it was re-confirmed
+present and MOUNT-OK). **Prediction: the kernel now boots with exactly**
+
+    panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init
+
+**so it attaches the owrt volume, builds ubiblock0_0, mounts the soft-float OpenWrt rootfs, and runs
+`/sbin/init` - i.e. dropbear answers on port 22 and the box is REACHABLE ON OUR OWN KERNEL.** The
+falsifier is equally sharp: if `C18` again shows `0xC0DE502D` and the box again comes back on the vendor
+stack with 22 closed, then the cmdline was NOT the blocker and the failure is downstream of it.
