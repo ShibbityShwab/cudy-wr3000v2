@@ -13307,3 +13307,53 @@ The obvious ways back in all require something only the user can supply:
 
 **The board is left HEALTHY**: vendor stack up, web UI reachable, both slaves stock, the `owrt` volume
 untouched in mtd16. Nothing is stranded.
+
+
+## PHASE 139 (2026-10-12): FIRE 23's REVERT, ANALYSED AS FAR AS THE HOST CAN - THREE BRANCHES, ONE UNBLOCKED
+
+## THE EVIDENCE I CAN GATHER WITHOUT A SHELL
+
+    port surface      : 22 -, 23 -, 80 UP, 443 UP   (web only)
+    ARP MAC           : d4-0d-ab-64-1c-73           <- the recorded VENDOR MAC, not recovery mode
+    /                 : 200, 604 B, `Last-Modified: Thu, 30 Oct 2025 03:49:03 GMT`
+                        -> the vendor IMAGE's own file date (Oct 2025 = the 2.4.15 build date)
+    /cgi-bin/luci/    : 403 + the 8330-B LuCI page, title "WR3000", git-25.272.36397-e3aa262
+    login             : 403 on BOTH hash forms, with and without cache-busting headers,
+                        salt stable at 222f6c90fb182811...
+    bare POST, no cred: 403
+
+**So the box is serving the VENDOR stack normally, and the web credential does not match
+`.omo-secrets`.**
+
+## THE THREE BRANCHES FIRE 23 COULD HAVE TAKEN
+
+    (a) u-boot REFUSED kernela (our kernel) and fell through
+        -> our kernel NEVER RAN; C18 would still read 0xA5A5A5A5
+
+    (b) our kernel RAN and the platform reverted it
+        -> C18 would hold a crumb (0xC0DE0004, 0xC0DE502D, or similar)
+
+    (c) the reboot never happened - the box continued running and only the flash landed
+        -> C18 would still read 0xA5A5A5A5, and the vendor stack is simply the ORIGINAL system
+
+**Every branch is distinguished by C18, and C18 needs a shell.** What I CAN rule out:
+
+    - the flash DID land: `kernela read back: 00f338a74c92bb9f054a689d98b007f1 BYTE-EXACT`
+      was verified BEFORE the reboot, so the write completed;
+    - the board is not in recovery mode (the ARP MAC is the vendor one);
+    - the board is not bricked - it serves the vendor UI normally.
+
+**What I cannot rule out: (a) vs (b) vs (c).** They are the difference between "the bootfip gate
+rejected our kernel on THIS attempt", "our kernel ran and was reverted", and "we never rebooted".
+
+## THE HONEST POSITION
+
+The mechanism work is unaffected - the gate, the r4 fix, the VMSPLIT_2G address, the UBI compat and the
+initcall ordering all remain verified from the bytes. What this fire did NOT produce is a reading,
+because the access channel that produces readings was closed by the recovery that enabled the fire.
+
+**The next action is one step, and it needs the user**: reopen access (current password / factory reset /
+complete the wizard in a browser), then read C18 over a re-laid shell.
+
+**I did not guess or brute-force the credential** - the two in `.omo-secrets` were tried in the
+protocol-correct forms and rejected, and that is the honest limit of what I can do from the host.
