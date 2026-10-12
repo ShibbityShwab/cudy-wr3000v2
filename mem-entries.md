@@ -16568,3 +16568,55 @@ That sidesteps the unidentified-node question completely, and each provider's no
 path either resolves or it does not.
 
 Write the guard in the same edit: stamp how many of the N paths resolved, so partial success is visible.
+
+
+---
+
+# PHASE 93 (2026-10-12): *** THE CLOCK BUG IS FIXED - THE NICs ARE PAST THE CLOCK GATE ***
+
+## MEASURED RESULT
+
+    0xC9C  paths=16   PROVIDERS=16                  16/16 gate providers registered
+    gmac   0xC0DE6F04        STEP 4  (was step 3 = clock)
+    mdio   0xC0DE7F04        STEP 4  (was step 3 = clock)
+    CRG    0xC0DE5002        clock tree still registered
+    mach   0xC0DE8D00        eth0 not yet (resets still fail first)
+
+**Both NIC drivers now clear clock acquisition for the first time in this whole chain.**  The failure
+moved from step 3 (clk) to step 4 (resets) - a NEW blocker, which is the definition of progress here.
+
+## THE ACTUAL DEFECT (one line of it)
+
+The vendor's clock-gate nodes have **NO `reg` property**.  Read From the captured active tree
+(build/tmp/dt-spec/tar_base.dts):
+
+    clk_gate@002003 {
+        #clock-cells = <0x0>;        <- confirms the per-node 0-cell model
+        bit          = <0x3>;        <- the BIT is its own u32 property
+        reg-offset   = " ";          <- a STRING here; NUMERIC <0x14> for the 0x14 group
+        clocks       = <0x8>;        <- parent by phandle
+        compatible   = "hsan,clk-gate";
+    };
+
+Reading `reg` failed for all 16 nodes (measured reg_ok=0), which is why every downstream stage was zero
+too.  The correct read is `bit` plus an offset taken from a numeric `reg-offset` when present, else from
+the node's UNIT ADDRESS (clk_gate@002003 -> 0x2003 -> offset 0x20).
+
+**Instrument note:** the 0xC80 stage vector's nibble packing was wrong (s_kz << 12 overlaps s_reg's high
+bits, read back as reg_ok=17 with only 16 paths).  0xC9C - which has no packing - was the authoritative
+reading throughout.  Fix the packing or use separate cells; do not trust a packed vector without
+recomputing its field widths.
+
+## STEP 4 IS NOW THE BLOCKER, AND ITS MODEL IS ALREADY KNOWN
+
+    gmac0: resets = <0xf 0x30 0xd  0xf 0x30 0xe>;  reset-names = "mac_logic_reset" "mac_reset"
+    mdio : resets = <0xf 0x30 0x6  0xf 0x30 0x1a ...>; reset-names = "mdio_reset" ... "gephy0_reset" ...
+
+3-cell specifiers (phandle, offset, bit) referencing phandle 0xf - the crg/rstinfo block, whose shape the
+tree also names (`rstinfo@0x14880000`, compatible "hsan,rstinfo", rstinfo-offset = <0xe>).  So the same
+class of fix is likely: make the reset provider resolve for the consumers' exact specifier shape.
+
+## STATE
+
+Board healthy on the vendor slot every fire.  Our kernel boots OpenWrt to procd every fire.  The CRG has
+bound and registered its clock tree since the "hsan,crg" name fix; now the 16 gate providers register too.
