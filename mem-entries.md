@@ -14754,3 +14754,74 @@ the board three times.
 Before ANY write to a kernel slot, assert that the OTHER slot still holds a kernel whose first bytes
 match a known-good md5 - and print both md5s in the run's own log so the check is visible in the
 artifact. Fire 5 checked only the slot it was writing.
+
+
+---
+
+# PHASE 65 (2026-10-12): RECOVERED - AND TWO THINGS ABOUT THE FACTORY-FRESH BOX WORTH KEEPING
+
+## THE RECOVERY
+
+The operator did the cold RESET-hold; the armed door caught it (`RRQ recovery.bin from
+('192.168.1.1', 1351)`, `DONE 40969 blocks 20975775 bytes in 5.2s`). Fourth successful use of this
+door. The board came back on stock 2.4.15 and **the flash is clean again: mtd11 AND mtd12 both hold
+the vendor kernel** (first-64B md5 `8a324b7a...` on both, matched against the held `kernela.bin`) -
+so the state that caused the outage is gone.
+
+## THE CRUMB WAS CLEARED, SO THE CONTROL IS INCONCLUSIVE
+
+`C18` and `C1C` both read **`0x00000000`** after the recovery. PHASE 153 measured this cell as
+persisting across a plain vendor reboot, so the zero is the **reflash** clearing it - the exact
+confound PHASE 152/153 flagged when they called a post-recovery reading "an uncalibrated event".
+**The control experiment therefore produced no answer**, and the question it was built to settle
+("does u-boot booting `kernelb` run our kernel?") is still open. Do not read the zero as "the control
+never ran": it is consistent with both.
+
+## FACTORY-FRESH BOX: THE WIZARD USES A *SINGLE* HASH, AND THE RECORDED SCRIPT ASSUMES A TOKEN
+
+`build/tmp/custombin/ui.sh login` printed LOGIN-FAIL on this box. The cause, read off the page:
+
+    <input type="hidden" name="_csrf" ...>
+    <input type="hidden" name="salt"  ...>
+    <input type="text"   id="luci_password2" placeholder="Create a password" required>
+
+**There is NO `token` field on a factory-fresh wizard** - it is the "create a password" form, not the
+"log in" form. `ui.sh` scrapes `token` (absent -> empty) and therefore computes
+`sha256(sha256(pw+salt)+token)` when the form wants **`sha256(pw+salt)`**. One field's absence changes
+the hash scheme. Posting the single hash to `/cgi-bin/luci/admin/wizard` returned **302 + Set-Cookie
+sysauth** on the first attempt, and the admin password was set to the value in
+`.omo-secrets/CREDENTIALS.txt` so the file stays accurate.
+
+    RULE: read which form the wizard actually served. `token` present -> double hash with the token;
+    `token` absent -> single hash. Do not assume the recorded script's scheme.
+
+## A ZERO-BYTE HOST KEY SILENTLY KILLS DROPBEAR
+
+After the RCE re-lay, `dropbear=0` and port 22 stayed closed. The cause was measured, not guessed:
+
+    /etc/dropbear/dropbear_ed25519_host_key   0 bytes      <- the culprit
+    /etc/dropbear/dropbear_rsa_host_key       805 bytes    <- fine
+
+and running it in the foreground said `Early exit: Bad buf_getptr`. **A pristine vendor image ships a
+zero-length ed25519 host key and no RSA key; `dropbearkey -t rsa` fixes the RSA one but the empty
+ed25519 file still aborts the daemon.** `/etc/rc.local` now removes it before starting dropbear, so
+the fix survives a reboot:
+
+    #!/bin/sh
+    rm -f /etc/dropbear/dropbear_ed25519_host_key
+    /usr/sbin/dropbear -p 22 -R
+    exit 0
+
+## STATE
+
+Board: stock 2.4.15, vendor kernel, ssh OK and durable, 6 interfaces / 2 wiphys, **0 leftovers**
+(the RCE scratch under /www removed). Both kernel slots hold the vendor kernel. All my fire artifacts
+and the env dumps remain in `build/tmp/fire-p04/`.
+
+## STILL OPEN
+
+1. The control question (does booting `kernelb` run our kernel?) - its instrument was destroyed by
+   the recovery, so it needs a re-run **with no recovery in the path**.
+2. Why our current image dies before its first crumb, when FIRE 28's artifact reached the tick.
+   Host-side (head/decompressor), not another fire.
+3. The pre-write gate that fire 5 skipped: assert the OTHER slot still matches a known-good md5.
