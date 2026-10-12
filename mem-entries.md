@@ -14882,3 +14882,78 @@ The safe design, for when it is wanted:
     kernelb = the image under test
     env     = point at kernelb, BOTH copies
     gate    = abort unless kernela still matches the vendor md5  <- what fire 5 skipped
+
+
+---
+
+# PHASE 67 (2026-10-12): ★★★★★ THE SLOT SELECTOR IS FOUND BY REVERSING, NOT BY FIRING ★★★★★
+
+Answering the operator's redirect - "is there any reasoning or investigation you can do locally or by
+reversing compiles stuff to not have to trial and error so much". There was, and it settles in one step
+what five fires could not.
+
+## THE DEDUCTION THAT NARROWED IT FIRST
+
+File-history check: between FIRE 28's artifact and the image I fired, **only `luofu-fmc.c` changed**.
+`patched-head.S`, `patched-compressed-head.S`, `kernel-tree.patch` and both config fragments are
+identical, and the two images decompress to the same 9,780,192 B with the same embedded cmdline. But
+`luofu-fmc.c` runs at **initcall** time, long AFTER `setup_arch` - so my image **cannot** die before
+`setup_arch` differently from the one that reached the tick.
+
+**Therefore "our kernel dies before its first crumb" had to be wrong**, and the crumb instrument's own
+source says why the reading was ambiguous: `luofu_crumb()` needs `ioremap()`, and the earliest crumb is
+in `init_early`. "No crumb" can only mean "died in the head/decompressor/MMU" *or* "our code never ran".
+I had only ever considered the first.
+
+## THE REVERSAL - ALREADY ON DISK
+
+`build/tmp/ghidra-targets/` already held a prior session's decompilation. `decompiled_boot.txt`,
+`FUN_8004e188`:
+
+    uVar5 = *(uint *)(iVar1 + local_c) & 0xff;
+    if (uVar5 == 0)  then validate, and record 0x10 or 0x11   -- the first decision
+    else if (uVar5 == 0x11)  boot DAT_...324
+    else if (uVar5 == 0x10)  boot DAT_...318                  -- recorded: just use it
+
+**The slot is chosen by a low byte of a sysctrl cell, and a recorded value is STICKY - it is not
+re-evaluated.** That is `0x10100C08` (sysctrl `0x10100000` + DTS `bootreg-offset 0xc08`), and the sysfs
+`boot_reg` is only a driver shadow of it.
+
+## THE LIVE CONFIRMATION - ZERO-RISK, AND THAT IS THE POINT
+
+Both slots held the vendor kernel, so moving the selector could not brick anything:
+
+    before : 0xC08 = 0x11   box running ubi0 on mtd14  (the B pair)
+    write  : devmem 0x10100C08 32 0x10
+    reboot
+    after  : 0xC08 = 0x10   box running ubi0 on mtd13  (the A pair), rev 2.4.15, 6 ifaces / 2 wiphys
+
+**0x10 -> A pair (kernela mtd11 + rootfsa mtd13). 0x11 -> B pair (kernelb mtd12 + rootfsb mtd14). The
+cell persists across a reboot. The env `bootflag` is an OUTPUT that u-boot re-stamps to match.**
+
+## WHAT THIS RETIRES
+
+- **The env is not the selector.** Writing `env-bootflag-{a,b}.bin` into either copy changed nothing;
+  `fw_printenv` disagreed with the running slot; the "92 boots = B" dataset was a symptom, not a rule.
+  Fires 1-5 were all explained by the cell, and the env writes were wasted effort.
+- **"Our kernel dies before its first crumb" is withdrawn.** Fires 2 and 3 put our image in `kernelb`
+  while the cell said `0x10`, so u-boot booted `kernela` - still the **vendor** kernel. Our image was
+  **never booted in those fires**. The intact poison meant exactly what it said: nothing of ours ran.
+  **The ordering fix has not been contradicted by any measurement.**
+- The `A-first` doctrine in `boot-slot-and-wdt-mechanics.md` is superseded; that note now carries the
+  proven mechanism at the top.
+
+## THE FIRE, NOW A PREDICTION RATHER THAN A GUESS
+
+    kernela = vendor (kept; md5 asserted in the run's own log - the gate fire 5 skipped)
+    kernelb = our ordering-fixed image
+    cell    = 0x11  -> the B pair
+    reboot, then read C18 and the ring at 0x80603000
+
+    PREDICTION: `ubi0: attached mtd16 (name upgrade)`, `ubiblock0_0` created, rootfs mounted, and
+    C18 = 0xC0DE502D. If the fix did NOT take, the ring shows the VFS panic on `ubiblock0_0` again.
+
+## STATE
+
+Board: stock 2.4.15 on the **A pair**, ssh OK, 6 interfaces / 2 wiphys, 0 leftovers, both slots vendor.
+Cell `0x10100C08` = 0x10.
