@@ -14300,3 +14300,56 @@ The TFTP door is **killed** (UDP 69 free), scratch files removed, repo clean.
 
 Board: stock 2.4.15, healthy, web UI reachable, no ssh. Repo: master `b8b2f82`+ published, working
 branch aligned, 9/9 modules building locally.
+
+
+## PHASE 153 (2026-10-12): THE "MYSTERY WRITER" WAS MY OWN SENTINEL - AND THE INSTRUMENT IS NOW PROPERLY CALIBRATED
+
+## THE FALSE LEAD, AND HOW IT UNRAVELLED
+
+While calibrating the crumb cell I wrote `C18 = 0xCAFEBABE`, and the next read showed **`0xC0DE1234`**.
+I treated that as "something on the device overwrote my write", searched the repo, the vendor kernel
+images, the live `hi_*` modules and the u-boot artifacts for the constant - **all empty**.
+
+**The answer was in my own ledger.** `0xC0DE1234` appears there exactly once, and it is a **sentinel I
+wrote by hand earlier in this same session**:
+
+> "a sentinel written by hand (`devmem 0x10100C18 32 0xC0DE1234`) read straight back, so the cell is
+> live and the tool works."
+
+**So there was never a mystery writer.** I wrote `0xC0DE1234` earlier, the vendor reboot preserved it,
+and then I read back my own handwriting while assuming it was fresh. **A value I authored, mistaken for
+a value the device produced** - the mirror image of the poison-protocol lesson.
+
+## ★★★ THE CALIBRATION, DONE PROPERLY
+
+    (1) C18 read 5x, 2 s apart, NO writes      -> 0x00000000 x5      (stable)
+    (2) C1C read 3x                            -> 0xDEADBEEF x3      (still MY value from before the reboot)
+    (3) write C18 = 0x0BADF00D, read 5x        -> 0x0BADF00D x5      (STICKS PERFECTLY)
+
+**Three facts, all measured:**
+    - **the cell persists across a vendor reboot** (C1C kept `0xDEADBEEF` through one);
+    - **the cell is writable and stable** (my marker held five consecutive reads);
+    - **the cell reads 0 when untouched** - so `0x00000000` is the *quiescent* value.
+
+## ★★★★ WHAT THAT MEANS FOR THE FIRE 27 READ
+
+At PHASE 152 I read `C18 = 0x00000000` after the recovery and could not tell whether that meant "the
+recovery cleared it" or "our kernel never wrote anything". **The calibration now leans on the side of a
+real observation but does not fully settle it:**
+
+    - the cell PERSISTS across a vendor boot, so a recovery boot does not obviously clear it;
+    - BUT the recovery also RE-FLASHED BOTH SLOTS (`ecb3990e...` on mtd11 AND mtd12), and that flash
+      plus the boot it triggered is a different event from the plain reboot I calibrated with.
+
+**Honest position: `C18 = 0` after FIRE 27 is consistent with our kernel never reaching any crumb site,
+but it is NOT conclusive**, because the recovery performed a flash I have not calibrated the cell
+against. **The only clean reading would be one taken WITHOUT an intervening recovery flash.**
+
+## THE PRACTICAL CONSEQUENCE
+
+**Read the crumb BEFORE the recovery, not after.** Every crumb reading in this session that arrived
+after a recovery was taken through an uncalibrated event. The next fire should be set up so the crumb
+can be read while the box is still in the state the fire left it - which, for a dark box, means the
+reading has to come from the *recovery's own software* or not at all.
+
+**This is a real limitation of the instrument, now measured rather than assumed.**
