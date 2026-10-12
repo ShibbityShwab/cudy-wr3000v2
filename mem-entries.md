@@ -15414,3 +15414,59 @@ now precedes `ldr r5, [r4, #0xc08]`.
     phase 1 Self-recovering fires            [3/3] COMPLETE
     phase 2 Confirm the boot fix             [1/3] fire done; crumb-first re-fire in flight
     phase 3 Latest OpenWrt on the device     [1/4] the owrt volume verified intact (id 0, 133 LEBs, State OK)
+
+
+---
+
+# PHASE 75 (2026-10-12): CRUMB-FIRST FIRE - NO CRUMB AT ALL, SO NOT EVEN THE HEAD RUNS
+
+## THE RESULT
+
+    GATE PASS; wrote 3f2302d8... == want; cell 0x11 -> reboot
+    AFTER:  boot_id CHANGED, cell = 0x00000010, pair = mtd13 (vendor)
+            C18 = 0xA5A5A5A5   C1C = 0x5A5A5A5A     <- BOTH POISON, INTACT
+
+The crumb is now the FIRST write in `luofu_early` (verified by disassembly: `str r3, [r4, #0xc18]`
+precedes the selector read). It still did not land.
+
+## THE CORRECTION I OWE: THE CELL FLIP IS u-boot's, NOT OURS
+
+PHASE 74 concluded our kernel ran because the selector flipped and two earlier controlled tests showed
+u-boot does not flip it. **That inference was wrong** - those tests only covered a SUCCESSFUL boot
+(vendor kernel, boots fine, no flip). In a fire the boot FAILS, and u-boot then falls over to the other
+pair - which is exactly the `uVar5 == 0` re-validation / failover path in the decompiled boot code.
+
+So the flip is **u-boot's failover on a failed boot**, and it is NOT evidence our kernel executed. The
+honest position is that our kernel has never been observed to execute.
+
+**Useful consequence:** the failover is REAL, which is why the board recovers. The 2026-10-12 outage
+was purely the both-slots-ours mistake - with the vendor kernel in the other slot, a failing boot hands
+the board back by itself. **Do not re-label that property as our code's doing.**
+
+## AND NOT EVEN THE HEAD's BREADCRUMB RUNS
+
+`patched-compressed-head.S` and `patched-head.S` BOTH write `0x10100C18` as their breadcrumb (the same
+cell, pre-MMU physical). The cell held the poison, so:
+
+    head breadcrumb  -> did not run
+    mach crumb       -> did not run
+    mach fallback    -> did not run (see above)
+
+**The image does not execute at all.** Its uImage header is well-formed and matches the shape of both
+the vendor's (which boots) and FIRE 28's (which booted):
+
+    vendor  27051956 112cee61 65623a91 004185d0 80608000 80608000
+    FIRE28  27051956 07d4b50c 6acbbe15 00285450 80608000 80608000
+    mine    27051956 0f27be39 6accc617 0037d0f0 ...
+
+so the format is not the problem, and the next step is the control that separates "the fire path cannot
+boot slot B at all" from "our build is unbootable".
+
+## THE CONTROL
+
+Fire FIRE 28's own artifact (`build/tmp/f28-artifact-uImage`, md5 `2def5cc1...`, extracted from the
+`kernelb.bin` backup) into slot B with the same gate. It is the ONLY image known to have produced
+`C18 = 0xC0DE502D`, so it decides:
+
+    C18 = 0xC0DE502D  ->  slot B boots; OUR BUILD is the problem      -> chase the build
+    C18 = poison      ->  slot B does not boot at all                -> chase the fire path
