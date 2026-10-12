@@ -13472,3 +13472,107 @@ power-on reset-hold dance used for TFTP recovery.)
 
 **Then**: the box comes up on the setup wizard with the vendor default credential, the shell can be
 re-laid, and `C18` becomes readable - which is the one reading FIRE 23 still owes us.
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 142 (2026-10-12): ★★★★★★★★★★ FIRE 23'S VERDICT READ: C18 = 0xC0DE502D - OUR KERNEL RAN ★★★★★★★★★★
+#   AND THE ROOT CAUSE OF THE REVERT IS NOW NAMED: THE VENDOR DT'S bootargs + CONFIG_CMDLINE_EXTEND
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE USER'S FACTORY RESET REOPENED THE DOOR
+
+The user performed the ordinary factory reset (RESET held ~10 s with power on). The board went DOWN at
+22 s and came back at 83 s. **The salt CHANGED** - `222f6c90fb182811...` -> `593fb71c17dd3919...` - which
+is the proof that the password database really had been re-seeded, and why nothing I tried could work.
+
+**And the post-reset page was the SETUP WIZARD, not a login:**
+
+    Create an administrator password
+    To secure your device, please create an administrator password. At least 8 characters long
+
+Fields: `_csrf, salt, zonename, timeclock, luci_username, luci_password` (hidden) + `luci_password2`
+(the input). **NO TOKEN FIELD** - which matches the record's single-hash recipe exactly.
+
+    POST /cgi-bin/luci/admin/wizard  with  luci_password = sha256(pw + salt)
+        -> HTTP/1.1 302 Found
+        -> Set-Cookie: sysauth=2ac7483b1c334fc664c141b2e56457cc; path=/cgi-bin/luci/; HttpOnly
+
+**So I set the password myself** (kept the project's convention so the record stays true), then:
+    - RCE via the systime sink, **proven by side effect** (a marker file fetched back with 200)
+    - dropbear restored (host keys regenerated, project key into BOTH authorized_keys,
+      `start-stop-daemon -S -x /usr/sbin/dropbear -- -p 22 -R`) -> port 22 UP
+    - ssh key login works
+
+## ★★★★★ THE VERDICT FIRE 23 OWED
+
+    C18 (the crumb cell) : **0xC0DE502D**
+    C1C (its partner)    : 0x00000000
+    boot_reg             : 11
+    kernela md5          : 00f338a74c92bb9f054a689d98b007f1   <-- **STILL OUR KERNEL**
+    kernelb md5          : ba868bd449631964525fd620b5480646   (stock)
+    release              : 2.4.15 (vendor stack)
+    cmdline              : noinitrd cma=0 console=ttyS0,115200 earlycon maxcpus=2 nr_cpus=2 additional_cpus=1
+
+**THE RECORD'S OWN LEGEND: `C18 = 0xc0de502d, C1C = tick count` = "the timer ran, this many times".**
+
+**Our kernel RAN on FIRE 23.** It did not sit at a poison-intact 0xA5A5A5A5 - it executed far enough to
+reach timer initialisation. Branch (b) of PHASE 139 is the answer, and branches (a) and (c) are refuted.
+
+**AND the factory reset did NOT touch kernela** - our kernel is still in the slot, and boot_reg reads 11,
+meaning the A pair (kernela) BOOTED. So the platform booted our kernel, our kernel ran to the timer, and
+THEN the boot failed and the vendor stack came up.
+
+## ★★★★★ THE ROOT CAUSE OF THE "REVERT", READ FROM THE KERNEL SOURCE
+
+    drivers/of/fdt.c, early_init_dt_scan_chosen():
+
+        p = of_get_flat_dt_prop(node, "bootargs", &l);
+        if (p != NULL && l > 0)
+                strlcpy(data, p, min(l, COMMAND_LINE_SIZE));      <- the DT's cmdline FIRST
+    #ifdef CONFIG_CMDLINE
+    #if defined(CONFIG_CMDLINE_EXTEND)
+        strlcat(data, " ", COMMAND_LINE_SIZE);
+        strlcat(data, CONFIG_CMDLINE, COMMAND_LINE_SIZE);         <- OURS APPENDED AFTER
+    #endif
+    #endif
+
+and our build's config:
+
+    CONFIG_CMDLINE="panic=5 ubi.mtd=upgrade ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init"
+    CONFIG_CMDLINE_EXTEND=y
+
+**The device tree the kernel receives is THE VENDOR'S** - `dtb-base.dtb` + `dtb-ov1` + `dtb-ov2`,
+assembled by `bootfip`. Our own DTS is not in that chain at all. And `dtb-base.dtb` carries, in its
+`/chosen` node:
+
+    noinitrd cma=0 console=ttyS0,115200 earlycon maxcpus=2 nr_cpus=2 additional_cpus=1
+
+- **verified as the EXACT string at 0x5700 in dtb-base.dtb**, and verified LIVE as
+  `/proc/device-tree/chosen/bootargs` on the running vendor system.
+
+**So our kernel's effective command line is the vendor's string with ours appended.**
+The vendor DT also supplies the partition labels (`pupgrade`, `prootfsa`, `pkernela`, ...), so
+`ubi.mtd=upgrade` does resolve - the cmdline is not obviously broken.
+
+## WHAT THIS CHANGES - THE HYPOTHESIS IS NOW SHARP AND SINGLE-VARIABLE
+
+The previous account was "the platform reverts our kernel for an unknown reason". The account now is:
+**our kernel runs (proven by the crumb) but never brings the system up, and the one input we have never
+controlled is the CMDLINE - which the vendor DT owns and which we only APPEND to.**
+
+`CONFIG_CMDLINE_FORCE=y` would make our cmdline WIN instead of being appended. **That is a single,
+isolated, one-line change** whose prediction is testable in one fire:
+
+    with FORCE=y  ->  predict the kernel mounts /dev/ubiblock0_0 from the owrt volume and reaches
+                      userspace (dropbear answers on 22), because `root=`, `ubi.mtd=` and
+                      `ubi.block=` are now exactly ours rather than trailing a vendor string that
+                      also carries `noinitrd`, `cma=0`, `earlycon` and a `maxcpus=2 nr_cpus=2` clamp.
+
+**Nothing else is changed in that variant** - same kernel source, same r4 fix, same VMSPLIT_2G, same
+container. One config symbol.
+
+## EVIDENCE HYGIENE
+
+The log ring at `0x80602000` reads `0x66CC66CC` throughout - the filler pattern the record already
+identifies as "the vendor's boot overwrote it". **So the crumb is the only surviving evidence of FIRE 23,
+and it is unambiguous.**
