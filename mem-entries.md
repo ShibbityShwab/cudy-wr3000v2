@@ -16887,3 +16887,57 @@ A persistent cell, a ring tail, and a valid-looking UUID are all consistent with
 Board healthy on the vendor slot.  Committed: parent `781675d`; submodule `7d04dd8`.
 Our kernel image (md5 2675161cc45c8e2796f04fc68f2d2c80 slot) boots OpenWrt with the NIC driver live and
 no panic.  Independent confirmation of OUR netdev, link-up, overlay persistence and deployment remain.
+
+
+---
+
+# PHASE 100 (2026-10-12): THE LIVE KERNEL IS THE VENDOR'S - `luofu_pinctrl` IS THE VENDOR'S OWN
+
+## THE MISIDENTIFICATION, AND WHY IT HAPPENED
+
+I called the live kernel "ours" because `grep luofu /proc/kallsyms` returned `luofu_pinctrl_*`.  It does
+not mean that.  On the live box:
+
+    /sys/bus/platform/drivers/ :  Hi-GEMAC  Hi-HIMAC  Hi-MDIO  crg_driver  hi-clk  hi-reset
+                                  hsan-watchdog-driver  luofu_pinctrl  ...
+    luofu-gmac  in kallsyms    :  0
+    uname                      :  the vendor build string
+
+**`luofu_pinctrl` is the VENDOR's pinctrl driver for the "luofu" SoC** - the SoC is named luofu, so the
+vendor's own driver carries the name.  The vendor stack also registers `Hi-GEMAC` (eth driver),
+`Hi-MDIO`, `crg_driver`, `hsan-watchdog-driver`.  **The board is on the vendor slot.**
+
+## SO THE HONEST STATE
+
+  PROVEN (the fire's own serial log, nowhere else):
+      our kernel boots;  luofu-fmc resolves ubiblock0_0;  VFS mounts our squashfs;  /sbin/init runs;
+      OUR luofu-gmac probes and configures PHY/GMII;  the boot reaches procd.  No panic.
+
+  NOT PROVEN:
+      that OUR kernel SURVIVES to a reachable state.  Every live inspection has landed on the vendor
+      slot - vendor driver names, vendor uname, eth0..eth3 owned by Hi-GEMAC, no luofu-gmac anywhere.
+
+  The overlay change did NOT alter this: the live overlay comes from the VENDOR slot's own rootfs.
+
+## THE RULE, STRENGTHENED
+
+To prove OUR kernel is live, require BOTH:
+  1. a boot_id that DIFFERS from the one captured before the fire, AND
+  2. `luofu-gmac` (or any symbol unique to OUR driver set) present in /proc/kallsyms -
+     explicitly NOT `luofu_pinctrl`, which the vendor also ships.
+A single shared name is not an identity.  Match on a name that only our build can have.
+
+## WHAT REMAINS TRUE AND USEFUL FROM THIS PHASE
+
+  - the diagnostic chain is complete and each fix is recorded: hsan,crg name -> per-node 0-cell clock
+    providers by exact DT path -> the clock nodes have no reg (bit + reg-offset/unit-address) ->
+    resets bound to /reset0 -> PHYLINK_DEV + a validate op.
+  - our kernel's serial log shows the whole NIC probe succeeding, ending at "configuring for phy/gmii".
+  - the rootfs_data volume now exists in mtd16 (ubi vol 1, 9.5 MiB).
+
+## NEXT
+
+  Find WHY our kernel does not persist to a reachable state.  The serial tail stops at "procd: - ubus -";
+  possible causes: the NIC never carries traffic so ssh is unreachable even while our kernel runs, or the
+  boot does not complete and u-boot/ watchdog fails over.  **The decisive read is the fire's FULL serial
+  output, not a post-hoc ssh probe** - capture the whole boot log for one fire and read where it stops.
