@@ -15647,3 +15647,53 @@ to phylink_start" to a kernel with our ethernet inside it.
 
 Board healthy on the vendor slot (cell 0x10, 2.4.15). Slot `build/luofu-kernel-image/luofu-slot-vt.bin`
 md5 `176611b1ea44ceddb0cbb5fbfed813d3`. Ledger 7/10.
+
+
+---
+
+# PHASE 79 (2026-10-12): THE NETWORK IS BLOCKED ON THE CLOCK/RESET PROVIDER, NOT ON THE NIC
+
+## WHAT WAS FIXED, AND WHAT IT REVEALED
+
+Every gmac/mdio node in `luofu-r116.dts` was `status = "disabled"` - which is why nothing probed at all.
+`gmac0` (the rgmii port 8, the wired one) and `mdio0` (with its five `ethernet-phy@1..5` children) are
+now `status = "okay"`, verified present and enabled in the built DTB.
+
+The fire then still produced **no gmac/mdio/ethernet line**, so the enable was necessary but not
+sufficient. The next dependency is missing:
+
+    rs496: crg: clock-reset-controller@14880000 {
+              compatible = "hisilicon,luofu-crg", "syscon", "simple-mfd";
+              #clock-cells = <1>;   #reset-cells = <2>;
+
+    gmac0: clocks = <&crg LUOFU_CLK_GMAC0>;
+           resets = <&crg 0x30 0xd>, <&crg 0x30 0xe>;
+
+**The `crg` node IS the gmac's clock and reset provider, and no driver registers it** -
+`CONFIG_COMMON_CLK=y` is set but `nm vmlinux | grep luofu_clk` finds nothing but the generic
+`clk_register_*` helpers. Our `luofu-clk` CRG driver is not built. So `devm_clk_get()` and
+`devm_reset_control_get()` in the gmac probe return/sit at `-EPROBE_DEFER` forever, the probe never
+completes, no `eth0` appears, and the box stays unreachable - which is why the safety timer returns the
+vendor slot each time.
+
+## THE NEXT STEP, NAMED
+
+Build `opensource/lab/luofu-clk/luofu-clk.c` (the CRG: clock gate/PLL/mux children + the
+(reg-offset, bit) reset cells) into the kernel, the same way luofu-gmac/mdio/phylink were wired in
+(`drivers/clk/luofu/`, Kconfig+Makefile hook, `scripts/config -e LUOFU_CLK`). Then the gmac probe has a
+provider to wait for rather than deferring on forever.
+
+Second, independent: `CONFIG_RESET_CONTROLLER` must be on for `#reset-cells` to be usable at all.
+
+## WHAT ELSE THIS BOOT PROVED
+
+`C18 = 0xC0DE502D` and, in the ring:
+
+    [4.133750] VFS: Mounted root (squashfs filesystem) readonly on device 254:0
+    [4.171431] Run /sbin/init as init process
+    [10.178702] procd: - early -
+    [10.756832] procd: - ubus -
+    [netok] ... mount_root: no usable overlay filesystem found, using tmpfs overlay
+
+**Our kernel mounts our rootfs and runs OpenWrt's `procd` reliably** - three fires in a row now - so the
+boot path is settled and the only thing left before "a running OpenWrt you can reach" is this provider.
