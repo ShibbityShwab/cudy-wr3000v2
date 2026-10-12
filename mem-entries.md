@@ -15470,3 +15470,53 @@ Fire FIRE 28's own artifact (`build/tmp/f28-artifact-uImage`, md5 `2def5cc1...`,
 
     C18 = 0xC0DE502D  ->  slot B boots; OUR BUILD is the problem      -> chase the build
     C18 = poison      ->  slot B does not boot at all                -> chase the fire path
+
+
+---
+
+# PHASE 76 (2026-10-12): THE FIRE PATH WORKS - AND THE SLOT NEEDS A DTB WE STOPPED BUILDING
+
+## THE CONTROL THAT SETTLED IT
+
+Fired FIRE 28's artifact as a FULL slot image (`build/tmp/fire-p04/kernelb.bin`, 8,650,752 B) - the
+image historically known to produce `C18 = 0xC0DE502D`:
+
+    GATE PASS; wrote 8,650,752 B; cell 0x11 -> reboot
+    AFTER: C18 = 0xC0DE502D      <<<<<< OUR KERNEL RAN TO THE TICK
+
+**The fire path works.** Slot B boots. (My earlier "control" was invalid - I had extracted only the
+uImage out of that artifact and stripped its DTB.)
+
+## SO WHY DO MY IMAGES NOT BOOT? THE SLOT IS uImage || DTB, AND OUR DTB CHANGED SHAPE
+
+Mapping both bootable slots byte by byte:
+
+    vendor kernela:  uImage payload 4,294,096 -> ends 0x418610 -> FDT 41,456 B -> 0xff padding
+    FIRE28 kernelb:  uImage payload 2,643,024 -> ends 0x285490 -> FDT 41,032 B -> 0xff padding
+
+`uImage || FDT`, both. The structure I built was right. **What is NOT right is our DTB:**
+
+    FIRE28's DTB   totalsize 31,300   compatibles: hsan,clk  hsan,clk-mux  hsan,clk-pll  hsan,acp-pcie0 ...
+    our current    totalsize 11,485   compatibles: hisilicon,luofu-clk-mux  hisilicon,luofu-crg
+                                                   hisilicon,luofu-fmc  hisilicon,luofu-gmac ...
+    the DEVICE's own live DT (read at PHASE 68) is the `hsan,*` form.
+
+**So `docs/soc/luofu-r116.dts` was rewritten at some point: the compatibles were renamed from the
+vendor's `hsan,*` to our own `hisilicon,luofu-*`, and the tree shrank from ~31 KB to 11.5 KB.** The
+build compiles that rewritten tree into `luofu-r116.dtb` and appends it, and the resulting slot does
+not boot - while the 31 KB vendor-shaped DTB in the same position does.
+
+## THE TEST NOW RUNNING
+
+    slot = our uImage (3,658,032) || FIRE28's DTB (31,300) = 3,689,332 B
+
+If it boots, the DTB is the gate and the DTS rewrite is the regression - which would also mean every
+fire since that rewrite was unbootable for a reason nothing in the record named. If it does not, the
+difference is elsewhere in the uImage/DTB pair and the next step is a byte-level diff of the two DTBs.
+
+## ALSO WORTH RECORDING
+
+- `docs/soc/luofu-r116-pinned.dts` exists and is described as the PINNED (vendor-exact) tree - that is
+  the obvious candidate to build the slot's DTB from while our own tree is brought back into line.
+- The `f28dtb` fire was launched twice and the **lock refused the duplicate**, aborting with the reason
+  spelled out. That hardening has now paid off twice.
