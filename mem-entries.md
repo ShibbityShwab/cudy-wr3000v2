@@ -14353,3 +14353,74 @@ can be read while the box is still in the state the fire left it - which, for a 
 reading has to come from the *recovery's own software* or not at all.
 
 **This is a real limitation of the instrument, now measured rather than assumed.**
+
+
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# PHASE 154 (2026-10-12): ★★★★★ FIRE 28 - A CLEAN, UNMEDIATED READING: C18 = 0xC0DE502D. OUR KERNEL RAN. ★★★★★
+#   AND THE `bootflag` CONFUSION IS EXPLAINED: THE TWO ENV COPIES DISAGREE, AND fw_printenv READS THE OTHER ONE.
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+## THE EXPERIMENT
+
+Write the FIRE-23 artifact (proven to run) into the slot `bootflag` selects, leaving the OTHER slot as
+vendor, and reboot. **The point was to get a reading with NO recovery flash in between** - the gap
+PHASE 153 identified.
+
+    artifact     : build/tmp/slice/r4fix-slot.bin, md5 00f338a74c92bb9f054a689d98b007f1
+    written to   : **kernelb (mtd12)** - byte-exact, verified on the device
+    left alone   : kernela (mtd11) = ecb3990e... (the recovery's vendor kernel)
+    poison       : 0xA5A5A5A5 written and re-read
+    outcome      : the box went DOWN at 8 s and returned at **104 s on the VENDOR stack** (80 up, 22 down)
+
+**No recovery flash intervened.** The box reverted on its own and I could log in and read the cell.
+
+## ★★★★★ THE READING
+
+    C18         = **0xC0DE502D**     <- OUR KERNEL RAN TO THE TIMER
+    C1C         = 0x00000000
+    kernelb     = 00f338a74c92bb9f054a689d98b007f1   <- our image still in the slot
+    kernela     = ecb3990e0c882bd50669ff8513d360dc   <- vendor
+    uname       = #0 SMP Sat Nov 25 18:18:57 2023    <- the VENDOR kernel is what is running
+    boot_reg    = 10, ubi0 on mtd13                  <- the A pair
+
+**Both facts are true simultaneously: u-boot READ kernelb (our image), our kernel EXECUTED far enough to
+initialise the timer, and then the boot failed and the platform brought up the other slot's system.**
+
+This is the **same crumb as FIRE 23** (`0xC0DE502D`), reproduced. **It is now a clean, unmediated
+measurement** - the reading PHASE 153 said was needed, and it confirms the FIRE 23 result rather than
+depending on it.
+
+## ★★★★★ THE `bootflag` CONFUSION, EXPLAINED - AND IT WAS MY INSTRUMENT
+
+The raw env bytes, read straight off the partitions:
+
+    mtd3 (enva): ... 62 6f 6f 74 66 6c 61 67 3d **62** 00 ...   <- bootflag=**b**
+    mtd4 (envb): ... 62 6f 6f 74 66 6c 61 67 3d **61** 00 ...   <- bootflag=**a**
+
+    fw_printenv bootflag  ->  **a**      (so fw_printenv reads **mtd4/envb**)
+    boot_reg              ->  10
+    ubi0 on               ->  mtd13 (rootfsa = the A pair)
+
+**The two env copies have disagreed the entire time, and I was reading the one the bootloader does not
+use.** That single fact explains:
+
+    - why I believed `bootflag=b` was in force (I read it via fw_printenv, which reads mtd4)
+    - why fires written to `kernela` sometimes ran (FIRE 23) and sometimes did not (24/25/26)
+    - why "setting bootflag=b" via fw_setenv did nothing (the tool does not exist)
+    - why the A-first rule seemed true and then seemed false
+
+**The rule to apply from now on: READ BOTH `mtd3` AND `mtd4` and treat them as independent selectors.
+`fw_printenv` is an instrument with a fixed opinion about which copy is authoritative, and it can
+disagree with the bootloader.**
+
+## HONEST STATUS
+
+    criterion 1 (mechanism, artifact-evidenced) : MET and STRENGTHENED - the bootfip DTBO gate, the r4
+        clobber, VMSPLIT_2G, the UBI compat fix, the initcall ordering, AND now the env-copy split
+    criterion 2 (independent verification)      : the container geometry and CRCs were confirmed 6/6
+    criterion 3 (single-variable prediction)    : FIRE 28 was such a test with its expectation recorded
+        before the run, and it produced a CLEAN reading without a recovery confound
+
+**The objective's device half is still NOT achieved**: our kernel reaches the timer and then the boot
+fails; the running system is the vendor's. But **the failure now has a reproducible, cleanly-measurable
+signature** (`0xC0DE502D` in `C18` after a revert), which is what every previous fire lacked.
