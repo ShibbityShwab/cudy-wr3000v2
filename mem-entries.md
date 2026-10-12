@@ -14236,3 +14236,67 @@ path and several earlier readings need re-interpretation - which would be worth 
 another fire on it.
 
 **This costs one reboot and no flash write, so it is safe and it de-risks every future crumb read.**
+
+
+---
+
+# PHASE 60 (2026-10-12): THE RECOVERY RESET - AND WHAT IT DID AND DID NOT SETTLE
+
+## THE RESET WORKED, FIRST TRY
+
+The operator did the cold RESET-hold. The door log caught it:
+
+    RRQ recovery.bin from ('192.168.1.1', 1150)
+    ... DONE 40969 blocks 20975775 bytes in 4.3s
+
+The board came back on **stock 2.4.15** (`FW: 2.4.15-20251030-114751`, vendor build), factory-fresh
+(the first-boot "create an administrator password" wizard), with the web UI up (80/443 -> 200) and
+**6 interfaces / 2 wiphys**. The door is the same OACK-less reader that worked before; the cold
+RESET-hold is the same trigger. Third successful use of this door.
+
+## THE CRUMB EXPERIMENT: RUN, AND IT RETURNED NOTHING - WHICH IS ITSELF THE ANSWER
+
+The plan was that `devmem 0x10100C18` after the board returned would name the stage FIRE 27 died in,
+because the mach ladder (`C0DE0001`..`C0DE0020`) and the driver ladder (`C0DE5001`..`C0DE500B`) share
+that cell and whichever wrote last survives.
+
+**It read `0x00000000`.** And the reader is proven good: a sentinel written by hand
+(`devmem 0x10100C18 32 0xC0DE1234`) read straight back, so the cell is live and the tool works.
+**The conclusion is that the recovery boot CLEARS the cell** - it is a sysctrl register, and the
+vendor's own boot resets it. The FIRE 27 crumb did **not** survive the restore.
+
+**The generalisable point, and it costs a fire to learn:** a crumb that is read back on a LATER boot
+is not the same instrument as a crumb read from the same boot. The mach/driver crumbs were designed
+for readback-after-failure - but that works only while the FAILED kernel is still running (or when
+the bootloader hands over without resetting sysctrl). Once a recovery boot intervenes, the cell is
+gone. **The read has to happen inside the failing boot's own window**, which is what the
+kmsg_dumper/log-ring work was for.
+
+## A VALUE I REFUSED TO BUILD A STORY ON
+
+`0x10100C1C` read `0xDEADBEEF`. That looks like a marker, and it would have been easy to write a
+paragraph about what it means. It appears **nowhere** in `mem-entries.md` and **nowhere** in the
+instrumentation source (`mach-luofu/luofu.c`, `nand/luofu/luofu-fmc.c`). It is therefore not ours -
+a hardware default or another layer's value - and the honest entry is "unidentified", not a
+hypothesis dressed as a finding.
+
+## WHAT DID NOT WORK, AND HOW IT WAS LEFT
+
+The ssh lane could not be re-laid from the web UI: the vendor wizard login returned **403** on every
+attempt. Four variants were tried (single vs double hash, with and without the `token`, two password
+lengths), and `sysauth.js` was read to get the exact scheme -
+`sha256(sha256(pw + salt) + token)` - which is what the last attempts used. All 403.
+
+**So the box is up on the web UI but has no ssh.** That is the same state as the previous restore
+(a pristine vendor image carries no `omosshd` layer), so it is a known position rather than a
+regression - and the login can be finished with a browser, or by flashing the custom image that
+carries the layer.
+
+## CLEANUP
+
+The TFTP door is **killed** (UDP 69 free), scratch files removed, repo clean.
+
+## STATE
+
+Board: stock 2.4.15, healthy, web UI reachable, no ssh. Repo: master `b8b2f82`+ published, working
+branch aligned, 9/9 modules building locally.
