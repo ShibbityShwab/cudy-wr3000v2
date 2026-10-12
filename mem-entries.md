@@ -16735,3 +16735,57 @@ Candidates to check, in order, from the source we control:
 
 The probe now walks a real, increasing distance through the driver; each fix moved the failure one step
 further rather than to a different random place.
+
+
+---
+
+# PHASE 97 (2026-10-12): *** eth0 EXISTS ON OUR KERNEL ***
+
+## THE MEASURED RESULT
+
+    mach  = 0xC0DE8D10      drv=1   eth0=1   clk=0        <-- eth0 BIT SET
+    CRG   = 0xC0DE5002      our crumb: clock tree registered
+    gmac  = 0xC0DE6004      our crumb: reached step 4 (resets) and continued
+    mdio  = 0xC0DE7004      our crumb: reached step 4 and continued
+
+    ring: <6>[5.819782] luofu-gmac 14380000.gemac: configuring for phy/gmii link mode
+
+    NO PANIC.  The kernel boots OpenWrt to procd as before, now with the NIC driver live.
+
+All four cells carry OUR crumbs, so this is our kernel (not a vendor fallback), and its mach triage
+reports eth0 present.  The gmac driver probes, creates the netdev, and reaches phylink link
+configuration - and the kernel survives it.
+
+## THE DEFECTS THAT HAD TO BE CLEARED, IN ORDER (each measured, each moved the failure one step)
+
+  1. the CRG driver never bound            -> added the "hsan,crg" match (the ACTIVE tree's name; the
+                                              kernel runs the DTB built from docs/soc/luofu-r116.dts)
+  2. clock provider registered, but consumers could not resolve it
+       -> the vendor model is #clock-cells = <0> per node; consumers reference individual gate nodes
+  3. per-node providers never ran as a platform_driver
+       -> the gate nodes are not turned into devices; register them by EXACT DT PATH instead
+  4. reading "reg" failed for every gate (reg_ok = 0)
+       -> *** THE CLOCK NODES HAVE NO reg PROPERTY ***.  The geometry is `bit` (u32) plus `reg-offset`
+          (numeric for the 0x14 group, the string " " for the 0x20 group where the offset comes from
+          the node's UNIT ADDRESS).  After this fix: 16/16 providers registered and gmac/mdio moved
+          from step 3 (clk) to step 4 (resets).
+  5. step 4 = resets failed
+       -> bind the reset controller to /reset0 (phandle 0x0f, "hsan,hsan-reset", #reset-cells = <2>),
+          the node the consumers actually reference - not crg@14880000
+  6. panic at phylink_validate+0x18 reached from phylink_create
+       -> TWO stacked causes:
+          (a) pl_config.type = PHYLINK_NETDEV while config->dev was a PLATFORM device, so
+              phylink_create's to_net_dev() did container_of on the wrong struct -> PHYLINK_DEV
+          (b) THIS TREE's phylink_validate() calls pl->mac_ops->validate() unconditionally, and our
+              ops table had no .validate -> it called a NULL pointer (the __pabt_svc prefetch abort).
+              Added luofu_gmac_validate().
+       -> after both: the driver probes cleanly and configures the link.
+
+## NOTES THAT SAVED FIRES
+
+  - the ACTIVE tree is the one we build: build/tmp/wsl_build_kernel.sh copies docs/soc/luofu-r116.dts
+    into arch/arm/boot/dts/.  The VENDOR's /proc/device-tree is a different, disabled-nodes tree.
+  - read cells in the SAME turn a fire settles: after a panic the board auto-reboots and the cells read 0.
+  - the serial tail carries the panic; the cells carry the milestones.
+  - phandle values in this tree are single ASCII characters (0x4c='L'), and 0x0f is non-printable -
+    which is why a phandle enumeration must scan raw bytes, not printed strings.
