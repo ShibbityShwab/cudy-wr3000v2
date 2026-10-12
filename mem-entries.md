@@ -12901,3 +12901,30 @@ verification of a channel whose verification IS the consumption.**
     payload      : 20,975,775 B
 
 Verified by process count and socket ownership - **no RRQ sent.** The door is live for the real fetch.
+
+
+## PHASE 130 (2026-10-12): THE DEPLOY TOOLCHAIN VERIFIED PRESENT IN THE STOCK ROOTFS
+
+Checked every command the post-reset plan needs against the extracted stock rootfs
+(`rootfs-2.4.15/squashfs-root`), so nothing is discovered missing while standing at the bench:
+
+    ✓ /usr/sbin/ubinfo        ✓ /usr/sbin/ubiattach    ✓ /usr/sbin/ubiblock
+    ✓ /usr/sbin/ubiformat     ✓ /usr/sbin/ubimkvol     ✓ /usr/sbin/ubiupdatevol
+    ✓ /sbin/devmem            ✓ /sbin/mtd              ✓ /usr/sbin/flash_eraseall
+    ✓ /usr/sbin/dropbear      ✓ /usr/bin/dropbearkey   ✓ /sbin/start-stop-daemon
+    ✓ /bin/fw_printenv        ✓ /bin/mount             ✓ /bin/busybox
+
+**Every tool is present.** That means the device can natively do:
+    - the READ (step 3: ubiattach/ubinfo/ubiblock/mount)
+    - ROUTE A (step 4: ubiformat/ubimkvol/ubiupdatevol)
+    - the poison writes and crumb reads (devmem)
+    - the slot writes (mtd + flash_eraseall)
+    - the shell restore (dropbear + dropbearkey + start-stop-daemon)
+    - the selector writes (fw_printenv)
+
+**A NOTE ON THE CHECK ITSELF.** My first pass reported `devmem`, `flash_eraseall`, `dropbearkey`,
+`start-stop-daemon` and `fw_printenv` as NOT FOUND - because I had hard-coded the wrong directory lists
+for each. Widening to a recursive search found all five immediately. **The empty result was my search's
+fault, not the artifact's** - the same class as the earlier `pgrep -c make` matching its own command
+line, and the `grep | head -1` printing a comment back. A negative from a narrow probe is a hypothesis
+about the probe first.
