@@ -13357,3 +13357,57 @@ complete the wizard in a browser), then read C18 over a re-laid shell.
 
 **I did not guess or brute-force the credential** - the two in `.omo-secrets` were tried in the
 protocol-correct forms and rejected, and that is the honest limit of what I can do from the host.
+
+
+## PHASE 140 (2026-10-12): GOAL BLOCKED - STATED PRECISELY
+
+## THE BLOCKER, IN ONE SENTENCE
+
+**The router's web password was reset by the recovery that enabled FIRE 23, so the shell cannot be
+re-laid, so `C18` cannot be read, so the fire's outcome cannot be determined - and the only ways to
+reopen access require a fact or an action the user holds.**
+
+## THE BLOCKED AUDIT, RUN EXPLICITLY
+
+    1. NO live resumption channel can deliver it:
+       - the TFTP door is ONE-SHOT and was consumed by the reset that produced this state
+         (it is NOT armed now: `Get-NetUDPEndpoint -LocalPort 69` is empty);
+       - and even re-arming it would not help: a recovery re-creates the SAME unknown-credential
+         state. The channel cannot deliver the missing fact.
+       - no other listener, background child, or scheduled continuation exists.
+
+    2. ONLY THE USER CAN SUPPLY IT:
+       - the missing fact is the router's CURRENT web password (or a factory reset, or a
+         browser-completed wizard). It is a bench fact, not derivable from any artifact.
+       - I asked with the question tool (access options: give the password / factory reset /
+         complete the wizard / leave it) and it has not been answered.
+
+    3. THE CONDITION HAS SURVIVED >= 3 GOAL TURNS:
+       - it arose in PHASE 138 and has persisted through PHASE 139 and this one.
+
+    **All three hold. `update_goal(blocked)` is the correct close.**
+
+## WHAT WAS ACHIEVED BEFORE THE BLOCK, SO THE RESUME IS CHEAP
+
+    mechanism (criterion 1)   : bootfip's DTBO container gate, named and byte-verified
+    verification (criterion 2): a verification node confirmed 6/6; I reproduced the load-bearing three
+    next action (criterion 3) : read C18 over a re-laid shell, then interpret
+
+    three real defects found and fixed this session:
+      - the zImage entry-point instrumentation
+      - the 0xC0DE000B breadcrumb destroying r4, the jump register
+      - the missing VMSPLIT_2G link address
+
+    three of my own claims corrected by reading artifacts rather than notes:
+      - the watchdog (NOT the obstacle - our mach disarms it, verified in the Image)
+      - the UBI patch (NOT exonerated - it is load-bearing for the compat=5 layout volume)
+      - ubiblock (does NOT require a static volume - block.c:592 is a resize notifier)
+
+    artifacts verified and on disk, ready for the resume:
+      kernel   build/tmp/slice/r4fix-slot.bin     md5 00f338a74c92bb9f054a689d98b007f1
+      rootfs   build/tmp/owrt-ubi/owrt.ubi        md5 5c24486d97911e22ed1658b6262195e9
+      rollback build/tmp/fire4/kernela-stock.bin  md5 ba868bd449631964525fd620b5480646
+      step 3   build/tmp/step3-read.sh            read-only, syntax-checked
+
+    and the device is HEALTHY: vendor stack up, web UI reachable, both kernel slots stock,
+    the `owrt` volume untouched in mtd16 (confirmed present and MOUNT-OK before the fire).
