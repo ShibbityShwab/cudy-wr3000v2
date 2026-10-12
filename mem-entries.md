@@ -15594,3 +15594,56 @@ with no network driver bound, so it is unreachable and the safety timer returns 
 Board healthy on the vendor slot (cell 0x10, A pair, 2.4.15). Kernel artifacts:
 `build/luofu-kernel-image/{zImage,luofu-uImage,luofu-r116.dtb,luofu-slot-vt.bin}`,
 slot md5 `038a87bdd94392147f7035b60ba5df2a`.
+
+
+---
+
+# PHASE 78 (2026-10-12): OPENWRT'S procd RUNS ON OUR KERNEL - AND THE REMAINING GAP IS THE NETWORK
+
+## THE BOOT, END TO END
+
+With the slot built as `uImage + vendor-tail.bin` (the container fix from PHASE 77), the xz kernel, and
+`luofu-gmac` + `luofu-mdio` + `phylink` built in:
+
+    [3.649621] block ubiblock0_0: created from ubi0:0(owrt)
+    [4.133984] VFS: Mounted root (squashfs filesystem) readonly on device 254:0.
+    [4.183697] Run /sbin/init as init process
+    [4.515484] init: Console is alive
+    [4.584361] init: - preinit -
+    [9.726355] mount_root: no usable overlay filesystem found, using tmpfs overlay
+    [10.187197] procd: - early -
+    [10.823644] procd: - init -
+    [10.807626] random: ubusd: uninitialized urandom read
+
+**OPENWRT's OWN INIT RUNS.** Our kernel + the OpenWrt rootfs + `procd`/`ubusd` is the deliverable's
+core, demonstrated on the device.
+
+## THE REMAINING GAP, NAMED
+
+**No gmac/mdio/ethernet line appears anywhere in the ring** - the two drivers are linked into the image
+(verified: `luofu_gmac_probe`, `luofu_mdio_probe`, `luofu_mdio_driver`, `phylink_start` all present in
+`vmlinux`) but **nothing probed**, so there is no `eth0`, no network, and the box is unreachable - which
+is why the safety timer returns the vendor slot afterwards.
+
+Two things to chase, in order:
+  1. **why the drivers do not bind** - the DT has 5x `hisilicon,luofu-gmac` and 1x `hisilicon,luofu-mdio`
+     and the of_match tables carry those compatibles, so either the nodes are `status = "disabled"` or
+     lack `reg`/`interrupts`, or the probe returns an error without printing.
+  2. **no overlay**: `mount_root: no usable overlay filesystem found, using tmpfs overlay`.  mtd15 is
+     `rootfs_data`, so this is a rootfs/volume pairing question, not a kernel one.
+
+## THE PHYLINK TRAP (worth remembering)
+
+`CONFIG_PHYLINK` is declared `tristate` with **no prompt** in `drivers/net/phy/Kconfig`, so its value
+comes only from `select`:
+  - `scripts/config -e PHYLINK` **silently does nothing** (the symbol is not settable at all);
+  - with `CONFIG_NET_DSA=m` (a defconfig default) selecting it, PHYLINK is capped at **m**, and a
+    built-in driver cannot link against `phylink_start` -> undefined reference;
+  - with DSA disabled it vanishes entirely, since nothing selects it.
+The fix: give it a prompt so it can be built in. That is what took the build from "undefined reference
+to phylink_start" to a kernel with our ethernet inside it.
+
+## STATE
+
+Board healthy on the vendor slot (cell 0x10, 2.4.15). Slot `build/luofu-kernel-image/luofu-slot-vt.bin`
+md5 `176611b1ea44ceddb0cbb5fbfed813d3`. Ledger 7/10.
