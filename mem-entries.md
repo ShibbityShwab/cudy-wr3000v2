@@ -13710,3 +13710,61 @@ creation timing differs.
         prediction was REFUTED - recorded as such
 
 **The objective's device half is still not achieved**: the box is up on the vendor stack, not ours.
+
+
+## PHASE 145 (2026-10-12): FIRE 25 (`EXTEND` + `rootwait`) = 0xA5A5A5A5 - AND A CONTRADICTION I MUST NOT SMOOTH OVER
+
+## THE THREE FIRES, SIDE BY SIDE
+
+    FIRE 23  r4fix  (CMDLINE_EXTEND=y, cmdline without rootwait)  ->  C18 = 0xC0DE502D  (**RAN**)
+    FIRE 24  cmdf   (CMDLINE_FORCE=y)                            ->  C18 = 0xA5A5A5A5  (never ran)
+    FIRE 25  rootwait (CMDLINE_EXTEND=y, cmdline + "rootwait")   ->  C18 = 0xA5A5A5A5  (never ran)
+
+All three are 8,650,752 B, same slot shape, same uImage magic, same load/ep 0x80608000, same DTBO
+container magic 0xd7b7ab1e. The payloads begin `00 00 a0 e1` = ARM nops = a **raw uncompressed zImage**
+in all three.
+
+## ★ THE CONTRADICTION
+
+**My model said: EXTEND is the shape that RUNS.** FIRE 23 (EXTEND) ran; FIRE 24 (FORCE) did not.
+I therefore predicted FIRE 25 (EXTEND + rootwait) would run and come up further. **It did not run at
+all.** So "EXTEND vs FORCE" is NOT the variable that decides whether the kernel executes.
+
+**What that means, stated plainly:** I do not yet have a model that predicts these three outcomes. Any
+narrative that "explains" 23-vs-24 by the cmdline symbol must also explain why 25 - which kept that
+symbol - behaves like 24. It does not.
+
+## THE HONEST POSSIBILITIES (none yet verified)
+
+    (a) the FIRED FIRE-23 IMAGE WAS NOT BUILT BY build-r4fix.sh AS IT NOW STANDS. The ledger names the
+        artifact `build/tmp/slice/r4fix-slot.bin` but NO SCRIPT in the repo writes that path - it was
+        assembled in an ad-hoc session cell, and I cannot currently reproduce it. **The one image known
+        to RUN may differ from my rebuilds in some way I have not identified.**
+
+    (b) the two new uImages differ in the COMPRESSED-HEAD patching or the `patched-head.S` content,
+        through the copy the build script performs into the tree.
+
+    (c) something about the flash/reboot sequence differed (e.g. an env or boot_reg state), so the
+        slot was not actually attempted.
+
+    (d) the crumb readback for FIRE 25 is correct and the kernel genuinely did not execute.
+
+**(a) is the one I can act on and it is a real gap.** The artifact known to boot cannot be rebuilt from
+the scripts in the tree, so every further experiment is confounded: I cannot isolate a variable against
+a baseline I cannot reproduce.
+
+## THE CORRECT NEXT STEP IS THEREFORE NOT ANOTHER FIRE
+
+**The gap must be closed first**: reproduce `r4fix-slot.bin` EXACTLY (md5 00f338a74c92bb9f054a689d98b007f1)
+from a script, or establish precisely why it cannot be. Until then any fire changes more than one thing
+and the results are not attributable - which is exactly the failure mode this project's record warns
+about repeatedly.
+
+**Concretely:** the fired artifact's uImage payload is md5 `2def5cc1ad969c85003efcc8922521dc`, and the
+kernel tree produced that payload. Rebuilding with the SAME .config.good and the SAME script must
+reproduce it; if it does not, the difference is the answer.
+
+## DEVICE STATE (healthy, not left in a bad way)
+
+    the board is on the vendor stack, ssh restored (dropbear re-laid), the owrt volume intact in mtd16,
+    kernela holding the rootwait image (md5 11cb22b0509a196c95ba9b12f7374cde) and kernelb stock.
