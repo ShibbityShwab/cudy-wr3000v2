@@ -15294,3 +15294,59 @@ change and was compressor noise, which is exactly how this bug stayed invisible.
 **A rebuilt image is not evidence that the change is in it.** After any edit to a file that a build
 script copies, verify it in the ARTIFACT (`objdump`/`nm`/`strings` on `vmlinux` or the zImage), never
 by the build succeeding and the size moving.
+
+
+---
+
+# PHASE 73 (2026-10-12): THE FALLBACK ARM - FIRES ARE NOW SELF-RECOVERING
+
+## WHY THIS MATTERS TO THE GOAL
+
+The operator's single biggest cost in this project has been the physical RESET-hold, needed every time
+a test kernel failed and left the board looping. That happened because the slot selector is STICKY:
+u-boot uses a recorded value from sysctrl `0x10100c08` verbatim (0x10 -> A pair, 0x11 -> B pair) and only
+re-validates when that byte reads 0, so a kernel that fails in the selected slot is retried forever.
+The failure is invisible to the loader - hence the loop, hence the hand on the button.
+
+## THE FIX: THE KERNEL ARMS THE FALLBACK ON THE WAY UP
+
+`mach-luofu/luofu.c`, in `luofu_early()` (init_early, before the first crumb, i.e. before anything that
+can fail):
+
+    luofu_arm_fallback();          /* flip the low bit of the selector */
+    luofu_crumb(LUOFU_CRUMB_EARLY);
+
+`luofu_arm_fallback()` reads sysctrl `+0xc08`, refuses to touch it unless the low byte is 0x10 or 0x11
+(so an uninitialised cell is never corrupted), writes the value back with bit 0 flipped, reads it back,
+unmaps, and logs `"%08x -> %08x"`.
+
+**Consequence: if this kernel fails, the NEXT boot selects the OTHER pair** - the vendor kernel on a test
+rig - and the board returns by itself. If the kernel works, the flip is harmless (the next boot simply
+lands on the other pair). **Every subsequent fire is self-recovering.**
+
+## VERIFIED IN THE ARTIFACT, NOT BY THE BUILD SUCCEEDING
+
+    c0e0758c <luofu_early>:                        (0x7c = 124 B; it was 12 B before)
+      ldr  r5, [r4, #0xc08]        read the selector
+      and  r3, r5, #0xfe
+      cmp  r3, #0x10               the 0x10/0x11 guard
+      eor  r6, r5, #1              flip
+      str  r6, [r4, #0xc08]        write it back
+      ldr  r3, [r4, #0xc08]        read back
+      bl   iounmap ; pr_info("%08x -> %08x")
+      b    luofu_crumb             the crumb still runs
+
+The FIRST attempt at this build did NOT contain the change at all (see PHASE 72 - `cp -r` nesting), and
+the only reason it was caught is that the symbol was disassembled instead of inferred from the size
+delta. That rule now holds for every build in this project.
+
+## BUILD
+
+zImage 3,658,024 B | luofu-r116.dtb 11,485 B | luofu-uImage 3,658,088 B | kernelb budget PASS.
+Artifacts and `MANIFEST.sha256` refreshed in `build/luofu-kernel-image/`. Commit `8e37b02`.
+
+## LEDGER
+
+    phase 1 Self-recovering fires            [3/3] COMPLETE
+    phase 2 Confirm the boot fix             [0/3] next
+    phase 3 Latest OpenWrt on the device     [0/4]
