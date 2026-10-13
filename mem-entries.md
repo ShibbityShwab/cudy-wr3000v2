@@ -17068,3 +17068,65 @@ not the transfer code.
 Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd with the NIC driver probing and
 the netdev registering; only the MDIO bus registration fails.
 Committed: parent 2881d8c; submodule cd3769c.
+
+
+---
+
+# PHASE 104 (2026-10-13): WHY of_mdiobus_register CAN FAIL - THE SOURCE'S OWN FAILURE MODES
+
+The call lives in `drivers/net/mdio/of_mdio.c` in this tree (`int __of_mdiobus_register`):
+
+    if (!np)
+        return __mdiobus_register(mdio, owner);
+    /* Do not continue if the node is disabled */
+    if (!of_device_is_available(np))
+        return -ENODEV;                       <-- (a) our mdio0 node not "available"
+    mdio->phy_mask = ~0;                      <-- auto-probe DISABLED; only DT children register
+    mdio->dev.of_node = np;
+    rc = __mdiobus_register(mdio, owner);
+    if (rc)
+        return rc;
+    for_each_available_child_of_node(np, child) {
+        addr = of_mdio_parse_addr(&mdio->dev, child);
+        if (addr < 0) { scanphys = true; continue; }
+        if (of_mdiobus_child_is_phy(child))
+            rc = of_mdiobus_register_phy(mdio, child, addr);
+        else
+            rc = of_mdiobus_register_device(mdio, child, addr);
+        if (rc == -ENODEV)
+            dev_err(&mdio->dev, "MDIO device at address %d is missing.\n", addr);
+        else if (rc)
+            goto unregister;                  <-- (b) HARD error tears the bus back down
+    }
+    ...
+unregister:
+    of_node_put(child);
+    mdiobus_unregister(mdio);
+
+## WHAT THIS NARROWS TO
+
+  (a) `mdio0` is not `of_device_is_available()` - our DTS sets `status = "okay"` and the driver DID reach
+      the registration call (crumb 0xC0DE7004 immediately precedes it), so this is unlikely but not
+      excluded (a parent could be disabled).
+  (b) a PHY child registration returned something OTHER than -ENODEV, in which case the loop `goto
+      unregister` and the bus is torn down - exactly the symptom we see (no PHY enumerated, no attach).
+
+**So the decisive value is the RETURN CODE of `of_mdiobus_register`, and which child failed.**  The next
+fire should crumb:
+    the rc itself, and the child address at which it failed,
+i.e. replace the binary 0xC0DE7F05 marker with `0xC0DE7F00 | (rc & 0xff)` and a per-child crumb carrying
+the address.  With `-ENODEV` the bus survives (PHY merely missing); any other code means a hard failure
+in registering that specific PHY, and the address names WHICH one.
+
+## NOTE
+
+`mdio->phy_mask = ~0` means the kernel will NOT auto-scan our bus: only the `ethernet-phy@N` children in
+our DTS can ever become PHY devices.  Our DTS declares them at reg 1..5 while the vendor's log shows the
+MACs using mdio addresses 2..5, so if registration is fixed, the phy-handle mapping already in place
+(phy2 for gmac0, etc.) should line up.
+
+## STATE
+
+Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd, the MAC driver probes and
+register_netdev succeeds; only the MDIO bus registration fails.
+Committed: parent 732d53e; submodule 6cb670d.
