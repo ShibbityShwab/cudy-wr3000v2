@@ -17220,3 +17220,49 @@ Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd; the MAC dr
 register_netdev succeeds.  Only the MDIO bus registration fails, with -EIO, and its source is now bounded
 to the device-registration internals rather than the parse/tolerance logic.
 Committed: parent e99a337; submodule 6cb670d.
+
+
+---
+
+# PHASE 107 (2026-10-13): THE OVERLAY FAILURE WAS MY OWN UNFORMATTED UBI VOLUME
+
+## THE MECHANISM
+
+OpenWrt's /lib/preinit/80_mount_root resolves the overlay from the MTD partition named `rootfs_data`:
+
+    mtd_num=$(cat /proc/mtd | grep rootfs_data | awk '{print $1}' | tr -cd "[0-9]")   -> 15
+    /bin/mount -t jffs2 -o nosuid,sync /dev/mtdblock${mtd_num} /mnt
+
+and it FORMATS that partition itself when it is empty.  But it first looks for a **UBI volume** called
+`rootfs_data` and, if one exists, tries `mount -t ubifs /dev/ubi0_1` instead.
+
+I created exactly such a volume with `ubimkvol` and never put a filesystem on it, so the box took the
+ubifs path and failed:
+
+    UBIFS error (ubi0:1 pid 166): ubifs_read_node: bad node type (255 but expected 6)
+    mount_root: failed to mount -t ubifs /dev/ubi0_1 /tmp/overlay: Invalid argument
+
+**An unformatted volume is all 0xFF - "node type 255".**  My earlier claim that the overlay "needed
+formatting" was right about the symptom and wrong about the fix: the fix is to REMOVE my volume and let
+mount_root use its own path.
+
+## DONE THIS TURN (device work, no fire needed)
+
+    ubirmvol /dev/ubi6 -N rootfs_data     -> Present volumes: 0        (volume removed)
+    flash_eraseall /dev/mtd15             -> mtd15 is clean 0xff
+    ubidetach -d 6                        (mtd16 back to its boot state: volume 0 = owrt only)
+
+Next boot of OUR kernel should therefore take the jffs2-on-mtd15 path and FORMAT the overlay itself.
+
+## ALSO LEARNED (transfer path)
+
+`scp` does NOT work against this box - it has no /usr/libexec/sftp-server - and `base64` is not
+installed either.  For pushing small artifacts use the repo's .sshwrap/rscp.sh, or write bytes with
+printf/dd, not scp and not base64.  (Recorded because I burned two attempts on the wrong tools.)
+
+## STATE
+
+Board healthy on the vendor slot; mtd16 holds volume 0 (owrt) only; mtd15 erased.  Our kernel image
+still boots OpenWrt to procd with our MAC driver, register_netdev succeeding and MDIO registration
+failing with -EIO.
+Committed: parent 6b2c7da; submodule 6cb670d.
