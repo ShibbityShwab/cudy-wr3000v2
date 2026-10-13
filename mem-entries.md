@@ -17130,3 +17130,47 @@ MACs using mdio addresses 2..5, so if registration is fixed, the phy-handle mapp
 Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd, the MAC driver probes and
 register_netdev succeeds; only the MDIO bus registration fails.
 Committed: parent 732d53e; submodule 6cb670d.
+
+
+---
+
+# PHASE 105 (2026-10-13): THE REGISTRATION RETURN CODE IS -EIO (-5), NOT -ENODEV AND NOT -EINVAL
+
+## THE MEASURED CRUMB
+
+    C98 (mdio) = 0xC0DE7EFB        crumb = 0xC0DE7E00 | (ret & 0xff)
+    ret & 0xff = 0xFB = 251  =>  ret = -5  =>  -EIO
+
+So `of_mdiobus_register()` returned **-EIO**.  That rules out the two cases the source made obvious:
+
+  - NOT -ENODEV (-19): our mdio0 node IS available; the `of_device_is_available()` early return did not fire.
+  - NOT -EINVAL (-22): neither of `__mdiobus_register`'s own two documented returns fired
+    (`!bus || !bus->name || !bus->read || !bus->write`, and the `device_register()` failure).
+
+**-EIO comes from somewhere DEEPER than the checks I read**, which is why reading the obvious error paths
+did not settle it.  Candidates now:
+  - `of_mdio_parse_addr()` returns -EIO when a child's `reg` does not fit the parent's
+    #address-cells/#size-cells - but the child loop treats `addr < 0` as "scanphys, continue", so it is
+    tolerated THERE.  If the same parse is reached earlier, it would not be.
+  - a helper inside `__mdiobus_register` (gpiod/device init) returning -EIO.
+  - `of_mdiobus_register_phy()` failing with -EIO for a specific child, which DOES `goto unregister`.
+
+## WHAT I DID NOT GET, AND WHY IT MATTERS
+
+My `dev_info("luofu-mdio: bus node=%s available=%d")` and the per-child `reg` lines did NOT appear in the
+captured ring.  The ring is a 16 KiB window and these print very early, so they scrolled out.  **Evidence
+that lands early must go to a CRUMB, not to printk** - the crumb survived, the prints did not.
+
+## NEXT (concrete)
+
+  Crumb the failing stage instead of printing it:
+    1. whether the node is available            -> 0xC0DE7D01 / 0xC0DE7D00
+    2. how many children were walked            -> 0xC0DE7C00 | n
+    3. the per-child addr + rc, as a crumb      -> 0xC0DE7B00 | (addr<<4) | (rc & 0xf)
+  Then a single fire names the child (or the pre-child stage) that returns -EIO.
+
+## STATE
+
+Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd, the MAC driver probes and
+register_netdev succeeds; only the MDIO bus registration fails, with -EIO.
+Committed: parent 69a5f9b; submodule 6cb670d.
