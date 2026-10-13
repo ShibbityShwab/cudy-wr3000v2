@@ -16974,3 +16974,48 @@ can resolve the link.
 
 Board healthy on the vendor slot.  Our kernel image boots OpenWrt to procd with our NIC driver live.
 The overlay volume exists in mtd16.  Committed: parent 65f34b4; submodule 7d04dd8.
+
+
+---
+
+# PHASE 102 (2026-10-13): phy-handle WAS NOT ENOUGH - NEXT TARGET IS THE MDIO READ PATH
+
+## THE MEASURED RESULT
+
+    luofu-gmac 14380000.gemac: configuring for phy/gmii link mode      <-- STILL no PHY, no Link is Up
+    procd: - early - / - ubus - / - init -                              <-- boot completes, kernel runs
+
+So adding `phy-handle = <&phy2>` (5 handles, verified present in the built DTB) did NOT produce a PHY
+attach.  `phylink_of_phy_connect()` either still finds nothing or cannot read the PHY.
+
+**NEXT TARGET: the `luofu-mdio` read path.**  phylink cannot attach a PHY it cannot read over the bus.
+The vendor's own log for the same hardware shows the shape we want:
+
+    Hi-GEMAC 14380000.gemac eth0: PHY [14000000.mdio0:02] driver [Hisilicon Genius Phy] (irq=POLL)
+    Hi-GEMAC 14480000.gemac eth2: Link is Up - 1Gbps/Full - flow control rx/tx
+
+i.e. the PHY is discovered at mdio address 2 and then the link resolves.  We never see the `PHY [...]`
+line at all, which puts the failure BEFORE link resolution - in the mdio transfers.
+
+Note our PHYs are declared at reg 1..5 while the vendor's are 0..4 (its log addresses them 2..5), so the
+address mapping is worth re-checking against a real scan rather than assumed.
+
+## SECOND FINDING, AND IT IS MY BUG
+
+    UBIFS error (ubi0:1 pid 166): ubifs_read_node: bad node type (255 but expected 6)
+    mount_root: failed to mount -t ubifs /dev/ubi0_1 /tmp/overlay: Invalid argument
+
+I created the overlay volume with `ubimkvol` but never FORMATTED it.  An unformatted UBI volume is all
+0xFF, which is exactly "node type 255".  So the overlay volume exists but is unusable as it stands -
+either format it (mkfs.ubifs / the flash_erase+ubiformat path) or let OpenWrt's mount_root create it.
+
+## METHOD NOTE
+
+The first attempt at this fire tripped the single-fire lock, and BOTH invocations wrote the same `tee`
+log file - so the aborting one truncated the real fire's output and I briefly read only ABORT lines.
+**Use a per-attempt log filename, or do not write a log from a command that can abort on the lock.**
+
+## STATE
+
+Board healthy on the vendor slot.  Our kernel image boots OpenWrt to procd with our NIC driver probing.
+Committed: parent 1fc1347; submodule 7d04dd8.
