@@ -17019,3 +17019,52 @@ log file - so the aborting one truncated the real fire's output and I briefly re
 
 Board healthy on the vendor slot.  Our kernel image boots OpenWrt to procd with our NIC driver probing.
 Committed: parent 1fc1347; submodule 7d04dd8.
+
+
+---
+
+# PHASE 103 (2026-10-13): *** ROOT CAUSE FOUND - of_mdiobus_register() FAILS ***
+
+## THE MEASURED CRUMB
+
+    C98 (mdio) = 0xC0DE7F05    <-- of_mdiobus_register() returned an ERROR
+    C94 (gmac) = 0xC0DE6006    <-- register_netdev() succeeded (the MAC side got that far)
+    C8C        = 0xC0DE8D10    <-- our mach triage
+    C90        = 0xC0DE5002    <-- CRG / clock tree still registered
+
+I added crumbs after the bus registration because the driver previously logged NOTHING past step 4, and
+the very first thing they show is that the registration call fails.
+
+## WHY THIS EXPLAINS THE ENTIRE NO-NETWORK CHAIN
+
+    of_mdiobus_register() FAILS
+      -> no PHY device is ever enumerated on the bus
+      -> phylink_of_phy_connect() has nothing to attach (phy-handle alone cannot help)
+      -> the MAC sits at "configuring for phy/gmii link mode" and never reaches "Link is Up"
+      -> no uplink, so ssh to the box on OUR kernel is unreachable
+      -> and the box is only ever visible on the vendor slot afterwards
+
+Everything observed across this session is consistent with this one failing call.  The earlier phy-handle
+work was necessary (the handle IS how the MAC names its PHY) but could not matter while the bus itself
+never registered.
+
+## NEXT: WHY DOES IT FAIL?
+
+`of_mdiobus_register()` is called as:
+
+    ret = of_mdiobus_register(m->bus, dev->of_node);
+
+and it returns an error when it cannot walk/validate the DT children.  Candidates to check, cheapest
+first:
+  1. a PHY child node with a missing/invalid `reg` (our DTS declares ethernet-phy@1..@5 with reg = <1..5>)
+  2. the bus `#address-cells`/`#size-cells` on OUR mdio node (<1>/<0> - correct in principle)
+  3. an address collision or an out-of-range address against PHY_MAX_ADDR
+  4. dev->of_node not what we think (a name/shape mismatch, as with hsan,crg earlier)
+The driver already carries `luofu_mdio_read`/`luofu_mdio_write`; the fix is in the registration inputs,
+not the transfer code.
+
+## STATE
+
+Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd with the NIC driver probing and
+the netdev registering; only the MDIO bus registration fails.
+Committed: parent 2881d8c; submodule cd3769c.
