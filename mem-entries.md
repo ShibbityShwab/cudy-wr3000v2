@@ -17174,3 +17174,49 @@ that lands early must go to a CRUMB, not to printk** - the crumb survived, the p
 Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd, the MAC driver probes and
 register_netdev succeeds; only the MDIO bus registration fails, with -EIO.
 Committed: parent 69a5f9b; submodule 6cb670d.
+
+
+---
+
+# PHASE 106 (2026-10-13): -EIO IS NOT ON THE C22 PATH - THE NEXT MOVE IS A CRUMB, NOT A READ
+
+## WHAT THE FULL PATH READ ESTABLISHES
+
+I read every error return on the MDIO registration path in this tree:
+
+  __of_mdiobus_register        -ENODEV if !of_device_is_available(np)
+                               goto unregister on a HARD child error (only -ENODEV tolerated)
+  __mdiobus_register           -EINVAL for NULL bus/name/read/write
+                               -EINVAL if device_register(&bus->dev) fails
+  get_phy_c22_id               bus error  -> -ENODEV   (tolerated)
+                               all-ones ID -> -ENODEV   (tolerated)
+  get_phy_device               propagates get_phy_c22_id's code
+  of_mdiobus_register_phy      returns PTR_ERR(phy), or the rc from of_mdiobus_phy_device_register
+
+**Every clause-22 path converges on -ENODEV, which the child loop only logs.**  Our measured rc is -EIO
+(-5), so it is NOT produced by any of the returns above.
+
+Where it must therefore come from, and each is inside code I cannot settle by reading:
+  - of_mdiobus_phy_device_register -> device_add()/device_register() internals
+  - a C45 attempt (is_c45 comes from `ethernet-phy-ieee802.3-c45`; ours are c22, so this is unlikely)
+  - something in the mii_bus device registration path specific to our bus setup
+
+## THE NEXT MOVE IS A CRUMB, AND THAT IS THE REAL LESSON
+
+My `dev_info()` lines for the bus node and each child never reached the captured ring - they print very
+early and the ring is a 16 KiB window, so they scrolled out.  **Early-boot evidence must be crumbed, not
+printed:**
+
+    0xC0DE7D00 / 0xC0DE7D01      node not / is available
+    0xC0DE7C00 | n               children walked
+    0xC0DE7B00 | (addr<<4) | rc  per-child result, so ONE fire names the child or the stage
+
+That converts an open question into a single read, which is how every other fix in this session was
+landed.
+
+## STATE
+
+Board healthy on the vendor slot.  Our kernel boots OpenWrt to procd; the MAC driver probes and
+register_netdev succeeds.  Only the MDIO bus registration fails, with -EIO, and its source is now bounded
+to the device-registration internals rather than the parse/tolerance logic.
+Committed: parent e99a337; submodule 6cb670d.
