@@ -17266,3 +17266,72 @@ Board healthy on the vendor slot; mtd16 holds volume 0 (owrt) only; mtd15 erased
 still boots OpenWrt to procd with our MAC driver, register_netdev succeeding and MDIO registration
 failing with -EIO.
 Committed: parent 6b2c7da; submodule 6cb670d.
+
+
+# PHASE 108 (2026-10-14): ★★★★★ TWO INDEPENDENT BUGS IN THE RING CHANNEL - IT HAS NEVER ONCE WORKED ★★★★★
+
+## WHY THIS MATTERS
+
+Every fire's "THE RING (our kernel's log, if it ran)" block has been the ONLY channel for seeing our
+kernel's own output - and the NIC diagnosis, the boot-survival question and the ~78 s lifetime all
+depend on it. **It has never returned a log.** Two separate defects, each sufficient on its own:
+
+## BUG 1: `/dev/mem` IS NOT READABLE THIS WAY - `dd` FAILS OUTRIGHT
+
+    dd if=/dev/mem bs=4096 skip=1 count=1     ->  dd: /dev/mem: Bad address
+    dd if=/dev/mem bs=4096 skip=256 count=1   ->  dd: /dev/mem: Bad address
+
+**`dd` on `/dev/mem` returns "Bad address" for any speculative range.** Meanwhile `devmem 0x10100C18`
+works fine, because `devmem` mmaps the ONE page it needs rather than reading a stream.
+
+**So the ring block's `dd ... | strings` pipeline produced NOTHING, and the strings that appear in the
+logs came from elsewhere in the pipeline/output, not from the log buffer.**
+
+The tell is unmistakable once seen: `fire-open2.log`'s "ring" contains **kernel symbol names**
+(`led_trigger_set`, `timer_probe`, `of_alias_get_alias_list`, `skb_over_panic`, `ramoops`) - that is
+the **kallsyms/`.rodata` region**, not a log. `fire-ord.log`'s contains ethernet error format strings.
+
+## BUG 2: THE PHYSICAL ADDRESS FORMULA ASSUMES THE WRONG PAGE_OFFSET
+
+The script derives the address as:
+
+    phys = 0x80000000 + (va - 0xc0000000)      # <- a 3G-split formula
+
+**Our kernel is `CONFIG_VMSPLIT_2G` with `PAGE_OFFSET=0x80000000`**, so the linear map is
+VA `0x80000000..0xbfffffff` -> phys `0x00000000..0x3fffffff`, and the correct conversion is
+`phys = va - 0x80000000`.
+
+For `__log_buf = 0xc0db2f50`:
+
+    script computes : 0x80db2f50  -> page 0x80db2
+    correct         : 0x40db2f50  -> page 0x40db2
+    difference      : 0x40000000 = 1 GB
+
+**The two bugs compound: the address is wrong by 1 GB AND the read mechanism cannot work at all.**
+
+## THE VERIFICATION THAT PINS BUG 2
+
+The BUILD TREE and the FIRED IMAGE agree exactly, so the symbol source is right:
+
+    /opt/kbuild/linux-5.10.201/arch/arm/boot/zImage  2,660,256 B  md5 53469b67525928b914d93af0dddfcb54
+    build/tmp/luofu-uImage-ord payload               2,660,256 B  md5 53469b67525928b914d93af0dddfcb54
+
+and that tree's `nm vmlinux | grep -w __log_buf` gives `c0db2f50`.
+
+**Note also**: `/opt/kbuild/clean/linux-5.10.201` is a DIFFERENT, STALE tree whose `__log_buf` is
+`0x80f60f50`. It is not the build lane (`build/tmp/wsl_build_incr.sh` sets `K=/opt/kbuild/linux-5.10.201`).
+Reading a symbol from the wrong tree is a live hazard here.
+
+## THE FIX (both parts)
+
+1. **Read the log through an mmap, not `dd`** - the same mechanism `devmem` uses and which is proven to
+   work on this box.
+2. **Use the 2G formula**: `phys = va - 0x80000000` (equivalently `va & 0x3fffffff` is WRONG - that is a
+   3G mask; with PAGE_OFFSET 0x80000000 the phys is simply `va - 0x80000000`).
+
+## WHY THIS IS A REAL FINDING AND NOT A DETOUR
+
+The record says the ring raise to 256 KiB was done precisely so "the early boot survives userspace".
+That change was made, and then the ONLY way to read the result was broken - so every subsequent fire
+was judged from crumbs alone. **The crumbs are good (they are what proved our kernel runs), but the
+ring is where the reason would be written, and it has been silent.**
