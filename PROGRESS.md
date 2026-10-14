@@ -14,12 +14,16 @@ There is no build step and no test suite for this repo, so a "score" here means:
 
 ## The one number
 
-| roll-up | score |
+| | score |
 | --- | --- |
-| **REVERSAL** (understanding the hardware: sections A+B) | **~68%** |
-| **REBUILD** (our own kernel + our own OpenWrt: sections C+D) | **~35%** |
-| **OVERALL** toward the stated goal | **~51%** |
-| Distance to "latest OpenWrt running on this board, our kernel, our drivers" | **not close - the rebuild half is the long pole** |
+| **REVERSAL** (reading the closed Wi-Fi stack) | **~68%** |
+| **REBUILD** (our own kernel + our own OpenWrt: sections C+D) | **~45%** |
+| **OVERALL** toward the stated goal | **~56%** |
+
+**2026-10-14: the Ethernet wall fell.** C7 went from "not started" to working - the MAC is
+configured from a live PHY link for the first time (`mac_link_up` fires, 100 Mbps). C and the
+REBUILD total move with it. What now gates the goal is no longer the NIC but **boot survival**:
+our kernel runs ~78 s and returns, and nothing answers on the wire yet.
 
 The goal you set (2026-10-05): *our own fully-current OpenWrt - our kernel + our
 drivers, no vendor kernel.* Measured against that, the **reversal** (reading the
@@ -63,7 +67,7 @@ exposes it) and the vendor source (requests to Cudy and Jeton unanswered).
 is a full 802.11 stack (`hmac_` 1,853 fns, `wal_` 990, `hdpp_` 208, `alg_` 199),
 not a thin mac80211 driver.
 
-## C. SoC / kernel bring-up - our own kernel (~34%, the long pole)
+## C. SoC / kernel bring-up - our own kernel (~45%, moved from 34% on 2026-10-14 by C7)
 
 | # | subsystem | score | state | evidence |
 | --- | --- | --- | --- | --- |
@@ -73,7 +77,7 @@ not a thin mac80211 driver.
 | C4 | Pinctrl/IOMUX driver | 40% | code exists | 37 pins/24 groups/24 fns transcribed; compiles; `set_mux`+pinconf are **no-op stubs** |
 | C5 | PCIe host driver (DWC) | 25% | code exists | `luofu-pcie.c` 1,367 lines; LTSSM/mode/IATU writes all **commented out** (lines 1229-1262); read-only |
 | C6 | NAND/FMC controller driver | 55% | code exists | `luofu-fmc.c` 3,422 lines; **erase measured working** (WREN 0x06 + `FMC_OP` 0x81); open = erase race + UBI/JFFS2; board stranded |
-| C7 | Ethernet GMAC/MDIO/switch driver | 0% | **not started** | no driver file exists; nearest is a different HiSilicon family; LSW is a 2nd driver |
+| C7 | Ethernet GMAC/MDIO/switch driver | 75% | **working - link up, MAC configured** | four bugs fixed 2026-10-14: MDIO resets never deasserted (-EIO); MAC link config was an empty stub; MAC<->PHY mapping shifted by one; netdev never opened so phylink never polled. MEASURED: `mac_link_up` fires with `SPEED_100`, PHY BMSR 0xCDEF (link + autoneg), `phylink_of_phy_connect` returns 0 |
 | C8 | Boot chain / U-Boot source | 10% | **not started** | blobs only (no source); A/B flashing recipe de-risked |
 | C9 | UART/GPIO/watchdog/thermal | 20% | partial | UART/GPIO reuse mainline; watchdog+thermal from-scratch (small); none written |
 

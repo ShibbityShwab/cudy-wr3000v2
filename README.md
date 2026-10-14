@@ -31,8 +31,15 @@ found and corrected three scores - see `PROGRESS.md`.
 | | score |
 | --- | --- |
 | **REVERSAL** (reading the closed Wi-Fi stack) | **~68%** |
-| **REBUILD** (our own kernel + our own OpenWrt) | **~39%** |
-| **OVERALL** toward the stated goal | **~53%** |
+| **REBUILD** (our own kernel + our own OpenWrt) | **~45%** |
+| **OVERALL** toward the stated goal | **~56%** |
+
+**2026-10-14: the Ethernet wall fell.** The NIC went from "0%, not started" to working - the MAC
+is configured from a live PHY link (`mac_link_up` fires, SPEED_100, PHY BMSR 0xCDEF). Four bugs had
+to fall in order: MDIO resets never deasserted; the MAC link callbacks were empty stubs; the
+MAC<->PHY map was shifted by one so the wired port pointed at the wrong PHY; and the netdev was
+never opened, so phylink never polled the PHY at all. **What gates the goal now is not the NIC but
+boot survival:** our kernel runs ~78 s and returns, and nothing answers on the wire yet.
 
 This is **two projects wearing one repo's clothes**: the reversal (phases 2-49)
 is most of the way done and hits a genuine hardware wall; the rebuild (the
@@ -65,7 +72,7 @@ programme.
 | H2D message send | 40% | **blocked** |
 | Data path + cfg80211 ops + TXBF/rate/DFS | 10% | **not started** |
 
-### C. SoC / kernel bring-up - our own kernel (~36%, the long pole)
+### C. SoC / kernel bring-up - our own kernel (~45%, the long pole)
 
 | subsystem | score | state |
 | --- | --- | --- |
@@ -75,7 +82,7 @@ programme.
 | Pinctrl / IOMUX driver | 40% | code exists |
 | PCIe host driver (DWC) | 25% | code exists |
 | NAND / FMC controller driver | 55% | code exists |
-| Ethernet GMAC / MDIO / switch driver | 0% | **not started** |
+| Ethernet GMAC / MDIO / switch driver | 75% | **working - link up, MAC programmed** |
 | Boot chain / U-Boot source | 10% | **not started** |
 | UART / GPIO / watchdog / thermal | 20% | partial |
 
