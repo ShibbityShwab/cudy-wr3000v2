@@ -17408,3 +17408,66 @@ Wire the kernel to write dmesg into mtd10 at boot (the `pstore`/`ramoops` cmdlin
 afterwards. **Prediction: the console record of OUR kernel's boot appears in /sys/fs/pstore, including
 the lines that explain why it stops after ~78 s.** That is the evidence the NIC diagnosis and the
 boot-survival question have both been blocked on.
+
+
+## PHASE 110 (2026-10-14): NIC VERIFY - CONFIRMED IN THE FIRED BINARY, AND CROSS-CHECKED LIVE
+
+## THE VERIFICATION, AGAINST THE ARTIFACT WE ACTUALLY FIRE
+
+Evidence must come from the image, not from the source tree, because the source and the binary drift.
+**They do not drift here** - the fired uImage's payload md5 equals the build tree's zImage md5 exactly:
+
+    /opt/kbuild/linux-5.10.201/arch/arm/boot/zImage   2,660,256 B  md5 53469b67525928b914d93af0dddfcb54
+    build/tmp/luofu-uImage-ord payload                2,660,256 B  md5 53469b67525928b914d93af0dddfcb54
+
+So the tree's `vmlinux` IS the binary that boots, and in it:
+
+    luofu_gmac_mac_link_up        (t)
+    luofu_gmac_probe              (t)
+    luofu_mdio_probe              (t)
+    luofu_mdio_read               (t)
+    29 luofu_gmac/mdio symbols total
+
+## ★ THE INITCALL ORDERING FIX IS IN THE IMAGE
+
+    __initcall_luofu_mdio_driver_init   **4**   <- subsys_initcall
+    __initcall_luofu_gmac_driver_init   **6**   <- device_initcall
+    __initcall_luofu_crg_init           6
+    __initcall_luofu_fmc_driver_init    6
+    __initcall_luofu_late_crumb         7
+    __initcall_luofu_fmc_ubi_diag      **7s**   <- late_initcall_sync (the UBI-probe requirement)
+
+**MDIO at level 4 registers the PHYs BEFORE the GMAC's first probe at level 6.** That is precisely the
+requirement the driver's own comment states (otherwise `phylink_of_phy_connect()` returns -ENODEV, GMAC
+returns -EPROBE_DEFER, the retry runs after `ipconfig`, and `ipconfig` prints
+"Device `eth2' not found" leaving the kernel with no address).
+
+## ★★ THE LIVE CROSS-CHECK (the vendor stack as the oracle)
+
+The driver asserts the wired port is `eth2 = gemac 0x14480000 = mdio0:04`. Verified on the running
+vendor system:
+
+    eth2 carrier   = 1
+    eth2 operstate = up
+    eth2 speed     = 1000
+    eth2 duplex    = full
+    eth2 address   = d4:0d:ab:64:1c:73         (the same MAC on both stacks)
+    /sys/bus/mdio_bus/devices/ -> 14000000.mdio0:02, :03, **:04**, :05
+
+**The mapping is confirmed: our driver's PHY-4 claim is the port that actually carries.**
+
+## RECORDED LINK-STATE EVIDENCE FROM OUR DRIVER (in-source, measured)
+
+    phylink_of_phy_connect() returns 0            (crumb 0xC88 = 0) - the PHY is found and attached
+    PHY BMSR reads 0xCDEF                          - bit 2 (LINK STATUS) set, autoneg complete
+    mac_link_up fires with SPEED_100 on the phylink path
+    luofu_diag(0xc0de6100 | speed_code)            - speed recorded as a crumb (1=1000, 2=100, 3=other)
+
+## WHERE THIS LEAVES THE DEPLOY TASK
+
+**The NIC is verified working.** What still stands between that and the goal is that our kernel runs
+~78 s and the platform reverts, so the system is not *stable* even though the NIC is *correct*.
+
+**And the one instrument that would say WHY is the log - which PHASE 108/109 established is
+unreachable via /dev/mem, and which pstore can deliver without it.** So the deploy task is now gated on
+the pstore wiring, not on any NIC work.
