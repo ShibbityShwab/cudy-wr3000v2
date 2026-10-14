@@ -17335,3 +17335,76 @@ The record says the ring raise to 256 KiB was done precisely so "the early boot 
 That change was made, and then the ONLY way to read the result was broken - so every subsequent fire
 was judged from crumbs alone. **The crumbs are good (they are what proved our kernel runs), but the
 ring is where the reason would be written, and it has been silent.**
+
+
+## PHASE 109 (2026-10-14): ★ THE RING IS **UNREACHABLE BY DESIGN** - AND THE PSTORE CHANNEL IS THE RIGHT ONE, ALREADY ENABLED
+
+## THE MEASUREMENT THAT SETTLES IT
+
+Following PHASE 108's two bugs I built a real reader (`build/tmp/ringdump.sh`, devmem word-by-word -
+no python on the box) and pointed it at the RUNNING VENDOR KERNEL's own `__log_buf`, whose VA is
+readable there (`kptr_restrict=0`, `grep -w __log_buf /proc/kallsyms` -> `0xc0bb1eb8`).
+That gives a live oracle: a known string (`jffs2_scan_eraseblock`) is in this boot's `dmesg` right now.
+
+    phys = 0xc0bb1eb8 - 0x80000000 = 0x40bb1eb8      (the correct VMSPLIT_2G conversion)
+
+Reading it, and neighbouring RAM:
+
+    0x40bb1eb8 = 0xFFFFFFFF
+    0x40bb2000 = 0xFFFFFFFF
+    0x40bb4000 = 0xFFFFFFFF
+    0x40bb8000 = 0xFFFFFFFF
+
+**Every System RAM address returns 0xFFFFFFFF**, while `devmem 0x10100C18` (sysctrl) reads fine and
+`devmem 0x40000000` returns actual CODE (`0xE59FF018`).
+
+## ★★★ SO THE RING IS UNREACHABLE FROM USERSPACE, AND NO ADDRESS FIX CAN CHANGE THAT
+
+`CONFIG_DEVMEM=y` with **`CONFIG_STRICT_DEVMEM=y`** (the setting that did NOT print because it is
+selected rather than written literally in .config) restricts `/dev/mem` to DEVICE memory. **System RAM
+is simply not mapped to userspace.** That is why:
+
+    - `dd if=/dev/mem` -> "Bad address"      (PHASE 108, bug 1)
+    - `devmem` at any RAM address -> 0xFFFFFFFF
+    - the fire scripts' ring blocks were never going to contain a log
+
+**This retires the entire ring-reading approach.** It is not a bug to fix; it is a wall.
+
+## ★★★★★ THE CORRECT CHANNEL IS ALREADY ENABLED: MTD_PSTORE
+
+    CONFIG_PSTORE=y          CONFIG_PSTORE_RAM=y       CONFIG_PSTORE_CONSOLE=y
+    CONFIG_PSTORE_PMSG=y     CONFIG_PSTORE_COMPRESS=y  CONFIG_PSTORE_ZONE=y
+    CONFIG_MTD_PSTORE=y      <- the log can be written to an MTD partition
+    CONFIG_PSTORE_BLK=y
+
+and the device has exactly the partition for it:
+
+    mtd10: 00040000 00020000 "pstore"      (256 KiB)
+    md5 09a1d434dbd7197e7c3af8a7c28ca38b   (real content, not 0xff)
+
+**and the running kernel already mounts it:**
+
+    $ mount | grep pstore
+    pstore on /sys/fs/pstore type pstore (rw,relatime)
+
+**`/sys/fs/pstore` is live but EMPTY** - nothing has written a record yet, because the config that makes
+the kernel write one there (the cmdline `pstore`/`ramoops` parameters, or the right `mtdpstore`
+registration) has not been set up.
+
+## WHY THIS IS THE RIGHT CHANNEL AND THE RING WAS NOT
+
+    - it needs NO /dev/mem, so STRICT_DEVMEM is irrelevant;
+    - it SURVIVES the revert: our kernel writes the record, the platform brings up the vendor kernel,
+      and we read /sys/fs/pstore afterwards - which is exactly the sequence every fire already has;
+    - the machinery is compiled in already; what is missing is the wiring.
+
+**PHASE 108's diagnosis stands and is now complete: the ring channel had two bugs AND could never have
+worked anyway. The pstore channel is the replacement, and it is one configuration step away.**
+
+## NEXT (concrete, single-variable)
+
+Wire the kernel to write dmesg into mtd10 at boot (the `pstore`/`ramoops` cmdline parameters or an
+`mtdpstore` device registration), fire ONCE, then read `/sys/fs/pstore` from the vendor kernel
+afterwards. **Prediction: the console record of OUR kernel's boot appears in /sys/fs/pstore, including
+the lines that explain why it stops after ~78 s.** That is the evidence the NIC diagnosis and the
+boot-survival question have both been blocked on.
