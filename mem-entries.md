@@ -17471,3 +17471,74 @@ vendor system:
 **And the one instrument that would say WHY is the log - which PHASE 108/109 established is
 unreachable via /dev/mem, and which pstore can deliver without it.** So the deploy task is now gated on
 the pstore wiring, not on any NIC work.
+
+
+## PHASE 111 (2026-10-14): THE PSTORE CHAIN TRACED - THE WIRING IS HALF DONE, AND THE HALF THAT IS MISSING IS NAMED
+
+## WHAT IS ALREADY IN PLACE (verified in the FIRED kernel, not the source tree)
+
+    the fired artifact's payload md5 == the build tree's zImage md5 (53469b67...), so the tree IS the binary
+
+    CONFIG_MTD_PSTORE=y   CONFIG_PSTORE_BLK=y
+    __initcall_mtdpstore_init   **6**     linked
+    __initcall_pstore_blk_init  **7**     linked
+    mtd10 "pstore"  262,144 B, erasesize 131,072, writesize 2048
+    and the cmdline ALREADY CARRIES:   pstore_blk.blkdev=pstore
+
+## ★ THE THREE CONSTRAINTS mtdpstore ENFORCES, CHECKED AGAINST mtd10 - ALL PASS
+
+    mtd->size (262144) < kmsg_size*2 (8192)   -> false, OK
+    mtd->erasesize (131072) < kmsg_size (4096) -> false, OK
+    kmsg_size (4096) % mtd->writesize (2048)   -> 0, OK
+
+(kmsg_size comes from CONFIG_PSTORE_BLK_KMSG_SIZE=112 -> check_size(112,4096) -> 4096.)
+
+## ★★ AND THE NAME MATCH IS SATISFIED
+
+    mtdpstore_notify_add():  if (!strcmp(mtd->name, info->device)) cxt->index = mtd->index;
+    info->device = blkdev   (pstore_blk_get_config does strncpy(info->device, blkdev, 80))
+    blkdev is filled from the cmdline param `pstore_blk.blkdev=pstore` AT PARSE TIME
+
+**so the notifier will match the partition named "pstore", which is mtd10.**
+
+## ★★★ THE MISSING HALF: `best_effort`
+
+    static bool best_effort;                      <- defaults FALSE
+    module_param(best_effort, bool, 0400);
+
+    pstore_blk_init():                            <- initcall level 7
+        if (!pstore_zone_info && best_effort && blkdev[0])
+                ret = __register_pstore_blk(&info);
+
+**`pstore_blk_init` does nothing unless `best_effort` is TRUE.** Our cmdline supplies `blkdev` but
+NOT `best_effort`, so the pstore/blk layer never registers, and there is nothing for mtdpstore's
+`register_pstore_device()` to attach to.
+
+**The documented usage confirms both knobs are needed** (`Documentation/admin-guide/pstore-blk.rst`):
+
+        pstore_blk.blkdev=179:7 pstore_blk.kmsg_size=64
+
+## THE ONE-LINE CHANGE, WITH ITS PREDICTION
+
+    add `pstore_blk.best_effort=1` to CONFIG_CMDLINE (the same single string that already carries
+    `pstore_blk.blkdev=pstore`)
+
+**Prediction: after the next fire, `/sys/fs/pstore` on the vendor stack contains the console record
+of OUR kernel's boot** - the log that explains why it stops after ~78 s. **Falsifier: `/sys/fs/pstore`
+stays empty, which would mean the record is written but not flushed before the revert (a different
+problem with its own next step: `pstore_blk.max_reason` and the flush timing).**
+
+## WHY THIS IS THE UNBLOCKING STEP AND NOT A DETOUR
+
+The deploy task ("OpenWrt stable on our kernel with a working NIC") is gated on knowing why the kernel
+stops being the running system. **Every instrument that could say so has been shut off**: the ring is
+unreachable (STRICT_DEVMEM, PHASE 109), early prints scroll out, and the crumb proves the kernel ran
+but not why it stopped. **pstore is the last channel, it is already compiled in, and it is one
+parameter away from working.**
+
+## ALSO WORTH RECORDING
+
+`pstore_blk_init` is at level **7** and `mtdpstore_init` at level **6** - i.e. mtdpstore initialises
+BEFORE pstore_blk. That looked like an ordering bug at first and **is not**: `pstore_blk_get_config()`
+only reads the module parameters, which the cmdline parser fills long before any initcall. Recorded
+because the reverse reading is tempting and would send the next person after a non-existent bug.
