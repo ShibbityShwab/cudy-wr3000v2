@@ -18092,3 +18092,59 @@ live reboot detection, explicit VALID / VOID / UNUSABLE verdict.
     the vendor DTB carries the full watchdog node; the driver matches its compatible string
     WDOG_HW_RUNNING did NOT prevent the fallback
     *** the boot is intermittent ***
+
+
+## 2026-10-16 - SESSION HANDOFF: two config-drift fixes, and the UBI question left with a named gap
+
+### WHAT WAS FIXED (both were BUILT-STATE bugs, not driver bugs)
+
+**1. `pstore_blk.best_effort=1`.** The `.config` carried it; the fragment had deliberately reverted it
+(commit 9684a80). It makes `pstore_blk_init` proceed past an unusable backend into
+`register_pstore_zone`, which faults. **Removing it advanced the boot from a panic at 5.74 s to the
+rootfs mount at 6.60 s** - the first time the real wall came into view.
+
+**2. My own `LUOFU_LOG_KEEP` change**, left in the build tree after I reverted the source. It caused a
+boot with no log at all (`C18 = 0xC0DE502A`, the panic notifier, before the first tick).
+
+### WHAT IS MEASURED AND SOLID
+
+    MTD            17 partitions, sizes matching the vendor exactly (mtd14 = 23808 KiB = 0x1740000)
+    UBI volume     mtd13 = "rootfsa" carries a real "UBI#" EC header; mtd14 and mtd16 are EMPTY
+    initcall order DT populate (3s) -> FMC driver (6) -> ubi_init (7), from the symbol addresses
+    panic          VFS: Cannot open root device "ubiblock0_0" or unknown-block(0,0)
+    three targets  ubi.mtd=rootfsb / upgrade / rootfsa all give the SAME panic
+
+### ★ AND THE FINDING THAT REFRAMES IT
+
+**The vendor attaches UBI from USERSPACE as a loaded module.** `/sys/module/ubi/parameters/mtd` is
+EMPTY, `lsmod` lists `ubi` among the runtime modules, and `ubi0` is attached to mtd13 with volume 0
+named `squashfs`. **The vendor never uses `ubi.mtd=`, and mounts nothing at boot.**
+
+Our cmdline roots FROM UBI (`root=/dev/ubiblock0_0`), so UBI must attach before `prepare_namespace` -
+**which means the vendor's configuration is not a template for this step.**
+
+### THE NAMED GAP, FOR THE NEXT SESSION
+
+**Why does `ubi.mtd=` not parse in our kernel?** `ubi_init` prints on every outcome, so its silence
+proves `mtd_devs == 0`. Candidates, none yet measured:
+
+1. the parameter's initcall level - `do_initcall_level()` calls `parse_args(..., level, level, ...)`
+2. `ubi.mtd` not reaching `parse_args` at all
+3. the MTD not yet existing when `ubi_init` runs (argued against by the symbol order, not disproved)
+
+**The next step is an instrumented boot that reports the PARSED value of `ubi.mtd` and whether
+`ubi_init` saw `mtd_devs > 0`** - the driver already has diagnostic-cell infrastructure for this
+(`0xC9C`-style). **Not another reading of the same log.**
+
+### ⚠ METHOD FAILURES TO NOT REPEAT
+
+1. **Five instruments perturbed the system they measured** - fix #5 (clk/reset), a crumb in a
+   contested cell, a crumb the tick overwrites, a watchdog crumb in the ladder's cell, and the
+   rootfs-verdict patch that erased+wrote flash from inside the probe. **An instrument must be
+   read-only with respect to the system under test.**
+2. **Three fires were lost to built-state drifting from source-state.** Read both constants back out
+   of `vmlinux` before firing; a build tree is not the source tree.
+3. **Three of tonight's "discoveries" were already in the project's own files** - the FMC read path
+   proven working (Phase 50e), the ordering panic diagnosed in luofu-fmc.c:4690-4707, and the
+   vendor's module-based UBI (in an `lsmod` note). **Search the record before designing a probe.**
+4. **I circled twice**, generating hypotheses from one log instead of measuring. Called it both times.
