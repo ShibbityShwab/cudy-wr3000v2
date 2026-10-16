@@ -39,7 +39,21 @@ is configured from a live PHY link (`mac_link_up` fires, SPEED_100, PHY BMSR 0xC
 to fall in order: MDIO resets never deasserted; the MAC link callbacks were empty stubs; the
 MAC<->PHY map was shifted by one so the wired port pointed at the wrong PHY; and the netdev was
 never opened, so phylink never polled the PHY at all. **What gates the goal now is not the NIC but
-boot survival:** our kernel runs ~78 s and returns, and nothing answers on the wire yet.
+boot survival.**
+
+**2026-10-15: THE BOOT GUARD FELL - OUR OWN KERNEL NOW EXECUTES ON THIS BOARD.** Every prior fire
+of a self-built image was refused *before its first instruction*; the session found why. The loader
+requires (a) a **DTBO container** - magic `0xd7b7ab1e` at `main_dtb + be32(main_dtb+4)`, confirmed
+byte-for-byte on the live vendor slot - and (b) a main DTB carrying the `vendor_id`/`board_id` the
+overlay applier matches on. Using the vendor's DTB with our kernel is what finally booted.
+**Measured boot narrative:** our kernel runs past every driver probe and past `late_initcall` with
+**correct page tables** (`swagger_pg_dir` -> `0x80604000`), then panics. See
+`build-guard-dtbo-container.md` and `own-kernel-boot-narrative.md`.
+
+**The instrument that hid all of this was circular:** the driver's write self-test compares its
+write buffer against a read that copies from that same buffer, so `mismatches = 0` was guaranteed
+regardless of hardware - which is why the flash question outlived every previous window.
+See `fmc-data-path-position.md` and `sysctrl-cell-map.md`.
 
 This is **two projects wearing one repo's clothes**: the reversal (phases 2-49)
 is most of the way done and hits a genuine hardware wall; the rebuild (the
@@ -105,16 +119,50 @@ every mechanism this bench contains (`opensource/docs/phase48/host-side-closed.m
 Only two instruments could open it and **both are confirmed unavailable**: JTAG
 (no hardware) and the vendor source (Cudy + Jeton requests both silent).
 
-### What is left, in order
+### What is left, in order (updated 2026-10-15)
 
-1. **Un-strand the board** - it is sitting in our kernel with Ethernet down; the
-   recovery door is armed. Bound the NAND erase-verify loop to a sample so boot
-   cannot hang before the safety timer (`mem-entries.md` PHASE 50fn).
-2. **Finish C6 NAND** - erase race + UBI/JFFS2 attach. Blocks any from-source boot.
-3. **C7 Ethernet/switch driver** - the 0% item nobody started.
-4. **Fill the stub drivers** - clk `set_parent`, pinctrl `set_mux`, PCIe LTSSM writes.
-5. **The Wi-Fi wall + data path** - split by what a host can still do vs what
-   needs the vendor source or a device-side trace.
+**0. THE ROOT CAUSE IS FOUND, AND TWO "SEPARATE" LANES WERE ALWAYS ONE PROBLEM.**
+
+**The FMC data path IS the boot panic.** Reading `init/main.c` all the way down closes the chain:
+
+```
+FMC read path returns 40 1f 00 00 for every page
+  -> ubi_init (a late_initcall) RUNS but FAILS TO ATTACH
+     (a failed attach is not a panic, so every initcall still completes)
+  -> no ubiblock0_0, no root mount
+  -> init_eaccess("/init") -> kern_path() walks a root-less mount tree -> FATAL
+  -> the loader sees no successful hand-off -> falls back to slot A
+```
+
+The kernel's own `CONFIG_CMDLINE` says where the root comes from, and it is NAND through UBI:
+`ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs`. **UBI attach reads flash
+through our own FMC driver.**
+
+**No fire could have found this.** Every crumb sits in our driver's initcall path or later, while the
+death is in `fs/init.c` after all of them - and the kernel never prints its usual *"VFS: Unable to
+mount root fs"* because it dies in `init_eaccess` **before** `prepare_namespace()` tries the mount.
+That is why the boot was silent and why the panic read as unreachable.
+(`boot-panic-is-in-userspace-handoff.md`)
+
+**1. FIX THE FMC READ PATH.** This is now the single blocking bug for the whole goal, not a side
+concern. Evidence: `C70 = 40 1f 00 00` across seven fires, in the one sysctrl cell proven to be a
+true scratch register, while the vendor's own DMA buffer fills with changing real flash data. **No
+rootfs until this reads correctly - and no userspace until there is a rootfs.**
+
+2. **Reachability once it survives.** The NIC driver is written and works (under the vendor); what
+   is untested is whether our kernel brings it up. Needs (1).
+3. **Fill the stub drivers** - **AUDITED 2026-10-15, and the answer differs per driver:**
+   - **clk** (`luofu-clk.c`): TODOs are **STALE** - `set_parent`, gate/vgate/pll ops, AND a full reset
+     controller (`reset`/`assert`/`deassert` + `of_xlate`) are already implemented; the TODO that
+     says "register the reset controller" sits directly above the code that does it.
+   - **pinctrl** (`luofu-pinctrl.c`): **MOSTLY STALE** - `set_mux` and the full `pinctrl_ops` map are
+     implemented; only the `pinconf` ops are genuine, and they are documented no-ops.
+   - **PCIe** (`luofu-pcie.c`): TODOs were **ACCURATE** - and are now **WRITTEN**. The bring-up
+     (CRG handshake, RC mode, iATU/cfg setup, LTSSM link training) is real code, gated behind
+     `rc_bringup=1`, and **compiles clean** (`luofu-pcie.ko`, 21,864 B, zero warnings).
+     See `pcie-bringup-written.md`.
+4. **The Wi-Fi wall + data path** - split by what a host can still do vs what needs
+   a device-side trace.
 
 Full detail, per-lane evidence citations, and the honest ceiling:
 **[`PROGRESS.md`](PROGRESS.md)** (the text ledger; `PROGRESS.html` is the same data drawn as a graph).
@@ -136,6 +184,25 @@ jtools/ tftp/ ulw/` is gitignored local state - it may be large or absent.
 
 ## Hard rules
 
+- **A FIRE MUST PROVE ITS OWN VALIDITY BEFORE ITS READING IS BELIEVED.** Use
+  `build/tmp/fire-verified.sh`, which checks: `boot_id` changed (the box actually rebooted),
+  slot B still holds the flashed image (like-with-like md5, AFTER the boot, not only at flash
+  time), and the crumb was sampled inside the window. It prints `VALID` / `VOID` / `UNUSABLE`.
+  Every ambiguous result in this project has come from missing one of those three checks.
+- **THE BOOT IS NOT INTERMITTENT - MEASURED 5/5.** `build/tmp/luofu-uImage-wdt8-slice` reached the
+  tick `C18 = 0xC0DE502D` in 5 of 5 valid runs, every run passing the harness's boot_id and
+  slot-identity checks. An earlier "intermittent" reading came from ONE pair of runs scored by the
+  buggy harness - **a single pair cannot distinguish "intermittent" from "one measurement was
+  invalid"**. Rate-test a build (n>=5) before claiming anything about variance.
+- **A RATE, NOT A VALUE.** Any claim of the form "fix X did nothing" needs the same n>=5 rate test,
+  or it is a single sample asserting equality with another single sample.
+- **COMPARE LIKE WITH LIKE.** An md5 of the whole image and an md5 of its first 1 MB are different
+  numbers for a good image. A verification that compares them will declare every run VOID - which is
+  exactly what happened, twice.
+- **Read the cell's PROVENANCE, not just its value.** `0xC0DE502D` is OUR tick crumb (a controlled
+  vendor boot does not write it - verified 3 ways); `0xC0DE5004` is OUR step-4 crumb. A crumb cell
+  whose writer has not been proven will produce confident nonsense - every sysctrl cell in this
+  project except a proven few is shared between the FMC driver and the mach.
 - Never write CA `0x400392f0`. Never read the RC misc window `0x10161000`
   (a read-only `devmem` there PANICKED the box). Never `rmmod` the vendor modules.
 - Tracked text carries placeholders only: `<ROUTER-SSH-PASSWORD>`,
@@ -145,3 +212,6 @@ jtools/ tftp/ ulw/` is gitignored local state - it may be large or absent.
   vendor modules are hidden.
 - Leave the router healthy: 2 wiphys, 6 interfaces, calibration `[SUCC]` on both
   bands, no `.omo-off` leftovers.
+- **A fallback to the vendor slot leaves `boot_reg = 0x10` and the box on slot A**, which is why
+  Wi-Fi reads 0 wiphys / 0 interfaces after a fire. That is a consequence of the fire, not a
+  separate fault.

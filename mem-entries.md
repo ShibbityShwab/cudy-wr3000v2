@@ -17542,3 +17542,553 @@ parameter away from working.**
 BEFORE pstore_blk. That looked like an ordering bug at first and **is not**: `pstore_blk_get_config()`
 only reads the module parameters, which the cmdline parser fills long before any initcall. Recorded
 because the reverse reading is tempting and would send the next person after a non-existent bug.
+
+
+## 2026-10-14 - THE BOOT GUARD FELL: OUR KERNEL EXECUTES ON THIS BOARD
+
+**The headline, and it is a first:** our own kernel now RUNS on the WR3000 v2. Every prior fire of a
+self-built image was refused before its first instruction; this session found why and closed it.
+
+### What the guard actually is (measured, then confirmed on the live vendor slot)
+
+The loader (`bootcmd=mtd read kernel${bootflag}; bootfip`) refuses an image unless TWO things hold:
+
+1. **A DTBO container** - the 4 bytes at `main_dtb + be32(main_dtb+4)` must be the magic
+   `0xd7b7ab1e`, followed by a container (total `0x2588`, two `{size,off}` overlay entries, the
+   overlay DTBOs inside). `FUN_800743ec` is the applier and the kernel entry is taken ONLY when it
+   returns 0. Every hand-built image this project ever fired put `d00dfeed` there and was refused
+   **before entry, with no crumb and no console output** - which is why every previous window read
+   the failure as "our kernel boots and dies".
+   *Confirmed live:* the vendor's slot at `0x420004` (= `0x418610 + 0x79f4`, its DTB + declared
+   total) holds `d7 b7 ab 1e 00 00 25 88 ...`.
+2. **A main DTB carrying the matched properties** - the vendor's overlay carries `vendor_id` /
+   `board_id` / `board_name`, and our own `luofu-r116.dtb` has only `model`/`compatible`, so the
+   applier's match fails. Using the VENDOR's DTB with OUR kernel is what finally booted.
+
+**The successful slice layout, for the record:**
+
+    [ our uImage ][ the VENDOR's base DTB ][ the 0x2588 DTBO container ][ overlay DTBOs ]
+
+with the container beginning at `dtb_off + be32(dtb+4)` - the DTB's DECLARED totalsize, not its file
+length. (Full writeup: `build-guard-dtbo-container.md`, provenance gate in `boot-verify/`.)
+
+### And then the boot narrative, measured rather than inferred
+
+With the guard beaten, the surviving sysctrl cells gave the first real picture of our kernel's boot:
+
+    C18 = 0xC0DE502D / 0x...5004   the FMC tick, then probe step 4 - OUR CODE RAN
+    C8C = 0x80604000              swapper_pg_dir maps to its CORRECT physical address
+    C94 = 0xC0DE6F07              gmac: DEFERRING on mdio (normal, not a failure)
+    C98 = 0xC0DE7F03              mdio: no clock provider at that point
+    C9C = 0x80C88720              the mach's own phys -> late_initcall WAS reached
+
+**So our kernel boots past every driver probe and past `late_initcall`, with correct page tables, and
+then panics.** That retires the page-table theory the 2026-10-13 era blamed and moves the frontier to
+a specific post-late_initcall panic. (`own-kernel-boot-narrative.md`.)
+
+### The FMC's split, and then a caveat on it
+
+Using the running VENDOR as an independent observer, a planted pattern in `mtd9` was found erased
+after a fire - so the erase reaches the array while the data path does not. **BUT the session's last
+finding undercuts that attribution:** writes demonstrably never reach `luofu_fmc_write_page` (a
+deposit there stayed at its poison across two fires, while the read-path deposit wrote normally), and
+the erase goes through the SAME dispatch. **So the erase may have been performed by something other
+than our kernel, and this split MUST be re-established with `luofu_mtd_erase` instrumented before
+anything is built on it.** (`fmc-data-path-position.md`.)
+
+### The instrument faults found (and they explain several earlier wrong turns)
+
+- **The write self-test is CIRCULAR.** `luofu_fmc_read_page` ends with
+  `memcpy_fromio(data, fmc->dma_buf, ...)` - copying from the same buffer the write filled. So
+  "write the page, read it back, compare" can NEVER fail, and `mismatches = 0` was guaranteed
+  regardless of hardware. **This is why the flash question outlived every previous window.**
+- **The sysctrl cell map, properly measured** (`sysctrl-cell-map.md`): `0xC70` is the ONLY true
+  scratch register (two references in the tree, both ours); `0xC60` stores the ONE'S COMPLEMENT
+  (which is why a single-probe "not writable" verdict on it was wrong - `0x3F21A112` IS `~0xC0DE5EED`);
+  `0xC5C` is a flag; `0xC64/68/6C/74` are tied off.
+- **Reading a live register is not reading a per-operation value.** A register holds whatever the LAST
+  operation left. Comparing the vendor's idle `OP_CFG` against our per-operation computed value
+  measured the wrong thing, twice.
+- **A one-shot flag shared by two deposits means only the first executes** - and an instrument must
+  depend on nothing except its own flag and the value it measures.
+
+### Hypotheses eliminated, each with evidence
+
+pstore as the log channel (cannot be wired on this board; the vendor's own is equally dead);
+tick-triggered capture (the panic lands before the first tick); the softirq mutex
+(`get_mtd_device_nm` in a timer - a real bug, fixed, not the cause); partition-relative row arithmetic
+(a real bug, fixed with `mtd_get_master_ofs`, not the cause); `FMC_DATA_NUM` + `FMC_INT_EN`; write
+enable before program; the `SADDR_OOB` re-arm; the FMC config registers (verified identical); the
+clock/reset setup (now performed, no effect); and the ADDRH/ADDRL "role inversion" (RETRACTED -
+following the vendor's caller chain shows our encoding is correct).
+
+### THE STANDING RESULT
+
+**`C70 = 0x00001F40` = `40 1f 00 00`, identical across SEVEN fires**, in the one cell proven to be a
+true scratch register with no other writer in the tree:
+
+    our read   -> a constant that exists NOWHERE on the chip
+    the vendor -> changing real flash data on every sample, tracking rootfsa/rootfsb
+    our writes -> every register verified identical to the vendor's disassembly
+
+That contrast is the finding. The mechanism behind it is NOT yet identified.
+
+
+## 2026-10-15 - THE BOOT-STAGE FRONTIER NARROWED, AND THE INSTRUMENTATION DOCTRINE CORRECTED
+
+### Measurement 1: PHYS_OFFSET is CORRECT - a live theory retired
+
+With a boot sentinel confirming OUR kernel ran (`C18 = 0xC0DE5004`, not the primed `0x55555555`):
+
+    C8C = 0x80604000      virt_to_phys(swapper_pg_dir)
+    C9C = 0x80C88720      virt_to_phys(luofu_late_crumb)
+
+`luofu.c` names `0x80604000` as **exactly what a correct map must return** ("Anything else IS the
+bug"). The open theory was that `PHYS_OFFSET` disagreed with reality by `0x500000` (DTB says
+`0x80500000 + 0x608000 = 0x80b08000`; the uImage loads at `0x80608000`), which would make memblock
+reserve wrong ranges and the allocator corrupt the page tables at the first vmalloc needing a new
+pmd. **The map is correct - that theory is disproved by measurement, not by argument.**
+
+**AND the frontier moved:** `C8C`/`C9C` are written by `luofu_late_crumb`, a `late_initcall`. Their
+presence proves the kernel **reached and executed a late_initcall**. So the panic is inside a
+late-initcall body or in the hand-off to userspace (`kernel_init_freeable` / `mount_root`).
+
+### Measurement 2 (negative, but instructive): the erase gate was clobbered AGAIN
+
+Cells `0xC00/0xC04/0xC0C/0xC10` were selected because they scan as true scratch AND have zero
+references in the tree. Primed and CONFIRMED WRITTEN before the fire; after a fire where our kernel
+demonstrably booted:
+
+    primed: 0x11111111 0x22222222 0x33333333 0x44444444
+    after:  0x80609680 0x00000000 0x00000000 0x0A444444
+
+Our marker absent, a PHYSICAL ADDRESS in its place, and `0xC10` keeping its low 24 bits while its top
+byte was replaced (a bitfield write). **So the erase question is STILL unanswered** - but the reason
+is now understood rather than mysterious.
+
+### ★★ THE DOCTRINE CORRECTION (the real finding of the day)
+
+**A sysctrl cell characterised from the VENDOR is characterised in the WRONG RUNTIME.** The vendor
+runs no FMC driver and no mach code, so the writers that clobber these cells do not exist there. A
+cell that is scratch-and-sticky under the vendor can be live under our kernel.
+
+**And `0xC1C` is the same trap in a documented form:** it scans as scratch and is sticky across a
+vendor reboot, and the mach's own note says it is the FMC's PAYLOAD cell, overwritten every 5 s. I
+built a "boot-stage ladder" reading on `0xC1C` this morning from an OLDER revision of `luofu.c` where
+the ladder genuinely lived there - a design since abandoned for exactly this reason.
+
+**THE RULE, which supersedes every earlier cell-selection note:**
+
+> The only valid characterisation is SELF-PROVING and IN-KERNEL: deposit a sentinel alongside the
+> payload, read both back in the SAME boot, and record which survived. A cell whose own sentinel does
+> not survive its own write is unusable, and that must be checked in the boot that produces the
+> measurement - never inferred from a vendor-side probe.
+
+Every crumb this project has placed rests on an unverified assumption about who else writes that
+address. **That assumption has now been wrong three times in two sessions**, and the self-proving
+instrument is the fix. It is built and fired: the erase gate now writes `0x5AFE0000|survivors` into
+`0xC14`, so a future reading carries its own validity.
+
+
+## 2026-10-15 (later) - THE SLOT-SELECTOR BUG, AND A NEGATIVE ON THE FIX
+
+### The bug: my probe wrote the boot slot selector
+
+The boot-stage probe deposited `0xC0DE9A01` into **`0xC08`, which is `LUOFU_BOOTREG_OFFSET` - the boot
+slot selector** (`luofu.c:71`; low byte 0x10 = A pair, 0x11 = B pair). The stored value's low byte is
+**0x01**, neither - so the selector became invalid on every boot, the loader retried, fell back to
+slot A, and the board spent **13-15 minutes dark**. That is why the person saw **no LEDs** and why the
+box stopped recovering on its own: it was being told to boot a slot it could not resolve.
+
+**It passed the vendor-side scratch probe because the vendor's kernel does not drive the selector the
+way ours must** - the "wrong runtime" trap, this time with a real consequence rather than a corrupted
+reading. Caught by grepping my own tree for the offset **as a write target** - which is what I should
+have done before writing, not after.
+
+### The fix, and the negative that matters
+
+`0xC08` is no longer written anywhere in the tree (verified by grep), the erase gate moved to the four
+cells with **zero references** in the tree (`0xC74/0xC7C/0xC80/0xC84`, self-proving), and the image
+built clean (`a51b8dc3`).
+
+**THE BOARD STILL FELL BACK TO SLOT A.** So the selector write was a real self-inflicted bug that made
+everything worse, and **it was not the cause of the fallback.**
+
+### Where that leaves it, and the one fire that discriminates
+
+Known boot outcomes by image:
+
+    egate2  5a2c096c   BOOTED - reached late_initcall (C18=0xC0DE5004, C8C=0x80604000)
+    stage   57363012   fell back to A
+    sel     a51b8dc3   fell back to A
+
+The later builds add a new `late_initcall_sync` probe and FMC erase-path instrumentation. Either could
+fault in a way that kills the boot before the userspace hand-off - and a fault there is exactly what
+makes a loader fall back.
+
+**THE DISCRIMINATING TEST (one fire): re-fire `egate2` UNCHANGED.**
+  - it boots again -> image content is the variable; bisect the two additions
+  - it does not    -> the board's state changed; the images are innocent
+
+### What stands from today regardless
+
+- **`PHYS_OFFSET` is CORRECT** - `virt_to_phys(swapper_pg_dir) == 0x80604000`, the value `luofu.c`
+  names as required. **The 0x500000 page-table-corruption theory is disproved by measurement.**
+- **The kernel REACHES AND RUNS a `late_initcall`** (`C8C`/`C9C` are written by `luofu_late_crumb`),
+  so the panic is inside a late-initcall body or in the userspace hand-off.
+- **Three instrumentation defects found and fixed**, each now a recorded rule: vendor-side cell
+  characterisation is the wrong runtime; `0xC1C` is the FMC's payload cell; **`0xC08` is the boot
+  slot selector and must never be written.**
+
+
+## 2026-10-15 (final) - THE BOOT PANIC IS IN THE USERSPACE HAND-OFF, AND THE PCIE BRING-UP IS WRITTEN
+
+### Result 1 (the day's headline): all initcalls complete
+
+A self-proving probe at `late_initcall_sync` - the LAST deterministic point before the kernel hands
+over to userspace - reported through the cells proven by its own read-back check:
+
+    C18 = 0xC0DE5004   our kernel ran
+    C94 = 0xC0DE9A01   luofu_boot_stage EXECUTED
+    C90 = 0x5AFE0003   SELF-CHECK CLEAN - both deposits survived their own write
+    C8C = 0x80604000   virt_to_phys(swapper_pg_dir), the documented-correct value
+
+**`luofu_late_crumb` (late_initcall) and `luofu_boot_stage` (late_initcall_sync) both ran.** So the
+panic is not inside any initcall - **it is in the userspace hand-off**: `prepare_namespace()` ->
+`mount_root()` -> the first `kernel_execve` (`init/main.c`). And `C8C` disproves the `0x500000`
+page-table-corruption theory by measurement.
+
+**A three-stage probe was then written into `init/main.c`** (entered the hand-off / prepare_namespace
+returned / run_init_process reached) and **extended to write its stage into the `fac` partition as
+well as the sysctrl cells** - because every cell picked this session turned out contested, while a
+flash write is readable from the vendor after any fallback. Built: `luofu-uImage-ho2`, zImage
+`14c5104c`, slice gate PASS. **Its reading needs one fire on a booted box.**
+
+### Result 2: the PCIe bring-up, written and compiling
+
+`luofu-pcie.c` had the vendor's 14-step `hi_pcie_probe` order as a COMMENTED-OUT scaffold. It is now
+real code: `luofu_pcie_crg_handshake()` (clk + four resets deasserted apb -> pcs -> phy -> ctrl, 50 us
+apart), `luofu_pcie_rc_mode()`, `luofu_pcie_wait_for_link()` (the LTSSM read-state machine, naming the
+state it stalls in), and `luofu_pcie_bringup()` sequencing them with a stage code per step. Gated
+behind `rc_bringup=1`; a bare insmod still reaches no store. **`luofu-pcie.ko`, 21,864 B, zero
+warnings.** Not yet verified on hardware.
+
+### Result 3: the three-way driver audit
+
+    clk      TODOs STALE      - set_parent + gate/mux/pll ops + a full reset controller exist
+    pinctrl  TODOs MOSTLY STALE - set_mux + pinctrl_ops exist; pinconf are documented no-ops
+    pcie     TODOs ACCURATE   - now written
+
+**"Fill the stub drivers" was mostly already done, and was real work only for PCIe.**
+
+### Errors caught by compiling rather than reading (the day's recurring theme)
+
+- the stage probe wrote `0xC08` - **the boot slot selector** - invalidating it every boot; that is
+  what produced the dark boots and the missing LEDs (real bug, fixed, and NOT the cause of the
+  slot-A fallback)
+- `LUOFU_PCIE_LINK_RETRIES`/`_POLL_MS` existed **only inside the commented scaffold** - calls were
+  written against constants defined nowhere
+- missing kernel headers (`clk.h`, `reset.h`, `delay.h`, `mtd/mtd.h`)
+- a mangled Unicode character and a nested comment in a C block
+
+### Open, and all device-gated
+
+1. the erase gate: still unproven (three cell clobberings); instrument now self-proving
+2. the hand-off stage: probe built and flash-backed, **needs one fire + one read**
+3. the slot-A fallback after every fire: candidate is image content (the last booting image was
+   `5a2c096c`); the discriminating test is to re-fire that image unchanged
+
+
+## 2026-10-15 (close) - THE FLASH CHANNEL LOCALISED THE DEATH TO A GAP, NOT THE HAND-OFF
+
+### The measurement
+
+`ho2` was in slot B (verified: 1MB md5 `ccd3d745` = the new image) with the `fac` partition **erased
+immediately before the fire**. After the boot:
+
+    fac (mtd5) = ff ff ff ff    <- UNTOUCHED
+    C94        = 0xC0DE9A01     <- the late_initcall_sync probe ran
+    C90        = 0x5AFE0003     <- its self-check is CLEAN
+    C8C        = 0x80604000     <- page tables correct
+    slot A / bootflag=a         <- the fallback, which IS the panic
+
+**`ho2`'s hand-off stage 1 writes `fac` AND `C94` from the SAME function.** `C94` still holds the
+*initcall* value and `fac` is untouched, so **stage 1 never ran** - the kernel never entered the
+`prepare_namespace` block.
+
+### What that proves, and the frontier it leaves
+
+    kernel_init_freeable()
+      do_basic_setup()   <- initcalls run here; ALL COMPLETED (proved twice)
+      ...                <- THE DEATH IS IN THIS GAP
+      init_eaccess(ramdisk_execute_command) / prepare_namespace()   <- NEVER REACHED
+
+**This supersedes the previous statement of the frontier** ("the panic is in the userspace hand-off"):
+it is in the narrow stretch *between the last initcall and the hand-off block*. **Next instrument: one
+stage deposit immediately after `do_basic_setup()` returns.**
+
+### Why it was obtainable: two channels that disagreed
+
+`0xC0DE9A01` is used by BOTH builds, so `C94` alone could not name its own producer - **the third time
+this session a value looked like a result without being one.** The `fac` write is what made the reading
+decisive: it survives the fallback, it is unambiguous (erased first), and it is written by the **same
+function** whose sysctrl write did not appear.
+
+**The disagreement between the channels IS the measurement.** A single channel would have said "the
+probe ran"; the pair says "the probe ran and the NEXT thing did not".
+
+### And the slot-A fallback, finally named
+
+Not a bug, not a selector, not image content: **the loader's normal response to a kernel that never
+reaches userspace. The fallback is the panic, seen from the loader's side.** That retires a thread
+that consumed several fires.
+
+
+## 2026-10-15 (evening) - SOLVED: THE FMC DATA PATH *IS* THE BOOT PANIC
+
+**The two-lane framing was wrong. "Boot survival" and "the FMC data path" are one bug.**
+
+### How it was found - by reading, not by another fire
+
+`init/main.c`, the stretch after the last initcall:
+
+    1557  do_basic_setup();        <- ALL initcalls complete (proved twice, self-check clean)
+    1559  kunit_run_all_tests();   <- a STUB returning 0 (CONFIG_KUNIT is off). Cannot panic.
+    1561  console_on_rootfs();     <- on error it pr_err's AND RETURNS. Cannot panic.
+    1567  if (init_eaccess(ramdisk_execute_command) != 0) {
+            luofu_handoff_stage(0xC0DE9A01u);   <- NEVER REACHED (fac untouched)
+
+**The killer is `init_eaccess()`** - `kern_path(filename, LOOKUP_FOLLOW, &path)` in `fs/init.c`: a
+filesystem walk from the current root. **With no root mount, that walk is fatal.**
+
+### And the kernel's own cmdline says where the root should come from
+
+`CONFIG_CMDLINE` (with `EXTEND=y`):
+
+    ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init
+
+**The rootfs is on NAND, through UBI - and UBI attach reads flash through OUR OWN FMC DRIVER.**
+
+### The closed chain
+
+    FMC read path returns 40 1f 00 00 for every page
+      -> ubi_init (a late_initcall) RUNS but FAILS TO ATTACH
+         (a failed attach is not a panic - which is why every initcall still completes)
+      -> no ubiblock0_0, no root mount
+      -> init_eaccess("/init") -> kern_path() on a root-less mount tree -> FATAL
+      -> the loader sees no successful hand-off -> falls back to slot A
+
+**This explains every measurement the project has**: all initcalls completing, the death before the
+hand-off block, `console_on_rootfs` not being the killer, and the slot-A fallback (which IS the panic,
+seen from the loader).
+
+### Why no fire could have found it
+
+Every crumb instrument sits in our driver's initcall path or later. The death is in `fs/init.c`,
+AFTER all of them and BEFORE the hand-off block - and the kernel never prints its usual *"VFS: Unable
+to mount root fs on unknown-block"* because it dies in `init_eaccess` **before** `prepare_namespace()`
+gets to try the mount. **That is why the boot was silent and why this looked unreachable.**
+
+### The discriminator bug that almost hid it (fourth of its kind)
+
+"Stage 1 never ran" was first reported from `C94 = 0xC0DE9A01` alone - but `luofu_boot_stage` and
+`luofu_handoff_stage(0xC0DE9A01)` **write the same value to the same cell**. The `fac` flash witness
+is what actually settled it. Right conclusion, but evidence-backed only on the flash channel.
+**Assign every stage a DISTINCT value.**
+
+### The self-inflicted detour worth recording
+
+Facing WiFi down, I proposed flashing the VENDOR's firmware - the opposite of this project's goal -
+and then wrote env flash twice on a route the project's own record already documents as overridden.
+The WiFi is down because the box boots the STOCK rootfs slot; that is a state to solve in OUR stack,
+not to paper over with a vendor image. The record had both answers; I should have read before acting.
+
+
+## 2026-10-15 (late) - VERIFIED NEGATIVE: the addr_cyc fix was in the image and did not work
+
+### What was measured, and what it eliminated
+
+I sampled `FMC_OP_CFG` (+0x30) **while the vendor's own kernel performed each operation** - a test no
+earlier window ran:
+
+    during a READ  (dd if=/dev/mtd14, +0x2c stepping through rows): +0x30 = 0x9A1 every sample
+    during an ERASE (flash_eraseall /dev/mtd5):                    +0x30 = 0x810 every sample
+
+Decoded with the driver's own field layout:
+
+    ERASE 0x810 : cs=1 if_type=0 addr_cyc=1 dummy=0
+    READ  0x9A1 : cs=1 if_type=3 addr_cyc=2 dummy=1
+    OURS  0x9D1 : cs=1 if_type=3 addr_cyc=5 dummy=1   <- from the decoded ATAG table
+
+**The vendor's read uses addr_cyc=2; ours used 5.** Fix applied (`LUOFU_RD_ADDR_CYC_MEASURED = 2`),
+built, flashed, and fired.
+
+**RESULT: `C70` STILL READS `0x00001F40`.** And it is a *verified* negative, not a failed flash:
+
+    slot B 1MB md5 = 55d105e9... = the built slice        <- byte-for-byte match
+    the constant 2 is in the compiled object
+    C18 = 0xC0DE5004                                     <- our kernel ran this boot
+
+**=> the OP_CFG / addr_cyc axis is ELIMINATED.**
+
+### The instrument lesson, for the fourth time
+
+My self-certifying crumb was supposed to record `0x5AFE0502` at `0xC94`. It read `0xC0DE9A01` - the
+`late_initcall_sync` probe's value - because **that initcall runs LATER in the boot and overwrites the
+same cell.** One cell, last write wins; documented in this project's own notes and hit again.
+
+**A crumb is readable only if nothing writes that cell later in the boot. Verified-cell status is
+per-cell AND per-window, not permanent.**
+
+### What the negative leaves
+
+Either (a) the FMC's `addr_cyc` field does not mean what its name suggests, or (b) our `OP_CFG` write
+is not what the controller uses for the transfer. **(b) is testable with an existing instrument:** read
+`OP_CFG` back AFTER our own read completes - if it holds our value the write took, and if it holds
+something else the controller overrode it.
+
+### Running tally: nine data-path fixes tried, all falsified
+
+This was the first aimed at a MEASURED difference rather than an inferred one, and it also failed. That
+is a real result: it removes the strongest remaining hypothesis. But it is also worth stating plainly
+that nine falsified fixes is a pattern, and the next step should question the FRAME - specifically
+whether comparing register-writes against the vendor is the right instrument at all, given that a
+verified register-level difference produced no behavioural change.
+
+
+## 2026-10-15 (night) - RESEARCH + PLAN: the SFC is a DOCUMENTED IP FAMILY, and the plan is written
+
+### The research found real prior art
+
+The HiSilicon SFC is a **documented IP family** (`DeathCamel58/meta-hisilicon-bsp` documents
+`hisfc350`, same name in the vendor SDK, U-Boot and Linux; upstream has
+`drivers/mtd/spi-nor/hisi-sfc.c` for the NOR sibling). Different SoC, same register *design*. Three
+findings bear directly on us (full detail in `cudy-wr3000v2/sfc-prior-art-and-fault-capture.md`):
+
+1. **The `start` bit auto-clears on completion** - documented for both `BUS_DMA_CTRL.bit0` and
+   `CMD_CONFIG.bit0`: *"After the operation is completed, the bit returns to 0 automatically."*
+   **This independently confirms the vendor's `0x68` completion poll we adopted was right.**
+2. **`INT_RAW_STATUS` is NOT masked; `INT_STATUS` IS masked.** We originally polled
+   `FMC_INT_STATUS & 1` - the masked one - while the vendor sets bits **3,4,5** of the enable
+   register. **A masked-off bit reads 0 forever: a poll that can never fire, producing a FALSE
+   NEGATIVE indistinguishable from "the operation never completed".**
+3. **`CMD_DATABUF_N` (0x400 + 4*N)** holds command-mode data **in registers, not DMA memory** - so a
+   small read through it **sidesteps the DMA engine entirely**, isolating protocol from DMA.
+
+### The plan is written: `.omo/plans/fmc-probe-stop.md`
+
+Four steps, ordered by what unblocks what:
+
+    STEP 1  settle the probe stop with a FAULT REPORT (flash-backed pstore/panic capture),
+            not another crumb - a crumb says WHETHER code ran, only a fault says WHY it stopped
+    STEP 2  test the masked-status hypothesis: poll INT_RAW_STATUS alongside the start bit and
+            deposit BOTH, so one fire distinguishes three cases
+    STEP 3  bypass DMA with a register-mode read through CMD_DATABUF_N - the first clean split
+            of "SPI protocol wrong" from "DMA wrong"
+    STEP 4  only then revisit the read path, aimed at a MEASURED difference
+
+**And the rule prefixed to every step: before trusting a reading, prove the instrument can produce
+it.** Nine instrument failures this session, none a driver bug, every one producing a confident wrong
+answer - so the plan front-loads verification (patch the working copy, `set -e`, verify the marker in
+the compiled object, verify slot md5 against the built slice, write the expected value for each
+outcome BEFORE firing).
+
+
+## 2026-10-15 (late) - THE FIRE HARNESS WAS LYING, AND THAT IS THE SESSION'S REAL RESULT
+
+Tonight produced a large amount of analysis and ONE durable engineering artefact. The analysis
+largely did not survive scrutiny; the artefact fixes why.
+
+### WHAT THE HARNESS IS
+
+`build/tmp/fire-verified.sh` - a fire that proves its own validity before its reading is interpreted:
+
+    1. capture boot_id BEFORE, re-read AFTER   -> unchanged means the box never rebooted
+    2. re-read slot B's md5 AFTER the boot     -> a fallback RECLAIMS the slot
+    3. poll the crumb continuously, detect the boot_id change live
+    4. print an explicit verdict: VOID (never rebooted) / VOID (slot reclaimed) / VALID
+
+On its FIRST use it declared a fire VOID and caught the mechanism at t~29s. **Three of tonight's
+"decisive" readings would have been refused by it.**
+
+### WHAT IT PROVED
+
+**The fallback RECLAIMS slot B.** Flashed `7f0b1531...`, verified at flash time; after the boot the
+slot read `ab179045...`. So "verified written" does not mean "still there at boot time" - and every
+write tonight was verified only at flash time.
+
+**Consequence: `bisect-D` is VOID.** It did not restore the boot; it read a fallback window. **The
+clk/reset regression claim has no surviving evidence** - it is the best-supported *candidate* (the one
+structural difference from the 2026-10-11 source) but it is NOT confirmed.
+
+### WHAT IS FIRMLY ESTABLISHED
+
+    C0DE502D  = OUR tick crumb          (a controlled VENDOR boot does NOT write it - tested 3 ways)
+    C0DE5004  = OUR step-4 crumb        (the LUOFU_CRUMB_NAND|step encoding is ours)
+    the fallback reclaims slot B        (measured)
+    the box always returns to the vendor slot A
+
+### AND THE ERROR THAT COST MOST OF THE NIGHT
+
+I got the `C0DE502D` attribution wrong **four times**, and the last flip came from inferring causation
+from correlation: in the verified fire, `boot_id` changed at t~29s at the same moment `C18` read
+`C0DE502D`, and I concluded the vendor wrote it. **Both were effects of one event - a boot.** Only a
+controlled vendor boot settled it.
+
+**The rule: a fire must prove it can produce a valid reading, in the same run, before the reading is
+believed.** Every ambiguity tonight came from missing one of boot_id / slot-identity / in-window
+sampling.
+
+
+## 2026-10-15 (close) - ★ THE BOOT IS INTERMITTENT, AND THAT INVALIDATES EVERY SINGLE-FIRE COMPARISON
+
+### THE FINDING
+
+With the fire harness corrected, a VALID fire of the watchdog image gave:
+
+    boot_id CHANGED        -> the box rebooted
+    slotB 1MB md5 MATCHES  -> it holds OUR image (the harness now compares like with like)
+    C18 = 0xC0DE502D       -> OUR KERNEL RAN AND TICKED
+    version AFTER          -> jenkins@cudyrd1: it STILL fell back to the vendor
+
+**And a control fire of the SAME binary produced `0x55555555` (no tick) on another run.**
+
+    same image, one run ticks and the next does not
+    => *** THE BOOT IS INTERMITTENT ***
+
+### WHY THIS IS THE MOST IMPORTANT THING FOUND TONIGHT
+
+**"Six fixes changed nothing" and "eleven fixes changed nothing" is exactly what you see when the
+boot's success varies run-to-run and each variant is fired ONCE.** Every fixed-vs-fixed comparison
+made tonight was ONE SAMPLE AGAINST ONE SAMPLE - so none of them established anything, in either
+direction.
+
+**Consequences:**
+- the clk/reset regression claim is **unconfirmed** (not refuted - never demonstrated)
+- **no single fire can establish or refute any hypothesis on this board**
+- the correct next experiment is a REPEATED fire (n>=5) reporting a RATE, then comparing a variant
+
+### AND THE HARNESS BUG, WHICH IS ITSELF THE LESSON
+
+My post-boot verification compared a FULL-IMAGE md5 against a 1 MB md5 and called the difference a
+"slot reclaim". **Nothing was ever reclaimed.** Then I added a second check (the uImage magic) to guard
+against the first - and **the second was buggy** (a mangled pipe through the Windows-bash -> ssh chain
+returned empty), so **it overrode a correct result with a wrong one.**
+
+**I built an instrument to stop instruments from lying, and it lied** - and its repair introduced a
+second lie. The corrected harness compares like-with-like and reports UNUSABLE when a check returns
+nothing, instead of converting emptiness into VOID.
+
+### DURABLE ARTEFACT
+
+`build/tmp/fire-verified.sh` - boot_id before/after, like-with-like slot verification AFTER the boot,
+live reboot detection, explicit VALID / VOID / UNUSABLE verdict.
+
+### FIRM RESULTS, MEASURED
+
+    C0DE502D = OUR tick crumb        (a controlled VENDOR boot does not write it - 3 ways)
+    C0DE5004 = OUR step-4 crumb
+    the watchdog is ALREADY ARMED by u-boot (en-offset = 0x12345116 on the live vendor)
+    the vendor DTB carries the full watchdog node; the driver matches its compatible string
+    WDOG_HW_RUNNING did NOT prevent the fallback
+    *** the boot is intermittent ***

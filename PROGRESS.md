@@ -1,6 +1,7 @@
 # PROGRESS - one honest ledger for the whole project
 
-Generated 2026-10-11, **audited 2026-10-11 against the artifact record**. This is the single file that
+Generated 2026-10-11, **audited 2026-10-11 against the artifact record; updated 2026-10-15** from the
+boot-guard session. This is the single file that
 answers "how much is left?". Every score carries a *receipt* - the artifact that verified it.
 It is measured from the artifacts in this repo (214 phase reports, 425 tracked
 submodule files, ~140 lab programs, mem-entries.md), not from memory. The
@@ -16,14 +17,29 @@ There is no build step and no test suite for this repo, so a "score" here means:
 
 | | score |
 | --- | --- |
-| **REVERSAL** (reading the closed Wi-Fi stack) | **~68%** |
-| **REBUILD** (our own kernel + our own OpenWrt: sections C+D) | **~45%** |
-| **OVERALL** toward the stated goal | **~56%** |
+| **REVERSAL** (reading the closed Wi-Fi stack) | **~70%** |
+| **REBUILD** (our own kernel + our own OpenWrt: sections C+D) | **~50%** |
+| **OVERALL** toward the stated goal | **~58%** |
 
 **2026-10-14: the Ethernet wall fell.** C7 went from "not started" to working - the MAC is
-configured from a live PHY link for the first time (`mac_link_up` fires, 100 Mbps). C and the
-REBUILD total move with it. What now gates the goal is no longer the NIC but **boot survival**:
-our kernel runs ~78 s and returns, and nothing answers on the wire yet.
+configured from a live PHY link for the first time (`mac_link_up` fires, 100 Mbps).
+
+**2026-10-15: THE BOOT GUARD FELL - OUR OWN KERNEL EXECUTES.** This is the first time a self-built
+image has ever run on this board; every previous fire was refused *before its first instruction*.
+The loader requires a **DTBO container** (magic `0xd7b7ab1e` at `main_dtb + be32(main_dtb+4)`,
+confirmed byte-for-byte on the live vendor slot) **and** a main DTB carrying the
+`vendor_id`/`board_id` the overlay applier matches. Measured boot narrative: our kernel runs past
+every driver probe and past `late_initcall` with **correct page tables** (`swagger_pg_dir` ->
+`0x80604000`), **then panics**.
+
+**What gates the goal now is a specific post-late_initcall panic** - not the NIC, and not the
+guard. The single highest-value item is boot survival; everything downstream (reachability, the
+Wi-Fi data path, deployment) waits on it.
+
+**One caveat carried forward, because it undercuts a premise:** the FMC was believed to be "erase
+works, data path does not". Yesterday's last finding shows **writes never reach the driver at all**,
+and the erase goes through the same dispatch - so that split must be **re-established** with
+`luofu_mtd_erase` instrumented before anything is built on it. (`fmc-data-path-position.md`)
 
 The goal you set (2026-10-05): *our own fully-current OpenWrt - our kernel + our
 drivers, no vendor kernel.* Measured against that, the **reversal** (reading the
