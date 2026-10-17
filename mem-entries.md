@@ -17882,6 +17882,14 @@ filesystem walk from the current root. **With no root mount, that walk is fatal.
 hand-off block, `console_on_rootfs` not being the killer, and the slot-A fallback (which IS the panic,
 seen from the loader).
 
+> **CORRECTED 2026-10-17 by fire `silent` (see the 2026-10-17 section below).** Two clauses here are
+> wrong and are withdrawn: (1) **"all initcalls completing" is FALSE** - with the diagnostic hook
+> silenced, C18 stops at `0xC0DE0020`, the mach's late_initcall crumb, so **the boot dies MID-`ubi_init`,
+> before the `late_initcall_sync` that crumb marks**. (2) **"40 1f 00 00 for every page" is not a current
+> reading** - every read instrument in the 2026-10-16 session returns `55 42 49 23` for mtd13 PEB 0. The
+> conclusion that survives, and is now measured rather than argued, is the one below the chain: UBI
+> attaches nothing and root cannot mount.
+
 ### Why no fire could have found it
 
 Every crumb instrument sits in our driver's initcall path or later. The death is in `fs/init.c`,
@@ -18148,3 +18156,443 @@ proves `mtd_devs == 0`. Candidates, none yet measured:
    proven working (Phase 50e), the ordering panic diagnosed in luofu-fmc.c:4690-4707, and the
    vendor's module-based UBI (in an `lsmod` note). **Search the record before designing a probe.**
 4. **I circled twice**, generating hypotheses from one log instead of measuring. Called it both times.
+
+
+## 2026-10-16 (session 2) - THE LOG WINDOW'S TRUE SHAPE, AND FOUR INSTRUMENT DELIVERY FAILURES
+
+Session goal: resume the own-kernel boot lane from the 2026-10-16 handoff (the named gap was "why does
+`ubi.mtd=` not parse"). Five fires. The gap turned out to be the wrong question, and the instrument
+plumbing is the real finding.
+
+### STATE AT OPEN (measured, not recalled)
+
+    repo master clean; submodule clean at 5907416
+    router UP on the vendor slot A, 35 min, bootflag/boot_reg = 0x10
+    wiphys 0, ifaces 0  <- the recorded STOCK-SLOT TRAP, pre-existing from 2026-10-15
+    0 .omo-* leftovers; the key-auth lane (.sshwrap/rsh-key.sh) works
+    NOTE: the password lane (rsh.sh) now fails - the device host key changed across reflashes and
+    Windows OpenSSH refuses a CHANGED key even with StrictHostKeyChecking=no. rsh-key.sh already
+    passes UserKnownHostsFile=/dev/null and is unaffected. Use the key lane; do not edit known_hosts.
+
+### THE COMMAND LINE QUESTION IS SETTLED - AND "ubi.mtd= DID NOT PARSE" IS UNSUPPORTED
+
+`ubi.mtd=` IS in the effective command line, by three independent readings:
+
+  * ARM honours CONFIG_CMDLINE_EXTEND on the DEVICE-TREE path too - drivers/of/fdt.c:1065 appends
+    CONFIG_CMDLINE to /chosen/bootargs. The only other site is arch/arm/kernel/atags_parse.c:123.
+  * our DTS /chosen carries NO bootargs (only stdout-path), so root= and ubi.mtd= both come from
+    CONFIG_CMDLINE; the vendor's loader args are the short "noinitrd cma=0 console=... maxcpus=2".
+  * the BUILT artifact reads back `panic=5 maxcpus=1 nr_cpus=1 ubi.mtd=rootfsa ubi.block=0,0
+    root=/dev/ubiblock0_0 rootfstype=squashfs init=/sbin/init pstore_blk.blkdev=pstore ip=...`
+  * and `ubi.mtd` exists as a built-in module param (strings vmlinux -> the standalone "ubi.mtd"
+    literal, which is __param_str_mtd = MODULE_PARAM_PREFIX "mtd").
+
+Also checked in the same read: ubi_init is `late_initcall` (build.c:1322), so `ubi.mtd` must resolve
+BEFORE level 7; our FMC driver registers with `module_platform_driver` at level 6 and its partitions
+exist by then (nm confirms __initcall_luofu_fmc_driver_init6 before __initcall_ubi_init7). The
+ordering argument is therefore satisfied, and UBI's silence cannot be explained by it.
+
+### ★ THE LOG WINDOW'S TRUE SHAPE (new, measured against the flash)
+
+    LUOFU_LOG_KEEP = 0x0e00 (3.5 KiB) is the whole window: luofu_kmsg_to() memsets KEEP bytes and
+    copies only the NEWEST (KEEP-4) bytes of the log. The snapshot then writes the header page (2048 B)
+    plus LUOFU_LOG_SIZE (16 KiB) page by page - so a bigger KEEP DOES flow to flash. Measured layout in
+    mtd9 after a fire: header at 0x0, log text at 0x800..0x15ff (exactly 3584 B), then ERASED FLASH
+    (which OUR read path returns as 0x00, not 0xff - see the "rootfs_data read=0 got=8: 00 00.." line).
+
+### ★ THE 15 KiB WINDOW IS A CLEAN NEGATIVE (reproducing the 2026-10-14 one, with the scratch excluded)
+
+Set LUOFU_LOG_KEEP to 0x3c00 and changed NOTHING else (LUOFU_LOG_SCRATCH left at 16 KiB, so the
+2026-10-14 "60 KiB scratch" confound is removed). Verified in the object: `mov r2, #15360 @ 0x3c00`.
+FIRED. RESULT: **mtd9 came back ENTIRELY 0xff - the snapshot wrote NOTHING** - and the only crumb left
+was the stage-D hook's own step 42 (`C1C = 0x80603000` = the ring address | mtd index, the format at
+line 2807, NOT the notifier's line-count format). So a wider window is not how to reach the UBI
+messages. KEEP is back at 0x0e00 with the negative written into the source.
+
+### ★ WHY EVERY DIAGNOSTIC VANISHED: THE WINDOW IS CONSUMED BY THE KERNEL'S OWN DEATH OUTPUT
+
+panic() runs dump_stack() and mount_block_root() has already printed all 17 partitions; together they
+fill the entire newest-3.5-KiB window. THE CAPTURED WINDOW ALWAYS ENDS AT THE TRACE, and anything
+printed before it is pushed out. Proven by three separate placements all failing to appear:
+
+    1. from the stage-D hook (luofu_fmc_ubi_probe)      -> absent
+    2. from luofu_kmsg_dump (the kmsg dumper callback)   -> absent, although objdump shows `bl printk`
+       in the object at the right place
+    3. from the tick immediately before its kmsg_to      -> absent
+    (the reporter is idempotent and was wired into all three at once in the last build)
+
+The hook's OTHER lines DO appear, which is what makes this decidable: its four `FMC:` lines sit at the
+OLDEST edge of the window (6.55-6.58 s) and the trace is at the newest (6.74-6.84 s), so there is room
+for ~0.8 KiB immediately before the partition list and nothing more.
+
+### ★ A REAL LATENT DEFECT, FOUND IN THE BUILD LOG (and it matches the ~78 s wall)
+
+    WARNING: modpost: Section mismatch in reference from the function luofu_log_snapshot() to the
+             function .init.text:luofu_snap_crumb()
+    WARNING: modpost: Section mismatch in reference from the function run_init_process() to the
+             function .init.text:luofu_handoff_stage()
+
+`luofu_snap_crumb()` and `luofu_handoff_stage()` are marked __init but are called from the RUNTIME
+path (the 5-second tick and the panic snapshot). free_initmem() runs in kernel_init() AFTER
+kernel_init_freeable(), i.e. after the rootfs mount - so a boot that SURVIVES to userspace and then
+keeps running will call freed memory on its next tick. That is exactly the regime of the recorded
+"boots OpenWrt to userspace, then returns to the vendor at ~78 s". UNVERIFIED as the cause, but it is
+a genuine defect on the path and it is a one-word fix. It has NOT been fixed yet.
+
+### ★ AND A CORRECTION TO THE RECORD: C80/C84 ARE NOT FREE CELLS
+
+The record calls 0x10100C80/C84 `free per-MAC cells`. The fire PRIMED both to 0x55555555 and read back
+**C80 = 0x00020000, C84 = 0x00001200** - byte-identical to their values BEFORE the fire. So the
+VENDOR's own boot rewrites them every time, and only C18/C1C (and C9C) are observed to survive a
+vendor boot. Any past reading that treated C80/C84 as ours is suspect.
+
+### TWO OF MY OWN ERRORS, BOTH CAUGHT BY CHECKING THE ARTIFACT
+
+  1. A build FAILED (`implicit declaration of luofu_ubi_diag_print` after an edit batch deleted the
+     definition but left its call sites) and the script still printed BUILD_DONE, because `make | grep`
+     swallows make's exit status - and the slice was then rebuilt from a STALE zImage. Caught by adding
+     a "zImage must differ" guard. **A pipe around make is not a build check.**
+  2. The edit batch that dropped the definition is the documented "an edit batch can silently drop a
+     block" trap. Grep for every identifier an edit introduces BEFORE believing the edit.
+
+### WHAT THE NEXT INSTRUMENT MUST BE
+
+The only channel proven to survive a boot on this board is a sysctrl cell the VENDOR does not touch,
+last written by OUR tick: C18/C1C. So fold the verdict into the tick's own crumb payload (C1C), or write
+it to the `fac` partition witness - do not add another log print and do not use C80/C84.
+
+### STILL OPEN (unchanged, and now precisely stated)
+
+UBI never attaches, so ubiblock0_0 never exists, so root cannot mount. WHY the attach produces no device
+is still unmeasured - the verdict has not yet reached a readable channel. Everything host-side that the
+record named is done: the cmdline is right, the param is registered, the partitions exist in time, the
+initcall order is right.
+
+### FIRES
+
+    build/tmp/fire_keep15.*    the 15 KiB window   -> empty mtd9, C18 = 0xC0DE502A
+    build/tmp/fire_ubiquery.*  3.5 KiB + hook prints -> no new lines
+    build/tmp/fire_diag.*      reporter in the dumper -> no new lines
+    build/tmp/fire_diag2.*     reporter in all three  -> no new lines
+    build/tmp/fire_verdict.*   C80/C84 verdict cells  -> overwritten by the vendor
+
+### ★★ THE VERDICT, MEASURED 2026-10-16 (fire `tickv`): UBI HAS NO DEVICE, AND THE CHANNEL NOW WORKS
+
+The tick's own C1C payload was given the UBI verdict (tag `0x5A` in the low half, so it cannot be
+confused with the net_diag value it replaced):
+
+    C1C = (writes<<24) | (erases<<16) | 0x5A00 | code
+    code 0x00 = ubi_open_volume(0,0) OPENED ; 0x16 = -EINVAL ; 0x13 = -ENODEV ; 0xEE = hook never ran
+
+FIRED, read back from the vendor:
+
+    C18 = 0xC0DE502D          the tick - the last writer, as always
+    C1C = 0x0A025A13          writes=10, erases=2, code 0x13 = -ENODEV
+
+**`ubi_open_volume(0, LUOFU_ROOTFS_VOL_ID, UBI_READONLY)` returns -ENODEV: there is no ubi0 device.**
+`ubi_init` either saw `mtd_devs == 0` or its `ubi_attach_mtd_dev()` failed. The command line is NOT the
+cause - it is proven present, in the built artifact and on the DT cmdline path.
+
+This ALSO resolves the earlier puzzle: the hook does reach its verdict (code is 0x13, not the 0xEE
+sentinel), so the missing post-`luofu_jffs2_mark` output was purely the log window pushing it out. The
+hook is not hanging.
+
+**THE CHANNEL NOW ESTABLISHED (use this shape from here on):** the tick is the last writer of C18/C1C
+and those cells survive a vendor boot, so a verdict computed in the stage-D hook and folded into the
+tick's crumb payload is readable with `devmem 0x10100C1C` after every fire. Log prints are not a
+channel on this board for anything the panic trace can push out. C80/C84 are NOT free (the vendor
+rewrites them). TRADE recorded in the source: the low half of C1C no longer carries `luofu_net_diag`.
+
+**NEXT STEP, precisely:** in the hook, resolve the partition named "rootfsa" with
+`get_mtd_device_nm()` and encode whether it resolves, then call `ubi_attach_mtd_dev()` on it and encode
+its return value in the same crumb. That distinguishes the two remaining worlds in ONE fire - the MTD
+not existing under that name when UBI attaches, versus the attach itself refusing - and it is the first
+instrument on this lane that cannot be crowded out.
+
+### ★★★ THE ATTACH ITSELF REFUSES THE PARTITION - MEASURED (fire `attach`, 2026-10-16)
+
+The stage-D hook now resolves mtd13 BY NAME and calls `ubi_attach_mtd_dev()` on it itself, folding the
+result into the tick's crumb. FIRED, read back from the vendor:
+
+    C18 = 0xC0DE502D              the tick (last writer, as always)
+    C1C = 0x0A026A16              writes=10, erases=2, tag 0x6A, code 0x16 = 22
+
+**code 0x16 = -EINVAL, and it is NOT the name lookup** (that would have set 0x13). So:
+
+    ubi_open_volume(0,0)                -> -ENODEV   (no ubi0: from the previous fire)
+    get_mtd_device_nm("rootfsa")        -> RESOLVES  (the partition exists under the name UBI is given)
+    ubi_attach_mtd_dev(mtd13, AUTO, 0, 0) -> -EINVAL
+
+**This converts the record's long-standing, twice-stated suspicion ("UBI's attach returns EINVAL ...
+every EINVAL on that path has been read from source and is unreachable or arithmetically satisfied")
+from an inference into a measurement.**
+
+### AND THE TRIVIAL -EINVAL SOURCES ARE NOW EXCLUDED BY READING, NOT BY ASSUMING
+
+Re-read `drivers/mtd/ubi/build.c:837+` line by line against OUR geometry (writesize 2048, erasesize
+131072, oobsize 64):
+
+    max_beb_per1024 out of range          we pass 0 -> defaulted to 20 (CONFIG_MTD_UBI_BEB_LIMIT)  OK
+    mtd->type == MTD_UBIVOLUME            ours is MTD_NANDFLASH                                    OK
+    MLC NAND                              ours is SLC-reporting SPI-NAND                             OK
+    !mtd->erasesize                       erasesize 131072 != 0                                      OK
+    ubi_num >= UBI_MAX_DEVICES            we pass AUTO (-1) -> the AUTO branch searches               OK
+
+And the one hypothesis this session raised and then KILLED: `ubi.mtd=<name>` with no `,<vid_hdr_offs>`
+leaves `vid_hdr_offset = 0`. `io_init()` (build.c:674-677) then sets
+`ubi->vid_hdr_offset = ubi->vid_hdr_aloffset = ubi->ec_hdr_alsize`, and `ec_hdr_alsize` is
+`ALIGN(UBI_EC_HDR_SIZE=64, hdrs_min_io_size)`. With a 2048-byte page (no subpage support)
+`hdrs_min_io_size == 2048`, so the default is **2048 - exactly this flash's real VID header offset**.
+So `ubi.mtd=rootfsa` and `ubi.mtd=rootfsa,2048` are equivalent here, and "add ,2048" is NOT the fix.
+The checks that follow (`vid_hdr_shift % 4`, `vid_hdr_offset < UBI_EC_HDR_SIZE`) also pass.
+
+### SO THE -EINVAL COMES OUT OF THE HEADER SCAN - i.e. FROM WHAT OUR READ PATH HANDS UBI
+
+Every explicit `-EINVAL` in `ubi_attach_mtd_dev()` is excluded; the remaining producers are
+`ubi_io_read_ec_hdr()` / `ubi_scan()` / `ubi_read_volume_table()` failing validation. That is exactly
+the standing suspect in `[[cudy-wr3000v2/nand-fmc-port]]` ("the remaining suspect is what OUR READ PATH
+hands UBI") - now reached by elimination instead of by guess. Two prior findings sit on that path and
+should be re-read together before the next probe:
+  * `luofu_fmc_read_page` must NOT enable the ECC engine (the spare otherwise splices inline);
+  * `[[cudy-wr3000v2/fmc-erase-vs-program-split]]` - erase reaches the array, the program path does not.
+
+**NEXT STEP (offline first, one fire after):** in the hook, read mtd13's PEB 0 and PEB 1 through the mtd
+layer and encode UBI's OWN acceptance test for the EC header into the tick crumb - magic 0x55424923,
+version 1, vid_hdr_offset 2048, data_offset 4096, and the CRC (`crc32(LUOFU_UBI_CRC32_INIT, hdr, 60)`
+must equal the stored word). The 32-PEB EC walk that used to do this pointed at **"rootfsb"** (mtd14,
+which is EMPTY) - a real instrument bug, since `ubi.mtd=rootfsa` is the partition UBI is actually given.
+Point it at **mtd13** and report pass-count vs first-bad-PEB; that single number separates "our read
+path returns a header UBI rejects" from "the header is fine and the refusal is in the volume table".
+
+### PROCESS NOTE (2026-10-16): A `tail -F` MONITOR LEAKS ITS SESSION ON EVERY FIRE
+
+The person spotted this, not me: after 7 fires with 7 watches armed, **7 terminal sessions were still
+RUNNING**. The cause is the watch command itself - `tail -n 0 -F <log> | grep --line-buffered ...` never
+exits, so the session lives on after the monitor has fired its event and after its "DONE" sentinel has
+long since arrived. Killing the sessions afterwards was not enough either: **7 orphaned `tail.exe`
+processes had outlived the PTY teardown and needed an explicit `taskkill /PID`.** Identify them by
+COMMAND LINE before killing - this host also runs two unrelated `tail.exe`/`grep.exe` from a Lightspeed
+app (`%LOCALAPPDATA%/Lightspeed/gui-trace.log`, `Game detected|Game exited|...`) that must be left alone.
+
+Use a ONE-SHOT GATE instead of a streaming tail for "wait until this finishes" work:
+
+    until <condition>; do sleep 1; done; printf 'READY\n'      # with filter ^READY$
+
+and for a progress stream, accept that the session must be killed once the sentinel arrives
+(`kill_bash`), or use a non-following periodic poll inside the command rather than `-F`.
+
+**And a second instrument failure from the same window, same class as the rest of this session:** a
+health-probe script built with DOUBLE quotes expanded `$(...)` LOCALLY, so the "device" reading
+(`uptime 427682s`, missing `/etc/openwrt_release`, `devmem: command not found`) was THIS HOST, not the
+router - a confident wrong answer from an instrument that was never connected. Single-quote the remote
+command so nothing expands before it reaches ssh.
+
+DEVICE STATE VERIFIED at close: uptime 175 s, boot_id 43e8b552 (the attach fire's boot - no reboot
+since), release 2.4.15, **selector restored to 0x10** (the fires set 0x11; the box's own fallback
+returned it), wiphys 0 / ifaces 0 (the pre-existing stock-slot trap, unchanged), 0 leftovers,
+C18 = 0xC0DE502D and C1C = 0x0A026A16 still holding the attach verdict.
+
+### ★★★★ THE WALL, MEASURED END TO END (fire `ecwalk`, 2026-10-16)
+
+UBI's own `ubi_io_read_ec_hdr()` acceptance test was run over the first 32 PEBs of **mtd13 (`rootfsa`)**
+- the partition UBI is actually given - inside the stage-D hook, with the result carried out in the
+tick's crumb. FIRED, read from the vendor:
+
+    C18 = 0xC0DE502D
+    C1C = 0x0A020016        writes=10, erases=2, EC passes = 0x00, attach code = 0x16
+
+**EC passes = 0.** Not "some", not "a few": the walk stopped at the FIRST PEB. So the header our read
+path hands UBI at byte 0 of mtd13 does not satisfy UBI's test, and `ubi_attach_mtd_dev()` refuses the
+partition with -EINVAL because of it. (0 also results if `mtd_read()` itself refused - `got != 64`
+takes the same `break` - so the next instrument must separate those two, see below.)
+
+The chain is now measured at every link, not inferred:
+
+    ubi.mtd=rootfsa in the effective cmdline   (built artifact + drivers/of/fdt.c:1065)      OK
+    get_mtd_device_nm("rootfsa") resolves      (code was 0x16, not the 0x13 name failure)    OK
+    ubi_attach_mtd_dev(mtd13, AUTO, 0, 0)      -> -EINVAL                                    MEASURED
+    UBI's EC test over mtd13 PEB 0..31         -> 0 of 32 pass                               MEASURED
+
+**This is the standing suspect in the record, finally confirmed by measurement rather than inference:**
+"the remaining suspect is what OUR READ PATH hands UBI". The refusal is not in the attach's argument
+checking (every explicit -EINVAL there was excluded by reading, and `vid_hdr_offset = 0` defaults to
+`ALIGN(64, hdrs_min_io_size)` = 2048 on this geometry) - it is in the bytes.
+
+### NEXT INSTRUMENT (one fire, and it must separate three worlds)
+
+Encode into the tick crumb, from a read of mtd13 PEB 0 through the mtd layer at 64 bytes:
+
+  1. whether `mtd_read()` itself succeeded and `got == 64` (vs. refused) - the 0 is ambiguous today
+  2. a FIELD code for which test failed: magic / version byte / vid_hdr_offset / data_offset /
+     EC counter / CRC
+  3. the first four bytes as read, so the magic can be compared against 0x55424923 ("UBI#") literally
+
+Highest-value single datum: the four raw bytes at offset 0 of mtd13. If they are not `55 42 49 23`,
+the read path is delivering the wrong page (or an offset splice); if they ARE, the failure is in a
+field or the CRC and the remaining candidates are `vid_hdr_offset != 2048`, `data_offset != 4096`, or
+the CRC seed - and `LUOFU_UBI_CRC32_INIT` is one of the two constants this project has already got
+wrong once ("a remembered constant is a hypothesis; the artifact outranks it").
+
+Reference for what the bytes SHOULD be: an independent dump of this same partition showed 120 valid
+EC headers (magic 0x55424923, version 1, vid_hdr_offset 2048, data_offset 4096, ec 0, CRC correct
+against `crc32(seed, hdr, 60)` with UBI's non-inverting crc32).
+
+### ★★★★ ROOT CAUSE OF THE ROOTFS WALL - OUR READ PATH RETURNS ZEROS (fire `ec2`, 2026-10-16)
+
+The EC walk was extended to report WHICH test failed and the literal first bytes read. The fire's slot
+write and priming succeeded; the readback was lost to a network blip on the host, and recovered for
+free afterwards because the crumb persists:
+
+    C18 = 0xC0DE50F1      low byte 0xF1 = THE MAGIC TEST FAILED (not 0xF0, the read-refused code)
+    C1C = 0x0A020000      writes=10, erases=2, h[0]=0x00, h[1]=0x00
+
+**Read plainly: `mtd_read()` over mtd13 PEB 0 SUCCEEDS and hands back 64 bytes whose first two are
+`00 00`.** The flash there provably contains `55 42 49 23` ("UBI#") - an independent dump of this same
+partition showed 120 valid EC headers. So the driver reports a successful read while delivering a
+ZERO-FILLED page, and `ubi_attach_mtd_dev()` refuses the partition with -EINVAL because the EC magic it
+reads is `00000000`.
+
+**This is the whole rootfs wall, and it is one link below where every previous probe was aimed.** UBI
+can never attach while our read path returns zeros, regardless of the command line, the initcall
+order, the partition name, or the parameter.
+
+It also closes two older suspicions with measurement:
+  * `[[cudy-wr3000v2/fmc-erase-vs-program-split]]` recorded that **erase reaches the array but the data
+    path does not** - now confirmed in the READ direction as well.
+  * the log line `rootfs_data is mtd15 ... read=0 got=8: 00 00 00 00 00 00 00 00` was read as "the
+    partition is erased, and our path returns 0x00 for erased flash". It is better explained by the
+    simpler statement: **our read path returns 0x00, full stop.** mtd13 is NOT erased and still reads 0.
+
+### THE ONE REMAINING AMBIGUITY, AND THE FIRE THAT SETTLES IT
+
+Two worlds produce "zeros at offset 0 of mtd13":
+
+  (a) the READ PATH is dead and returns zeros for every page, everywhere; or
+  (b) the read path is fine and mtd13's PARTITION BASE OFFSET is wrong, so "offset 0 of rootfsa"
+      lands on unwritten flash (which this path returns as 0x00). `[[cudy-wr3000v2/fmc-partition-offset-bug]]`
+      records two false fixes in exactly this area, so it is a live candidate.
+
+**Next fire, decisive and cheap:** read offset 0 of three partitions IN THE SAME BOOT and put the first
+two bytes of each into the crumb - `mtd11` (kernela) and `mtd12` (kernelb) hold known content (our
+uImage, magic `0x27051956` = "\x27\x05\x19\x56"; kernelb holds the build just fired), and `mtd13`
+is the question. If kernelb also reads `00 00`, the READ PATH is dead (world a). If kernelb returns
+`27 05`, the read path works and rootfsa's offset arithmetic is wrong (world b). One per-partition crumb
+cannot carry three answers, so use the step byte for WHICH partition and the payload for its bytes, and
+run the same fire three times against the same image - or better, encode a single 6-bit field: 2 bytes
+from kernelb in the payload, and a pass/fail byte for rootfsa in the step.
+
+Reference for what a correct read must produce: `mtd11`/`mtd12` begin with the uImage magic
+`0x27051956`, and the vendor kernel reading the same partitions reports real content - so the expected
+bytes are known independently of our driver.
+
+PROCESS: the fire's readback failed with "No route to host" because the host lost internet mid-run; the
+device itself was fine and its crumb survived. When a readback fails on the HOST side, the measurement
+is not lost - re-read it instead of re-firing.
+
+## 2026-10-17 - PICKUP: THE UBI ATTACH NEVER RAN, AND THE BOOT DIES INSIDE `ubi_init`
+
+Session opened as a handoff ("pick up where we left off"). State at open, measured, not recalled:
+
+    router UP on the vendor slot A (2.4.15, bootflag=a), uptime 96317 s, wiphys 0 / ifaces 0
+    (the recorded stock-slot trap, pre-existing), 0 .omo-* leftovers, key lane works
+    C18 = 0xC0DE502D, C1C = 0x00000000, C80/C84 = 0x00020000/0x00001200 (vendor-rewritten)
+    repo: mem-entries.md uncommitted (the 2026-10-16 session was never committed);
+    submodule carried an uncommitted luofu-fmc.c (the next instrument the record named)
+
+### THE VENDOR'S OWN UBI, READ AS THE ORACLE (all read-only, one ssh session)
+
+    mtd13 "rootfsa" [0:64]  55 42 49 23 01 00 00 00 ... vid_hdr_offset 0x800 data_offset 0x1000 ec=0x2072fc24
+    mtd14 "rootfsb" [0:64]  IDENTICAL to mtd13 - A and B hold the SAME UBI image (same CRC)
+    mtd12 "kernelb" [0:4]   27 05 19 56      (the uImage magic: independently-known content)
+    ubi0: mtd_num=13, 1 volume ("squashfs"), LEB 126976, 186 LEBs, 20 reserved PEBs
+    /dev/ubiblock0_0[0:32]  68 73 71 73 (hsqs) - so ubi_open_volume(0,0)+ubi_read yields "hsqs"
+    ubi.mtd is NOWHERE in the vendor's cmdline; UBI is attached by userspace (unchanged finding)
+    the volume classes: ubi0 has NO volume-level sysfs dir; ubi0_0 is a child of the VOLUME class,
+    NOT of ubi0 - so a kobject probe under ubi0 could never have measured volumes
+
+### FIRE `vols` - OUR ATTACH SUCCEEDS, AND C1C IS OVERWRITTEN ON THE SURVIVING PATH
+
+A crumb payload `(flag<<24)|(vols<<16)|(kb0<<8)|(ra0)` was built and fired (slice md5 9eb5e490).
+Readback: **C18 = 0xC0DE502D, C1C = 0x0A000000** - flag 0x0A (the EC self-check saw mtd13 NOT read
+as 55 42), byte1 = 0x00 = **`ubi_attach_mtd_dev(mtd13, -1, 0, 0)` returned SUCCESS.**
+
+That collides head-on with earlier fire `attach` (C1C = 0x0A026A16, the SAME call -EINVAL) on a
+partition whose EC header is valid. And the seed of that collision is in the code that had been
+staged for this session: `ubi_attach_mtd_dev()` was called **without `ubi_devices_mutex`**, which
+build.c:833-835 says every caller must hold. An attach that returns 0 for a partition the kernel's
+own ubi_init attached successfully is not evidence - it is a second attach mutating live state.
+
+The `vols` fire's boot also went dark on BOTH addresses for ~75 s, then returned on the vendor with
+the selector 0x11 (the fires' 0x11 gives up to the box's own fallback).
+
+**AND THE TICK'S WRITE IS NOT THE LAST WORD.** `luofu_fmc_crumb()` lives at the top of the tick, but
+the tick goes on: `ubi_read` -> `dev_info` -> the pstore block every 5 s. On a boot that SURVIVES,
+the write that lands in C18/C1C is whichever tick's crumb ran last before the reset. On a boot that
+does not survive, only the ladder's crumbs are there. So a C1C from a surviving boot is a
+LAST-TICK sample, not a final report - read it that way or pin the answer to a level that runs once.
+
+### FIRE `vols2` - REMOVING THE UNSERIALISED ATTACH CHANGED NOTHING (the controlled comparison)
+
+The attach was REMOVED (the probe is now read-only: `ubi_open_volume(0,0)` + `ubi_read` 4 bytes,
+which is the same public API the hook already used) and the slice re-fired (md5 770de8b6):
+
+    C18 = 0xC0DE502D          the tick -> our kernel SURVIVED ubi_init
+    C1C = 0x0A130000          flag 0x0A, byte1 = 0x13 = -ENODEV: NO ubi0, exactly as 2026-10-16
+
+So the `vols` success was a property of that fire, not of the probe's code, and world (a) stands:
+**ubi_init attached nothing.** (Bonus, read from the same crumb: byte0 = 0x00 is the EC walk's
+mtd13[0] - the hook's own reader returned a ZERO page on a boot the vendor reads as 55 42 49 23.)
+
+### FIRE `silent` - THE CONTROL THAT CORRECTS THE RECORD
+
+The EC walk was disabled AND the probe's read stripped to the name lookup + the open (a slice that
+touches no ECC path), so the only crumb is the ladder's. Vendor gate first, new and hard: 20
+consecutive PEBs of mtd13 must read 55 42 49 23 before anything is written (EC20=20/20). Then:
+
+    C18 = 0xC0DE502D   <-- STILL THE TICK
+    C1C = 0x0A1300EF   <-- flag 0x0A, 0x13 -ENODEV, 0xEF = the walk never ran (pinned)
+
+**So neither the hook's reads nor its lock-free attach kills the boot: it survives to the tick every
+time.** And with every late diagnostic silenced, an EARLIER fire's C18 stopped at `0xC0DE0020` - the
+mach's late_initcall crumb - which is the only reading that says the boot died BEFORE
+late_initcall_sync. Both facts together give the chain this session settles:
+
+    the FMC's NAND read path works early   (our hook reads mtd13 PEB 0 correctly)
+    our read path returns ZEROS later      (tick's EC walk, 2026-10-16 0x0A020000, and vols2)
+    ubi_init (late_initcall) attaches nothing
+    either because it never saw ubi.mtd (load_module replay - NOT YET MEASURED, see below)
+    or because its EC/VID read went through the read path in its broken state
+
+### WHAT IS STILL UNMEASURED, STATED AS THE NEXT STEP
+
+**Does the kernel replay `ubi.mtd` onto the built-in UBI module at all?** It is proven to reach
+`unknown_bootoption` (a MODULE parameter: `module_param_call(mtd, ...)` is not a `__setup`, and its
+symbol lives in `__modparam_`, not `__param_obs`), and it is proven NOT to be in `/proc/cmdline` on
+the vendor (which runs a different kernel, so that is not evidence about ours). What is unmeasured is
+whether `load_module()`'s replay calls `ubi_mtd_param_parse()` - one readable value decides it:
+`mtd_devs` in the built-in `ubi` module right after `do_initcalls()`. That needs a hook that runs
+BEFORE ubi_init (a device_initcall can read the built-in module's long section) and a crumb the
+ladder already provides. This session could not build it: it is the same kind of static access the
+lock-free attach already cost.
+
+### INSTRUMENT DOCTRINE, ADDED TO THIS SESSION'S BILL
+
+  1. I staged an instrument that attaches a live UBI device without its documented lock, and the
+     box went dark on the first flight. "Read-only with respect to the system" (2026-10-16's rule)
+     does not cover it: a call with documented concurrency requirements is a WRITER even when it
+     looks like a query.
+  2. The gate script's first version compared 3 hex chars to 8 and REFUSED a healthy partition.
+     A gate that can only ever refuse is a bug; validate a parser against a known-good read before
+     believing its refusal.
+  3. Two WSL builds were started while a fire was in flight. They race the kernel build rather than
+     the device, so nothing was harmed - but the 2026-10-16 rule (built tree vs source tree) plus one
+     fire at a time is the cheaper discipline.
+  4. The `vols` fire's log had no `boot_id AFTER` at the moment the first readback was attempted; the
+     crumb was read correctly anyway because the write-loop retried. Do not read a missing post-boot
+     field as a failed fire - re-read the log.
+
+### FIRES
+
+    build/tmp/fire_vols.log     attach SUCCEEDED (C1C = 0x0A000000), dark for ~75 s
+    build/tmp/fire_vols2.log    attach removed   (C1C = 0x0A130000), tick reached
+    build/tmp/fire_silent.log   hook silent      (C1C = 0x0A1300EF), tick reached; gate EC20=20/20
