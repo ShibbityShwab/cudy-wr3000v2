@@ -37,6 +37,7 @@ bitmask in `C18` (the one cell proven to survive a primed write):
 | `wubi2` | `0xC0DE52A1` | a layout-volume VID header with valid magic, **valid CRC** and `vol_id = 0x7fffefff` exists in PEB0-3 |
 | `wubibm` | `0xC0DE5284` | **EC header CRC is VALID** (no `0x20` bit) - the 2026-10-21 "reads zeros at 0x800" does NOT reproduce |
 | `wvtbl` | `0xC0DE52F4` | **VOLUME 0 EXISTS**: VTBL record 0 has a valid CRC (`0x40`), `reserved_pebs != 0` (`0x20`) and a name (`0x10`) |
+| `wfar` | `0xC0DE52E4` | the read path is **uniform across the whole partition** (`0x40` last PEB and `0x20` middle PEB both read valid EC headers) - UBI is not seeing a different flash than we are |
 
 So every byte UBI reads to decide there is a rootfs is present and valid, and `ubiblock0_0` still
 does not appear. **The data we serve is not the fault.**
@@ -47,6 +48,30 @@ UBI's scan sees a different flash than our low-offset reads do. `[wfar]` reads t
 **LAST** and the **MIDDLE** PEB (two 64-byte reads, the size the diag already performs safely):
 `0x40` last PEB valid, `0x20` middle PEB valid, `0x80` ran, `0x04` layout VID found, `0x08` ubiblock
 resolved. Expected `0xE4` if the read path is uniform across the partition.
+
+**`wfar` returned exactly that: `0xC0DE52E4`.** The read path is uniform, so the flash is ruled out
+entirely and the fault must be inside UBI's attach or in `ubiblock_create`.
+
+### ★★ THE INSTRUMENT ERROR THAT EXPLAINS THE WHOLE UBI INVESTIGATION
+
+**Every diagnostic above runs BEFORE UBI does.** The initcall map is unambiguous:
+
+```
+__initcall_luofu_fmc_ubi_diag7   c0cadf04
+__initcall_ubi_init7             c0cadf08      <- 4 bytes LATER, so it runs AFTER us
+```
+
+So no probe tonight could ever observe UBI's decision - they could only prove the flash is correct,
+which they now have, exhaustively. **The first probe that runs after UBI and ubiblock is
+`luofu_ubi_post` (`late_initcall_sync`, `__initcall_luofu_ubi_post7s`).** It asks:
+
+- `0x40` `ubi_get_device_info(0)` returned 0 -> **ubi0 IS attached**
+- `0x20` it returned `-ENODEV` -> **ubi0 never attached**
+- `0x08` `blk_lookup_devt("ubiblock0_0")` resolved
+
+**Why this is the right question:** `ubiblock_create_from_param()` calls
+`ubi_open_volume(0, 0, UBI_READONLY)` for `ubi.block=0,0`. If ubi0 is not attached that call fails
+and NO block device appears - exactly the symptom - while every byte of flash checks out.
 
 ### ★ 2026-10-30 [wfix/wclk] THE REAL BLOCKER: A DTS SHAPE THAT DID NOT MATCH OUR DRIVER TOPOLOGY
 
