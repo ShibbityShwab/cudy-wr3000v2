@@ -1,4 +1,12 @@
 {
+ "updated": "2026-10-22",
+ "superseded_by": "STATE.md (gate table G1..G6)",
+ "gate_note": "SUPERSEDED 2026-10-30. These three gates are the 2026-10-15 snapshot; the live headline is the gate table in STATE.md (G1..G6), which was re-based when the boot began completing every initcall.",
+ "gates": [
+  { "id": "G1", "name": "our kernel reaches userspace on this board", "score": 25, "rec": "fire_tread4.log; UBI verdict captured in mtd9" },
+  { "id": "G2", "name": "rootfs mounted from our own NAND driver", "score": 0, "rec": "UBI: the layout volume was not found" },
+  { "id": "G3", "name": "Wi-Fi datapath (associate + move one frame)", "score": 0, "rec": "not started" }
+ ],
  "lanes": [
   {
    "area": "A. Reversal",
@@ -276,7 +284,7 @@
    "pct": 60,
    "w": 5,
    "state": "code",
-   "ev": "ROOT CAUSE FOUND 2026-10-15: the FMC data path IS the boot panic. CONFIG_CMDLINE says ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 -> UBI attach reads NAND through OUR FMC driver -> attach FAILS (junk reads) -> no root mount -> init_eaccess('/init') calls kern_path() on a root-less mount tree -> FATAL, before prepare_namespace and before my handoff probe. Explains why all initcalls complete yet the boot dies, and why no 'VFS: unable to mount root fs' is printed.",
+   "ev": "WITHDRAWN 2026-10-22: the 2026-10-15 init_eaccess chain was never observed. The readable mtd9 log (2026-10-21/22) shows UBI attaching mtd14, scanning, reporting 'the layout volume was not found', then the VFS mount panic at ~6.5 s. The wall is the FMC read path returning zeros (dma_buf never written). Gates and receipts: STATE.md.",
    "rec": "doc"
   }
  ],
