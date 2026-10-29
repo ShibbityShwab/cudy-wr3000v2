@@ -10,29 +10,43 @@ our kernel, our drivers, no vendor kernel.
 
 **Where the work lives:**
 
-- `PROGRESS.md` - the canonical progress ledger (text). **Start here for "how much is left?".**
-- `PROGRESS.html` - the visual version of the same ledger (open in a browser).
-- `progress-data.json` - the machine-readable twin.
+- **`STATE.md` - the one page: the current wall, the next three experiments, the box state. Start here.**
+- `AUDIT-2026-10-22.md` - the structural audit (score model, record, plan) and the restructure.
 - `START-HERE.md` - operational handoff (device, secrets, harness, hard rules).
-- `mem-entries.md` - the 8,400-line evidence ledger, phase by phase.
-- `opensource/` - git submodule, the published half (docs + lab modules + CI).
+- `mem-entries.md` - the evidence ledger, phase by phase (history; last dated entry 2026-10-22).
+- `PROGRESS.md` / `PROGRESS.html` / `progress-data.json` - the 2026-10-15 lane snapshot, **superseded**
+  by the gate table in `STATE.md`; kept as history.
+- `opensource/` - git submodule, the published half (docs + lab modules).
 
 ---
 
-## Progress at a glance
+## Progress at a glance (updated 2026-10-30)
 
-Measured 2026-10-11 from the artifact record: 214 phase reports, 425 tracked
-submodule files, ~140 lab programs. A "score" means **how far the artifact
-record proves a subsystem was carried** - there is no build/test suite in this
-repo, so this is evidence-graded, not test-verified. Each score carries a receipt
-(a phase report, a byte/line count, or source grep'd this session); the audit
-found and corrected three scores - see `PROGRESS.md`.
+**The headline is the gate table in [`STATE.md`](STATE.md).** This section restates it for readers who
+will not open another file; where the two disagree, `STATE.md` wins. The structural audit is
+[`AUDIT-2026-10-22.md`](AUDIT-2026-10-22.md).
 
-| | score |
-| --- | --- |
-| **REVERSAL** (reading the closed Wi-Fi stack) | **~68%** |
-| **REBUILD** (our own kernel + our own OpenWrt) | **~45%** |
-| **OVERALL** toward the stated goal | **~56%** |
+| gate | state | receipt |
+| --- | --- | --- |
+| **G1** FMC reads real flash | **GREEN** | page-0 magic `UBI#` at the probe; and a level-7 probe through the MTD layer found the partition by name, the EC magic, `vid_hdr_offset = 0x800`, and `PEB0+0x800` reading `'U'` |
+| **G2** program path | **GREEN** | a page written by our kernel read back byte-exact through the vendor driver |
+| **G3** our kernel + real rootfs + userspace | **NOT YET** | the boot completes **every initcall** and reaches level 7, but `ubiblock0_0` does not resolve, so `mount_root` has no root device |
+| **G4** Ethernet on our kernel | **one defect from green** | ARP resolves, bridge answers, hundreds of frames move; the host ping still does not |
+| **G5** Wi-Fi on our kernel | vendor-only | - |
+| **G6** sustained uptime | **changed shape** | the old "~70 s reset" was a memory-corruption symptom; with it removed the boot runs the full 310 s and restarts on the `mount_root` failure |
+
+**2026-10-30: THE BOOT NOW COMPLETES EVERY INITCALL - and the blocker was ours.** Five defects were
+hiding each other. The device tree was **never actually appended** (`mkimage` packaged the bare
+`zImage` while `CONFIG_ARM_APPENDED_DTB=y`), so every DTS edit this project had ever made was
+compiled and discarded and the kernel ran the vendor's tree. Behind that: the CRG registered **zero
+clocks** because a range check compared the bank against the gate index; the reset provider supplied
+no `of_xlate`, so the core forced `of_reset_n_cells = 1` against two-cell specs and every consumer
+failed; and the flash driver claimed **16 KiB of physical memory at `0x80602000` and never reserved
+it**, writing the kernel log into whatever `memblock` had put there. That last one is why six driver
+bisects all returned identical results - every suspect was downstream of the corruption, none of
+them the cause. With it removed the boot goes from dying at 70 s in `device_initcall` to running the
+full 310 s with correct page tables at level 7 (`virt_to_phys(swapper_pg_dir) = 0x80604000`).
+**What gates the goal now is a single question: why UBI finds no layout volume on `rootfsb`.**
 
 **2026-10-14: the Ethernet wall fell.** The NIC went from "0%, not started" to working - the MAC
 is configured from a live PHY link (`mac_link_up` fires, SPEED_100, PHY BMSR 0xCDEF). Four bugs had
@@ -90,12 +104,12 @@ programme.
 
 | subsystem | score | state |
 | --- | --- | --- |
-| Device tree (`luofu-r116`, 647 lines) | 70% | partial |
+| Device tree (`luofu-r116`, 647 lines) | 85% | **now actually applied** - the DTB was never appended before 2026-10-30 |
 | Kernel config fragment (12 symbols left) | 75% | partial |
-| CRG clock/reset driver | 45% | code exists |
+| CRG clock/reset driver | 75% | **registers 16 gates + the reset provider**; a bank-vs-index bug meant zero clocks until 2026-10-30 |
 | Pinctrl / IOMUX driver | 40% | code exists |
 | PCIe host driver (DWC) | 25% | code exists |
-| NAND / FMC controller driver | 55% | code exists |
+| NAND / FMC controller driver | 85% | **reads real flash, verified at level 7**; the write path is proven byte-exact |
 | Ethernet GMAC / MDIO / switch driver | 75% | **working - link up, MAC programmed** |
 | Boot chain / U-Boot source | 10% | **not started** |
 | UART / GPIO / watchdog / thermal | 20% | partial |
@@ -121,33 +135,36 @@ Only two instruments could open it and **both are confirmed unavailable**: JTAG
 
 ### What is left, in order (updated 2026-10-15)
 
-**0. THE ROOT CAUSE IS FOUND, AND TWO "SEPARATE" LANES WERE ALWAYS ONE PROBLEM.**
+**0. THE CURRENT CHAIN, MEASURED 2026-10-22 (it replaces the 2026-10-15 `init_eaccess` reading,
+which is withdrawn).**
 
-**The FMC data path IS the boot panic.** Reading `init/main.c` all the way down closes the chain:
+The kernel log, read out of mtd9 on the box itself, now shows the boot dying at the rootfs mount:
 
 ```
-FMC read path returns 40 1f 00 00 for every page
-  -> ubi_init (a late_initcall) RUNS but FAILS TO ATTACH
-     (a failed attach is not a panic, so every initcall still completes)
-  -> no ubiblock0_0, no root mount
-  -> init_eaccess("/init") -> kern_path() walks a root-less mount tree -> FATAL
-  -> the loader sees no successful hand-off -> falls back to slot A
+6.471  FMC: rootfs_data is mtd15 ... read=0 got=8: 00 00 00 00 00 00 00 00
+5.909  ubi0: attaching mtd14
+6.086  ubi0: scanning is finished
+6.090  ubi0 error: ubi_read_volume_table: the layout volume was not found
+6.097  ubi0 error: ubi_attach_mtd_dev: failed to attach mtd14, error -22
+6.520  VFS: Cannot open root device "ubiblock0_0" ... error -6
+6.79   Kernel panic - not syncing: VFS: Unable to mount root fs
 ```
 
-The kernel's own `CONFIG_CMDLINE` says where the root comes from, and it is NAND through UBI:
-`ubi.mtd=rootfsb ubi.block=0,0 root=/dev/ubiblock0_0 rootfstype=squashfs`. **UBI attach reads flash
-through our own FMC driver.**
+**UBI reads flash through our own FMC driver, and that read path returns zeros.** Measured: the row
+is correct, `FMC_CFG` matches the vendor, the SFC clock/reset are correct, the operation reports
+completion, and the DMA buffer is never written (`buf=0`). Leading hypothesis (2026-10-22): the box
+is **SPI-NAND**, and the read path writes the parallel-NAND literal `OP_CFG=0x50` where the SPI
+encoding is the packed `0x9A1` the live vendor register showed. Detail:
+`fmc-read-path-degradation-2026-10-21.md`.
 
-**No fire could have found this.** Every crumb sits in our driver's initcall path or later, while the
-death is in `fs/init.c` after all of them - and the kernel never prints its usual *"VFS: Unable to
-mount root fs"* because it dies in `init_eaccess` **before** `prepare_namespace()` tries the mount.
-That is why the boot was silent and why the panic read as unreachable.
-(`boot-panic-is-in-userspace-handoff.md`)
+The earlier `init_eaccess` / "userspace handoff" reading is **withdrawn**: it came from a build whose
+log was not readable, and the readable log now shows the VFS panic.
 
-**1. FIX THE FMC READ PATH.** This is now the single blocking bug for the whole goal, not a side
-concern. Evidence: `C70 = 40 1f 00 00` across seven fires, in the one sysctrl cell proven to be a
-true scratch register, while the vendor's own DMA buffer fills with changing real flash data. **No
-rootfs until this reads correctly - and no userspace until there is a rootfs.**
+**1. FIX THE FMC READ PATH.** The single blocking bug for the goal. Evidence (2026-10-21/22):
+`dma_buf` is never written, the row and config are correct, the operation completes - the read is
+aimed at the wrong SPI interface. **No rootfs until this reads correctly - and no userspace until
+there is a rootfs.** (The 2026-10-15 `C70` line was withdrawn: `0xC70` is the driver's own read
+deposit, not scratch.)
 
 2. **Reachability once it survives.** The NIC driver is written and works (under the vendor); what
    is untested is whether our kernel brings it up. Needs (1).
@@ -177,7 +194,7 @@ Full detail, per-lane evidence citations, and the honest ceiling:
 | `patched/` | de-crypted stock LuCI bytecode (LuaQ) - injection sinks, data not source |
 | `opensource/` | git submodule -> the published half (docs, lab modules, GH Actions) |
 | `wordlists/` | Git LFS pointers only (14 bytes each) - not real lists |
-| `START-HERE.md`, `PLAN-UART.md`, `mem-entries.md` | handoff + evidence docs |
+| `STATE.md`, `START-HERE.md`, `mem-entries.md` | current one-pager + operational handoff + evidence ledger (`PLAN-UART.md` is retired: the bench has no UART) |
 
 Everything under `build/ dumps/ firmware/ stock/ rootfs-*/ decomp/ pages/ pyenv/
 jtools/ tftp/ ulw/` is gitignored local state - it may be large or absent.
