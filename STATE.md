@@ -28,14 +28,25 @@ With every initcall completing, `C18 = 0xC0DE5247` says `ubiblock0_0` did not re
 `mount_root` has no root device. UBI's test is `ubi_find_av(ai, UBI_LAYOUT_VOLUME_ID)` (`0x7fffefff`):
 valid PEBs found but no layout volume -> `-EINVAL`, "the layout volume was not found".
 
-**The read path is NOT the problem any more.** A level-7 probe through the MTD layer returned
-`C18 = 0xC0DE52A0`: partition `rootfsb` found by name, EC magic `UBI#`, `vid_hdr_offset` exactly
-`0x800`, and `PEB0+0x800` reading `'U'`. The 2026-10-21 "reads zeros at 0x800" finding does not
-reproduce on a working boot - it was measured when the flash probe was not running at all.
+**THE FLASH HAS NOW BEEN PROVEN CORRECT END TO END, AND UBI STILL REFUSES IT.** Four fires, each a
+bitmask in `C18` (the one cell proven to survive a primed write):
 
-Remaining candidates, in order: the VID header's **CRC / `vol_id`** (probe in flight scans PEB0-3 for
-`vol_id == 0x7fffefff`), then the **partition offset** in our DTS (`0x3540000`) against the vendor's
-real `/sys/class/mtd/mtd14/offset`, then UBI's scan accepting/rejecting PEBs for another reason.
+| fire | `C18` | proves |
+|---|---|---|
+| `wubi` | `0xC0DE52A0` | partition `rootfsb` found by name; EC magic `UBI#`; `vid_hdr_offset = 0x800`; `PEB0+0x800` reads `'U'` |
+| `wubi2` | `0xC0DE52A1` | a layout-volume VID header with valid magic, **valid CRC** and `vol_id = 0x7fffefff` exists in PEB0-3 |
+| `wubibm` | `0xC0DE5284` | **EC header CRC is VALID** (no `0x20` bit) - the 2026-10-21 "reads zeros at 0x800" does NOT reproduce |
+| `wvtbl` | `0xC0DE52F4` | **VOLUME 0 EXISTS**: VTBL record 0 has a valid CRC (`0x40`), `reserved_pebs != 0` (`0x20`) and a name (`0x10`) |
+
+So every byte UBI reads to decide there is a rootfs is present and valid, and `ubiblock0_0` still
+does not appear. **The data we serve is not the fault.**
+
+Remaining asymmetry, and the fire in flight tests it: this probe has only ever read **PEB0-3**, while
+UBI scans the whole partition (~186 PEBs of `0x20000`). If the read path degrades at high offsets,
+UBI's scan sees a different flash than our low-offset reads do. `[wfar]` reads the EC header of the
+**LAST** and the **MIDDLE** PEB (two 64-byte reads, the size the diag already performs safely):
+`0x40` last PEB valid, `0x20` middle PEB valid, `0x80` ran, `0x04` layout VID found, `0x08` ubiblock
+resolved. Expected `0xE4` if the read path is uniform across the partition.
 
 ### ★ 2026-10-30 [wfix/wclk] THE REAL BLOCKER: A DTS SHAPE THAT DID NOT MATCH OUR DRIVER TOPOLOGY
 
