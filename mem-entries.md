@@ -18596,3 +18596,90 @@ lock-free attach already cost.
     build/tmp/fire_vols.log     attach SUCCEEDED (C1C = 0x0A000000), dark for ~75 s
     build/tmp/fire_vols2.log    attach removed   (C1C = 0x0A130000), tick reached
     build/tmp/fire_silent.log   hook silent      (C1C = 0x0A1300EF), tick reached; gate EC20=20/20
+
+## 2026-10-18 .. 2026-10-22 - the log channel, UBI's verdict, and the read-path wall
+
+**PHASE 113 (10-18): the program opcode, measured live.** Sampling `0x10a20030` during a vendor
+`mtd write` gave the literal pair: read `0x9A1`, erase `0x810`, program `0x9D0` - the hardware
+expands compact inputs; the packed `0x9D1` was one dummy cycle too many. The `0x9D0` fire changed
+the vendor's planted bytes in mtd9 PEB0: the program reached the array for the first time.
+
+**PHASE 114 (10-19): the cell control, and the web-UI shell lane.** The C10/C14 poison did not
+survive a vendor boot: the vendor writes both cells every boot (`0x02000000` / `0xDFDF0781`), so
+every cell-based reading of the program path is withdrawn. The web UI restores a root shell on
+factory-reset stock: wizard login (`sha256(pw+salt)` then `sha256(h1+token)`), then the `systime`
+payload carrying BOTH `cbid.system.ntp.current` and `timeclock` (urlencoded; `timeclock` alone is
+ignored), then `dropbearkey` (the shipped host keys are 0 bytes).
+
+**PHASE 115 (10-21): the vendor write path, disassembled, and the log channel opened.**
+`hi_flash.ko` (full symbols) gives the raw-NAND/SPI-NAND sequences: the program sets `OP_CFG=0x50`,
+a plain `OP_CTRL=3`, a separate 0xff-filled OOB buffer, and no write-enable. Fired against our
+driver: the vendor-literal build erased but did not program; the `0x9D0` + command-injection build
+with the OOB destination fixed (`dma_buf + 0x2000`, not `+page_size`) **wrote the log** - page 0 plus
+the ring pages from `0x800`. The captured ring then named the boot's killer:
+`pstore_blk.best_effort=1` re-added by `build/tmp/wsl_build_kernel.sh` faults at 5.76 s; removed, the
+boot reaches the rootfs mount. With `LUOFU_LOG_KEEP` at 15 KiB the ring reads UBI's verdict:
+
+    5.909 ubi0: attaching mtd14
+    6.086 ubi0: scanning is finished
+    6.090 ubi0 error: ubi_read_volume_table: the layout volume was not found
+    6.097 ubi_attach_mtd_dev: failed to attach mtd14, error -22
+    6.520 VFS: Cannot open root device "ubiblock0_0" ... error -6
+
+**PHASE 116 (10-22): the read path is the fault.** READ4/TREAD: every page reads zero with the
+correct row (`ADDRL=0x6a800000` = mtd14's offset), `FMC_CFG=0x1823` (vendor-identical), the SFC gate
+on and the reset deasserted - and `dma_buf[0] = 0`: the DMA never writes the buffer. Gating the
+snapshot did not change it (poisoning rejected); `DMA_ATTR_FORCE_CONTIGUOUS` did not move the address
+and changed the boot shape (reverted). Leading hypothesis: the box is **SPI-NAND**, and the read
+writes the parallel-NAND literal `OP_CFG=0x50` where the SPI encoding is the packed `0x9A1` the live
+vendor register showed. Reference: U-Boot `hifmc100_spi_nand.c`. Details:
+`fmc-read-path-degradation-2026-10-21.md`, `fmc-vendor-write-path-2026-10-21.md`.
+
+**PHASE 117 (10-22): the audit.** The 31-lane percentage model is retired as the headline (three
+copies disagreed: 68/45/56 vs 70/50/58 vs the JSON). The live metric is the gate table in
+`STATE.md`: G1 25 / G2 0 / G3 0. The structural audit is `AUDIT-2026-10-22.md`.
+
+
+**PHASE 118 (10-30): the flash path comes alive, and the killer is ours.** Five defects, each
+hiding the next. (1) **The DTB was never appended** - `CONFIG_ARM_APPENDED_DTB=y` but every packaging
+script ran `mkimage -d arch/arm/boot/zImage` with nothing appended, so every DTS edit this project
+ever made was compiled and discarded; the kernel booted the vendor's tree. Fixed (assert
+`combined == zImage + dtb`), which moved the boot 70 s -> 310 s and let the initcall tower complete.
+(2) **The DTS topology starved the flash probe**: `0x14880000` was split into the vendor's
+`crg@`/`clk@` shape, but the vendor has TWO drivers and this tree has ONE - `luofu-crg` builds its
+gates by walking its own children - so no clock provider existed, `devm_clk_get("sfc_clk")` returned
+`-EPROBE_DEFER`, and `luofu_fmc_probe` **never ran**. Receipt: `C18 = 0xC0DE50FF`, `C1C = 0xC0DE5FFF`.
+(3) **The CRG registered zero clocks**: `if (bank >= i)` compared the bank against the GATE INDEX,
+and `i` is reset to 0 just above, so `0 >= 0` skipped every gate; plus the 16 gate children were
+absent from the DTS entirely. Receipt: `C94 = 0xC0DE6003` (the GMAC receiving 3 clocks).
+(4) **The reset provider had no `of_xlate`**: `reset_controller_register()` forces
+`of_reset_n_cells = 1` when a controller supplies none, overriding the driver's 2, while every node
+passes TWO cells - so every lookup tripped `WARN_ON(args_count != n_cells)` and returned `-EINVAL`.
+(5) **THE KILLER: an unreserved fixed-address log ring.** `LUOFU_LOG_BASE = 0x80602000`, size
+`0x4000`, is inside the DT memory node (`0x80500000 + 0x7b00000`), `__va()`'d into kernel memory and
+written with up to 16 KiB of kernel log by `luofu_kmsg_to` - with **no `memblock_reserve` anywhere**.
+To memblock it was free RAM just below the kernel image at `0x80608000`, so it overwrote whatever the
+allocator placed there. That is why six driver bisects all returned identical results: the watchdog,
+GMAC, MDIO, smccc, pl353 and LEDs were never the fault, only downstream. Disabling the ring
+(`luofu_log_b = NULL`; every writer already null-guards) moved the boot from `t=70s` dying in
+`device_initcall` to `t=310s` with **level 7 reached** - `C8C = 0x80604000` =
+`virt_to_phys(swapper_pg_dir)` and `C9C = 0x80C837E8`, both primed to `0x55555555` first.
+`luofu-gmac.c:565` carries a second hardcoded copy at `0x80603000`, inside the same window - still
+live in the shipping config.
+
+**Where the wall is now - and it is the original one.** With every initcall completing,
+`ubi_read_volume_table` fails: `C18 = 0xC0DE5247` means `ubiblock0_0` did not resolve. UBI's own test
+is `ubi_find_av(ai, UBI_LAYOUT_VOLUME_ID)` (id `0x7fffefff`); when the scan found valid PEBs but no
+layout volume, it returns `-EINVAL`. The 2026-10-21 "reads zeros at 0x800" finding **does not
+reproduce** on a working boot: a level-7 probe through the MTD layer returned `C18 = 0xC0DE52A0` -
+partition `rootfsb` found by name, EC magic `UBI#`, `vid_hdr_offset` exactly `0x800`, and
+`PEB0+0x800` reading `'U'`. So the read path, the addressing and the EC header are all correct; what
+remains is the VID header's content (CRC / `vol_id`) or the partition offset itself.
+
+**Instrument lessons, paid for in fires.** A cell that is not primed is not evidence: an unprimed
+`C94` carried a previous boot's GMAC crumb and produced two contradictory conclusions, and an
+unprimed `C8C` nearly produced a false "level 7 reached". `C04` is **vendor-zeroed** and cannot hold
+an answer. `C18` is the one cell proven to survive a primed write. Verify a constant in the
+**artifact** before spending a fire (`objdump | grep <literal>`), not by grepping the source for a
+symbol name - a `static __init` helper is inlined and its name never appears. And two measurements
+that disagree are a question about the instrument before the hardware.
