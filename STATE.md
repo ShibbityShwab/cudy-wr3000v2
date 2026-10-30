@@ -1,5 +1,51 @@
 ## STATE AFTER THE 2026-10-30 SESSION - read this before touching the kernel
 
+## 2026-10-30 (late): Ghidra lane installed, and the boot chain reversed end to end
+
+**The decompiler is in and validated.** Ghidra 12.2 + Temurin JDK 25 (12.2 REJECTS 21 and blocks on an
+interactive JDK-path prompt, which reads as a hung process). `tools/ghidra/` carries the headless
+script and README. Calibrated against this project's hand reversal of `hi_wdt_hw_set_timeout`: all
+three `bfi` paths reproduce, including `(secs*2-1) << 10` for `hwver 1`.
+
+Decompiled so far: `hi_wdg.ko` (35 fn), `hi_flash.ko` (202), `/sbin/init` (158), `/sbin/procd` (539).
+
+### The ECC wall is explained at register level
+
+The vendor has TWO read paths differing in exactly the registers that caused the bug:
+`hi_spi_nand_hw_read` (ECC ON) writes ADDRH/ADDRL, SADDR_D0, OP_CFG, dsb, OP_CTRL - and writes
+**neither `DMA_LEN` (0x40) nor `0x5c`**. `hi_spi_nand_hw_read_ecc0` writes the same PLUS `0x5c` AND
+`DMA_LEN`. That second destination plus length is what makes the controller splice spare bytes into
+the page - the 14-byte splice at 1040 that corrupted record 118. Our driver ran ECC off AND wrote
+`DMA_LEN`, reproducing the splice; with ECC on we write neither and get a clean page.
+Also `hi_fmc_ecctype_set` = `(*base & 0xffffff1f) | ((type&7)<<5)` - ECC type is FMC_CFG bits 5-7 -
+set to 0 ONLY around `read_id`, `read_uid`, `read_feature`, then restored. ECC off is legitimate only
+for identity/metadata opcodes, never a data read.
+
+### The 70 s reset is a SYMPTOM, not a watchdog bug
+
+`/sbin/init` (a 17.8 KB ELF; `/etc/preinit` is only a recursion guard) does `WDIOC_GETSUPPORT`
+(`0x80285700`) on the watchdog fd, then hands that fd to **procd** through the `WDTFD` environment
+variable - `Watchdog handover: fd=%s`. **procd is the feeder**; its `uloop_run_timeout(0xffffffff)`
+runs forever BY DESIGN. So our kernel mounts, execs init (`0x1EB70F`), init hands over - and procd
+does not reach its event loop, nothing pings, the 30 s watchdog expires, and the vendor boots at ~70 s.
+
+**Therefore kernel-side petting is a DEBUGGING SHIM, not a fix.** It keeps the board alive while
+procd is stuck. Any claim that it "fixed the boot" is wrong. The 48 s vendor loop and the 70 s
+our-kernel reset are the SAME mechanism, differing only in which kernel is running.
+
+`/usr/bin/wdfeed.sh` opened `/dev/watchdog` alongside the vendor's own
+`watchdog -T 30 -t 8 /dev/watchdog` - one holder per device, so whichever lost the race may have been
+the one pinging. It has been REMOVED from `/etc/rc.local`.
+
+Full write-up: `opensource/docs/soc/init-procd-watchdog-chain.md` (submodule `e8911fb`).
+
+### Open, and honestly blocked on a tooling detail
+
+procd's pid-1 path (`FUN_00020728`) is a six-stage jump-table dispatch. The table address Ghidra
+reports (`0x1fd74`) is OUTSIDE procd's `.text` range (`0x3b08-0x10CEC`), so it is a relocated value,
+not a static table - the handlers were NOT recovered. Next attempt: disassemble the switch itself
+rather than reading a computed pointer.
+
 ### ★★★★★ 2026-10-30 FINAL: USERSPACE RUNS ON OUR KERNEL - THE WALL IS CLOSED
 
 #### ...and the reset that followed it was the WATCHDOG, not userspace
