@@ -1,5 +1,40 @@
 ## STATE AFTER THE 2026-10-30 SESSION - read this before touching the kernel
 
+### ★★★★★ 2026-10-30 FINAL: USERSPACE RUNS ON OUR KERNEL - THE WALL IS CLOSED
+
+**`C9C = 0x001EB70F`.** That crumb is written at exactly one place in `init/main.c`: the branch
+taken when `run_init_process(execute_command)` **returns 0**. Our kernel mounted the rootfs from
+`/dev/ubiblock0_0` and executed `/sbin/init` out of it.
+
+**The full chain, every stage carrying a fire receipt:**
+
+| stage | receipt |
+|---|---|
+| `ubi0` attaches | `C9C = 0x1EB500C8` bit `0x40` |
+| `ubiblock0_0` resolves | `C9C = 0x1EB500C8` bit `0x08` |
+| `mount_root` mounts the squashfs | `C9C = 0x1EB70B` (`prepare_namespace()` returned) |
+| the exec site is reached | `C9C = 0x1EB70C` |
+| **`/sbin/init` executes** | **`C9C = 0x1EB70F`** |
+
+**RE-VERIFIED with every bisect-disabled driver restored** - `LUOFU_WATCHDOG`, `LUOFU_GMAC`,
+`LUOFU_MDIO`, `ARM_SMCCC_SOC_ID`, `PL353_SMC`, `LEDS_GPIO` all `=y` in `.config` with 37
+`luofu_wdt`/`luofu_gmac` symbols in `vmlinux`, and `0x1EB70F` returns again. So this is not an
+artifact of the bisect configuration.
+
+**THE ROOT CAUSE OF THE WHOLE WALL WAS ONE FLAG:** `static bool luofu_read_ecc_off = true` in
+`luofu-fmc.c`. With the ECC engine DISABLED, every read de-interleaved the controller's 14-byte
+spare splice at offset 1040 and left the page's TRAILING WORD as the driver's `memset` zeros.
+`vtbl_check()` therefore read record 118's stored CRC as `0xF1160000` instead of `0xF116C36B` - ONE
+record of 118 - and rejected the whole volume table, so `ubi0` never attached, `ubiblock0_0` was
+never created, and `mount_root` had no root device. Fixed in submodule `7840918`.
+
+The fix was already written in the driver's own comments (quoting that exact error, and the
+vendor's `f1 16 c3 6b` DMA output at offset 2032) since 2026-10-26; it had never been switched on.
+
+**HONEST LIMIT:** userspace STARTS but the box still returns to the vendor by the 70 s check, so
+the system does not yet STAY up. Mount and exec are proven; a stable boot is not. That is the next
+wall, and it is a userspace question rather than a kernel one.
+
 ### ★★★★ 2026-10-30 LATE: ubi0 ATTACHES, ubiblock RESOLVES - AND THE BOX IS DARK
 
 **Beyond the wall, three facts and one open question.**
