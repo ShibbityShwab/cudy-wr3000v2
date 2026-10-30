@@ -103,7 +103,34 @@ Decoded: `ubi.mtd=rootfsb` DOES resolve, attach DOES start, and `scan_all` DOES 
 is `ubi_read_volume_table` returning **`-EINVAL`** (`0x36` = `0x30 | 6`, and `-EINVAL` is 22 whose low
 nibble is 6 - do NOT read this as `-ENXIO`). `-EINVAL` from that function is only reached when
 `ai->is_empty` is **false**, i.e. UBI DID find valid EC headers - so its PEB stride matches ours and it
-is reading our flash correctly - but `ubi_find_av(ai, 0x7fffefff)` found no layout volume.
+is reading our flash correctly.
+
+### ★★★ NARROWED TO THE VOLUME TABLE CONTENTS
+
+`[wvis]` (`C18 = 0xC0DE521B`) set BOTH visibility bits: UBI **read a valid VID header** AND **saw
+`vol_id = 0x7fffefff`**. `[wcount]` (`C9C = 0x1EB00002`, a self-identifying carrier primed each fire)
+proved the layout volume has **exactly 2 LEBs** - the permitted number - and that `ubi_find_av()` DOES
+return an AV. So "the layout volume was not found" is a MISLEADING message: it is found.
+
+That kills every remaining return path in `ubi_read_volume_table` except one:
+
+```c
+av = ubi_find_av(ai, UBI_LAYOUT_VOLUME_ID);   /* FOUND, leb_count == 2 */
+...
+ubi->vtbl = process_lvol(ubi, ai, av);        /* <- this returns -EINVAL */
+```
+
+`process_lvol()` calls **`vtbl_check()`**, which validates EVERY record `0..ubi->vtbl_slots-1` (128 of
+them, ~22 KB read from each of the two layout LEBs). **Every previous probe checked only record 0** -
+which is valid (CRC ok, `reserved_pebs != 0`, name present). A failure at ANY later record is invisible
+to those probes and returns `-EINVAL`.
+
+`vtbl_check`'s own classes: `1` bad CRC on a record, **`2` a `reserved_pebs == 0` record that is not
+byte-identical to `empty_vtbl_record`** (the erased-`0xFF`/trailing-garbage signature), `3..9` the field
+checks, `10+` the `reserved_pebs` accounting.
+
+**The instrument for this (`[wvtc]`) writes `C9C = 0x1EB1_0000 | (err << 8) | record_index`** from inside
+`vtbl_check`'s `bad:` label and from its bad-CRC return - so it names which record fails and why.
 
 ### ★ 2026-10-30 [wfix/wclk] THE REAL BLOCKER: A DTS SHAPE THAT DID NOT MATCH OUR DRIVER TOPOLOGY
 
