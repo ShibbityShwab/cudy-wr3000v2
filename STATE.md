@@ -41,6 +41,36 @@ between a reachability check and the fire's own. Nothing has been written by tho
 slice is `build/tmp/luofu-uImage-wbusy-slice`. **Do not record this as working until a fire shows the
 boot surviving past 70 s.**
 
+### ★★★★★ 2026-10-30 CONFIRMED: THE WATCHDOG FIX WORKS - AND IT REMOVED OUR SAFETY NET
+
+`[wbusy2]` ran properly (preflight `PRE_UP=52`, `slotB=[8c1ca7e5]` verified, slot A untouched
+`27051956`, cells primed) and then reported:
+
+```
+  NO RETURN within 1500s
+```
+
+**Twenty-five minutes with no fallback to the vendor.** Every previous boot of our kernel returned at
+70 s - exactly one 30 s watchdog timeout after it started. **That pattern is gone: the board no longer
+resets.** The fix is confirmed: DT node enabled with the vendor's values, the exclusive region request
+replaced by a plain `devm_ioremap`, and the pet timer armed before the registration that never returns.
+
+**BUT THE VENDOR FALLBACK WAS THE ONLY AUTOMATIC ESCAPE HATCH, AND IT IS NOW GONE.** A boot that
+reaches userspace without bringing the network up simply stays there; `luofu_home_tick` calls
+`emergency_restart()` after 620 s, u-boot reads the slot selector still pointing at B, and it boots
+the same image again - a loop that never answers and never falls back. **The box is stranded and needs
+a RESET hold** (TFTP door armed on `192.168.1.88:69`, `recovery.bin` md5 `421114c8`, slot A untouched).
+
+**NEXT PROBLEM, AND IT IS A BETTER ONE:** our kernel now survives, but userspace does not bring up the
+network. `mount_root` and `exec` are proven (`0x1EB70B`, `0x1EB70F`), so the remaining work is why
+`br-lan`/dropbear never come up under the vendor rootfs.
+
+**DESIGN FIX TO MAKE BEFORE ANY FURTHER BOOT EXPERIMENT:** the emergency-restart path must restore the
+slot selector to the vendor pair (`0x10`) before rebooting, so a failed boot returns to the vendor
+instead of looping. `0xC08` is the slot selector and must be treated with the same care the mach's own
+note demands - a deliberate write of `0x10` on the recovery path is a different thing from the
+accidental use as a scratch cell that corrupted it on every boot, but it needs care and a fire.
+
 **ALSO CAUGHT, AND IT MATTERS: a regex edit ate the `gic` node.** Replacing the watchdog node with a
 pattern that matched to the next `\t\t};` deleted `gic`, `scu` and `L2`; `dtc` refused the build and
 named the dangling `&gic` references. Restored from git and redone by exact line number. **A regex
