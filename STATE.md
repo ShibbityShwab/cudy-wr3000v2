@@ -1,5 +1,39 @@
 ## STATE AFTER THE 2026-10-30 SESSION - read this before touching the kernel
 
+### ★★★ 2026-10-30 [wecc/wpost2] THE UBI WALL IS DOWN - ubi0 ATTACHES AND ubiblock0_0 RESOLVES
+
+**Root cause, and it was ONE LINE:** `static bool luofu_read_ecc_off = true` in `luofu-fmc.c`.
+With the ECC engine DISABLED, every read de-interleaved the controller's 14-byte spare splice at
+offset 1040 and left the page's trailing word as the driver's `memset` zeros. `vtbl_check()` therefore
+read record 118's stored CRC as `0xF1160000` instead of `0xF116C36B`, returned `-EINVAL`, `ubi0` never
+attached, `ubiblock0_0` was never created, and `mount_root` had no root device.
+
+**The fix was already written in the driver and never switched on.** The comment above the read path
+quotes the identical error (`bad CRC at record 118: 0xf116c36b, not 0xf1160000`), records the vendor's
+DMA output as `f1 16 c3 6b at offset 2032`, and says the vendor never sees it because its reads run
+with ECC ON. The de-interleave branch's own note admits it accepts **117 of 118** records - the one it
+lost was the blocker. Setting `luofu_read_ecc_off = false` (leave the engine on, copy the page plainly)
+fixes it.
+
+**Receipts:**
+
+| measurement | value | meaning |
+|---|---|---|
+| `C9C` / `C8C` | `0xF116C36B` / `0xF116C36B` | record 118's CRC is CORRECT, from a 4-byte and a 256-byte read alike |
+| `C9C` (post-UBI probe) | `0x1EB500C8` | `0x80` ran + `0x40` `ubi_get_device_info(0) == 0` (**ubi0 ATTACHED**) + `0x08` `blk_lookup_devt("ubiblock0_0")` **RESOLVED** |
+| boot return | `t=70s` (was 310s) | the kernel is past UBI and dies somewhere later |
+
+**How it was found**, after every flash-level hypothesis had been excluded by its own fire: both copies
+of the volume table (PEB0 and PEB1) returned the *same* wrong value, so it was not media/ECC damage;
+and the same wrong value came back for 4-byte, 172-byte and 4096-byte reads, so it was not the copy
+loop. It was the page fetch.
+
+**REMAINING:** the kernel still falls back to the vendor before userspace (UNAME is the vendor's build
+string), and `C18 = 0xC0DE50E5` (the log-ring workqueue) with **no panic crumb** (`0xC0DE502E`), so the
+post-ubiblock failure is a **HANG**, most likely in the large sequential reads `mount_root` makes
+through ubiblock. Next instrument: a crumb BEFORE and AFTER an 8-32 KiB ECC-on read
+(`0x1EB6B0` before / `0x1EB6AF` after) - only the BEFORE crumb means that read hangs.
+
 ### ★★ 2026-10-30 [wnocorrupt] THE KILLER WAS OURS: AN UNRESERVED FIXED-ADDRESS LOG RING
 
 **This is the finding that unblocked the boot, and it should be read before anything else here.**
