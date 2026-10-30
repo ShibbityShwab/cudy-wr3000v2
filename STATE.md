@@ -2,11 +2,51 @@
 
 ### ★★★★★ 2026-10-30 FINAL: USERSPACE RUNS ON OUR KERNEL - THE WALL IS CLOSED
 
-**`C9C = 0x001EB70F`.** That crumb is written at exactly one place in `init/main.c`: the branch
-taken when `run_init_process(execute_command)` **returns 0**. Our kernel mounted the rootfs from
-`/dev/ubiblock0_0` and executed `/sbin/init` out of it.
+#### ...and the reset that followed it was the WATCHDOG, not userspace
 
-**The full chain, every stage carrying a fire receipt:**
+**THE BOARD RESET 45-70 s INTO EVERY BOOT OF OUR KERNEL, AND IT WAS NOT A USERSPACE FAULT.**
+The evidence that pinned it, in order:
+
+1. `run_init_process("/sbin/init")` returns 0 (`0x1EB70F`) - userspace genuinely starts.
+2. No panic crumb - init does not exit (an exiting init panics).
+3. `/www/BOOTS` (rc.local now APPENDS `$(date -u) $(uname -v)`, because both kernels run it and the
+   vendor boots LAST, so an overwriting probe can never report our kernel) holds **only vendor
+   lines** - init never reaches rc.local.
+4. **`init=/bin/sh` behaves IDENTICALLY** - a minimal init execs (`0x1EB70F` again) and the box still
+   resets at the same point. A trivial init cannot hang the way procd might, so the fault is BELOW
+   userspace. This control is what separated the two, and it is the single most useful measurement
+   of the whole stability investigation.
+5. The vendor's `timeout-sec` is **30**, our kernel starts ~21 s into a fire, and the vendor answers
+   at ~70 s - one timeout later, exactly.
+6. `WDT70 = 0xAA55A5A5` in every fire readout is the watchdog node's own `reset-val1`: **the timer is
+   armed and counting**.
+7. `C9C` still reads `0x1EB70F` at the end. `kernel_init` writes that at ~20 s, and a RUNNING pet
+   timer would overwrite it within 5 s. It is not overwritten, so **the pet timer never started.**
+
+**TWO INDEPENDENT DEFECTS STOPPED THE PET TIMER, both fixed (commit `6b5f596`):**
+
+- **The DT node was `status = "disabled"` and carried NONE of the offsets `luofu_wdt_probe`
+  requires.** No platform device was created, so the probe never ran. The node now carries the
+  vendor's own values (`hwver`, `reg`, `reset/stop/enable-val0/1`, `set/en/clr/int-status` offsets)
+  and `status = "okay"`, verified by decompiling the BUILT dtb with `dtc -I dtb -O dts`.
+- **A resource conflict.** `luofu-crg` claims `0x14880000` with `devm_ioremap_resource()` (exclusive),
+  so `luofu-wdt`'s identical request returned `-EBUSY` and aborted before arming the timer. It now
+  uses a plain `devm_ioremap()`, the normal way to share a register block another driver owns.
+- The pet timer is also armed BEFORE `devm_watchdog_register_device()`, which this driver's own note
+  records as never returning.
+
+**STATUS: BUILT AND COMMITTED, NOT YET CONFIRMED BY A FIRE.** Four attempts have aborted at
+preflight with `ABORT_unreachable_before_any_write` - the box cycles on its own schedule and drops
+between a reachability check and the fire's own. Nothing has been written by those attempts. The
+slice is `build/tmp/luofu-uImage-wbusy-slice`. **Do not record this as working until a fire shows the
+boot surviving past 70 s.**
+
+**ALSO CAUGHT, AND IT MATTERS: a regex edit ate the `gic` node.** Replacing the watchdog node with a
+pattern that matched to the next `\t\t};` deleted `gic`, `scu` and `L2`; `dtc` refused the build and
+named the dangling `&gic` references. Restored from git and redone by exact line number. **A regex
+over structured text is not an edit, and the compiler is the only authority on whether it was.**
+
+#### Receipts for the completed criterion
 
 | stage | receipt |
 |---|---|
@@ -34,6 +74,22 @@ vendor's `f1 16 c3 6b` DMA output at offset 2032) since 2026-10-26; it had never
 **HONEST LIMIT:** userspace STARTS but the box still returns to the vendor by the 70 s check, so
 the system does not yet STAY up. Mount and exec are proven; a stable boot is not. That is the next
 wall, and it is a userspace question rather than a kernel one.
+
+**HOW FAR INIT GETS, MEASURED (2026-10-30, `/www/BOOTS`):** `rc.local` was changed to APPEND
+`$(date -u) $(uname -v)` on every boot, because both kernels run it and the vendor boots LAST - an
+overwriting probe is worthless here. Two fires of our kernel produced **only vendor lines**
+(`#0 SMP Sat Nov 25 18:18:57 2023`), never a line with our build string. So:
+
+- `run_init_process("/sbin/init")` **returns 0** (`0x1EB70F`) - the exec itself SUCCEEDS
+- **no panic crumb** - init does not exit (that would panic)
+- **no `BOOTS` line** - init never reaches `rc.local`
+
+=> **the vendor's `/sbin/init` (procd) execs and then HANGS very early under our kernel.** The kernel
+side of the handoff is done; what is left is why procd blocks. Two candidate directions, and they are
+a choice rather than a measurement: (a) find what procd waits on and provide it, or (b) boot a
+minimal init we control (`init=/bin/sh`), which is decisive because `luofu-wdt`'s `pet_timer` pings
+unconditionally - if a trivially simple init keeps the box up instead of falling back at 70 s, the
+kernel is fine and procd is the whole problem.
 
 ### ★★★★ 2026-10-30 LATE: ubi0 ATTACHES, ubiblock RESOLVES - AND THE BOX IS DARK
 
