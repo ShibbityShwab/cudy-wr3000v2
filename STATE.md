@@ -73,6 +73,38 @@ which they now have, exhaustively. **The first probe that runs after UBI and ubi
 `ubi_open_volume(0, 0, UBI_READONLY)` for `ubi.block=0,0`. If ubi0 is not attached that call fails
 and NO block device appears - exactly the symptom - while every byte of flash checks out.
 
+### ★★ ANSWERED: ubi0 NEVER ATTACHED, and the attach fails INSIDE ubi_read_volume_table
+
+`[wpost]` (`C18 = 0xC0DE52A0`) proved ubi0 absent after `ubi_init`. The crumb ladder then walked
+UBI's own code - but only after TWO instrument defects were fixed:
+
+1. **`ubi_crumb()` wrote to `C70`, which reads `0x00001F40` after every boot** - the FMC's own
+   constant. Every crumb was invisible. It now writes `0xc0de9a00 | low byte` to **`C04`**, the
+   carrier `luofu_restart` folds into `C18`.
+2. The post-UBI probe had to be **disabled** for the ladder fires: it also writes `C04` at `7s`
+   and would overwrite the deepest crumb.
+
+Ladder, deepest crumb wins (`C04` -> `C18` = `0xC0DE52<byte>`):
+
+| crumb | stage |
+|---|---|
+| `0x01` | `ubi_init` entry |
+| `0x02` | `open_mtd_device` |
+| `0x04` | `ubi_attach_mtd_dev` |
+| `0x06` | `ubi_attach` |
+| `0x08` | `scan_peb` |
+| `0x09` | `scan_all` completed |
+| `0x0a` / `0x0b` / `0x0c` | volume table OK / wear-levelling OK / EBA OK (attach succeeded) |
+| `0x30|x` | `ubi_read_volume_table` FAILED, `x` = `(-err) & 0xf` |
+
+**Measured: `[wcrmb]` = `0xC0DE5208` and `[wstage]`/`[wscan]` = `0xC0DE5236`.**
+
+Decoded: `ubi.mtd=rootfsb` DOES resolve, attach DOES start, and `scan_all` DOES complete. The failure
+is `ubi_read_volume_table` returning **`-EINVAL`** (`0x36` = `0x30 | 6`, and `-EINVAL` is 22 whose low
+nibble is 6 - do NOT read this as `-ENXIO`). `-EINVAL` from that function is only reached when
+`ai->is_empty` is **false**, i.e. UBI DID find valid EC headers - so its PEB stride matches ours and it
+is reading our flash correctly - but `ubi_find_av(ai, 0x7fffefff)` found no layout volume.
+
 ### ★ 2026-10-30 [wfix/wclk] THE REAL BLOCKER: A DTS SHAPE THAT DID NOT MATCH OUR DRIVER TOPOLOGY
 
 **The flash was never being probed at all.** Not a broken read path, not the DMA, not row arithmetic.
