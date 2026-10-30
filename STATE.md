@@ -1,5 +1,39 @@
 ## STATE AFTER THE 2026-10-30 SESSION - read this before touching the kernel
 
+### ★★★★ 2026-10-30 LATE: ubi0 ATTACHES, ubiblock RESOLVES - AND THE BOX IS DARK
+
+**Beyond the wall, three facts and one open question.**
+
+1. **UBI attaches and `ubiblock0_0` resolves** (`C9C = 0x1EB500C8`). The root device exists.
+2. **The kernel does not panic.** The panic notifier was found unregistered - it sat BELOW
+   `if (!luofu_log_b) return -ENOMEM;` in `luofu_log_register()`, so the log-ring fix silently
+   disabled it and every boot since showed its absence. Moved above the guard; a re-fire still shows
+   **no `0xC0DE502E`**, so the boot **hangs**, it does not fault. `C18 = 0xC0DE50E5` (the log-ring
+   workqueue) is the last writer.
+3. **An 8 KiB ECC-on read returns** (`C9C = 0x1EFF00AF`, checksum `0x49`), so large sequential reads
+   are NOT the hang. That was the leading hypothesis and it is dead.
+
+**The question: where does it hang?** Three crumbs were placed in `init/main.c` - `0x1EB70A` at
+`kernel_init`, `0x1EB70B` after `prepare_namespace()`, `0x1EB70C` before `exec`.
+
+**AND THAT INSTRUMENT STRANDED THE BOX, WHICH IS ITSELF EVIDENCE.** The helper was declared
+`static void __init`, but `kernel_init()` calls `free_initmem()` and `mark_readonly()` *before* the
+third site - so `0x1EB70C` jumps into freed, read-only memory. **For the boot to reach that call at
+all, `prepare_namespace()`/`mount_root` must already have returned successfully** - so the rootfs muy
+likely MOUNTED, and the dark box is the instrument's own fault, not the kernel's. Fixed: the helper is
+no longer `__init`; the corrected image is built (`39d914c6`) and waiting.
+
+**BOX STATE: DARK / STRANDED.** No ssh for over 10 minutes, longer than any boot tonight. Slot A is
+untouched (`27051956`); the TFTP door is armed on `192.168.1.88:69` with `recovery.bin`
+(md5 `421114c8`). **A RESET-hold needs the person** - it is the one step that cannot be done in
+software. A background watcher is polling for the box to return on its own.
+
+**LESSON, THIRD TIME TONIGHT:** an instrument that cannot speak reads exactly like a negative result.
+`C70` was the FMC hardware's cell, `C9C` was overwritten by two `vtbl.c` writers, and now the panic
+notifier was unreachable behind an early return. **Before trusting an instrument's silence, prove it
+can speak.** And an `__init` helper called after `free_initmem()` is an instrument that kills its own
+experiment.
+
 ### ★★★ 2026-10-30 [wecc/wpost2] THE UBI WALL IS DOWN - ubi0 ATTACHES AND ubiblock0_0 RESOLVES
 
 **Root cause, and it was ONE LINE:** `static bool luofu_read_ecc_off = true` in `luofu-fmc.c`.
