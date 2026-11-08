@@ -5,12 +5,19 @@ Offensive-research notebook for a **Cudy WR3000 v2.0** router (HiSilicon Hi5671Y
 Hi5622V100 on PCIe; stock OpenWrt 22.03.6 / kernel 5.10.201, ~60 binary-only
 modules and a closed 928,920-byte Wi-Fi firmware blob).
 
+**Hardware identity note (2026-11-08):** the enclosure of the test unit may say WR3000 v1, but
+the PCB is the HiSilicon luofu v2-class design (Hi5671YV200 + Hi5622v100). The v1 is a MediaTek
+MT7981 board and cannot boot the v2 firmware. The v1 FCC filing and board photos do not apply.
+See [`HARDWARE-IDENTITY.md`](HARDWARE-IDENTITY.md) before using the label, FCC data or photos to
+identify the unit, and before any UART or firmware work.
+
 **The goal (set 2026-10-05):** our own, fully-current OpenWrt on this board -
 our kernel, our drivers, no vendor kernel.
 
 **Where the work lives:**
 
 - **`STATE.md` - the one page: the current wall, the next three experiments, the box state. Start here.**
+- **`HARDWARE-IDENTITY.md` - the unit identity (v1 label vs luofu v2 PCB), correct firmware, and measured UART/U-Boot limits.**
 - `AUDIT-2026-10-22.md` - the structural audit (score model, record, plan) and the restructure.
 - `START-HERE.md` - operational handoff (device, secrets, harness, hard rules).
 - `mem-entries.md` - the evidence ledger, phase by phase (history; last dated entry 2026-10-22).

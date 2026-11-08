@@ -7,6 +7,12 @@
 ## OVERVIEW
 Offensive-research notebook for a **Cudy WR3000 v2.0** router (HiSilicon "luofu", OpenWrt 22.03.6, kernel 5.10.201): web-UI RCE writeup, firmware unpacking/crypto tooling, and a live device experiment pipeline for snarfing a Wi-Fi chip out of the stock firmware. Not a buildable product - a tool + evidence repo. The published half lives in the `opensource/` submodule.
 
+**Unit identity (2026-11-08):** the enclosure may say WR3000 v1, but the PCB is the HiSilicon
+luofu v2-class design (Hi5671YV200 + Hi5622v100), not the MediaTek MT7981 v1. The v1 FCC filing
+and board photos do not apply. The UART console cannot stop U-Boot: keyed autoboot with no stop
+key in the default environment; the reset button is Linux userspace. Read
+`HARDWARE-IDENTITY.md` before UART or firmware work.
+
 ## STRUCTURE
 ```
 cudy-wr3000v2/
@@ -14,7 +20,7 @@ cudy-wr3000v2/
 ├── patched/      # de-crypted stock LuCI bytecode (LuaQ) - injection sinks, NOT source
 ├── opensource/   # git SUBMODULE -> cudy-wr3000v2-open-firmware (docs/lab/build, GH Actions)
 ├── wordlists/    # Git LFS pointers only (14 bytes each) - not real wordlists
-├── START-HERE.md PLAN-UART.md mem-entries.md gist-*.md   # handoff docs; read these first
+├── HARDWARE-IDENTITY.md START-HERE.md PLAN-UART.md mem-entries.md gist-*.md   # handoff docs; read these first
 ├── tmp_manifest.txt rpc_inj.json                          # generated artifact / raw payload
 └── {build,dumps,firmware,stock,rootfs-*,decomp,pages,pyenv,jtools,tftp,ulw}/  # IGNORED
 ```
@@ -22,6 +28,7 @@ cudy-wr3000v2/
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
+| Hardware identity / UART limits | `HARDWARE-IDENTITY.md` | v1 label vs luofu v2 PCB; TTL cannot stop U-Boot; reset is userspace |
 | Run a module experiment | `tools/exp.sh` | arms device watchdog first; prints `EXP RESULT: PASS\|FAIL` |
 | N hypotheses, one boot | `tools/batch.sh` | list format `<label>\|<params>`; report in evidence dir |
 | Survive agent death | `tools/run-exp-detached.sh` | older path; the `sr-carrier-detached.sh` wrapper is likely stale |
@@ -55,6 +62,8 @@ No LSP applies (shell + standalone python + Lua bytecode). Centrality by referen
 - Scratch variants keep a `…2/…3/…4` suffix; the highest number is the most developed.
 
 ## ANTI-PATTERNS (THIS PROJECT)
+- Never flash a WR3000 v1 (MediaTek MT7981) image to this unit: the label may say v1, but the PCB is the HiSilicon luofu v2-class design. Use the WR3000V2 images; see `HARDWARE-IDENTITY.md`.
+- Never assume the UART console can stop U-Boot: the loader is keyed autoboot with no stop key in the default environment; Enter and Ctrl+C fail, and the reset button is Linux userspace. See `HARDWARE-IDENTITY.md`.
 - Never write CA `0x400392f0`. Never read the RC misc window `0x10161000` (a read-only `devmem` there PANICKED the box). Measure through the endpoints' BAR0/BAR2 only. Never `rmmod` the vendor modules.
 - Never commit a real credential: no keys, passwords, or per-unit values in tracked text (they were scrubbed before the first commit).
 - Never run the device cycle in the foreground - a dead agent strands the router in takeover config with Wi-Fi down.

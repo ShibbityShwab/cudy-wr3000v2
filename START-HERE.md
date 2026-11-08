@@ -5,6 +5,7 @@ checkout, so `task.isolation.enabled` could never apply and DAG nodes / isolated
 From this repo they work.
 
     cd C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
+    # Linux workstation: /home/shibbityshwab/Documents/GitHub/cudy-wr3000v2
 
 ## Layout
 
@@ -16,6 +17,15 @@ From this repo they work.
 - `build/`, `dumps/`, `firmware/`, `stock/`, `rootfs-*/`, `decomp/`, `pyenv/`, `jtools/` - ignored:
   binaries and dumps
 - `.omo-secrets/` - ignored: `CREDENTIALS.txt`, the router SSH keys, scratch u-boot files
+
+## Hardware identity (2026-11-08)
+
+The label may say WR3000 v1, but the PCB is the HiSilicon luofu v2-class board (Hi5671YV200 +
+Hi5622v100), not the MediaTek MT7981 v1. The v1 FCC filing and photos do not apply, and the
+WR3000 v2 firmware is the correct one. The UART console cannot stop U-Boot on this build:
+`input <abort key>` is a keyed-autoboot prompt with no stop key in the default environment;
+Enter and Ctrl+C fail, and the reset button triggers Linux `PRESET RESET`, not U-Boot. See
+`HARDWARE-IDENTITY.md` for the evidence and the measured limits.
 
 ## Research state (2026-10-03) - read this before acting on anything older
 

@@ -1,5 +1,14 @@
 # WR3000 V2.0 — UART session plan (prepared 2026-09-30)
 
+> **STATUS 2026-11-08: the U-Boot prompt is not reachable by serial on this unit.** Measured: the
+> loader prints `input <abort key> to stop autoboot in  1s` (CONFIG_AUTOBOOT_KEYED), and neither
+> Enter nor Ctrl+C aborts it. The default environment has no `bootdelaykey`/`bootstopkey`, and
+> CONFIG_AUTOBOOT_KEYED_CTRLC is not enabled. Holding reset triggers Linux `PRESET RESET`, not
+> U-Boot, and Linux starts no getty on ttyS0. Step 4 below and the "Hit any key" assumption are
+> wrong for this build. The only TTL key would be a live-environment `bootstopkey`; the practical
+> ways in are root over LAN, a reflashed U-Boot, or a hardware NAND read. See
+> `HARDWARE-IDENTITY.md`.
+
 Everything here is verified against the extracted stock firmware (2.4.15). Nothing is flashed until dumps exist.
 
 ## What to buy
@@ -22,13 +31,17 @@ Everything here is verified against the extracted stock firmware (2.4.15). Nothi
   - `run squashfsupdate_eth` (rootfs.ro.img -> rootfsa + rootfsb)
   - `run fipupdate_eth`      (kernel.images -> kernela + kernelb)
   - `run ubootupdate_eth`, `run esbcupdate_eth`, `run rebootuboot`
-- Linux console login (stock): root / `admin` (factory password, cracked from the image hash).
+- Linux console login (stock): root / `admin` (factory password, cracked from the image hash). No getty runs on ttyS0 on this unit, so this login is not reachable over UART; see the status note.
 
 ## Session order (first contact)
+
+> Steps 4-6 require a U-Boot prompt. On this unit the prompt is not reachable by serial; see the
+> status note at the top. The remaining steps need root over LAN, a reflashed U-Boot, or a
+> hardware NAND read.
 1. PC: set Ethernet static 192.168.1.88/24 (netsh works from the agent shell, verified).
 2. Start the TFTP server (`tools/tftp_server.ts`) serving `tftp/`.
 3. Attach adapter -> open serial terminal at 115200 -> power-cycle the router.
-4. Press a key at "Hit any key to stop autoboot" -> u-boot prompt.
+4. ~~Press a key at "Hit any key to stop autoboot" -> u-boot prompt.~~ **Does not work on this unit**; see the status note.
 5. `printenv` — capture the LIVE env (differs from defaults? note net settings, bootargs).
 6. Read bdinfo (get the fleet secret), safest first options:
    - `nand read <addr> <bdinfo_off> <len>` + `md.b <addr> <len>` (print over console), or
@@ -40,6 +53,11 @@ Everything here is verified against the extracted stock firmware (2.4.15). Nothi
 10. Recovery: everything here is read-only until step 9's dumps exist; u-boot TFTP update commands are the recovery path.
 
 ## Verified security facts (why this is the only path)
+
+> **2026-11-08 correction:** the "no injectable web endpoint" conclusion below predates the
+> verified authenticated root command injection in the system time page on 2.4.15. See
+> `gist-cudy-wr3000v2-systime-rce.md`. The LAN RCE is a real path; the "only path" framing is
+> outdated.
 - No injectable web endpoint found in a systematic audited sweep (diag quoted; ping validated; servicectl logs only;
   uploads validated at upload; rpc auth walled; backup/MQTT keyed by the bdinfo `secret`; firmware imgs RSA-verified;
   cwmp exists but is disabled + ACS-HMAC-gated and its helpers still hit crypto/RSA walls).

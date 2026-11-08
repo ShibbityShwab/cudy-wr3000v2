@@ -3,7 +3,24 @@
 Ghidra 12.2 (2026-10-22) with **Temurin JDK 25**, installed 2026-10-30. This replaces the hand
 `objdump` + `miasm` lane for anything larger than a single function.
 
-## Install (already done on this workstation)
+## Linux workstation (2026-11-08)
+
+Ghidra 12.2 is installed at `/opt/ghidra_12.2_PUBLIC` with JDK 25 at
+`/usr/lib/jvm/java-25-openjdk`; `/usr/local/bin/ghidra` and `/usr/local/bin/ghidra-headless`
+wrap both. The Windows paths in the next section are historical.
+
+```bash
+ghidra-headless /tmp/ghproj <projname> \
+  -import path/to/file \
+  -postScript DumpFuncs.java /tmp/out.c [nameFilter] \
+  -scriptPath tools/ghidra -deleteProject
+```
+
+Validated on this machine against `hi_wdg.ko` (`hi_wdt_hw_set_timeout`, all three bfi paths).
+For a raw binary add `-processor ARM:LE:32:v7 -loader BinaryLoader -loader-baseAddr 0x80040000`.
+`FindAbort.java` is the reference-walking helper used for the U-Boot blob.
+
+## Windows install (historical, 2026-10-30)
 
 - JDK 25 is REQUIRED. **Ghidra 12.2 refuses JDK 21** and sits at an interactive
   `Enter path to JDK home directory` prompt — which looks exactly like a hung process.
