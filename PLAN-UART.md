@@ -2,12 +2,15 @@
 
 > **STATUS 2026-11-08: the U-Boot prompt is not reachable by serial on this unit.** Measured: the
 > loader prints `input <abort key> to stop autoboot in  1s` (CONFIG_AUTOBOOT_KEYED), and neither
-> Enter nor Ctrl+C aborts it. The default environment has no `bootdelaykey`/`bootstopkey`, and
-> CONFIG_AUTOBOOT_KEYED_CTRLC is not enabled. Holding reset triggers Linux `PRESET RESET`, not
-> U-Boot, and Linux starts no getty on ttyS0. Step 4 below and the "Hit any key" assumption are
-> wrong for this build. The only TTL key would be a live-environment `bootstopkey`; the practical
-> ways in are root over LAN, a reflashed U-Boot, or a hardware NAND read. See
-> `HARDWARE-IDENTITY.md`.
+> Enter nor Ctrl+C aborts it. The live environment was then set to `bootdelaykey=x` and
+> `bootstopkey=x`, and a continuous key flood through the window still did not abort: the loader
+> is not reading the console RX. Linux starts no console login because
+> `/lib/preinit/99_00_console` removes the `::askconsole:` line unless `bdinfo dbg` is OK; that
+> gate is the release marker plus a `/etc/rom_dbg` hash. Step 4 below and the "Hit any key"
+> assumption are wrong for this build. The Linux gate is satisfied and `askfirst` is waiting,
+> but the J10 pin 3 RX path still delivers nothing (adapter loopback passes, router rx counter
+> stays 0). The working console is SSH root over the LAN (Dropbear, key-only); the UART is
+> output-only until the pin 3 RX path is repaired. See `HARDWARE-IDENTITY.md`.
 
 Everything here is verified against the extracted stock firmware (2.4.15). Nothing is flashed until dumps exist.
 

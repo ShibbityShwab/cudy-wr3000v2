@@ -51,21 +51,44 @@ only works with `CONFIG_AUTOBOOT_KEYED_CTRLC`, which this build does not have.
 Measured:
 
 - Enter and sustained Ctrl+C before and during the 1 s window do not abort; the kernel boots.
+- The live environment was set to `bootdelay=3`, `bootdelaykey=x`, and `bootstopkey=x` through
+  root over the LAN. A capture then sent 522 `x` bytes continuously from before the banner through
+  the `input <abort key>` line, and a second capture sent 953 `x` bytes over a 48 s window. Both
+  times U-Boot printed `Reading 8650752 byte(s)` and booted Linux. U-Boot's stock
+  `passwd_abort()` matches the last N characters, so extra keys cannot break the match; the key
+  string is not the gate.
+- The U-Boot device tree's `uart1@0x1010f000` node has no `pinctrl-0`, and the pinctrl node has
+  no UART state; the loader does not mux the console RX pad. Linux's pinctrl does mux it, so this
+  is a second possible cause; the direct Linux test below shows the host-to-router TX line is not
+  driving the pad either. The loader also parses `bootdelay` as hex (`30` printed `48000`).
 - Holding reset during power prints `RESET button is pressed for:  0 second(s)` and boots. A
   30 second hold triggers Linux `PRESET RESET` (`all led quick`, `PRESET RESET`,
   `reboot: Restarting system`). The button is handled by gpio-keys/userspace, not U-Boot.
-- The Linux image starts no getty on `ttyS0`; after boot the console is output-only.
+- The stock console login is gated by `bdinfo dbg`: `/lib/preinit/99_00_console` deletes the
+  `::askconsole:` line unless it returns OK. On this unit `/etc/rom_release` (a 0-byte marker)
+  forces FAIL. Patching the overlay copy of `/usr/lib/libbdinfo.so` so `bdinfo_check_dbg` at
+  `0x2228` returns 0 makes `bdinfo dbg` print OK; the hook then keeps the line and procd starts
+  `/sbin/askfirst /usr/libexec/login.sh`. That process is now waiting on ttyS0.
+- The adapter TXD-to-RXD loopback passes (`LOOPBACK-TEST-12345` echoes), so the FT232 and its
+  wires are good. After the corrected wiring (RXD on pin 4, TXD on pin 3, GND on pin 2), pin 4
+  is confirmed as the router TX: markers written to `/dev/ttyS0` appear on the adapter. Pin 3
+  still delivers nothing: `/proc/tty/driver/serial` reports `rx:0` after 200 host bytes. The
+  fault is the router-side pin 3 path (header joint, trace, R33, or a damaged SoC RX pad), not
+  the key, the pinmux (register `0x1490010C` bit 7 is set), or the adapter.
 
-Conclusion: there is no general TTL key, break or timing trick. The only TTL key that could work
-is the exact live-environment `bootstopkey` if the factory environment contains one, and that is
-a vendor secret. Ways in are root over the LAN (the systime RCE) to read or set the environment,
-a rebuilt U-Boot with a known stop key or `CONFIG_AUTOBOOT_KEYED_CTRLC`, or a hardware NAND read.
+Conclusion: the UART is output-only on this unit. The Linux console gate is satisfied and
+`askfirst` is waiting, but it cannot be activated without RX; the U-Boot prompt is unreachable
+for the same reason. The working console is SSH root over the LAN: Dropbear is enabled with the
+project's ed25519 key at `.omo-secrets/router_ed25519`, `PasswordAuth=off`, and
+`ssh root@192.168.10.1` returns `uid=0(root)`. A repaired pin 3 RX path (jumper to the SoC side
+of R33) or a rebuilt U-Boot with a different console is required for serial input.
 
 Evidence (gitignored, recreate if absent):
 
 - `build/uart-logs/20261107T191003Z-poweron-uboot.log`
 - `build/uart-logs/20261107T191715Z-uboot-ctrlc.log`
 - `build/uart-logs/20261107T200727Z-button-test.log`
+- `dumps/router-20261108/uboot_capture6.log` and `uboot_capture7.log` (the live key-flood tests)
 
 ## Static analysis of the U-Boot image
 

@@ -18683,3 +18683,1114 @@ an answer. `C18` is the one cell proven to survive a primed write. Verify a cons
 **artifact** before spending a fire (`objdump | grep <literal>`), not by grepping the source for a
 symbol name - a `static __init` helper is inlined and its name never appears. And two measurements
 that disagree are a question about the instrument before the hardware.
+
+## 2026-11-08 - the U-Boot abort key is not the gate; the serial RX path is
+
+**Root, live env, and dumps.** The Cudy web UI accepts the setup password `admin1234` with the
+page's own hash: `sha256(password + salt)`, then `sha256(h1 + token)` when a token field is present.
+The authenticated systime page still executes the `date -s '%s'` injection as `uid=0(root)`. With
+root, the live U-Boot environment, `/proc/mtd`, both U-Boot slots, and `bdinfo` were dumped. The
+environment now carries `bootdelay=3`, `bootdelaykey=x`, and `bootstopkey=x`; the change was made
+through a `/tmp/fw_setenv` symlink to `/bin/fw_printenv`, and `fw_printenv` reads it back.
+
+**The keyed abort is measured dead.** Two captures on `/dev/ttyUSB0`:
+
+- `bootdelay=30` (which the loader printed as `bootdelay is 48000`): 953 `x` bytes over 40 s,
+  no abort, Linux booted.
+- `bootdelay=3`: 522 `x` bytes sent continuously from before the U-Boot banner through
+  `input <abort key> to stop autoboot in  1s`; the loader still printed
+  `Reading 8650752 byte(s)` and booted.
+
+U-Boot's stock `passwd_abort()` compares the **last N characters** of the input buffer against
+`bootdelaykey`/`bootstopkey` and does not require Enter, so extra keys cannot break the match.
+The key string is therefore ruled out. The U-Boot device tree has a `uart1@0x1010f000` node with
+no `pinctrl-0` property, and the pinctrl node has no UART state, so the loader does not mux the
+console RX pad; Linux's pinctrl does, which is why input echoes only after boot. **The U-Boot
+prompt is not reachable by serial on this unit, and writing `bootstopkey`/`bootdelaykey` cannot
+change that.** Side finding: the loader parses `bootdelay` as hex, so `bootdelay=30` became
+48,000 ms; use a hex value (for example `1e`) for a 30 s delay.
+
+**bdinfo decrypt fixed at the tool.** The live `mtd6` partition starts with a 4-byte header
+(`00 00 00 01`) before the DES-CBC ciphertext, and the key is OpenSSL's `DES_string_to_key`
+(MIT krb4), not the RFC 3961 variant the old helper implemented. The old helper decrypted from
+offset 0 with the wrong key and produced garbage on a real dump; it only passed its synthetic
+fixture. `tools/decrypt_bdinfo.py` now trims the `0xff` tail, tries offsets 0/4/8/12/16, scores
+for `board =` plus `BDINFO_END`, and parses the text up to the NUL terminator. Re-run against the
+live dump: offset 4, 56,834 bytes, fields include `board=WR3000`, `model=WR3000 V2.0`,
+`country/region=US`, `deviceid=cudydevice`, MAC, serial, uuid, hmac, fuuid, and the 32-character
+`secret`. The secret stays out of tracked text.
+
+**Local dumps (gitignored, not in the repo):** `dumps/router-20261108/{uboota,ubootb,bdinfo,enva}.bin`,
+md5 `e7396d3d4fa41b8bdd4cb5ac17ff226f`, `bad76c5789f8b416a256fa3b8b42faf6`,
+`7db261d343e017b6460f28c69927dc56`, `3a228158c7982ea8cc2c3412d39ed17a`. The `/www/luci-static/omo-*`
+copies are removed after the session so the bdinfo secret is not served on the LAN.
+
+**The Linux console gate, and the real blocker.** `/lib/preinit/99_00_console` deletes the
+`::askconsole:` line unless `bdinfo dbg` returns OK; `/etc/rom_release` (0 bytes) forces FAIL.
+`bdinfo_check_dbg` also accepts `/rom/etc/rom_develop`, or compares `/etc/rom_dbg` with a SHA256
+challenge (`<flash_uuid><hmac>@2025` per the 2.4.15 disassembly; the live hash was not
+reproduced). A patched overlay copy of `/usr/lib/libbdinfo.so` (`bdinfo_check_dbg` at `0x2228`:
+`mov r0,#0; bx lr`) makes `bdinfo dbg` print OK; the preinit hook then keeps the askconsole line
+and procd starts `/sbin/askfirst /usr/libexec/login.sh`, which is now waiting on ttyS0. The
+remaining blocker is physical: sending Enter returns a single `0xFD` noise byte instead of
+reaching the tty, so the FT232 TX line is not driving the router RX. That same dead path explains
+the U-Boot key flood. Fixing the TX/RX wiring should make Enter activate `ash --login` (root).
+
+## 2026-11-08 (later) - the UART RX path is dead; network root and full dump
+
+**The UART is output-only.** After the TX/RX swap and the corrected wiring (adapter RXD on J10
+pin 4, TXD on pin 3, GND on pin 2), pin 4 is confirmed as the router TX: writing
+`PIN4-MARKER-ABCDE` to `/dev/ttyS0` appears on the adapter. Pin 3 is not delivering input: with
+the adapter TXD on pin 3, `/proc/tty/driver/serial` still reports `rx:0` after 200 host bytes.
+An adapter TXD-to-RXD loopback echoes `LOOPBACK-TEST-12345`, so the FT232 and its wires are good.
+The fault is the router-side pin 3 path (header joint, trace, R33, or a damaged SoC RX pad), not
+the key, the pinmux (`0x1490010C` bit 7 is set), or the adapter. The Linux console gate is
+satisfied and `askfirst` is waiting, but it cannot be activated without RX. The U-Boot prompt is
+unreachable for the same reason.
+
+**Network root restored.** Dropbear was enabled from the web RCE with an ed25519 key at
+`.omo-secrets/router_ed25519` (gitignored), `authorized_keys` in `/etc/dropbear` and `/root/.ssh`,
+host keys regenerated, `PasswordAuth=off`, and the service started. `ssh root@192.168.10.1`
+returns `uid=0(root)`. This replaces the dead serial console for the project's device work. The
+`.sshwrap` wrapper is still absent from this checkout; direct SSH works.
+
+**Full flash dump recovered.** All 17 MTD partitions were streamed over SSH to
+`dumps/router-20261108/full/` (129 MB), with `MANIFEST.sha256` verified and every size matching
+`/proc/mtd`. Inventory: `kernela` is the vendor uImage dated 2023-11-25 (data 4,294,096 B);
+`kernelb` is the custom uImage dated 2026-11-03 (data 2,702,248 B), so the lab kernel survived in
+the B slot; `rootfsa`/`rootfsb` are UBI images (24,379,392 B each); `rootfs_data` is the JFFS2
+overlay; `fac`, `cfga`/`cfgb`, `log`, `pstore`, `upgrade` are captured as well. The dump restores
+the local asset that was lost with the old drive and gives the kernel port its running vendor
+kernel and rootfs.
+
+The vendor slots are authentic. `kernela` (uImage md5 `0264de73aaf6dcbc0f7f502ad3d0f7bf`) is
+byte-identical to the official 2.4.15 image kernel, and both rootfs UBI images reassemble to the
+official squashfs (md5 `6121f6b4fcefc6235f7e194f116f8220`, 14,862,432 B); the UBI image hashes
+differ only in EC/VID metadata. The custom kernelb uImage is md5
+`339c498cf6908350c3099be9d4ce3565`; no file of that size or 2026-11-03 14:51 mtime was found
+under `build/`, so this dump is now the canonical copy of the flashed custom kernel. Decompressing
+it gives `Linux version 5.10.201 (luofu-lane@local) (arm-linux-gnueabihf-gcc 15.2.0, GNU ld 2.46)
+#1 SMP 2026-11-03T21:51:20+07:00`, which matches the last commit `6ff9dd5` (2026-11-03
+21:51:21 +07). The raw Image is 8,094,448 B, md5 `9a2ca3e953e7cf38426893aaaef19432`; the zImage
+payload is md5 `9c2b86eb269ce802dfe1918a37900a43`; the appended DTB is 13,880 B, md5
+`6564d93ef8f1138feafce2c4249a54c4`. The local `build/` tree now contains only `build/uart-logs`,
+so the dump is the only surviving copy of that local lane build. Derived artifacts are in
+`dumps/router-20261108/kernelb/` with a manifest.
+
+## 2026-11-08 (later) - CVE-2026-71960 confirmed on the live Mosquitto broker
+
+**The forged JWT works.** The router runs Mosquitto on 1883 (plain, JWT auth) and 8883 (TLS,
+client certificate) with `allow_anonymous false` and `auth_plugin /usr/lib/auth_plugin_jwt.so`.
+The ACL uses usernames `cudydevice` and `admincudydevice` and the 12-digit device ID
+`000000000000`; the factory bdinfo `deviceid` is the placeholder `cudydevice`. A JWT forged from
+the bdinfo `secret` with `--deviceid 000000000000` (username
+`admincudydevice-000000000000`) got `CONNACK rc=0` and subscribed `router/#`; the broker log
+records `clients: hb-research connected`. This is the live-device confirmation of
+CVE-2026-71960.
+
+**The command half is not demonstrable on this single unit.** `/var/run/cmagent` contains only
+`000000000000`, and the device runs as the admin/controller (`/usr/sbin/cmagent ... -a`).
+`sync_command` skips the controller ID, so there is no satellite to command. A publish to
+`router/000000000000/000000000000/router/command` with `{"cmd":"id"}` was accepted by the broker
+but not executed. Flipping `cmagent.mqtt.admin=0` started the satellite agent (no `-a`), but it
+spent the window reinitializing Wi-Fi and did not process the command; the role was restored to
+`admin=1`, the cmagent is back with `-a`, and the router is healthy (2 wiphys, 6 interfaces,
+calibration SUCC, hostapd hashes unchanged). CVE-2026-71961 needs a real second mesh node (a
+satellite) or a deeper trace of the satellite-mode subscription before it can be claimed.
+
+## 2026-11-08 (later still) - CVE-2026-71961 proven; UBI read-path source regression
+
+**The paragraph above is superseded.** The command chain runs on this single unit. The topic
+contract is `<prefix>/<dst_did>/<src_did>/<seq>/<app>/<event>`, prefix `router`, handler
+`/usr/lib/lua/cmagent/<app>/<event>.lua`. `command.lua` decodes the JSON payload and calls
+`io.popen` on the `cmd` field only when `src_did` equals `000000000000`; it does not authenticate
+the payload and does not quote the command.
+
+The ACL correction: `auth_plugin_jwt.so` `acl_check` at `0x3310` returns
+`MOSQ_ERR_PLUGIN_DEFER` (17), so `/etc/mosquitto/aclfile.conf` is enforced. The users are exact:
+`cudydevice` reads `router/+/000000000000/+/+/+` and writes `router/000000000000/+/+/+/+`;
+`admincudydevice` reads `router/000000000000/+/+/+/+`, writes `router/+/000000000000/+/+/+`, and
+reads `$SYS/#`. The 12-digit `000000000000` is the controller sentinel in the topic, not the
+bdinfo deviceid; the factory `deviceid` is `cudydevice`. The earlier
+`admincudydevice-000000000000` attempt authenticated, but the exact ACL `user` did not match, so
+`router/#` was not a granted subscription.
+
+The live chain: a forged HS256 token with MQTT username and `username` grant `cudydevice` got
+CONNACK rc=0. Publishing `router/000000000000/000000000000/7/router/command` with
+`{"cmd":"id > /tmp/omo-71961-verify.txt","reply":1}\x00` executed as root. The trailing NUL is
+required by the C JSON sniff (`payload[payloadlen-2] == '}'`); bare JSON takes the AES-decrypt
+path and fails with `Expected value but found invalid token at character 1`. The admin's own
+`router/000000000000/+/+/+/+` subscription receives the message, and `command.lua` trusts
+`src_did=000000000000` and calls `io.popen` as root. The file read `uid=0(root) gid=0(root)`; the
+log showed `shell cmd id > /tmp/omo-71961-verify.txt`; the reply was
+`{"message":"success","data":"","code":0}` on `.../router/reply`. The subagent's `id-final` run
+and the parent's `id-verify` run both succeeded; no second node was used. Evidence:
+`dumps/router-20261108/mqtt-command-chain-report.md` and `evidence/`. The router stayed at 2
+wiphys, 6 interfaces, `admin=1`, cmagent `-a`, no `.omo-off`; the temp files were removed; no Wi-Fi
+command, role change, or reboot.
+
+The kernel UBI report (`dumps/router-20261108/ubi-readpath-report.md`) finds the ECC-off page-tail
+loss: `luofu-fmc.c:127` has `luofu_read_ecc_off = true`; `DMA_LEN = 1` bounds each transfer to
+2048 bytes including the 14-byte spare splice at offset 1040, so page offsets 2034..2047 come
+back zero. The 11-page volume table's record 118 CRC field (page 9 offset 2032..2035) reads
+`f1160000` instead of `f116c36b`; `vtbl_check()` rejects both layout copies and `process_lvol()`
+returns `-EINVAL`. The host simulation on `mtd13-rootfsa.bin` reproduces exactly one bad record,
+118; the `mtd13` and `mtd14` volume tables are byte-identical. The dumped `kernelb.vmlinux` is a
+raw Image (base `0xc0608000`); at `0xc092215c` it calls `luofu_fmc_ecc_type_get`, passes the saved
+type to `luofu_fmc_ecc_type_set` (no `mov r1, #0`), and does one `mmiocpy` with
+`spec.page_size` at `0xc092239c`. The flashed binary is the ECC-on plain-copy shape; the tracked
+source is the stale ECC-off copy. The one-line `luofu_read_ecc_off = false` fix plus the report's
+comment is applied in the submodule; it is not compiled here (no ARM cross-gcc, no
+`/opt/kbuild/linux-5.10.201`, no WSL). The next check is the live `rootfsb` (`ubi.mtd=rootfsb`)
+and the UART-free `C9C`/`C18`/pstore/MTD readback plan in the report.
+
+The writeup `gist-cudy-wr3000v2-mqtt-jwt.md` was corrected to the proven chain and the enforced
+ACL; `tools/forge_jwt.py` and `tools/mqtt_takeover.py` now use the exact ACL roles, the six-field
+topic, and the trailing-NUL payload. No secret or token is in tracked text.
+
+
+## 2026-11-08 - local Linux kernel lane rebuilt; the built read-page is the ECC-on shape
+
+The session crash lost the lane setup and the `/tmp` downloads, not any repo state. Rebuilt
+under `build/linux-kbuild/` on this Linux host (no WSL): vanilla 5.10.201, sha256
+`6afc06598fa8e3bc907cff75f995f372df51d40a284e260de78a3421b1f18218`, matching kernel.org's
+published checksum, plus Arm GNU 11.3.Rel1 `arm-none-linux-gnueabihf` (gcc 11.3.1 20220712).
+Injection follows the tracked `luofu-kernel-config.yml` `kernel` job: `kernel-tree.patch`
+(the ARCH_LUOFU Kconfig/Makefile/dts entries and the UBI `io.c` compat-5 hunk), the three
+patched head files, `mach-luofu`, `docs/soc/luofu-r116.dts`, and `lab/.../nand/luofu`.
+The source carries the one-line `luofu_read_ecc_off = false` fix and its corrected comment.
+
+Config: `multi_v7_defconfig` + `luofu.fragment` + `luofu-shrink.fragment`; 78/78 required
+symbols are `=y`, zero shrink-guard symbols leaked back. Build: `TEXT_OFFSET=0x608000 -j16`.
+
+| artifact | size | sha256 |
+| --- | --- | --- |
+| `zImage` | 3,663,480 B | `b3ad4b40211daa393e24181f2729e12163603bd89818cc32eae18a199114a3b7` |
+| `luofu-r116.dtb` | 13,516 B | `6247d30675345b001bea474b95287756523ac0390d1e90b0cc517c4e4e78a64d` |
+| `luofu-uImage` | 3,677,060 B | `d2d85e24d9dbc0e1bdddeae58d2ce8b4c48f144f2cc1c4e9cf781b93b0d538a0` |
+
+kernelb budget: uImage 3,677,060 B against the 8,650,752 B partition, 4,973,692 B margin.
+The uImage data is `zImage + DTB`, the same layout the flashed B-slot image uses (dcrc verified). `mkimage -l` confirms load = entry = `0x80608000`,
+name `Linux-5.10.201`, ARM Linux kernel, uncompressed.
+
+The shape check is in the linked `vmlinux`, not in the source: `luofu_fmc_read_page` calls
+`luofu_fmc_ecc_type_get`, keeps its return in r0, and passes that same r0 to
+`luofu_fmc_ecc_type_set` (no zeroing); the 1040/0x410 and 14 splice constants are absent; the
+single copy is `ldr r2,[r4,#36]` (`spec.page_size`), `ldr r1,[r4,#68]` (`dma_buf`), `bl memcpy`.
+This is the ECC-on plain-copy shape the dumped B-slot image already had. Evidence:
+`build/linux-kbuild/linux-5.10.201/out/{MANIFEST.txt,readpage-shape.txt,luofu-slice.txt}`.
+
+Live box at 20:05Z: vendor 5.10.201, `REL=2.4.15`, `bootflag=a`, `boot_reg=0x10`, ssh up,
+uptime 37,289 s. `mtd12` md5 `17d17704693e2cc21340e53e4c6b3dae`, byte-identical to the
+`dumps/router-20261108/full/` backup. Slot A untouched. `flash_eraseall`, `mtd` and
+`/bin/fw_printenv` are present; `fw_setenv` is absent but `/tmp/fw_setenv -> /bin/fw_printenv`
+answers as the env writer.
+
+Recovery door ARMED and verified: `tftp/recovery.bin` is
+`firmware/WR3000V2-R116-2.4.15-20251030-114751-sysupgrade.bin`, md5
+`421114c8ea999c925b7aa79cc548af81`, served on `192.168.1.88:69` (host alias on
+`enp195s0f3u1`). A real RRQ returned 512 bytes starting `hboot1tag`.
+
+The new uImage (md5 `320a93ad79c241b525e09826f4144faa`) is staged at
+`/tmp/luofu-uImage.bin` on the vendor system and its md5 matches the host copy. The slot-B
+fire is prepared but NOT run. It is the next action and needs the go-ahead: it reboots the
+router, and a successful boot leaves our kernel with no Wi-Fi driver until the vendor slot is
+restored. Procedure: `flash_eraseall /dev/mtd12`, `mtd write /tmp/luofu-uImage.bin kernelb`,
+read back md5, `fw_setenv bootflag b`, `echo 0x21 > /sys/devices/platform/sysenv/boot_reg`,
+reboot. Success signature is `boot_reg = 0x11` after the reboot; `0x10` is the hardware
+failover to vendor slot A. If the box goes dark, the armed door is the RESET-hold path.
+
+
+## 2026-11-08 - slot-B fires: the full slice is required, and the kernel now runs to its own breadcrumbs
+
+Five boots through the manual path (`flash_eraseall` + `mtd write` + `bootflag=b` +
+`boot_reg=0x21`), with the TFTP door armed. The result separates the bootloader path from
+the kernel path.
+
+| # | image | result |
+| --- | --- | --- |
+| 1 | gzip uImage-only, 3,677,060 B | failover at t=50 s, vendor uptime 34.7 (vendor start ~15 s); `C9C=0`, `C18=0` |
+| control | known-good full 8.65 MB partition (the dump) | failover at t=110 s, vendor uptime 43.6 (vendor start ~66 s); `C9C=0x015EB70F` = reached userspace |
+| 2 | XZ uImage-only, 2,666,100 B | failover at t=50 s, vendor start ~13 s |
+| 3 | XZ + restored watchdog DTB, uImage-only, 2,666,464 B | failover at t=50 s, vendor start ~13 s |
+| 4 | full slice: uImage 2,666,464 + base DTB 31,220 + overlays 4,592 + 4,920 = 2,707,196 B | failover at t=70 s, vendor start ~36 s; `C18=0xC0DE50E5`, `C1C=0xC0DE5E05`, `C9C=0x80C7E730` (GMAC-contested) |
+
+Readings:
+
+- The bare uImage is not a bootable kernelb image. Every uImage-only fire failed over in
+  13-15 s with `C9C` and `C18` both zero, i.e. the kernel never reached `stext`. The
+  uImage header and data CRCs were valid, and the image readback was byte-exact. The
+  known-good partition tail is not padding: at `2,702,312` (right after its uImage) it
+  starts a 31,220-byte base DTB, then two overlays of 4,592 and 4,920 bytes. The full
+  control slice included them and booted. The `bootfip` path needs the whole slice.
+- The full slice with our image gets the kernel running: `C18=0xC0DE50E5` and
+  `C1C=0xC0DE5E05` are this kernel's own breadcrumbs/tick. `C9C` is GMAC-owned and
+  therefore not a stage marker. The box still reset: vendor came back at ~36 s, versus
+  ~66 s for the known-good control. No new pstore record. The remaining failure is in
+  the kernel's early boot, not the bootloader.
+- XZ is required. The default gzip build produced a 3,663,480-byte zImage; the XZ build
+  is 2,652,520 bytes (uImage 2,666,100). The known-good zImage is XZ at 2,688,368. The
+  gzip size is not the only failure, but XZ matches the known-good image and is now in
+  `luofu.fragment`; a merge of `.config.base` + both fragments resolves
+  `CONFIG_KERNEL_XZ=y`.
+- The devicetree watchdog node was restored in `docs/soc/luofu-r116.dts` from the
+  known-good DTB: `hwver`, `reg`, timeout bounds, reset/stop/enable values and offsets,
+  `status = "okay"`. The rebuilt DTB is 13,880 bytes; its DTS differs from the known-good
+  only in property order. The earlier source had the node disabled and stripped.
+- The UART capture is still 0 bytes. `/dev/ttyUSB0` is open at 115200 and the `cat` process
+  is alive, so the adapter is not receiving the router's TX. The next diagnostic needs the
+  console; the boot cells alone cannot name the reset point.
+
+Box state after the fires: vendor slot A, `boot_reg=0x10`, `bootflag=a`, uptime 103 s,
+Wi-Fi SSIDs `Cudy-1C73` / `Cudy-1C73-5G` up, interfaces present. Slot A untouched. `mtd12`
+currently holds the experimental full slice (md5 `d050fb31f49b85899922b0e8926d48d0` for
+2,707,196 bytes); the pre-fire known-good partition is the dump. The TFTP door remains
+armed on `192.168.1.88:69`.
+
+
+## 2026-11-08 - C94 ladder: the kernel reaches the init hand-off and kernel_execve returns
+
+The userspace-handoff ladder in `init/main.c` was built into the XZ full slice and fired once
+from a fresh flash. Markers: `0x9B01` at `kernel_init_freeable` start, `0x9B02` before
+`prepare_namespace`, `0x9B03` after it, `0x9B04` at function end, `0x9B05` before the init
+attempts, `0x9B06/07/08` around `run_init_process` and `kernel_execve`.
+
+The box ran ~36 s and failed over to vendor A. `C94 = 0xC0DE9B08`: every marker through the
+return of `kernel_execve` ran. So:
+
+- all late initcalls completed (`0x9A01` before the ladder);
+- `prepare_namespace()` returned (`0x9B03`);
+- `kernel_init_freeable()` returned (`0x9B04`);
+- `run_init_process()` was entered (`0x9B06`), reached `kernel_execve` (`0x9B07`), and the
+  call returned (`0x9B08`).
+
+The hang/reset is after the last init attempt returns, not inside the exec. The likely failure
+is the init itself returning `-ENOENT` (the mounted root has no `/sbin/init` or its interpreter)
+or another exec error, followed by the panic path hanging until the watchdog. The next marker
+should record `0xC0DE9B00 | (ret & 0xff)` and, if needed, the `mount_root` result. The known-good
+control reached `C9C = 0x015EB70F` (`run_init_process` returned 0), so its init started; this
+difference is the rootfs/init, not the early kernel.
+
+Fresh-flash requirement confirmed: a second boot of the same slice without re-flashing failed
+fast. The failover writes four zero bytes at the first byte after the slice (offset 2,707,196);
+with that status present, `bootfip` rejects the image in ~9 s. Re-flashing the full slice restores
+the ~36 s kernel run. Every fire must re-flash.
+
+The console reader at `/dev/ttyUSB0` still receives only NUL bytes (57 in the last capture, no
+ASCII). Pin 4 is readable per the user, but the adapter is not seeing the console; the cell
+channel is the reliable one.
+
+Box after the fire: vendor slot A, `bootflag=a`, `boot_reg=0x10`, uptime 69 s, Wi-Fi
+`Cudy-1C73` / `Cudy-1C73-5G` up. `mtd12` holds the stage-2 slice (md5
+`f2286c7a46cf4a0c4ad4f045bfc18fa8`, 2,707,252 B). The pre-fire known-good partition remains
+the dump. The TFTP door is armed.
+
+
+## 2026-11-08 - CORRECTION and milestone: kernel_execve returns 0, userspace starts
+
+The `0x9B08` marker in the previous section only meant "the call returned"; it did not carry
+the return code. The next fire replaced it with `0xC0DE9B00 | (ret & 0xff)` and read
+`C94 = 0xC0DE9B00`, so the low byte is zero and `kernel_execve` returned 0. The init process
+started. Every marker before it ran: all late initcalls (`0x9A01`), `prepare_namespace`
+(`0x9B02/03`), `kernel_init_freeable` (`0x9B04`), `run_init_process` (`0x9B06/07`), and the
+exec returned successfully. The known-good control's `C9C = 0x015EB70F` says the same thing.
+
+The box still resets at ~36 s, with `C1C = 0xC0DE5E05` (the tick's 35.89 s mark). The remaining
+failure is in userspace, most likely the overlay/rootfs setup and the watchdog hand-off: the
+kernel's init hands the watchdog fd to procd, and procd has not reached the point where it pets
+it. The known-good control resets later (~66 s), so its userspace gets further. The next
+diagnostic is a kernel-side watchdog pet (the project's documented debugging shim) or a longer
+watchdog timeout, to keep the box alive long enough to inspect userspace and the network.
+
+The UART reader still receives only NUL bytes; pin 4 is readable per the user, but no console
+ASCII arrives. The cells remain the reliable channel. Fresh-flash-before-every-boot is still
+required (the failover writes four zero bytes after the slice).
+
+
+## 2026-11-08 - the watchdog wall is broken; the box now survives to ~98 s, and the wall moves to userspace
+
+A bounded pet timer was added to `mach-luofu/luofu.c`: every 5 s it writes the vendor's own
+clear sequence (`reset-val0` then `reset-val1` to the watchdog clr-offset `0x14880070`) and
+stops after 18 beats (90 s). This is a diagnostic shim, not a driver.
+
+Result: the box did not fail over at ~36 s. It stayed down through t=130 s and the vendor
+returned at t=140 s with uptime 41.6 s, i.e. the vendor boot began at about 98 s. The last pet
+was at ~85 s and the hardware timeout is ~15 s (the vendor's live `set-offset` decodes to 15 s,
+not 30 s), so the reset at ~98-100 s is exactly the expected post-pet expiry. **The 36 s reset
+was the hardware watchdog, and the pet breaks past it.**
+
+The cells after the failover: `C94 = 0xC0DE9B00` (the init started; unchanged), `C1C =
+0xC0DE5E05` (the FMC tick's last value is still the 35.89 s mark, so C1C is not a kernel-alive
+clock - the pet timer itself ran to 90 s). The box was alive for ~60 s longer than before the
+shim, and during that time **no SSH, no Ethernet, and no userspace service appeared**. The
+next wall is therefore userspace: the init process starts, but the rootfs/overlay/network
+hand-off does not reach a point where the box is reachable. The persistent overlay remains the
+known failure (`rootfs_data` block 0 reads `ff`, `volume_identify` returns `FS_NONE`, tmpfs
+fallback), and G4 Ethernet is still one defect from green.
+
+The pet is bounded so a broken userspace cannot strand the bench on our kernel; the vendor
+returned on its own. The source change is in `opensource/lab/luofu-kernel/mach-luofu/luofu.c`
+(and the build-tree copy). The next experiment should either lengthen the pet and try to reach
+a userspace/network marker, or attack the overlay `volume_identify` path. The UART reader still
+receives only NULs.
+
+Box: vendor slot A, `bootflag=a`, `boot_reg=0x10`, uptime 70 s, Wi-Fi up. `mtd12` holds the
+pet slice (md5 `4d320c5af5b9f756e80dc74f976abf84`). The pre-fire known-good partition remains
+the dump. The TFTP door is armed.
+
+
+## 2026-11-08 - RECOVERY: the RESET-hold TFTP door restored the box
+
+The writable-MTD fire stranded the box: no return in 200 s. The RESET hold in the hung kernel
+did nothing (the button is Linux userspace). The power-on hold with the cable on the WAN port
+triggered the bootloader door. The first attempt failed because the host had lost the
+`192.168.1.88` alias and UFW was dropping inbound UDP; after restoring the alias on
+`enp195s0f3u1` and allowing `69/udp`, the U-Boot fetched `recovery.bin` and the server logged
+`RRQ sent 20975775 bytes`. The box is back: `192.168.10.1` answers HTTP 200 with the vendor
+2.4.15 web UI. SSH is refused, so dropbear is not up (factory-reset or stopped); use the web
+UI to set the root password and start dropbear, then set `bootflag=a` and `boot_reg=0x10` to
+leave slot A.
+
+The lesson is recorded in STATUS: do not bind the FMC `_write`/`_erase` hooks or set
+`MTD_WRITEABLE` until a single-page kernel-side write test on `upgrade` logs a cell result.
+The write path is not proven in this build.
+
+
+## 2026-11-08 - recovery complete: root SSH restored, slot A, and the write path reverted
+
+The first-run wizard was completed with the previously accepted lab admin password using the
+live salt and the single `sha256(password + salt)` hash. The resulting `sysauth` session
+reached `admin/system/systime`, and the command channel ran as root (`uid=0(root)`). The
+recovery image left **0-byte dropbear host keys**, so the init script could not start the
+daemon. `dropbearkey` generated ed25519 and RSA host keys; a manual
+`dropbear -p 22 -r ...` is listening and an `/etc/rc.local` line starts it on the next vendor
+boot. Root SSH with `.omo-secrets/router_ed25519` works; the root password is in
+`.omo-secrets/ssh-password.txt` (lab value). `bootflag=a`, `boot_reg=0x10`, vendor 2.4.15,
+Wi-Fi up. The `/www` recovery markers were removed.
+
+The FMC write/erase registration was reverted to the read-only shape after the writable-MTD
+fire stranded the box. The write path stays unproven until a single-page kernel-side write on
+the `upgrade` partition logs a cell result. The source tree is safe to build again; the pet
+timer, XZ fragment and watchdog DTS changes remain.
+
+
+## 2026-11-08 - WRITE PATH PROVEN: the post-kick wait_ready was the wall
+
+The single-page test on `upgrade` page 163, with `luofu_fmc_wait_ready()` removed after the
+program kick, landed cleanly. The vendor reads:
+
+    4c 55 46 55 a5 a5 ...   (LUFU + the 0xa5 pattern, md5 8655531bbd27f50ddad305346e3a0dde)
+
+Cells: `C98 = 0xC0DEA00C` (bit 2 non-ff, bit 3 match, wret/rret zero) and `C88 = 0x04327400`
+(high nibble 0, the self-test read clean). The test kernel then restarted through
+`luofu_restart` with `C18 = 0xC0DE52A1` (the UBI diagnostic: layout volume found, the fault is
+inside UBI's scan) and `C1C = 0xC0DE5000`; the box returned on vendor A, `bootflag=a`,
+`boot_reg=0x10`, SSH root.
+
+The write path is no longer the wall. The MTD registration remains read-only and the next
+experiment is the UBI/overlay scan: `rootfs_data`, `rootfsb`, and `volume_identify`. The
+`upgrade` page 163 keeps the LUFU/0xa5 test pattern.
+
+
+## 2026-11-08 - OVERLAY WALL BROKEN: mtd15 is a mounted jffs2 overlay; boot-time note
+
+The writable-MTD boot did return, later than the 240 s poll. The box is up on vendor A
+(`bootflag=a`, `boot_reg=0x10`, uptime 605 s) with the persistent overlay mounted:
+
+    /dev/mtdblock15 on /overlay type jffs2 (rw,noatime)
+    overlayfs:/overlay on / type overlay (rw,noatime,lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work)
+    22.0M total, 1.3M used, 20.7M available; /overlay/upper present
+
+The writable MTD formatted `rootfs_data`; the vendor mounted the new jffs2. The raw first
+four bytes of mtd15 read `ff ff ff ff` because the jffs2 nodes are not at offset 0; the mount
+is the ground truth. The page-163 `LUFU`/a5 test pattern is still on mtd16. Cells:
+`C18=0xC0DE52A1` (UBI diag), `C1C=0xC0DE5000`, `C98=0xC0DEA00C` (write test),
+`C88=0x04327400`. The test kernel restarted via `luofu_restart` before userspace; the vendor
+mounted the formatted overlay. The next wall is our own kernel's userspace/overlay mount, not
+the write path or the format.
+
+Boot-time note for future fires: vendor ~30-40 s; full-slice pet ~98-140 s; page-163 test
+>200 s; writable-MTD/overlay >240 s and still up later. Wait at least 10 minutes for the
+writable-MTD/overlay boots before calling them dead.
+
+## 2026-11-08 (late) - OVERLAY FIRE 1: slice re-flashed onto a formatted rootfs_data
+
+After the vendor came up with the jffs2 `rootfs_data` mounted, the same
+`build/linux-kbuild/luofu-slice-wmt.bin` (md5 `c03989412c4e8e1e0495975772c8b6c8`) was re-flashed to
+mtd12: eraseall / write / verify all OK, md5 match on the device. `bootflag=b`, `boot_reg=0x21`.
+Boot started ~23:5x UTC; watcher window 900 s (the previous writable-MTD/overlay boot exceeded 240 s
+and the box was still up later; per the user, wait at least 600 s before calling it dead).
+
+What this fire decides: with `rootfs_data` now a persistent jffs2 overlay (vendor mounts it as
+/dev/mtdblock15 on /overlay with overlayfs on /), our kernel should be able to mount the same
+filesystem and reach userspace. If it does, `uname` is the custom kernel and /overlay is mounted.
+If it resets again, C18/C1C say where, and the write path is not the suspect.
+
+## 2026-11-08 (late) - OVERLAY FIRE 1 RESULT: +481 s, vendor A again, died in prepare_namespace
+
+The writable-MTD slice re-flashed onto the formatted rootfs_data answered at **+481 s** (the user's
+rule holds: wait at least 600 s). The box is vendor A: `uname` `#0 SMP Sat Nov 25 2023`,
+`bootflag=a`, `boot_reg=0x10`, uptime 39 s at the check. The vendor overlay is mounted normally
+(`/dev/mtdblock15` jffs2 on /overlay, overlayfs on /), which is the vendor's own state, not a win
+for our kernel.
+
+Cells after the failover: `C94=0xC0DE9B02`, `C18=0xC0DE52A1`, `C1C=0xC0DE5000`,
+`C98=0xC0DEA00C`, `C88=0x04327400`. In the scratch ladder 0x9B02 is stamped immediately before
+`prepare_namespace()` and 0x9B03 after it returns, so the boot died inside prepare_namespace, before
+userspace. `C18=0x52A1` is the restart path carrying the UBI diag's `0xA1` (layout volume found).
+Caveat: the cells were not sentinel-attributed this fire; the next fire primes C18/C94 with
+0xFEEDFACE first.
+
+Timing: our kernel ran about 440 s before the vendor came up. The pet shim's 90 s bound plus a 30 s
+watchdog would have reset at ~120 s, so this boot hung for minutes before the restart. That is why
+the 240 s poll was wrong and why 600 s is now the minimum.
+
+Next variable: the kernel-side write test (`late_initcall(luofu_write_test_init)`) runs after the
+initcalls and immediately before prepare_namespace, erases and programs a block, and returns from
+the write without the post-kick wait_ready. The builds that reached userspace predate it. It is
+disabled in the build tree for the next fire; everything else (ECC-on read, writable MTD, pet
+timer, XZ) stays identical.
+
+## 2026-11-08 (late) - NO-TEST FIRE RESULT: the head.S site reader was the early-death cause
+
+Sentinel-attributed: C94 stayed 0xFEEDFACE, C18=0xC0DE0017, C1C=0x18C5387D, the box came back on
+vendor A at +90 s. 0xC0DE0017 is arch/arm/kernel/head.S's __turn_mmu_on breadcrumb, and C1C is the
+control r0 it captured. The kernel entry ran through stext and the page tables and died before the
+MMU turned on. C20/C24/C28 read 1 (those offsets are not writable), so they carry nothing.
+
+Cause: the "minimal site reader" in __turn_mmu_on reads a hardcoded descriptor at 0x80608244,
+calibrated for the 6d904f5 image. Removing the write test shrank the image by 1,592 bytes and shifted
+that address, so the reader treated code as a descriptor and faulted before the mcr. The uImage
+payload/trailer shift is NOT the blocker: the kernel entry itself ran. The reader is removed in the
+build tree; the 0xC0DE0017 breadcrumb and its captured r0 stay.
+
+Timing: +90 s to the vendor when the kernel dies before the pet timer (30 s watchdog plus vendor
+boot). Any boot that can reach the initcalls still needs the 600 s window.
+
+## 2026-11-09 - SITE-READER FIRE RESULT: KERNEL REACHES USERSPACE (C94=0xC0DE9B00)
+
+The site-reader-free slice booted. Sentinel-attributed cells on the vendor A failover:
+`C94=0xC0DE9B00` (the exec ladder's 0x9B00|ret: kernel_execve returned 0, so /sbin/init was
+executed), `C18=0xC0DE50E5` (the FMC log-ring workqueue, the last writer), `C1C=0xC0DE5E05`, and no
+panic crumb. The box returned at **+181 s**, which is the 90 s pet window plus the 30 s watchdog plus
+the vendor boot: the kernel hung in userspace, it did not fault. `/www/BOOTS` is empty, so rc.local
+never ran under our kernel.
+
+The next wall is the vendor userspace: `/sbin/init` (procd) is executed but hangs very early, before
+rc.local and before the overlay is mounted. The overlay shown by the vendor is the vendor's own. The
+write-test cells (C98/C88) and page 163 are stale from the earlier wmt fire and are not this boot's
+evidence.
+
+Timing: +181 s for a userspace hang (pet 90 s + watchdog + vendor); an early kernel death is +90 s;
+a full run that can reach the initcalls still needs the 600 s window.
+
+## 2026-11-09 - INITRAMFS PROOF: /init ran; the jffs2 mount hung ~430 s in the FMC read path
+
+The initramfs slice (md5 c53591345931885f56a48125d57ba11e) booted with the embedded cpio
+(`GEN/GZIP/AS usr/initramfs_data.*`, 358 KB static /init). C94=0xC0DE9B00 says an init exec returned
+0; C18=0xC0DE52A1 is the restart path with the UBI diag's 0xA1; the box came back on vendor A at
++474 s. The raw mtd16 page at 0x60000 still reads "LUFU32", a stale earlier marker, not the init's
+"LUFU-US ..." string, so the init never reached raw_proof(). The read-only jffs2 mount of mtdblock15
+did not return: the kernel spent about 430 s in the FMC read path and then the restart path ran
+(PID 1 killed by the mount's failure/oops). The rootfsb UBI-scan fires showed the same ~430 s
+signature. The vendor's own jffs2 scan of the same partition takes 9 s.
+
+So the wall is the FMC large-read path, not procd and not the initramfs. The single-page reads and
+the first four PEBs work; a whole-partition scan does not.
+
+Next: reuse C98/C88 (free while the write test is disabled) to record the last row and read count of
+luofu_fmc_read_page every 16 reads. The last values before the restart localize the stall.
+
+## 2026-11-09 - READ-PROBE RESULT: last read is in rootfsb; init path still ambiguous
+
+The instrumented read probe answered at +475 s. `C98=0x9C008845` (row 0x8845) and
+`C88=0x9C001E61` (sequence 0x1E61 = 7,777 reads) survived the restart. Row 0x8845 x 2048 =
+0x4422800, which is inside **rootfsb** (0x3540000..0x4c80000), not rootfs_data (0x4c80000..).
+`C18=0xC0DE52A1` is the restart path, `C94=0xC0DE9B00`, and the raw mtd16 page is still the stale
+"LUFU32". So the last FMC reads before the restart were a large sequential read of rootfsb; no mtd15
+read is recorded, and the init's raw proof never ran.
+
+Two readings remain: (a) the initramfs /init never ran and the kernel fell back to rootfsb/procd, or
+(b) /init ran but blocked in the mtdblock15 mount before the first FMC read. The generated cpio's
+first entry is `init` with no root `.` entry; a host `find . | cpio` archive with `.` is now used.
+
+Next probe: /init writes "LUFU-US START pre-mount" to mtd16 page 192 before touching the overlay,
+then "LUFU-US POST mount=<r> errno=<e>" to page 193 after the read-only mount. START proves /init
+runs; POST carries the mount result; neither means the init path or the raw write is the blocker.
+
+## 2026-11-09 - INIT-RUN PROBE: neither START nor POST; /init usage still unproven
+
+The host-cpio initramfs boot returned at +470 s with the same signature: C98=0x9C008845,
+C88=0x9C001E61, C18=0xC0DE52A1, C94=0xC0DE9B00. mtd16 page 192 still reads the stale "LUFU32" and
+page 193 is erased FF, so neither the pre-mount START nor the POST page was written. mtdchar is in
+the vmlinux, so the proof channel exists in the kernel. Either /init did not run (rootfsb/procd
+fallback) or its raw write failed before the mount.
+
+Decisive next test: /init writes a START marker and immediately calls reboot(RB_AUTOBOOT). If /init
+runs, the U-Boot failover returns the vendor in about a minute; if it does not, the 470 s procd hang
+repeats. The marker also proves the userspace mtdchar erase/write path independently.
+
+## 2026-11-09 - INIT-REBOOT TEST: no fast return; 470 s fallback repeats
+
+The init-reboot slice returned at +483 s with the same signature: C18=0xC0DE52A1, C94=0xC0DE9B00,
+C98=0x9C008845, C88=0x9C001E61, mtd16 page 192 still "LUFU32". /init did not run (or could not
+reboot). The embedded initramfs is NOT empty: populate_rootfs loads the size from c06e6088, and that
+word is 213,006, with the gzip magic at __initramfs_start. The kernel would panic on a bad archive,
+so the unpack path returns success. Therefore the fallback is the `init_eaccess("/init")` check at
+init/main.c:1546 failing, not a missing/unpacked archive.
+
+The pstore entries are the vendor's old jffs2/ECC logs, not our kernel's.
+
+Next: instrument the check itself. On failure write C04=0xC0DE9B06, on success 0xC0DE9B07; the mach
+restart folds C04's low byte into C18, so C18=0xC0DE5206/5207 names which branch ran. The current
+/init (reboot test) is kept: if the check passes, the box should also return fast.
+
+## 2026-11-09 - INIT-VISIBILITY RESULT: C18=0xC0DE5245, the wrong fold prefix
+
+The branch-instrumented boot returned at +482 s with C18=0xC0DE5245, the restart path's base stamp.
+The restart folds C04 only when (probe & 0xFFFFFF00) == 0xC0DE9A00 (luofu.c:212). The branch wrote
+0xC0DE9B06/0x9B07, which replaced the diag's 0xC0DE9AA1 and was then ignored by the fold, so the
+branch result was lost. C94=0xC0DE9B00, C98/C88 unchanged, page 192 still LUFU32.
+
+Retest with 0xC0DE9A06 (init_eaccess failed) and 0xC0DE9A07 (passed): the restart then stamps
+C18=0xC0DE5206 or 0xC0DE5207. The reboot-test /init is unchanged, so a pass should also return the
+vendor quickly.
+
+## 2026-11-09 - INIT-BRANCH RESULT: C18=0xC0DE5207 - the /init CHECK PASSES
+
+The fold-correct boot stamped C18=0xC0DE5207, i.e. init/main.c:1546 found /init accessible and did
+NOT call prepare_namespace. C94=0xC0DE9B00, C98/C88 are the rootfsb UBI-attach reads (C18's earlier
+0x52A1 path) still present, and page 192 is still LUFU32 (the init's mtdchar write never ran).
+
+So the embedded initramfs is unpacked and /init exists and is executable. What is unproven is the
+exec itself and the init's first actions: the init's /dev proof channel did not fire, so the raw
+page and reboot cannot distinguish "exec failed and the kernel panicked" from "init ran but its
+/dev was unavailable".
+
+Next: an exec proof with no /dev and no libc/VFP dependence. A tiny ARM assembly /init issues
+reboot(LINUX_REBOOT_CMD_RESTART2, "LUFU-INIT-RAN"); luofu_restart sees the cmd string and writes
+C18=0xC0DE5A10 after its fold block. C18=0x5A10 means the init ran; C18=0x5207 means the exec never
+reached userspace and the kernel panicked.
+
+## 2026-11-09 - EXEC PROOF RESULT: C18=0xC0DE4B00 - the /init EXEC LANDS
+
+The assembly-init boot returned at +561 s with C18=0xC0DE4B00 (the FMC log tick's crumb) and no
+0x52xx restart stamp. If the exec had failed, the kernel would have panicked in PID 1 and the mach
+restart would have stamped 0x5207. It did not: the initramfs /init was executed and ran, and its
+RESTART2 syscall is what failed/stuck (the glibc init's one-argument reboot did reach the mach and
+stamped 0x5207 in the previous boot). The userspace-exec question is settled: our kernel runs our
+own initramfs init.
+
+Remaining walls: the rootfsb UBI attach scan is pathologically slow (~430 s at 7,777 reads), the
+init's /dev/mtd16 proof channel did not fire, and the overlay mount result is still unknown.
+
+Next: use the proven reboot channel for the mount result. The glibc init mounts /dev/mtdblock15
+jffs2 read-only (mknod fallback major 31 minor 15 if devtmpfs did not create it), then calls
+reboot(RESTART2, "LUFU0") on success or "LUFU1" on failure. The mach stamps C18=0xC0DE5A00/0x5A01.
+
+## 2026-11-09 - MOUNT MARKER RESULT: C18=0xC0DE5207, no LUFU marker - the mount restarts the box
+
+The mount-marker boot returned at +483 s with C18=0xC0DE5207 and no 0x5A00/0x5A01. The 0x5207 is the
+fold of C04=0x9A07, so the machine_restart came from the panic path (cmd=NULL), not from the init's
+RESTART2 call. C98/C88 still hold the rootfsb UBI-attach rows (0x9C008845/0x9C001E61), so no mtd15
+read reached the instrumented FMC read function: the init's mount of /dev/mtdblock15 crashed before
+the first overlay read, in the mtdblock open or the jffs2 mount entry.
+
+pstore holds only the vendor's Nov 3 logs; our panic was not captured there.
+
+Next: read mtd15 page 0 through the mtdchar (mknod c 90 15) from the init, then report via
+reboot(RESTART2,"LUFU0"/"LUFU1"). This separates the FMC read path on rootfs_data from the
+mtdblock/jffs2 mount entry. If the read panics, the FMC read is the crash; if it returns, the crash
+is in the mount path.
+
+## 2026-11-09 - MTDCHAR READ PROBE: C18=0xC0DE5207, no marker, no mtd15 FMC row
+
+The mtd15 mtdchar read probe returned at +483 s with C18=0xC0DE5207 and no LUFU0/1. C98/C88 are
+still the rootfsb UBI-attach rows, so the read never reached the instrumented FMC read function.
+The 0x5207 means the restart again came from the panic path with cmd=NULL; either the glibc init
+does not survive its own startup (the kernel panics after exec), or the mtd15 mtdchar open/read
+panics before the FMC driver.
+
+The assembly init proved the initramfs /init exec works (C18=0x4B00, no panic), and the glibc init's
+one-argument reboot reached the mach once, but the glibc binary's startup status is now ambiguous.
+
+Next: a no-libc init compiled -nostdlib with inline ``svc`` syscalls. It mkdirs /dev, mounts
+devtmpfs, mknods /dev/mtd15 as c 90 15, reads page 0, then calls reboot(RESTART2,"LUFU0"/"LUFU1").
+This removes glibc and the ELF startup from the equation while keeping the compiler's syscall ABI.
+
+## 2026-11-09 - RAW INIT RESULT: mtdchar read WORKS; C98 row 0x9900, sequence +1
+
+The raw-syscall init (no libc) returned at +561 s. C18=0xC0DE4B00 (the FMC tick; the init ran, no
+panic, and its RESTART2 marker failed), C98=0x9C009900 and C88=0x9C001E62. Row 0x9900 x 2048 =
+0x4c80000, the START of rootfs_data (mtd15), and the sequence is exactly one above the rootfsb
+UBI-attach count (0x1E61 -> 0x1E62). So the mtdchar read of mtd15 page 0 reached the FMC read
+function and completed: the raw overlay read path works.
+
+The reboot(RESTART2) marker fails in both the assembly and raw-C inits (the cmd never reaches the
+mach); the FMC C98/C88 row is the reliable channel instead.
+
+The glibc init's mtdblock mount panicked before any FMC read, so the remaining suspect is the
+mtdblock layer. Next: the raw init mknods /dev/mtdblock15 (b 31 15), opens it, reads 2048 bytes at
+offset 0, and loops. If C98 becomes 0x9C009900 with the sequence +1, the mtdblock read reached the
+FMC; if it stays at the UBI-attach rows, the block layer or mtdblock open crashes before the FMC.
+
+## 2026-11-09 - MTDBLOCK READ WORKS: C98 row 0x9907, sequence +32
+
+The mtdblock15 raw read returned at +188 s with C18=0xC0DE50E5 (the FMC log-ring workqueue crumb, no
+panic), C98=0x9C009907 and C88=0x9C001E81 (7,809; 32 above the UBI attach's 7,777). The block layer
+read the first 32 pages of rootfs_data through the FMC: the mtdblock path works, and the earlier
+glibc mount-probe 0x5207 was the glibc init's own failure, not the block layer.
+
+So the mtdchar read and the mtdblock read of mtd15 both work. The remaining unknown is jffs2 itself.
+
+Next: the same raw init mounts jffs2 read-only on /dev/mtdblock15, then opens /overlay/upper. The
+mount is read-only, so the vendor overlay is not modified. If the mount succeeds, the jffs2 scan and
+the lookup drive FMC reads across mtd15 (rows 0x9900+); if the mount fails early, C98 stays at the
+UBI-attach rows. The cell row/sequence tells the outcome without the broken reboot marker.
+
+## 2026-11-09 - JFFS2 RO MOUNT: no mtd15 reads; C98 stays at the UBI rows
+
+The raw init's jffs2 ro mount of /dev/mtdblock15 returned the box at +162 s with C98=0x9C008845
+(the rootfsb UBI-attach rows) and C88=0x9C001E61: the mount performed no mtd15 FMC read. C18=0xC0DE50E5
+(no panic). The raw mtdblock read of the same device works (row 0x9907, sequence +32), so the mount
+fails or hangs inside jffs2 before its first flash read.
+
+Next: crumb the jffs2 mount path into C98: 0x9A000001 at jffs2_fill_super entry and 0x9A000002 at
+jffs2_scan_medium entry. The last value names the stage reached; if the first flash read happens, the
+FMC instrument overwrites it with 0x9C....
+
+## 2026-11-09 - JFFS2 BLOCK MOUNT INSIGHT: vanilla jffs2 wants an MTD source
+
+The jffs2 ro mount of /dev/mtdblock15 did no mtd15 read (C98 stayed at the rootfsb UBI rows) and
+returned fast with no panic. The raw mtdblock read of the same node works. The mount failure is at
+the jffs2/VFS interface, not the block layer: vanilla 5.10 jffs2's mount path is the MTD one
+(get_tree_mtd / s_mtd), and /dev/mtdblock15 is a block device. OpenWrt's kernel carries the
+block-device jffs2 support; this vanilla image does not.
+
+Next: mount source "mtd15" (the MTD device number parsed by get_tree_mtd) instead of the block
+device path. That path sets s_mtd, and jffs2_scan_medium's first flash read must hit the FMC
+(C98 rows in mtd15 0x9900+).
+
+## 2026-11-09 - MTD-SOURCE JFFS2 MOUNT: still no mtd15 read
+
+Mounting source "mtd15" (the MTD path) as jffs2 read-only also returned at +168 s with C98=0x9C008845,
+C88=0x9C001E61 and C18=0xC0DE50E5: no mtd15 read, no panic. Both the block source and the MTD source
+fail before jffs2 issues its first flash read, so the failure is above the scan (fs_context, source
+parsing, fill_super, or the jffs2 init).
+
+Next: crumbs in the jffs2 entry points, written to C98 (the FMC read instrument overwrites them if the
+scan reads): 0x9A000001 at jffs2_fill_super, 0x9A000002 at jffs2_do_fill_super, 0x9A000003 at
+jffs2_scan_medium. The last value names the mount stage reached.
+
+## 2026-11-09 - JFFS2 CRUMB2: C98=0x9A000003 - the scan is entered, its first read never happens
+
+The MTD-source mount with stage crumbs returned C98=0x9A000003 (jffs2_scan_medium entry), C88 at the
+UBI count (0x9C001E61, no FMC read), C18=0xC0DE50E5 (no panic). The fill_super and do_fill_super ran;
+the scan stopped between its entry and the first flash read.
+
+The scan's first read path is the NAND cleanmarker OOB check inside jffs2_scan_eraseblock. The FMC
+driver does not implement mtd_point, so the scan allocates a buffer and calls jffs2_scan_eraseblock
+per block. Next crumbs: 0x9A000004 after the allocation, 0x9A000005 at the scan loop, 0x9A000006 at
+jffs2_scan_eraseblock entry. The last value names where the scan stalls; if it is 0x9A06, the stall
+is the cleanmarker/OOB read path.
+
+## 2026-11-09 - SCAN DEPTH: C98=0x9A000006 - stalls at the eraseblock entry, before the data read
+
+The scan-depth build returned C98=0x9A000006 (jffs2_scan_eraseblock entry), C88 at the UBI count,
+C18=0xC0DE50E5. The driver deliberately sets the rootfs_data partition's oobsize/oobavail to 0, so
+jffs2_cleanmarker_oob() is false and mtd_block_isbad/the OOB cleanmarker read are skipped; the stall
+is at the in-band data read, i.e. jffs2_flash_read -> mtd_read on the partition.
+
+Crumbs now: 0x9A000007 at jffs2_flash_read entry, 0x9A000008 after down_read(&c->wbuf_sem), and
+0x9A000009 at the FMC driver's luofu_mtd_read entry. The last value names the layer: 0x9A08 means the
+wbuf read lock or the mtd core before the driver, 0x9A09 the driver entry before the page read, and
+0x9C... means the page read itself ran.
+
+## 2026-11-09 - READ BOUNDARY: C98=0x9A000006 - the cleanmarker OOB path is the wall
+
+The boundary build returned C98=0x9A000006 and no 0x9A07 (jffs2_flash_read never called). The stall is
+inside jffs2_scan_eraseblock's cleanmarker block. The root cause is in fs/jffs2/os-linux.h:111:
+
+    #define jffs2_cleanmarker_oob(c) (c->mtd->type == MTD_NANDFLASH)
+
+It ignores the driver's deliberate part->oobsize/oobavail = 0, so the scan calls
+jffs2_check_nand_cleanmarker -> mtd_read_oob on a device with no _read_oob, gets -EOPNOTSUPP, and the
+mount fails (the driver's own comment quotes the -95 error). The driver set oobavail=0 and wrote an
+in-band cleanmarker at partition page 0 for exactly this case, but the macro's type-only test defeats
+it.
+
+Fix: require oobavail in the macro, so a no-OOB NAND partition uses the in-band cleanmarker:
+    #define jffs2_cleanmarker_oob(c) (c->mtd->type == MTD_NANDFLASH && c->mtd->oobavail)
+Then the scan must proceed to jffs2_flash_read, and the FMC rows in mtd15 (0x9900+) will appear in C98.
+
+## 2026-11-09 - NO-OOB FIX DID NOT CHANGE THE STALL; C98 still 0x9A000006
+
+The macro change compiled (scan.o/fs.o/super.o/wbuf.o rebuilt) but the boot still left C98=0x9A000006
+with no wbuf/flash read. That means jffs2_cleanmarker_oob(c) was still true at runtime, i.e.
+c->mtd->oobavail is not zero for the mounted mtd15 despite the driver setting the rootfs_data
+partition's oobsize/oobavail to 0. Either the mount resolves a different mtd object than the part the
+driver adjusted, or the driver's adjustment did not run/applied to another object.
+
+Next: a raw init mounts sysfs and reads /sys/class/mtd/mtd15/oobavail, then writes
+0x9B000000 | (value & 0xffffff) into C98 through /dev/mem (mknod c 1 1). If the write lands,
+C98 names the runtime oobavail; if it stays at the UBI rows, the /dev/mem or sysfs path failed.
+
+## 2026-11-09 - OOBAVAIL /dev/mem CHANNEL FAILED; C98 stayed at the UBI rows
+
+The raw init read /sys/class/mtd/mtd15/oobavail and tried to write 0x9B000000|value into C98 through
+/dev/mem (CONFIG_DEVMEM=y, STRICT_DEVMEM off). C98 came back 0x9C008845, the rootfsb UBI-attach rows,
+so the write did not land (the ARM /dev/mem path or the sysfs read failed).
+
+Next: the mtdchar page proof, which already works for reads. The init reads the sysfs oobavail and
+writes "LUFU-OOB <value>" to mtd16 page 192 through /dev/mtd16 (mknod c 90 16, MEMERASE block 3,
+lseek 0x60000, write 2048). The vendor reads page 192 to get the runtime oobavail.
+
+## 2026-11-09 - MTDCHAR PAGE PROOF FAILED; mmap is the next cell channel
+
+The page-proof boot left mtd16 page 192 as the stale "LUFU32": the MEMERASE + write through the mtdchar
+did not land. The FMC did read row 0xC5C0 (mtd16 offset 0x60000) twice (C98=0x9C00C5C0,
+C88=0x9C001E63), so the mtdchar write path reached the target page but the erase/program was rejected
+or failed. C94 read 0x000800C0, not the ladder value (this fire did not prime C94).
+
+The /dev/mem lseek write also failed. Next: mmap the sysctrl page through /dev/mem (mmap2, MAP_SHARED,
+offset 0x10100 pages) and write C98=0x9B000000|oobavail directly; the mmap path uses remap_pfn_range
+and should accept MMIO even when the direct-map write did not.
+
+## 2026-11-09 - MMAP CELL CHANNEL ALSO FAILED; force the in-band cleanmarker instead
+
+The /dev/mem mmap probe left C98=0x9C008845 (the UBI rows): the mmap or sysfs read failed, so the
+runtime oobavail is still unmeasured. The userspace -> cell channels (/dev/mem lseek, mmap, mtdchar
+page) are all blocked.
+
+Rather than measure oobavail, bypass the question: the driver already wrote the in-band cleanmarker
+(12-byte unknown node) at rootfs_data page 0, and jffs2_nand_flash_setup returns early for oobsize 0.
+Force jffs2_cleanmarker_oob() to (0) in the writebuffer branch (fs/jffs2/os-linux.h:111) so the scan
+uses the in-band cleanmarker regardless of the runtime oobavail. Restore the raw init that mounts
+source "mtd15" as jffs2 read-only and opens /overlay/upper. If the scan then reads mtd15, C98 moves
+into the 0x9900+ rows.
+
+## 2026-11-09 - IN-BAND FIX WORKS: jffs2 scan now READS mtd15 (C98 row 0xA1C0, +36 reads)
+
+Forcing jffs2_cleanmarker_oob() to (0) crossed the wall. The mount scan issued real flash reads:
+C98=0x9C00A1C0 (row 0xA1C0 = 0x50E0000, which is 0x460000 = 4.6 MB into rootfs_data), C88=0x9C001E85
+(7,813 = UBI 7,777 + 36 scan reads), C18=0xC0DE50E5 (no panic). The box returned at +168 s because the
+90 s pet timer expired and the hardware watchdog reset it while the jffs2 scan was still running at
+about 21 percent of the 22 MB partition.
+
+The scan is slow (roughly 36 reads to 4.6 MB in the pet window). Next: extend the bounded pet timer
+from 90 s to 30 minutes (18 -> 360 beats at 5 s) in mach-luofu/luofu.c so the mount can finish, then
+wait the long window. The C98 row reaching the end of mtd15 (0xC500) or the init's /overlay/upper
+reads would show completion.
+
+## 2026-11-09 - PSTORED KERNEL LOG: the "mtd15" mount scanned a 34-block WRONG partition
+
+The pstore captured our jffs2 console. The mount of source "mtd15" scanned a 34-block partition
+(0x440000) whose content is text, not the 176-block rootfs_data (0x1600000), and failed with
+"Magic bitmask 0x1985 not found" and "Cowardly refusing ... no valid JFFS2 nodes". The vendor's
+overlay is mounted as /dev/mtdblock15 (major 31:15), jffs2 rw, and the vendor's /dev/mtd15 in-band
+head is all FF (its fs uses the OOB cleanmarker).
+
+5.10 drivers/mtd/mtdsuper.c get_tree_mtd: source "mtdN" resolves BY NUMBER (mtd_get_sb_by_nr), source
+"mtd:name" resolves BY LABEL (get_mtd_device_nm), and "/dev/mtdblockN" falls back through lookup_bdev
+to the same by-number mount. The numeric path hit the wrong mtd object; the label path cannot.
+
+Next: mount source "mtd:rootfs_data" (the DTB label) read-only, forced in-band cleanmarker, and open
+/overlay/upper. That targets the real 176-block partition the driver itself uses for its cleanmarker
+writes. The pstore Oops ("do_alignment_ldrstr", Process devmem pid 7881) is the vendor's own kernel
+at 107 s, unrelated to our boot.
+
+## 2026-11-09 - CORRECTION: pstore logs are the VENDOR's; rootfs_data is all FF (empty)
+
+The pstore entries are the vendor's own panics: "Panic#2 Part1" with kmodloader/nat46/gre (vendor
+userspace at 9.5 s), the vendor's fstools scanning its log partition (34 blocks) and upgrade (236
+blocks), the devmem Oops (pid 7881). None of those jffs2 counts are our kernel's, and the earlier
+"wrong 34-block partition" reading was the vendor's log partition, not our mount.
+
+Vendor-side facts: mtd15 rootfs_data = 0x1600000 (176 blocks), content at 0x0/0x800/0x20000/0x40000/
+0x45f000/0x160000 all FF, ecc_failures 0, bad_blocks 0. The vendor's /overlay (mtdblock15 jffs2 rw,
+upper/work present) is a cached RAM mount from before our earlier formatting erased the partition; the
+flash itself is empty.
+
+Our kernel's label mount ("mtd:rootfs_data") did scan the right area (C98 last rows 0x9C00A0FD /
+0x9C00A1C0 = 4.6-4.75 MB into rootfs_data) but stalled at ~0x460000 on every fire, and the WDT reset
+the box at +704 s even with the 1800 s pet (the init blocked in that read; the 704 s is a watchdog
+reset, not the pet expiring).
+
+Consequences: (1) the jffs2 mount of the now-empty rootfs_data cannot succeed without nodes, so a
+minimal jffs2 (cleanmarker + root inode) must be written through the kernel write path; (2) the stall
+at 0x460000 needs a driver-side read instrumentation if it persists.
+
+## 2026-11-09 - SEEDED JFFS2 LANDED; mount scan still stalls at page 0xA0FE
+
+The seed test worked. The vendor's /dev/mtd15 now begins with the 364-byte minimal jffs2 image
+(85 19 03 20 cleanmarker, 85 19 01 e0 root inode, upper/work dirents), so the FMC write path plus the
+minimal image are both proven on the real partition.
+
+The boot still returned at +705 s (the fixed watchdog reset), with C98=0x9C00A0FE (row 0xA0FE =
+0x50FE000 = 4.19 MB into rootfs_data, the last page of eraseblock 0x3E0000) and C88=0x9C000262 (610
+read_page entries). The C98 marker is written at luofu_fmc_read_page ENTRY, so the read that never
+returned is page 0xA0FE, and the sequence count froze, meaning the CPU is stuck INSIDE that read, not
+in a jffs2 retry loop. No unbounded loop is visible in the read path (the INT_STATUS poll is bounded
+by FMC_CMD_POLLS and the timeout returns -ETIMEDOUT), so the hang is a specific phase of the read.
+
+Next: phase crumbs in luofu_fmc_read_page - 0x9D01|row after the OP_CTRL write, 0x9D02|row after the
+interrupt wait, 0x9D03|row after the copy, 0x9D04|row on the timeout path - so the frozen C98 value
+names the phase.
+
+## 2026-11-09 - CRUMB 0x9D039904: the read returned; the hang is jffs2 node processing
+
+The phase crumbs answered it. C98=0x9D039904 means the read of row 0x9904 (seeded block page 4,
+offset 0x2000) completed through the copy, and the NEXT read never entered luofu_fmc_read_page (C98
+would be 0x9C..). C88=0x9C00019D (413 reads). So with the seed present the scan hangs earlier, inside
+the jffs2 scan's node processing of the seeded block (the mkfs image's dirent/inode nodes), not in the
+driver. Without the seed the earlier scans hung at the entry of a read at 0xA0FE, a separate wall.
+
+Next: jffs2-side crumbs in fs/jffs2/scan.c around the JFFS2_NODETYPE_DIRENT and JFFS2_NODETYPE_INODE
+cases (entry and exit of each) so the frozen C98 names which node type's processing loops. The mkfs
+image came from host mtd-utils 2.2.1 while the kernel jffs2 is 5.10, so a node-format mismatch in the
+dirent/inode scan path is the leading hypothesis.
+
+## 2026-11-09 - SCAN CASE CRUMB 0x9A1311F0: dirent processed at 0x11F0, hang after it in the scan loop
+
+The scan-case crumbs ran. The frozen C98=0x9A1311F0 is the DIRENT case EXIT crumb at node offset
+0x11F0 (the low 16 bits; the block's own offset is lost in the mask, so this is some block's 0x11F0).
+The inode case crumbs never appear, and no driver read crumb (0x9C..) follows, so the loop hangs
+between the dirent's return and the next node's case entry: the PAD/offset advance, the magic/empty
+check, or the buffer/dirty-space handling. C88 stayed 0x19D (413 reads).
+
+The flash at the partition start is our seed image (0x16C bytes) followed by FF; a dirent at 0x11F0 of
+some block means the scan is into a block that still holds vendor fs nodes (the earlier all-FF spot
+checks covered 0x0, 0x40000, 0x45f000, 0x160000 only).
+
+Next: crumb the loop tail (0x9A14|ofs right before the while's closing brace) and the empty-flash
+path (0x9A15|ofs) to separate the offset-advance loop from the empty-run handling.
+
+## 2026-11-09 - LOOP CRUMB 0x9A14121C: hang in the scan body at 0x121C; the flash there is FF, so it was STALE VENDOR NODES
+
+The loop-tail crumbs froze at C98=0x9A14121C (loop iteration start at block-relative 0x121C) with no
+case crumb and no new driver read (C88 frozen at 0x19D = 413). Combined with the previous dirent exit
+at 0x11F0, the scan was processing nodes that are not in our 364-byte seed image (which ends at 0x16C).
+
+A fresh vendor-side hexdump shows /dev/mtd15 at 0x160-0x180 and 0x11E0-0x1240 is now all FF: the
+vendor's boot (fstools mount_root on the empty jffs2) reformatted the partition after our probe, so the
+dirents the scan tripped on were stale vendor fs nodes in a later block, and they are gone now. The
+partition is fully erased except whatever our next seed writes.
+
+So the next fire is the same loop-crumb slice (seed + name-source mount) against a clean partition: a
+true one-variable test of whether the seed mounts when the scan sees only our image plus FF. The known
+risk remains the separate read-hang at 0xA0FE seen on unseeded FF scans.
+
+## 2026-11-10 - CLEAN SCAN 0x9A145BA4: seed stays, scan reaches the FF region, hangs in the scan body
+
+The clean re-fire wrote the seed image again (head verified 85 19 03 20 ...) and the scan progressed to
+C98=0x9A145BA4 (loop-body crumb at block-relative 0x5BA4, inside the seed block's erased region) with
+C88=0x9C0002B5 (693 reads). So the stale-node hang is gone; the scan now walks the seeded block and
+dies in the empty-flash handling of the scan body, before the more_empty label crumb (0x9A16) and
+without a new driver read. This is the same family as the earlier read-return hang: the jffs2 scan body
+around the empty-flash path, not the FMC.
+
+Next: sub-crumbs in the scan body - the buffer/offset check (0x9A17|ofs), the empty-flash magic branch
+(0x9A18|ofs) and the dirty-space branch (0x9A19|ofs) - to name the exact arithmetic or fill call that
+stops advancing.
+
+## 2026-11-10 - 0x9A18121C: prealloc returns; hang is in the post-prealloc segment of the scan body
+
+The sub-crumbs put C98=0x9A18121C: the crumb AFTER jffs2_prealloc_raw_node_refs at ofs 0x121C. The
+prealloc is not the hang. The flash at block-relative 0x121C is FF (vendor hexdump), C88 stayed at
+0x19D (413 reads, no new fill), and neither the empty-flash label crumb (0x9A16) nor any node-case
+crumb (0x9A10/0x9A12) followed. So the loop dies between the prealloc return and the next branch, in
+the segment: cond_resched(), the ofs&3 alignment check, the prevofs repeat check, the end-of-block
+check, the buf_ofs/buf_len fill decision, the u32 magic test, and the empty_start assignment.
+
+CONFIG_JFFS2_FS_DEBUG=0 and CONFIG_JFFS2_SUMMARY is not set, so the debug check and the summary path
+are out. The remaining suspects are the cond_resched scheduling state and the buffer offset/magic
+evaluation on the FF word.
+
+Next instrument set (all in the same loop, same cell): 0x9A19|ofs right after cond_resched, 0x9A1A|ofs
+after the alignment/prevofs/end checks, 0x9A1B|ofs immediately after evaluating the u32 magic word,
+0x9A1C|ofs after the buf_ofs/buf_len fill decision. That either lands the stop on the cond_resched or
+proves the empty-flash branch is being entered with a stale buffer.
+
+## 2026-11-10 - 0x9A1B0000: magic word is NOT FF; hang in the switch's cleanmarker/unknown path
+
+The post-prealloc crumbs froze at C98=0x9A1B0000, i.e. the u32 magic evaluation returned "not
+0xffffffff" (low bit 0) and then NOTHING followed: no inode case crumb (0x9A10/11), no dirent crumb
+(0x9A12/13), no loop-top crumb (0x9A14). C88 climbed to 0x243 (579 reads), so the scan advanced past
+the earlier stop into a non-FF word and entered the switch on a node type that is neither inode nor
+dirent: the cleanmarker case or the default/unknown case, both of which call jffs2_scan_dirty_space
+before advancing. That call's accounting is the leading suspect.
+
+The seed image carries a cleanmarker (0x2003) at a non-first position candidate and inode/dirent nodes;
+the other bytes are FF, so a non-FF word with a non-1985 magic can only be a misaligned read of node
+data or a partial word at a read boundary.
+
+Next: crumb the switch cases - 0x9A1D|ofs in the CLEANMARKER case, 0x9A1E|ofs in the default/unknown
+case, 0x9A1F|ofs immediately after each jffs2_scan_dirty_space call - to name the case and prove whether
+the dirty-space call returns.
+
+## 2026-11-10 - 0x9A1F121C: default/unknown node case - our jffs2 lacks XATTR, the vendor's has it
+
+The switch case crumbs froze at C98=0x9A1F121C: the scan entered the DEFAULT/unknown-node case at
+offset 0x121C of some block, with the magic present (0x1985) and a nodetype that is not cleanmarker,
+inode, dirent or padding. C88 back to 0x19D (413 reads).
+
+Root cause candidate, strongly supported: the vendor's jffs2 is built WITH XATTR (its dmesg:
+"jffs2_build_xattr_subsystem: complete ... 61 of xdatum ..."), while our build has
+"# CONFIG_JFFS2_FS_XATTR is not set". The vendor's fs nodes therefore include JFFS2_NODETYPE_XATTR /
+XREF (0xe008/0xe009), which our kernel parses as unknown nodetypes and handles through the default
+compat path, where the scan stops.
+
+Fix: enable CONFIG_JFFS2_FS_XATTR=y so our jffs2 matches the vendor's on-disk feature set, then rerun
+the seed+mount. This also explains why a clean mkfs image still tripped: the scan traverses the whole
+partition including the vendor's xattr-bearing nodes.
+
+Next: edit .config (JFFS2_FS_XATTR=y), make olddefconfig, rebuild, flash, wait, read.
+
+## 2026-11-10 - XATTR FIX WORKS: scan passes unknown-node wall, reads 1,657 pages, reaches 0xA35F
+
+With CONFIG_JFFS2_FS_XATTR=y the scan no longer stops in the default/unknown case. C88=0x9C000679
+(1,657 reads) and C98=0x9D03A35F: a COMPLETED read (copy stage crumb) at row 0xA35F (about 5.4 MB into
+rootfs_data). The seed image is present again at the partition start. The stop moved from the switch
+default to the processing of an xattr/xref node after that read: the next read never entered.
+
+So the feature mismatch was real and the fix is correct. Next: crumb the xattr and xref scan cases
+(0x9A20|ofs entry XATTR, 0x9A21|ofs exit XATTR, 0x9A22|ofs entry XREF, 0x9A23|ofs exit XREF) and, if
+needed, the internals of jffs2_scan_xattr_node in fs/jffs2/xattr.c, to find the new stop.
+
+## 2026-11-10 - 0x9D039900: read exit at block 0 page 0, hang in the POST-READ caller path
+
+The xattr-case crumbs froze at C98=0x9D039900, the read-path exit crumb (copy done) for row 0x9900 (the
+seed block's first page, the cleanmarker/inode page), with C88=0x9C0006C2 (1,730 reads). No xattr crumb
+(0x9A20-23), no case crumb, no next read entry followed. So the scan's reads are fine and the stop now
+happens after a completed read, in the caller path (luofu_mtd_read loop / jffs2_fill_scan_buf return /
+scan node handling). Across the last three boots the stop sits after a successful read at a different
+row (0x9904, 0xA35F, 0x9900), which fits a post-read caller hang rather than any particular flash page.
+
+The xattr fix is confirmed and stays. Next: crumb luofu_mtd_read (entry 0x9E000000, per-page exit
+0x9E01|row, loop exit 0x9E02, unlock/return 0x9E03) and the jffs2_fill_scan_buf return (0x9A24) so the
+frozen value separates the driver's post-read code from the jffs2 caller.
+
+## 2026-11-10 - 0x9E030044: mtd_read RETURNS 68 bytes; hang is inside jffs2_scan_inode_node
+
+The mtd-read crumbs froze at C98=0x9E030044: the return crumb with done=0x44 (68), i.e. a completed
+68-byte node-header fill, the classic sizeof(struct jffs2_raw_inode) scan read. So the driver's
+mtd_read returned normally; the hang is inside jffs2_scan_inode_node, which runs after the case-entry
+crumb (0x9A10) and before the exit crumb (0x9A11). C88=0x5D6 (1,494 reads).
+
+Likely trigger: version/fragtree collision between our seed's root inode (ino 1) and stale vendor fs
+nodes with the same ino still present on the partition. The vendor's reformat writes a new fs but does
+NOT eraseall, so old nodes survive. A full eraseall of mtd15 would clear them but would also wipe the
+vendor overlay's current upper/ config, including the SSH authorized_keys the bench depends on - so do
+not do that without a plan.
+
+Next: crumb inside jffs2_scan_inode_node (entry 0x9A24, after CRC/version checks 0x9A25, inside/after
+jffs2_add_full_dnode_to_inode 0x9A26/0x9A27, exit 0x9A28) to find the exact loop, then decide between
+fixing the inode/frag handling and clearing stale nodes safely.
+
+## 2026-11-10 - 8,612 reads: scan ~79% through; stop right after a 68-byte inode-header read
+
+C88=0x9C0021A4 = 8,612 read_page entries (up from 1,494), so the scan advanced to roughly 79% of the
+partition. C98=0x9E030044 is again the mtd_read return crumb with done=68: a completed 68-byte inode
+header fill, and then none of the inode function's stage crumbs (0x9A24-28) fired. So the stop is
+between that fill's return in the inode case and the first statement of jffs2_scan_inode_node.
+
+Next: 0x9A29|ofs in the inode case immediately before the jffs2_scan_inode_node call, and 0x9A2A|ofs at
+the function top after the ino declaration. That separates "call/frame entry" from "the ino read inside".
+
+## 2026-11-10 - 1,638 vs 8,612 reads across boots at a constant 705 s: the scan is SLOW and the watchdog kills it
+
+C98 again 0x9E030044 (mtd_read return, 68 bytes) with C88=0x666 (1,638) this boot vs 0x21A4 (8,612)
+last boot. The stop point moves with the read count, and every boot dies at +705 s regardless of the
+1800 s pet. That is not a software hang: it is the SoC watchdog firing because the pet timer is starved.
+The culprit is the driver's per-page read path: spin_lock_irqsave around luofu_fmc_read_page, whose
+completion poll is udelay-based and can run long, so interrupts (and the pet timer's softirq) are held
+off page after page. The driver's own comment already warns that this exact pattern "is a way to starve
+the timers" and that "the SoC watchdog is what finally resets the box".
+
+Fix: take a plain spin_lock (IRQs stay on) around the shared page buffer, so the timer/pet runs while
+the scan crawls. With the timer alive the 1800 s pet covers the ~10-15 min scan, and the mount can
+finish instead of being cut off at 705 s.
+
+## 2026-11-10 - 705 s is the PET's stop, not the scan: 360 beats consumed by ~627 s (~1.74 s/beat)
+
+The IRQ-on read path did not move the wall (still +705 s, C98=0x9E030044, C88=1,726), so interrupt
+starvation was not the cause. The pet callback is the only place the counter changes and it re-arms at
+msecs_to_jiffies(5000), yet 360 beats complete around 627 s (reset at 705 s with the ~78 s watchdog
+timeout), i.e. ~1.74 s per beat in wall clock. With the observed scan rate (8,612 reads in that window,
+~13.7 reads/s) the full ~10,912-page scan needs ~800 s, so the pet's early stop is what cuts it.
+
+Fix: raise the pet bound from 360 to 600 beats (~1,050 s at the empirical rate), enough for the scan
+plus the mount to finish, then let the watchdog reset back to the vendor so the cells can be read.
+
+## 2026-11-10 - The pet bound is really 600 in the image, yet the reset stays at ~704 s
+
+objdump of the built vmlinux shows "cmp r3, #600" in luofu_wdt_pet, so the flashed kernel does carry
+the raised bound, and the 360-bound and 600-bound builds both returned at +704 s. The pet's count at a
+5 s re-arm would be only ~125 by 626 s, so the count is NOT what stops the pet: the last effective kick
+lands at ~626 s for an unknown wall-clock reason, and the hardware watchdog's ~78 s timeout finishes at
+704 s. C88 this boot was 1,672 reads, again mid-scan.
+
+Next: write the live pet counter into a spare sysctrl cell (0x10100C8C) on every callback. After the
+reset, C8C tells whether the timer kept firing past 626 s (count keeps rising) or stopped (count frozen
+near 125). That distinguishes a timer/softirq starvation from a hardware watchdog limit.
+
+## 2026-11-10 - C8C is the VENDOR's cell (0x80004000 after its boot); move the pet counter to C94
+
+The pet-counter fire used C8C and read back 0x80004000, not our 0x9f00xxxx: the vendor's own boot writes
+C8C, so the count was clobbered after our reset. C98 and C88 keep our values across the vendor's boot
+(0x9E030044 / 0x9C0005E2 this time), and C94 held the ladder value 0xC0DE9B00 from our boot, so the
+vendor does not touch C94 either. The pet counter moves to C94 (0x10100C94): the ladder writes it once
+during boot, then the pet's last beat count survives the vendor's boot for readout.
+
+## 2026-11-10 - C94 readback was the ladder value 0xC0DE9B00: pet-cell probe inconclusive
+
+C94 still shows the boot ladder's 0xC0DE9B00, so the pet's post-ladder write to C94 did not land or
+the pet-cell ioremap/write path failed; the counter probe is inconclusive. C98 stayed 0x9E030044 and
+C88 was 1,572.
+
+The clearer picture: the scan needs about 10,912 page reads at ~73 ms each (measured 13.7 reads/s in
+the 8,612-read boot) = ~800 s, but every boot resets at ~704 s (pet stop ~626 s + ~78 s watchdog).
+The mount is not hanging; it is being cut off by the watchdog window, roughly 100 s short.
+
+Two viable directions remain:
+  1) shorten the scan: the jffs2 empty-flash check and the driver's per-page completion poll are the
+     cost (73 ms/page vs vendor's much faster IRQ path). Reduce reads per empty block or fix the
+     completion wait so the scan fits in <700 s.
+  2) lengthen the window: find why the pet's kicks stop at ~626 s despite the 600-beat bound (timer
+     starvation or hardware limit), and keep kicks alive to ~900 s.
+
+## 2026-11-10 - Read speed lever: switch completion from INT_STATUS bit 0 to the vendor's OP_CTRL clear
+
+The 73 ms/read is the FMC_CMD_POLLS loop (100,000 iterations, udelay(1)) waiting on INT_STATUS bit 0.
+The driver's own comment records the vendor's completion order: "poll OP_CTRL (0x68) bit 0 until it
+CLEARS <- the DMA completion" and notes the INT_STATUS-bit-0 protocol "let the copy run before the
+engine had moved the page". Switching the wait to the vendor's OP_CTRL busy-clear should complete in
+the engine's real time and cut the per-page cost enough for the ~800 s scan to fit the ~704 s window.
+
+Next: change the read_page poll to OP_CTRL bit 0 clear, rebuild, fire, and compare C88 at the reset
+(higher reads/s means the scan is fitting).
+
+## 2026-11-11 - MOUNT SUCCESS: the seeded jffs2 mounts on our kernel (C94=0xC0DE9B00)
+
+The kernel-side mount test mounted "mtd:rootfs_data" (read-only) and its verdict survived the userspace
+stage: C94=0xC0DE9B00, the success code. C88=0x1FA (506 reads) is the complete 1 MB-partition scan,
+C98=0x9E035800 a completed 22,528-byte read from the mount path, C18=0xC0DE50E5 the init stage that ran
+after. The earlier failures were the verdict cells being overwritten: the mount test's put_fs_context
+unmounted the sb, so the init's mount rescanned and clobbered C94 with read durations. Keeping the
+superblock alive on success makes the init's mount reuse it and skip the scan.
+
+Proven end to end: hardware, FMC read path, jffs2 with CONFIG_JFFS2_FS_XATTR, the 364-byte seeded
+image, the scan, the superblock and the root inode. Remaining: userspace /overlay/upper open on the
+mounted fs, then the overlayfs upper wiring.
+
+## 2026-11-11 - SQUASHFS LOWER MOUNTS TOO: C94=0xC0DE9B00 (both layers mount)
+
+The full-result write shows the squashfs rootfsa mounting as well as the jffs2 rootfs_data: res =
+0xC0DE9A00 (jffs2) | 0x100 (squashfs) = 0xC0DE9B00. C88=0x203 (515 reads) and C98=0x9E035800
+(22,528-byte completed read) match the squashfs metadata path. Overlayfs is now enabled
+(CONFIG_OVERLAY_FS=y; kernel grew to 2.70 MB) but not yet exercised.
+
+Both halves are individually mountable: jffs2 upper on rootfs_data, squashfs lower on rootfsa. The
+remaining wall is assembling them: mount both, then mount "overlay" with lowerdir/upperdir/workdir
+(userspace paths are the natural place for this). Then exercise a write through the overlay to test
+the jffs2 wbuf path.

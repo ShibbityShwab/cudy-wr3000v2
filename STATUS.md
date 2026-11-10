@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-Regenerated, never appended. Last edit 2026-11-03 (the write-path session).
+Regenerated, never appended. Last edit 2026-11-10 (jffs2 overlay scan: XATTR fix, 704 s window).
 Current state: this file. The dated record is [`STATE.md`](STATE.md) and `mem-entries.md`; it is history
 and is not a starting point. The claim-by-claim audit behind this page is
 `build/audit/lane-e/DRIFT-MATRIX.md` (gitignored).
@@ -54,6 +54,49 @@ starting `hboot1ta`; host `192.168.1.88` on `Ethernet`. Door procedure: **hold R
 **Any statement below about the box being on the vendor image is still correct**, but the credential is new:
 the working root password is in `.omo-secrets/ssh-password.txt`.
 
+## 0.1 2026-11-08 findings
+
+- **CVE-2026-71960/71961:** a forged `cudydevice` JWT (HS256, fleet bdinfo `secret`) reaches the
+  broker with CONNACK rc=0. The satellite role can write `router/000000000000/+/+/+/+`; the admin's
+  own subscription receives a `router/command` payload whose `src_did` is the controller sentinel,
+  and `command.lua` runs the JSON `cmd` through `io.popen` as root. A benign `id` redirect returned
+  `uid=0(root) gid=0(root)`; no second node was used. The plugin's `acl_check` returns
+  `MOSQ_ERR_PLUGIN_DEFER`, so the ACL file is enforced; the earlier `admincudydevice-000000000000`
+  auth success did not grant topics. Evidence: `dumps/router-20261108/mqtt-command-chain-report.md`
+  and `evidence/`; the writeup is `gist-cudy-wr3000v2-mqtt-jwt.md`.
+- **Kernel UBI read path:** the committed source had `luofu_read_ecc_off = true`; ECC off with
+  `DMA_LEN=1` loses the last 14 bytes of each 2048-byte page, zeroing record 118's CRC
+  (`f1160000` instead of `f116c36b`). The dumped `kernelb` raw Image already has the ECC-on
+  plain-copy path. The one-line `false` fix is applied locally; the report is
+  `dumps/router-20261108/ubi-readpath-report.md`.
+- **Local Linux build lane (2026-11-08):** rebuilt from `luofu-kernel-config.yml` without WSL, on
+  vanilla 5.10.201 with Arm GNU 11.3.Rel1. All 78 required symbols resolve and no shrink-guard
+  symbol leaked back. **XZ is required:** the default gzip build was a 3,663,480 B zImage; the XZ
+  build is 2,652,520 B (uImage 2,666,464 B). `CONFIG_KERNEL_XZ=y` is now in `luofu.fragment`, and
+  a merge of `.config.base` + both fragments resolves it. The built `luofu_fmc_read_page` is the
+  ECC-on shape (no 1040/14 constants; one plain `memcpy` of `spec.page_size`). Evidence:
+  `build/linux-kbuild/linux-5.10.201/out/{MANIFEST.txt,readpage-shape.txt}`.
+- **Write path proven (2026-11-08):** removing the post-kick `wait_ready` made a single page
+  land. `upgrade` page 163 reads `4c 55 46 55` + `a5`; `C98=0xC0DEA00C` (erase/write/read/match);
+  `C88=0x04327400` (clean self-test read). The test kernel then restarted via `luofu_restart` with
+  `C18=0xC0DE52A1` (the UBI diag: layout volume found, fault inside the UBI scan). The next wall is
+  the UBI/overlay scan, not the write path.
+- **Slot-B fire (2026-11-08):** a bare uImage is not bootable in `kernelb`. Every uImage-only
+  fire failed over in 13-15 s with `C9C` and `C18` both zero. The known-good partition carries a
+  31,220 B base DTB plus 4,592 B and 4,920 B overlays immediately after the uImage; the full
+  slice (uImage + those three DTBs) gets the kernel running. The C94 ladder in `init/main.c`
+  then read `0xC0DE9B08`: all late initcalls, `prepare_namespace()`, `kernel_init_freeable()`,
+  `run_init_process()` and `kernel_execve` all ran and returned. The follow-up marker recorded
+  `C94=0xC0DE9B00`, so `kernel_execve` returned 0 and the init process started; the known-good
+  control's `C9C=0x015EB70F` agrees. A bounded pet timer in `mach-luofu/luofu.c` then kept the
+  hardware watchdog alive for 90 s and the box survived to ~98 s; the 36 s reset is the watchdog
+  (15 s timeout), and the wall moved to userspace: no SSH/Ethernet appeared during the extra
+  time, and the persistent overlay remains the known failure. A slice must be
+  re-flashed before every boot: the failover writes four zero bytes at the first byte after it,
+  and a reuse fails fast. The DTS watchdog node was restored; the DTB is 13,880 B and differs
+  only in property order. The UART reader sees only NULs; pin 4 is readable per the user, but no
+  console ASCII arrives, so the cells remain the reliable channel.
+
 ## 1. The goal
 Our own, fully-current OpenWrt on this board: our kernel, our drivers, no vendor kernel. Set 2026-10-05.
 Where it stands: **the FMC write path is proven** (2026-11-03) - direct page program, the mtd write
@@ -100,17 +143,22 @@ One numbering, six rows. Each receipt is a file you can open.
 
 | gate | status | receipt (evidence file) |
 | --- | --- | --- |
-| G1 FMC reads real flash | GREEN | `STATE.md:466` (`luofu_read_ecc_off = false` was the one-line fix); `STATE.md:2472` (`C88 = 0xE0021985`, a jffs2 dirent) |
-| G2 program path | asserted, unlogged | no logged measurement exists. See §3. |
-| G3 kernel + rootfs + userspace | PARTIAL: userspace and `rcS` run; overlay does not mount | `STATE.md:2188` (`C90 = "port"` -> `S99port_trigger_d`); `STATE.md:2196` (overlay failure chain); `STATE.md:4072` ("the overlay does not mount yet", in the "Not done, and honestly so" list) |
+| G1 FMC reads real flash | GREEN after the `false` fix; the committed HEAD had `true`, the local working tree is now `false` | `STATE.md:466` (`luofu_read_ecc_off = false` was the one-line fix); `STATE.md:2472` (`C88 = 0xE0021985`, a jffs2 dirent); the 2026-11-08 regression and local fix are in `dumps/router-20261108/ubi-readpath-report.md` |
+| G2 program path | **GREEN (2026-11-08):** single page `upgrade` 163 reads `LUFU`+0xa5; `C98=0xC0DEA00C`; `C88=0x04327400`; the post-kick `wait_ready` was the defect | `mem-entries.md` 2026-11-08; the test kernel's `C18=0xC0DE52A1` is the UBI diag |
+| G3 kernel + rootfs + userspace | PARTIAL, ADVANCED (2026-11-10): userspace runs; the jffs2 scan now reaches ~79% of `rootfs_data` after enabling `CONFIG_JFFS2_FS_XATTR` (the vendor fs carries xattr/xref nodes our build treated as unknown and dropped into the scan default case); the mount is cut off by the ~704 s watchdog window before the ~800 s scan finishes | `mem-entries.md` 2026-11-10 (0x9A1F121C unknown-node wall -> xattr enabled -> `C88=0x21A4`, `C98=0x9D03A35F`); the seeded 364-byte jffs2 image verified at `/dev/mtd15` offset 0 |
 | G4 Ethernet on our kernel | ONE DEFECT FROM GREEN (2026-10-30) | `STATE.md:731` (ARP resolves, frames move, host ping 0/3) |
 | G5 Wi-Fi on our kernel | VENDOR-ONLY | `STATE.md:732` (the gate row); `STATE.md:4036` and `STATE.md:4072` (`luofu-wifi` is not in the kernel fragment, so our image has no wifi driver) |
 | G6 sustained uptime | the fix is built and committed, NOT confirmed by a fire | `STATE.md:344` says exactly that. Cause: the unfed watchdog, `/sbin/init` hands the fd to procd and procd never reaches its event loop, so the 30 s timeout expires (`STATE.md:284-290`) |
 
 ## 3. The one wall, and the write-path situation
-The wall is the persistent overlay. Our kernel reaches userspace and completes `rcS`, but
-`rootfs_data` block 0 reads `ff` through the layer fstools uses, so `volume_identify` answers `FS_NONE`,
-overlayfs is never attempted, and the tmpfs fallback discards every `/www` write (`STATE.md:2196`).
+The wall is the persistent overlay, and it has moved twice on 2026-11-09/10. Our kernel reaches
+userspace and executes our initramfs `/init`. The in-band cleanmarker is in place, the seeded minimal
+jffs2 is proven on the partition through the FMC write path, and the scan's real blocker turned out to
+be a feature mismatch: the vendor fs has xattr nodes, our build did not, and `CONFIG_JFFS2_FS_XATTR=y`
+carried the scan past the unknown-node wall to ~79% (`C88` 8,612 reads). What remains is time: the scan
+needs ~800 s at the measured ~73 ms/read, while the box resets at ~704 s (pet stops ~626 s, watchdog
+~78 s later). The mount is cut off, not hanging. Next levers: shorten the scan (empty-flash reads and
+the per-page completion poll) or keep the pet alive past ~900 s.
 
 The write path is ASSERTED-BUT-UNLOGGED in both directions.
 - The claim "the current source writes" has no fire log: a search for `p163_nonff` across `build/`
@@ -317,14 +365,21 @@ both, so HEAD alone does not link. The working tree only links because of an unc
 that makes both functions inert (`git -C opensource diff --numstat -- lab/luofu-kernel/nand/luofu/luofu-fmc.c`
 -> `43 0`).
 
-The current source does build. `build/audit/lane-b/out/build.log` is rewritten by every run of that lane;
-its `SUMMARY.txt` records the attested numbers and their md5s. Latest run read: zImage 2,687,792 B (md5
-`582383328270d1c0ee613975fc8947ef`), dtb 13,880 B, combined 2,701,672 B, uImage 2,687,856 B (md5
-`5c61bbdfec607fdd22ace5001b65be93`), 5,962,896 B left of the 8,650,752 B partition. The log that same
-lane wrote minutes earlier read 2,687,592 B for the same fields, so quote the `SUMMARY.txt` you read, not
-a remembered number. A symbolized `vmlinux` with md5 `5cf3b20776fd9bd05a516c56d4ca0253` was observed
-earlier in this session and does not appear in the current `build.log`. UNKNOWN: which built slice
-corresponds to the source in the tree right now; re-run the lane and read its `SUMMARY.txt` to settle it.
+The current source builds on this Linux host with Arm GNU 11.3.Rel1, from a vanilla 5.10.201 tree
+plus `kernel-tree.patch`, the three instrumented head files, `mach-luofu`, the DTS and the NAND
+driver, configured with `multi_v7_defconfig` + `luofu.fragment` + `luofu-shrink.fragment`. All 78
+required symbols resolve and no shrink-guard symbol leaked back. Measured 2026-11-08: zImage
+3,663,480 B (sha256 `b3ad4b40211daa393e24181f2729e12163603bd89818cc32eae18a199114a3b7`), DTB
+13,516 B (`6247d30675345b001bea474b95287756523ac0390d1e90b0cc517c4e4e78a64d`), uImage
+3,677,060 B (`d2d85e24d9dbc0e1bdddeae58d2ce8b4c48f144f2cc1c4e9cf781b93b0d538a0`), 4,973,692 B
+left of the 8,650,752 B kernelb partition. The uImage data is `zImage + DTB`, the same layout the
+flashed B-slot image uses; its data CRC verifies.
+
+The built `luofu_fmc_read_page` is the ECC-on plain-copy shape, checked in the linked `vmlinux`:
+`luofu_fmc_ecc_type_get` returns `saved` in r0 and that same value is passed to
+`luofu_fmc_ecc_type_set` (no `mov r1, #0`); the 1040/14 de-interleave constants are absent; the
+single copy is `memcpy(data, fmc->dma_buf, fmc->spec.page_size)`. Evidence:
+`build/linux-kbuild/linux-5.10.201/out/readpage-shape.txt` and `out/MANIFEST.txt`.
 
 ## 4. Next three experiments
 1. **Issue the write from the KERNEL, not from userspace.** Our kernel stops at `C9C = 0x001EB70A`,
@@ -347,8 +402,12 @@ corresponds to the source in the tree right now; re-run the lane and read its `S
   `build/tmp/fire_baseline_20261104.log`.
 - Only `rootfsb` (mtd14) was ever written by us (`STATE.md:6698`, the objective line: "Box healthy on
   vendor, only rootfsb (mtd14) written").
-- The current state after the last fire is UNKNOWN from this machine; the fire logged `NO RETURN`, so the
-  box must be checked, with a RESET hold if it does not answer.
+- **After the 2026-11-08 recovery:** vendor 2.4.15, `bootflag=a`, `boot_reg=0x10`, root SSH
+  restored with the `.omo-secrets` key. The web wizard accepted the lab admin password; the
+  systime command channel ran as root. The recovery image left 0-byte dropbear host keys;
+  `dropbearkey` regenerated them and a manual `dropbear` listens on :22, with an `/etc/rc.local`
+  line for the next boot. Wi-Fi up. The write-path registration was reverted to the read-only
+  shape; the next experiment is a single-page write test on `upgrade`, not a writable MTD.
 - `wiphy 0` on a factory-reset image is the `factory` flag, not a fault: `/usr/local/factory/sysinfo`
   ships `option factory '1'`, which makes `wifi_init.sh` exit silently (`docs/wifi-factory-gate.md`, §Summary).
 
@@ -359,16 +418,26 @@ corresponds to the source in the tree right now; re-run the lane and read its `S
 | `rootfs-rQ.sqfs` | `0669c8d4dbaf0f789daa3f9e9ff56e6e` | content-based test rootfs. Preserved in the same backup directory. |
 | `stock/rootfs-live.sqfs` | `75a7530c6d2eb694bd5105be1c482fee` | authoritative vendor rootfs, 14,864,384 B. Same size as rQ, different md5: compare md5, never size. |
 
+**2026-11-08 recovery:** the full live flash dump is at `dumps/router-20261108/full/` (17 MTD
+partitions, 129 MB, `MANIFEST.sha256` verified). It restores the canonical assets above that were
+lost with the old drive, and it adds the flashed custom kernel from the B slot: `mtd12-kernelb.bin`
+uImage md5 `339c498cf6908350c3099be9d4ce3565`, zImage md5 `9c2b86eb269ce802dfe1918a37900a43`,
+decompressed `Linux version 5.10.201 (luofu-lane@local) #1 SMP 2026-11-03T21:51:20+07:00`, appended
+DTB md5 `6564d93ef8f1138feafce2c4249a54c4` (13,880 B). The `build/audit/lane-b/out` path and the
+backup directory above are absent in this Linux checkout; `build/` now contains only
+`build/uart-logs`. The dump is the only surviving copy of that local lane build. The running
+vendor slots match the official 2.4.15 image: `kernela` uImage md5 `0264de73aaf6dcbc0f7f502ad3d0f7bf`
+and both rootfs UBI images reassemble to the official squashfs md5
+`6121f6b4fcefc6235f7e194f116f8220`.
+
 Everything else in `build/tmp/` is an experiment. `build/` is gitignored, so these exist on this machine
 only; the backup directory is the copy to keep.
 
 ## 7. Open hygiene
-- The submodule working tree carries uncommitted driver work in 19 files (`git -C opensource diff
-  --shortstat` -> `19 files changed, 4552 insertions(+), 3653 deletions(-)`; `-w` -> `4521/3622`). The
-  largest: `lab/luofu-wifi/luofu-wifi.c`, `lab/luofu-pcie/luofu-pcie.c`, `lab/luofu-clk/luofu-clk.c`,
-  `lab/luofu-gmac/luofu-gmac.c`, plus the 43-line stub block in `luofu-fmc.c`. Preserved at
-  `build/audit/backup-2026-11-01T11-31-21-521Z/opensource-diff-whitespace-insensitive.patch` and
-  `opensource-diff-raw.patch`.
+- The submodule is clean at `a0091e7` (single root commit); the 19-file working-tree diff from the
+  2026-11-01 audit is no longer present. The only local change after this review is the one-line
+  `luofu_read_ecc_off = false` fix in `lab/luofu-kernel/nand/luofu/luofu-fmc.c` (uncommitted,
+  uncompiled). The `build/audit/...` backup paths are absent in this checkout.
 - The parent repo has 13 untracked paths (`git status --porcelain`), including `docs/`,
   `EVIDENCE-INDEX.md`, `SESSION-HANDOFF.md`.
 - `nul` at the repo root is a 46-byte junk file containing a stray bash error. It is referenced by
@@ -385,7 +454,10 @@ only; the backup directory is the copy to keep.
   compared a buffer against a read of the same buffer, and the vendor read `05 00 01 22` where we wrote
   `A5 A4 A7 A6` (`STATE.md:121-128`).
 - "Wi-Fi reads 0 wiphys because of a vendor slot fallback." It is the `factory` flag (§5).
-- "The FMC read path is broken." It reads correctly (`STATE.md:2472`).
+- "The FMC read path is broken." The ECC-on path reads correctly after the `false` fix
+  (`STATE.md:466`); the committed source had `true`, which loses the last 14 bytes of each page and
+  corrupts volume-table record 118; the local working tree now has the `false` fix. See
+  `dumps/router-20261108/ubi-readpath-report.md`.
 - "The ~70 s reset was memory corruption." The record's own correction names the watchdog chain
   (`STATE.md:284-290`): init hands the fd to procd, procd never reaches its event loop, the timeout expires.
   A separate unreserved log ring (`STATE.md:502-506`) corrupted RAM and killed the boot earlier. The
