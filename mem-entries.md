@@ -20963,3 +20963,28 @@ layer - which is exactly what the C64/C68 crumbs showed (no page program, no era
 real size (`<0x4c80000 0x1600000>`, ending where `upgrade` starts at 0x6280000) fixed the write path
 and with it the whole vendor-init chain. The 8 MiB view was a lab artifact from when rootfs_data was
 scratch; as a view of a 22 MiB filesystem it was silently self-defeating.
+
+## 2026-11-13 05:37 - CORRECTION: the Phase C "closure" evidence is ambiguous, and the fix is a kernel-version check
+
+The marker that closed Phase C cannot, by itself, prove WHICH kernel ran it. The initramfs init
+writes `upper/etc/rc.local` into the vendor's config partition early; the vendor's own
+`/etc/init.d/done` executes that file on EVERY boot of the box, including its own kernel. So
+C94 = 0xC0DE600D plus `/etc/procd-ran` = LUFU-PROCD are produced equally well by
+  (a) the vendor userspace running on OUR kernel, or
+  (b) the stock vendor kernel booting later and running the same shadow rc.local.
+`phase3ap`'s network dump exposed exactly this: it carries a full `ip addr`, `iw`, `lsmod` and dmesg
+of the box, but its dmesg is the vendor's `Hi-GEMAC` driver and `uname -a` is `#0 SMP Sat Nov 25
+18:18:57 2023`, i.e. the STOCK kernel ran that dump, not ours. The box had fallen back before our
+kernel reached userspace.
+
+So Phase C must be re-verified with a marker that names its kernel. `phase3aq` writes the rc.local
+marker as:
+  - append `"$(date +%s) $(uname -v)"` to `/kernel-ran.log` (a log, not a rewrite, so every boot
+    that runs the shadow leaves a line);
+  - append the same kernel version plus the full network dump to `/net-state.log`;
+  - deposit `0xC0DE600E` when `uname -v` matches `*2023*` (the stock kernel) and `0xC0DE600D`
+    otherwise.
+After a run, a line in `/kernel-ran.log` carrying the 2026 build string is the proof that OUR kernel
+reached the vendor userspace's `done`; a log with only the 2023 line means it did not, and the
+C94 value is a leftover from the stock boot. Until that line is read, Phase C is CANDIDATE, not
+closed.
