@@ -1,9 +1,10 @@
 # STATUS - Cudy WR3000 v2.0
 
-Regenerated, never appended. Last edit 2026-11-10 (jffs2 overlay scan: XATTR fix, 704 s window).
+Regenerated, never appended. Last edit 2026-11-12 (Phase B: the jffs2 write-buffer root cause).
 Current state: this file. The dated record is [`STATE.md`](STATE.md) and `mem-entries.md`; it is history
 and is not a starting point. The claim-by-claim audit behind this page is
-`build/audit/lane-e/DRIFT-MATRIX.md` (gitignored).
+`build/audit/lane-e/DRIFT-MATRIX.md` (gitignored). The full reversal plan is
+[`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md).
 
 Pins are not written here. Derive them: `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
@@ -145,20 +146,39 @@ One numbering, six rows. Each receipt is a file you can open.
 | --- | --- | --- |
 | G1 FMC reads real flash | GREEN after the `false` fix; the committed HEAD had `true`, the local working tree is now `false` | `STATE.md:466` (`luofu_read_ecc_off = false` was the one-line fix); `STATE.md:2472` (`C88 = 0xE0021985`, a jffs2 dirent); the 2026-11-08 regression and local fix are in `dumps/router-20261108/ubi-readpath-report.md` |
 | G2 program path | **GREEN (2026-11-08):** single page `upgrade` 163 reads `LUFU`+0xa5; `C98=0xC0DEA00C`; `C88=0x04327400`; the post-kick `wait_ready` was the defect | `mem-entries.md` 2026-11-08; the test kernel's `C18=0xC0DE52A1` is the UBI diag |
-| G3 kernel + rootfs + userspace | PARTIAL, ADVANCED (2026-11-10): userspace runs; the jffs2 scan now reaches ~79% of `rootfs_data` after enabling `CONFIG_JFFS2_FS_XATTR` (the vendor fs carries xattr/xref nodes our build treated as unknown and dropped into the scan default case); the mount is cut off by the ~704 s watchdog window before the ~800 s scan finishes | `mem-entries.md` 2026-11-10 (0x9A1F121C unknown-node wall -> xattr enabled -> `C88=0x21A4`, `C98=0x9D03A35F`); the seeded 364-byte jffs2 image verified at `/dev/mtd15` offset 0 |
-| G4 Ethernet on our kernel | ONE DEFECT FROM GREEN (2026-10-30) | `STATE.md:731` (ARP resolves, frames move, host ping 0/3) |
-| G5 Wi-Fi on our kernel | VENDOR-ONLY | `STATE.md:732` (the gate row); `STATE.md:4036` and `STATE.md:4072` (`luofu-wifi` is not in the kernel fragment, so our image has no wifi driver) |
-| G6 sustained uptime | the fix is built and committed, NOT confirmed by a fire | `STATE.md:344` says exactly that. Cause: the unfed watchdog, `/sbin/init` hands the fd to procd and procd never reaches its event loop, so the 30 s timeout expires (`STATE.md:284-290`) |
+| G3 kernel + rootfs + userspace | **OVERLAY WRITE-THROUGH GREEN (2026-11-12):** C94=0xC0DE9D0F with the jffs2 upper, the vendor squashfs through `ubiblock0_0`, the overlay assembled, and `persist.txt` written and fsynced through it. The vendor reads `/overlay/upper/persist.txt` = `LUFU-PERSIST` (13 B) and `/persist.txt` through its own overlay. Two write-path fixes: 5.10 hardcodes `jffs2_cleanmarker_oob()` to 0, so the write buffer is only set up for a NOR-typed MTD and rootfs_data is now typed `MTD_NORFLASH` at probe; and partial MTD writes (jffs2's 12-byte erase marker) are now a driver read-modify-write. Persistence across a reboot is `phase3u` | `mem-entries.md` 2026-11-12 (PHASE B ROOT CAUSE, WRITE-THROUGH IS GREEN); `fire-phase3s.log` (local); `opensource/docs/phase54-jffs2-write-path.md` |
+| G4 Ethernet on our kernel | **DRIVER RE-INTEGRATED AND BUILT (2026-11-12):** the current image had no ethernet driver (`# CONFIG_ETHERNET is not set`, sources absent from the build tree). `luofu-gmac.c` and `luofu-mdio.c` are staged in `drivers/net/ethernet/luofu/`, PHYLINK was given a prompt so it can be built in, and with `CONFIG_ETHERNET=y CONFIG_PHYLINK=y CONFIG_LUOFU_MDIO=y CONFIG_LUOFU_GMAC=y` the full `zImage` links with both drivers. No fire has run with them yet. The 2026-10-30 measurement stands as the target: ARP resolves, frames move, host ping 0/3, cable on eth2 | `STATE.md:731`; `drivers/net/ethernet/luofu/` (build tree); `mem-entries.md` 2026-11-12 (PHASE D PREP) |
+| G5 Wi-Fi on our kernel | VENDOR-ONLY. Separate deep lane: our own cfg80211 driver binds and creates a netdev, and the firmware dialogue/ring ownership/load are proven, but the data path is gated on the vendor chip layer's TX credit | `STATE.md:732`; `opensource/docs/PORT-STATUS.md` |
+| G6 sustained uptime | the kernel pet timer keeps the box alive for ~1050 s (600 beats, delayed); the vendor returns ~12.5 min after a fire. A real `/dev/watchdog` driver is now integrated in the tree (`luofu-wdt`, four reversal defects fixed, `CONFIG_LUOFU_WATCHDOG` not yet enabled) so procd can own the watchdog | `arch/arm/mach-luofu/luofu.c` pet timer; `drivers/watchdog/luofu-wdt.c`; `STATE.md:583-595` |
 
 ## 3. The one wall, and the write-path situation
-The wall is the persistent overlay, and it has moved twice on 2026-11-09/10. Our kernel reaches
-userspace and executes our initramfs `/init`. The in-band cleanmarker is in place, the seeded minimal
-jffs2 is proven on the partition through the FMC write path, and the scan's real blocker turned out to
-be a feature mismatch: the vendor fs has xattr nodes, our build did not, and `CONFIG_JFFS2_FS_XATTR=y`
-carried the scan past the unknown-node wall to ~79% (`C88` 8,612 reads). What remains is time: the scan
-needs ~800 s at the measured ~73 ms/read, while the box resets at ~704 s (pet stops ~626 s, watchdog
-~78 s later). The mount is cut off, not hanging. Next levers: shorten the scan (empty-flash reads and
-the per-page completion poll) or keep the pet alive past ~900 s.
+The wall moved again on 2026-11-10 and its cause was found on 2026-11-12. The C94 readout is
+trustworthy (Step 0: `0xC0DE9D00`), and the full three-mount overlay assembly works on hardware:
+`phase2c` returned C94=0xC0DE9D07 with the seeded jffs2 read-write, the vendor squashfs mounted
+through `ubiblock0_0`, and overlayfs assembled at `/mnt/new`. Two fixes closed the UBI wall: the read
+path forces the vendor's ECC type 1 (repairing vtbl record 118), and the ubiblock node is created with
+`new_encode_dev(dt)`.
+
+The remaining Phase B defect was every write on the jffs2 returning -EINVAL: `phase3b` through
+`phase3k` walked it from overlayfs's read-only superblock down to the exact mkdir. The cause is in
+jffs2 itself: in 5.10 `fs/jffs2/os-linux.h` hardcodes `jffs2_cleanmarker_oob(c)` to 0, so
+`jffs2_nand_flash_setup()` is never called and the write buffer is set up only by
+`jffs2_nor_wbuf_flash_setup()`, which requires `MTD_NORFLASH` and no `MTD_BIT_WRITEABLE`. With the
+partition typed `MTD_NANDFLASH`, jffs2 issued direct unaligned node writes (a 0x44-byte dirent at
+0x1d8) and `luofu_mtd_write()` correctly refused them with -EINVAL. The mount only reads, which is
+why a dead write path looked green. `phase3l` types the rootfs_data partition as `MTD_NORFLASH` at
+probe (the master keeps MTD_NANDFLASH for UBI), which switches on jffs2's write buffer and makes
+every flush a whole write-size page.
+
+The wall is now DOWN. `phase3s` returned C94=0xC0DE9D0F (all mounts plus the write test), and the
+vendor reads the file the overlay wrote: `/overlay/upper/persist.txt` = `LUFU-PERSIST` (13 B), also
+visible as `/persist.txt` through the vendor's own overlay. The erase-complete marker is a 12-byte
+partial MTD write, which the driver now handles as a read-modify-write of the page; that is the
+second fix, and it is why the partition's free blocks are usable at all.
+
+The earlier scan-time history below is retained because it explains the partition layout and the
+watchdog window. The old "ASSERTED-BUT-UNLOGGED" caveats that follow refer to the 2026-11-03/04
+write tests and are superseded by the fires above.
 
 The write path is ASSERTED-BUT-UNLOGGED in both directions.
 - The claim "the current source writes" has no fire log: a search for `p163_nonff` across `build/`

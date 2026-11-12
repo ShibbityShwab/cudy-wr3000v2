@@ -1,5 +1,23 @@
 # Start here
 
+## Current state (2026-11-12) - read this block before anything below
+
+The kernel work is in `build/linux-kbuild/linux-5.10.201` (a gitignored working tree, the source of
+truth) and drives the "overlay finish" lane. `STATUS.md` is the current gate table and
+`PLAN-FULL-REVERSAL.md` is the phase plan; both are newer than the phase docs below. The device
+cycle is `build/linux-kbuild/run-phase*.sh` (detached, ~12.5 min per fire); read the verdict cells
+from `C94` after the vendor returns. `.sshwrap/` does not exist in this checkout; the fire scripts
+use `.omo-secrets/router_ed25519` directly.
+
+As of 2026-11-12: our kernel boots from the B slot, the vendor squashfs mounts through `ubiblock0_0`,
+the jffs2 upper mounts, and overlayfs assembles. The write path was closed by two fixes - jffs2's
+write buffer enabled by typing `rootfs_data` as NOR at probe, and the erase-complete marker routed
+through that buffer - with the full ladder and receipts in `mem-entries.md` (2026-11-11/12) and
+`opensource/docs/phase54-jffs2-write-path.md`. Next: prove the file persists across a reboot, then
+run the vendor `/sbin/init` on our kernel (Phase C, including the vendor-init variant in the plan).
+
+## Older handoff (2026-10-03)
+
 Work from THIS directory. Earlier sessions ran in the user home directory, which is not a git
 checkout, so `task.isolation.enabled` could never apply and DAG nodes / isolated swarms were refused.
 From this repo they work.
@@ -90,8 +108,15 @@ vendor modules; that ordering is enforced in the runner.
 
 ## Builds
 
-No local ARM toolchain: push to a feature branch and let the GitHub Actions job build the `.ko`
-(`opensource/.github/workflows/build-load-test-module.yml`). `gh.exe` is at `~/.local/gh/gh.exe`.
+Local, not CI. The ARM cross-toolchain is in `build/linux-kbuild/toolchain/` and the prepared tree is
+`build/linux-kbuild/linux-5.10.201`. From the tree:
+
+    make ARCH=arm CROSS_COMPILE=$PWD/../toolchain/bin/arm-none-linux-gnueabihf- -j16 zImage < /dev/null
+
+The slice is `cat zImage arch/arm/boot/dts/luofu-r116.dtb > payload`, then `mkimage -A arm -O linux
+-T kernel -C none -a 0x80608000 -e 0x80608000`, then the fixed 40,732-byte trailer from the previous
+slice. `build/linux-kbuild/run-phaseNN.sh` does the flash/reboot/read-back. A `make` that sits in
+`syncconfig` is waiting on stdin: redirect `< /dev/null`. Do not push to GitHub Actions to check a build.
 
 ## Tools added in phases 23-25 (in `opensource/`, not here)
 

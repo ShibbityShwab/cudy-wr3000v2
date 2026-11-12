@@ -18686,7 +18686,7 @@ that disagree are a question about the instrument before the hardware.
 
 ## 2026-11-08 - the U-Boot abort key is not the gate; the serial RX path is
 
-**Root, live env, and dumps.** The Cudy web UI accepts the setup password `admin1234` with the
+**Root, live env, and dumps.** The Cudy web UI accepts the setup password `<ROUTER-WEB-PASSWORD>` with the
 page's own hash: `sha256(password + salt)`, then `sha256(h1 + token)` when a token field is present.
 The authenticated systime page still executes the `date -s '%s'` injection as `uid=0(root)`. With
 root, the live U-Boot environment, `/proc/mtd`, both U-Boot slots, and `bdinfo` were dumped. The
@@ -19794,3 +19794,854 @@ Both halves are individually mountable: jffs2 upper on rootfs_data, squashfs low
 remaining wall is assembling them: mount both, then mount "overlay" with lowerdir/upperdir/workdir
 (userspace paths are the natural place for this). Then exercise a write through the overlay to test
 the jffs2 wbuf path.
+
+## 2026-11-10 - C94 verdict is overwritten by our own exec ladder; the ladder must publish it
+
+Fire `step0` (slice built 14:12 +07, fired 14:13): the mount test's verdict was routed to a global that
+the mach watchdog pet republishes to C94 every beat, plus an immediate C94 deposit. After the vendor
+returned at +705 s, C94 still read 0xC0DE9B00, the init exec ladder's own value, while C88=0x9C00024D
+(589 reads) proves the boot ran and reached the userspace jffs2 scan. So neither the mount test deposit
+nor the pet beat is the last C94 writer in a boot: init/main.c's `luofu_stage(0xC0DE9B00 | ret)` runs
+after the pet's last effective beat and overwrites the verdict.
+
+Fix built as `step0b` (not yet fired): the exec site now writes `luofu_overlay_verdict` when the mount
+test set one, and keeps `0xC0DE9B00|ret` for a failed exec. The change is in init/main.c only. Rebuild
+verified in vmlinux: the ret==0 path loads 0xc0817a60 and the literal 0xc0de9b00, and `moveq` selects
+the ladder value only when the verdict is zero.
+
+Two side findings from the same fire:
+- The userspace `/init` mark at mtd15 0xE0000 (a 4-byte code, written by init-raw.c) read back 0xff
+  after the vendor boot. The vendor's own jffs2 mounts rootfs_data and garbage-collects that block, so
+  the raw mark is not a durable cross-boot readout. The cell readout remains the path.
+- The box returned healthy: 2 wiphys, 6 interfaces, calibration [SUCC], 0 .omo-off leftovers.
+
+## 2026-11-10 - STEP 0 VERIFIED: C94=0xC0DE9D00, the mount test's verdict survives the vendor boot
+
+Slice `step0b` (the exec ladder now publishes `luofu_overlay_verdict`) fired at 14:26 and the vendor
+returned at 14:38:39. Cells: C94=0xC0DE9D00, C88=0x9C00024D (589 reads), C98=0x9E030044,
+C18=0xC0DE50E5, C1C=0xC0DE4B01. This is the first verdict that is attributable to the mount test
+rather than to the exec ladder.
+
+The value means the mount test RAN and all three mounts failed (no bits set), which matches the source
+exactly: the initramfs carries only `/init`, so `/overlay`, `/mnt/lower`, and `/mnt/new` do not exist
+and init_mount() returns -ENOENT at kern_path() before reaching any filesystem.
+
+The readout is now unambiguous:
+- 0xC0DE9D0x: the mount test ran; bits 1/2/4 = jffs2 / squashfs / overlay mounted.
+- 0xC0DE9B0x: exec failed with errno x, or the mount test never set a verdict and exec succeeded.
+- 0x9f00xxxx: the pet ran, but no verdict was ever published (the mount test did not return).
+
+Mechanism, now measured end to end: the mount test sets `luofu_overlay_verdict`; the mach pet
+republishes it to C94 every beat; init/main.c's exec site writes the verdict instead of
+`0xC0DE9B00|ret` when it is set. The exec ladder is the last C94 writer in a boot, which is why the
+earlier pet-only fire could not survive.
+
+Side finding confirmed again: the userspace `/init` mark at mtd15 0xE0000 is not durable across the
+vendor boot (the vendor's jffs2 GC erases that block), so the sysctrl cells remain the readout.
+
+## 2026-11-10 - STEP 1 PARTIAL: C94=0xC0DE9D05, jffs2 and overlay mount; squashfs source was wrong
+
+Fire `step1` (mount points + rw jffs2 + page-sized overlay options) returned C94=0xC0DE9D05 at
+14:52:22. C88=0x9C0003EB (1,003 reads), C98=0x9E031000, C18=0xC0DE50E5, C1C=0xC0DE4B01.
+
+Bits 1 and 4 set, bit 2 clear: j1 (jffs2 rw at /overlay) returned 0, j2 (squashfs at /mnt/lower)
+failed, and j3 (overlay at /mnt/new) returned 0. This proves the overlay assembly mechanism works,
+including overlayfs's mount-time jffs2 writes (the workdir xattr set/remove and the temp-file
+whiteout probe). The overlay used the empty /mnt/lower directory as its lower because the squashfs
+mount failed, so bit 4 alone is not evidence that the real lower was in place; only 0xC0DE9D07 is.
+
+The squashfs failure is the SOURCE STRING. The call used `init_mount("mtd:rootfsa", ...)`; the
+"mtd:NAME" form is handled by the MTD superblock code that jffs2 uses, but squashfs goes through
+mount_bdev(), which needs a block device path. `/dev/mtdblock13` is not available either at this
+point, because devtmpfs is only mounted in prepare_namespace(), AFTER late_initcall_sync.
+
+Fix for `step1b`: create /dev, mount devtmpfs there from the test, and use /dev/mtdblock13 as the
+squashfs source. Diagnostic bit 3 records a failed devtmpfs mount, so full success stays 0xC0DE9D07.
+
+## 2026-11-10 - STEP 1b: C94=0xC0DE9D01, devtmpfs mounted but squashfs and overlay still failed
+
+Fire `step1b` returned C94=0xC0DE9D01 at 15:06:29. C88=0x9C000430 (1,072 reads),
+C98=0x9E031000, C18=0xC0DE50E5, C1C=0xC0DE4B01. Bit 1 set (jffs2), bits 2 and 4 clear, and bit 3
+clear means the devtmpfs mount succeeded. So /dev was mounted by the test, yet the squashfs mount
+from /dev/mtdblock13 still failed, and the overlay mount also failed this time even though it
+succeeded in `step1` (0xC0DE9D05) with the same empty /mnt/lower.
+
+The overlay regression is persistent jffs2 state. The seed test erased only block 0 and rewrote the
+364-byte seed, but overlayfs's mount-time workdir temp/whiteout writes land in a later eraseblock.
+The next boot's jffs2 scan merges those nodes, so the workdir is not clean and the overlay mount
+fails. The mount test itself still proves the jffs2 upper mounts.
+
+`step1c` carries two fixes: the seed test now erases the WHOLE rootfs_data test partition
+(mtd->size / mtd->erasesize blocks) before writing the seed, and a failed mount test now reports a
+0x9D000000-based layout with the j1 errno in bits 8-13 and the j2 errno in bits 16-21. That makes a
+missing block node (errno 2) distinguishable from a rejected squashfs (errno 22) or a busy device
+(errno 16). Full success remains 0xC0DE9D07.
+
+## 2026-11-10 - STEP 1c: C94=0x9D160005 - overlays fixed, squashfs source is a UBI container
+
+Fire `step1c` returned C94=0x9D160005 at 15:21:12. C88=0x9C000415 (1,045 reads), C98=0x9E031000,
+C18=0xC0DE50E5, C1C=0xC0DE4B01. Decoded: 0x9D000000 | status 0x05 (j1 and j3 succeeded) with the
+j1 errno 0 and the j2 errno 22 (-EINVAL).
+
+Two results:
+- The whole-partition seed erase fixed the overlay regression. j3 mounted again (the seed test now
+  clears the workdir temp/whiteout nodes from the previous boot), so persistent jffs2 state was the
+  cause of the 0x9D01 fire.
+- The squashfs mount failed with EINVAL because mtd13 is not a squashfs image. The vendor side reads
+  `55 42 49 23` ("UBI#") at offset 0 of both /dev/mtd13 and /dev/mtdblock13; the vendor's boot
+  attaches ubi0 and creates `ubiblock0_0` from ubi0:0(squashfs). The squashfs lives INSIDE the UBI
+  volume, so a raw mtdblock mount can never work.
+
+Fix for `step1d`: the lower must be the ubiblock device. Our cmdline already attaches
+`ubi.mtd=rootfsb` and `ubi.block=0,0`, so `ubiblock0_0` exists by late_initcall_sync (ubi_init is a
+late_initcall, this test is late_initcall_sync). The test looks up its dev_t with
+blk_lookup_devt("ubiblock0_0", 0), creates /dev/ubiblock0_0 with init_mknod (avoiding early-devtmpfs
+node creation), and mounts squashfs from it.
+
+## 2026-11-10 - STEP 1d: C94=0x9D13000D - ubiblock0_0 was not registered
+
+Fire `step1d` returned C94=0x9D13000D at 15:35:14. Decoded: 0x9D000000 | status 0x0D (j1 ok, j3
+ok, and the ubiblock-lookup bit set) with j2=-ENODEV (errno 19 in bits 16-21). So overlay and jffs2
+are fine; the squashfs still has no block device.
+
+The vendor side rules out the content: attaching mtd14 as ubi1 succeeds and its volume 0 is a static
+14.2 MiB volume named "squashfs". The ubi.block=0,0 syntax is correct, and ubi_init attaches all
+MTD devices before calling ubiblock_init, so the creation should follow the attach. What is not yet
+known is which half failed: the UBI attach to rootfsb in OUR kernel, or the ubiblock param creation
+after it.
+
+`step1e` discriminates in the j2 errno: after a failed blk_lookup_devt, it calls
+ubi_get_device_info(0). A present ubi0 gives -ENXIO (6), meaning UBI attached but no ubiblock was
+created; an absent ubi0 gives -ENODEV (19), meaning the attach itself failed.
+
+## 2026-11-10 - STEP 1e: C94=0x9D13000D - no ubi0, so the cmdline attach never produced a device
+
+Fire `step1e` returned C94=0x9D13000D at 15:50:52 with C88=0x9C0004B7 (1,207 reads). The
+ubi_get_device_info(0) discriminator answered -ENODEV (j2 errno 19): there is no ubi0 at all, so
+the cmdline `ubi.mtd=rootfsb` attach did not produce a UBI device. The read count supports that: a
+rootfsb attach scan was measured at ~7,777 reads (~430 s), while this boot's total is 1,207.
+
+The vendor side proves the partition is fine: `ubiattach -m 14 -d 1` succeeds and ubi1 volume 0 is
+a static 14.2 MiB volume named "squashfs". So the blocker is inside our kernel's UBI attach path,
+not the data on flash.
+
+`step1f` makes the mount test own the whole UBI path instead of relying on the cmdline: scan
+ubi0..3 with ubi_get_device_info, attach "rootfsb" itself with ubi_attach_mtd_dev if no device is
+present, open volume 0 read-only, create the ubiblock via ubiblock_create, mknod its dev_t, and
+mount squashfs. If the attach fails, its exact errno lands in the j2 field of the 0x9D0000xx
+failure layout (22 = the volume table was rejected, 16 = busy, 19 = MTD not found).
+
+## 2026-11-10 - STEP 1f: C94=0x9D16000D - the UBI attach itself returns -EINVAL
+
+Fire `step1f` returned C94=0x9D16000D at 16:05:56. C88=0x9C000641 (1,601 reads), C98=0x9E031000,
+C18=0xC0DE50E5, C1C=0xC0DE4B01. The failure layout decodes as j1 ok, j3 ok, j2 errno 22 (-EINVAL).
+The mount test scanned ubi0..3 (none), then attached "rootfsb" itself with ubi_attach_mtd_dev; the
+attach consumed roughly 1,100 extra reads and returned -EINVAL.
+
+The overlay assembly is therefore proven independently of the lower: jffs2 read-write on the seed,
+the page-sized overlay options, the mount points, and overlayfs itself all return 0 (j1 and j3 are
+set in every fire from step1c onward). The only missing mount is the vendor squashfs lower, and the
+blocker is now pinned: our kernel's UBI attach rejects the volume table of a partition whose UBI the
+vendor attaches without complaint. The next lane is the volume-table read/validation path
+(ubi_read_volume_table -> vtbl_check): compare the bytes our FMC returns for the layout-volume LEBs
+with the vendor's, or instrument the vtbl CRC check the way the layout-volume search was instrumented
+before.
+
+A scratch squashfs detour was also tried and stopped early: mtd16 block 0 is a marked bad block
+(`mtd write` prints "Skipping bad block at 0x0000000", and the in-band marker reads 4c 44 44 44),
+so a raw image at offset 0 of that partition cannot be mounted. A DTS partition at block 1 or the
+log partition would be the viable scratch carriers, but the vendor UBI attach is the productive
+lane and the one Step 3 needs anyway.
+
+## 2026-11-10 - PHASE A DIAGNOSTIC: C94=0x9D16006D - headers read clean, vtbl record 118 does not
+
+Fire `phase2a` added a metadata comparison to the failure verdict: read the EC header at 0, the VID
+header at 2048, and vtbl record 118 at 24392 through our MTD path, and compare their trailing CRCs
+with the vendor's exact values (65 62 45 3d, b8 25 64 a8, f1 16 c3 6b). Result: C94=0x9D16006D.
+Bits 5 and 6 are set, so the EC and VID headers are byte-identical to the vendor's. Bit 7 is clear,
+so vtbl record 118 is still corrupted. C88=0x9C00055C.
+
+The driver's own comment on the ECC path names this exact failure: with the ECC engine OFF the
+controller splices 14 spare bytes in at offset 1040, and record 118's CRC arrives as 0xf1160000
+instead of 0xf116c36b. The read path restored `saved`, the FMC_CFG ECC_TYPE read at entry, instead of
+forcing the vendor's ECC-on value. A prior erase/write path can leave ECC_TYPE at 0, so the read ran
+with the engine off while taking the plain-copy branch. The vendor's live FMC_CFG is 0x1823,
+ECC_TYPE = 1.
+
+`phase2b` forces ECC type 1 for every data read and restores `saved` on the way out. The build shows
+`mov r1, #1` before the `luofu_fmc_ecc_type_set` call in `luofu_fmc_read_page`. If this is the only
+defect, the UBI attach should now pass vtbl_check, ubi_init's ubiblock creation should register
+ubiblock0_0, and the mount test should reach 0xC0DE9D07.
+
+## 2026-11-10 - PHASE A BREAKTHROUGH: ECC on fixes record 118 and the UBI attach; the ubiblock node had a dev_t bug
+
+Fire `phase2b` returned C94=0x9D0600E5 with C88=0x9C0020AC (8,364 reads, the full UBI attach scan).
+Decoded: j1 ok, j3 ok, the ubiblock-lookup failure bit CLEAR (d = 0), and metadata bits 5, 6 and 7
+ALL set. So forcing the vendor's ECC type 1 did exactly what the driver comment predicted: record
+118's CRC now matches, vtbl_check passes, ubi0 attaches, and ubiblock0_0 exists. The UBI wall is down.
+
+The only failure left was j2 = -ENXIO (6). That is the block-device open, not the data: the mount
+node was created with `blk_lookup_devt()`'s kernel dev_t, but `init_mknod()` runs its third argument
+through `new_decode_dev()`. The kernel dev_t is MKDEV(major << 20 | minor); new_decode_dev treats it
+as the glibc new-encoding, produces the wrong major/minor, and the block layer has no disk for it.
+Hence -ENXIO. `phase2c` passes `new_encode_dev(dt)` instead; the disassembly shows the shift/mask
+encoding immediately before `init_mknod`.
+
+If `phase2c` returns 0xC0DE9D07, Phase A (UBI attach and squashfs lower) and the overlay assembly's
+three-mount target are both closed. The next wall is Phase B: a write through the overlay and the
+jffs2 wbuf path.
+
+## 2026-11-10 - PHASE A CLOSED: C94=0xC0DE9D07 - the full overlay assembly mounts on hardware
+
+Fire `phase2c` returned C94=0xC0DE9D07 with C88=0x9C0020C1 (8,385 reads), C98=0x9E031000,
+C18=0xC0DE50E5, C1C=0xC0DE4B01. All three mount bits are set: the seeded jffs2 mounts read-write,
+the vendor squashfs mounts from ubiblock0_0, and overlayfs assembles them at /mnt/new. This closes
+Phase A of `PLAN-FULL-REVERSAL.md` and the original overlay plan's three-mount target.
+
+The complete chain, measured end to end:
+1. `luofu_read_ecc_off=false` but the read path now FORCES ECC type 1 (the vendor's FMC_CFG 0x1823)
+   instead of restoring whatever a prior erase/write left behind.
+2. With ECC on, the 14-byte splice at offset 1040 disappears, vtbl record 118's CRC reads
+   f1 16 c3 6b, vtbl_check passes, and ubi0 attaches after the full 8,385-read scan.
+3. ubi_init's ubiblock_init creates ubiblock0_0 from volume 0 (the static squashfs volume).
+4. The test creates the block node with new_encode_dev(blk_lookup_devt(...)), because init_mknod's
+   third argument is decoded with new_decode_dev and a raw kernel dev_t encoded the wrong major.
+5. squashfs mounts at /mnt/lower, and the overlay mounts at /mnt/new with the jffs2 upper.
+
+Phase B is now firing: `luofu_overlay_write_test()` creates /mnt/new/persist.txt with
+"LUFU-PERSIST\n" and fsyncs it. Verdict bit 3 (0xC0DE9D0F) means the write path returned clean; the
+raw mtd15 first megabyte on the vendor is the primary evidence for the file landing in the jffs2
+upper.
+
+## 2026-11-10 - PHASE B FIRST FIRE: C94=0xC0DE9D07 - the overlay write did not reach flash
+
+Fire `phase2d` returned C94=0xC0DE9D07 (bit 3 clear) at 17:44:57. C88=0x9C0020B7, C98=0x9E031000.
+All three mounts still succeed, so the overlay assembly is stable. The write test did not return
+clean: either `filp_open("/mnt/new/persist.txt", O_CREAT|O_WRONLY|O_TRUNC, 0644)`, `kernel_write()`
+or `vfs_fsync()` failed. Reading raw mtd15's first megabyte on the vendor finds neither `persist.txt`
+nor `LUFU-PERSIST`, so nothing landed in the jffs2 upper (the seed test had erased and reseeded the
+partition at boot, so a successful create would be the only writer of that name).
+
+The verdict does not carry the error, so `phase2e` changes the write-failure layout to
+`0x9E000000 | 0x07 | (-errno << 8)` (tag 0x9E, all three mounts, the errno in bits 8-13). That
+separates an open failure (-ENOENT/-EROFS) from a create or wbuf failure (-EIO/-ENOSPC/-EINVAL)
+and points the next fix at the right layer.
+
+## 2026-11-10 - PHASE B: C94=0x9E001E07 - the overlay create returns -EROFS
+
+Fire `phase2e` returned C94=0x9E001E07. Tag 0x9E, status 0x07 (all three mounts up), errno 0x1E = 30,
+which is -EROFS. The three mounts are stable, so the refusal is at the write layer: the overlay's
+`filp_open(..., O_CREAT)` was rejected as a read-only filesystem before anything reached flash.
+
+Two readings are consistent with the evidence:
+- The overlay mount's own capability probes write to the jffs2 workdir (the xattr set/remove and the
+  temp-file whiteout rename). If one of those writes fails inside jffs2's write buffer, jffs2 marks
+  the superblock read-only, and the later create returns -EROFS even though the mount succeeded.
+- The jffs2 superblock was already read-only but the overlay's upper check was satisfied by the mount
+  record rather than the live flag; the create then hits the VFS read-only check.
+
+The raw seed test erases and programs through `luofu_fmc_erase_block`/`luofu_fmc_write_page`
+directly. jffs2 goes through `mtd_erase`/`mtd_write` and the `luofu_mtd_erase`/`luofu_mtd_write`
+hooks, a path the current tree has not exercised in a fire. The next experiment is direct: erase and
+program a free rootfs_data block through the MTD hooks and read it back through the raw FMC read
+path, plus a `sb_rdonly()` check on the jffs2 and overlay superblocks at the moment of the failed
+create. That separates a hook defect from a jffs2 superblock flip.
+
+## 2026-11-10 - PHASE B DIAGNOSTIC: C94=0x9E001E27 - jffs2 rw, overlay sb ro, MTD hook test failed
+
+Fire `phase2f` returned C94=0x9E001E27. Decoded: tag 0x9E, mounts 0x07, errno 0x1E (-EROFS), bit 4
+clear (the jffs2 superblock is still READ-WRITE), bit 5 set (the OVERLAY superblock is READ-ONLY),
+and bit 6 clear (the MTD hook test failed). The hook test erased, programmed and read back a free
+block of the scratch upgrade partition through `mtd_erase`/`mtd_write`/`mtd_read`; it did not come
+back clean. C88=0x9C002326 (9,000 reads) includes the UBI attach and the hook test.
+
+So the write wall is below jffs2: the MTD hook path that jffs2 uses is broken, while the raw seed
+test (which calls `luofu_fmc_erase_block`/`luofu_fmc_write_page` directly) still works. The overlay
+superblock is read-only, but the jffs2 superblock is not; the overlay may have set its sb ro after a
+failed upper write during the mount-time capability probes.
+
+`phase2g` makes the hook test return a step code and places it in bits 16-23 of the same 0x9E layout:
+0x10|errno = erase failed, 0x20|errno = write failed, 0x30|errno = read failed, 0x40 = readback
+mismatch, 0 = the hooks work. That names the failing call without another blind fire.
+
+## 2026-11-10 - PHASE B DIAGNOSTIC 2: C94=0x9E401E27 - the MTD erase returned 0 but did not erase block 1
+
+Fire `phase2g` returned C94=0x9E401E27. The hook code in bits 16-23 is 0x40: erase and write both
+returned 0, and the readback differed. The low byte is unchanged (mounts 0x07, jffs2 rw, overlay sb
+ro, errno 30).
+
+The vendor's mtd16 at 0x20000 explains the mismatch exactly. The page still begins with the old
+`HSPQ` firmware header, and our XOR pattern appears from offset 0x38 onward. On NAND a program can
+only clear bits, and 0x48&0x5a=0x48, 0x53&0x5b=0x53, 0x50&0x58=0x50, 0x51&0x59=0x51: the old
+header is the AND of the old bytes with our buffer. So `luofu_mtd_erase` WAS called, returned 0, and
+left the block programmed; the write then programmed over it. The MTD erase hook is a silent no-op
+on upgrade block 1, while the raw seed test's `luofu_fmc_erase_block` still works on rootfs_data.
+
+Two candidates: block 1 is special (bad/protected/reserved in the BBT), or the erase hook's on-disk
+effect differs from the raw call. `phase2h` moves the same hook test to upgrade block 2 (offset
+0x40000), the block the earlier raw page-163 write test proved erasable and writable. If the hooks
+pass there, block 1 was the anomaly; if they fail, the hook path is the defect.
+
+## 2026-11-10 - PHASE B DIAGNOSTIC 3: C94=0x9E401E27 on block 2 too - the MTD erase hook no-ops
+
+Fire `phase2h` moved the hook test to upgrade block 2 (offset 0x40000) and returned the same
+C94=0x9E401E27. Hook code 0x40 again: erase returned 0, write returned 0, readback differed. Block 1
+was not special. The raw page-163 write test on this same block erased it and programmed LUFU through
+`luofu_fmc_erase_block`/`luofu_fmc_write_page`; the `mtd_erase` path is what fails to erase.
+
+The erase hook computes `row = div_u64(mtd_get_master_ofs(mtd, pos), mtd->writesize)` and calls
+`luofu_fmc_erase_block(fmc, row)`. The write hook uses the same translation and its program lands,
+so the defect is specific to the erase path: either the hook receives a partition-relative address
+and `mtd_get_master_ofs()` adds the partition base a second time (targeting a wrong, high row and
+returning 0), or the erase call inside the hook differs from the raw call. The overwritten `HSPQ`
+header at 0x20000 and the unchanged block-2 page both fit a wrong-row silent no-op.
+
+Next experiment: on the same block, call `luofu_fmc_erase_block()` directly with the expected
+master row and compare it with `mtd_erase()`; log `instr->addr`, the computed row and the erase
+return in the verdict, so the address convention is measured rather than assumed. Then fix the hook
+translation or the call.
+
+## 2026-11-10 - PHASE B COMPARISON 1: 0x8E4040 - both raw and MTD fail on upgrade block 2
+
+Fire `phase2i` ran the raw FMC erase/program/readback and the MTD `mtd_erase`/`mtd_write`/`mtd_read`
+path on the same upgrade block 2 (offset 0x40000). C94=0x8E4040: the raw step code is 0x40 and the
+MTD step code is 0x40. Both paths report success and both read back the wrong bytes. That makes the
+upgrade block itself the confound, not the hook: the earlier page-163 raw test wrote a different
+page of this block, and blocks 0-2 of this partition carry the vendor's `LDDD` bad marker and the
+`HSPQ` upgrade image.
+
+`phase2j` repeats the comparison on rootfs_data block 7 (offset 0xE0000), the partition the seed
+test erases and programs through the raw driver every boot. If the raw path passes there and the
+MTD path does not, the erase hook is the defect. If both pass, the earlier hook failures were the
+upgrade blocks and the overlay -EROFS has another cause.
+
+## 2026-11-10 - PHASE B COMPARISON 2: 0x8E4040 on rootfs_data block 7 too
+
+Fire `phase2j` repeated the comparison on rootfs_data block 7 (offset 0xE0000) and returned the
+same C94=0x8E4040: the raw step code and the MTD step code are both 0x40, a readback mismatch.
+So the failure follows the block, not the access path. Block 7 is suspect (the seed test's erase-all
+loop does not verify its erases, and the jffs2 logs still show LUFU/a5 remnants in later blocks),
+and a bad or write-protected block would make both the raw erase and the hook erase return 0 while
+leaving the old contents in place.
+
+The only block this bench has PROVEN erasable and writable is block 0: the seed test erases and
+programs it, and the jffs2 mount reads the seed back every boot. `phase2k` moves the comparison to
+block 0 (offset 0). If the raw path passes there and the MTD path does not, the hook is the defect.
+If both pass, the overlay -EROFS is not a hook problem at all.
+
+## 2026-11-10 - PHASE B COMPARISON 3: 0x8E4040 on block 0 too - the read races the program
+
+Fire `phase2k` ran the comparison on block 0, the block the seed lands on every boot, and returned
+the same C94=0x8E4040: both the raw and MTD paths erase and program with return 0, then read back the
+wrong bytes. Since block 0 is proven good by the seed, the failure is not the block and not the
+erase. It is the ORDER: the driver's write path deliberately has no post-kick wait (the removed
+`wait_ready` was the G2 fix), so a read issued immediately after the program returns the pre-program
+page. The vendor's 0x20000 page shows the program does land eventually (the old header ANDed with
+our pattern), which fits an asynchronous tPROG.
+
+`phase2l` adds `msleep(20)` between the program and the readback in both the raw and MTD paths. If
+the verdict becomes 0x8E0000, the hooks and the raw erase/program are fine and every earlier
+mismatch was the test's timing; the overlay -EROFS then needs the jffs2/overlay path re-examined.
+If it stays 0x8E4040, the write/read pair is genuinely broken and the program-completion path is the
+next wall.
+
+## 2026-11-10 - PHASE B COMPARISON 4: 0x8E4040 persists with a 20 ms settle
+
+Fire `phase2l` added `msleep(20)` between the program and the readback in both the raw and MTD paths
+and still returned C94=0x8E4040. The timing hypothesis is dead: the readback is not racing tPROG, or
+the readback itself reads something other than the programmed page. The erase and the program both
+return 0, so the next thing to establish is what the page actually contains.
+
+`phase2m` encodes the raw and MTD readback first bytes into the verdict: C94=0x8E40XXYY where XX is
+the raw readback byte 0 and YY the MTD readback byte 0. The pattern's first byte is 0x5a, the seed's
+first byte is 0x85, erased flash is 0xff, zeros are 0x00. That single byte distinguishes "the write
+landed and the compare is wrong" from "the erase never happened" and "the program never landed".
+
+## 2026-11-10 - PHASE B COMPARISON 5: 0x8E400000 - zeros, and the write path never set ECC
+
+Fire `phase2m` returned C94=0x8E400000: the raw code is 0x40 and BOTH readback first bytes are
+0x00. Not the pattern (0x5a), not the seed (0x85), not erased flash (0xff). The reads succeeded and
+returned zeros.
+
+The driver explains it. `luofu_fmc_read_page()` forces the on-die ECC type to 1, but
+`luofu_fmc_write_page()` never sets the ECC type at all: it inherits whatever the previous operation
+left, and `luofu_fmc_erase_block()` restores its own entry value. So a program can go out with ECC
+off while every read is type 1, and the page reads back as garbage or zeros. The seed test only
+worked because its write happened to inherit type 1.
+
+Fix applied: `luofu_fmc_write_page()` now saves the ECC type, sets type 1 before the program, and
+restores it after, so the program and the read always agree. `phase2n` reruns the same block-0
+comparison; a verdict of 0x8E00005A (raw code 0, readback 0x5a) would prove the write lands with the
+read's ECC.
+
+## 2026-11-10 - PHASE B COMPARISON 6: ECC was not it - the program operands are invalid
+
+Fire `phase2n` with the explicit ECC type still returned C94=0x8E400000. The ECC hypothesis was
+wrong, or at least not the whole defect. The answer was already in the C88 self-test: it encodes the
+program's actual operands, and it has been reading 0x9C0020BD, which decodes to wr_cmd 0x00,
+wr_if_type 1, wr_addr_cyc 0, wr_dummy 2. The bootloader spec record overrides the good defaults
+(wr_cmd 0x32, if_type 3, addr_cyc 5, dummy 0) with zeroes. The write path puts wr_cmd into OP_CTRL
+bits 8-15, so every program went out with command 0x00 and no address. Nothing was programmed, the
+block stayed erased, and a read of the erased page returns zeros - which is exactly what phase2m
+measured.
+
+Fix applied: the write operands are pinned to the measured-good defaults (if_type 3, wr_cmd 0x32,
+addr_cyc 5, dummy 0) after the record parse. `phase2o` reruns the block-0 comparison; the C88
+self-test's wr_cmd field should read 0x32 and its mismatch count should fall to zero if the program
+lands.
+
+## 2026-11-10 - PHASE B COMPARISON 7: the operands were dead code - the write hardcodes 0x9A0
+
+Fire `phase2o` returned C94=0x8E400000 and C88=0x9C0020BD, unchanged. The pin changed nothing
+because the write path computes an OP_CFG from the spec and then **overwrites it with a hardcoded
+`0x9A0`**. The driver's own comments around that line name the symptom exactly: the 0x9A0 shape is
+"accepted, array unchanged", and the earlier `0x9D0` shape "demonstrably reaches the array" - it is
+the one behind the page-163 LUFU proof. The 0x9A0 was installed later on a re-reading of the
+vendor's disassembly, and it is the regression.
+
+Restored `op_cfg = 0x9D0u` in `luofu_fmc_write_page()`. The ECC pin and the spec pin stay (both are
+correct and harmless), but the OP_CFG is now the proven shape. `phase2p` reruns the block-0
+comparison; the raw code should go to 0 and the readback byte to 0x5a.
+
+## 2026-11-10 - PHASE B VERDICT: the vendor itself reads the page as all-0xff
+
+Fire `phase2p` (0x9D0) still returned C94=0x8E400000. The decisive check was outside our driver: the
+vendor had just rebooted, so its own stack was used to read the same flash page. The vendor's
+rootfs_data is mtd15, and its page 0 md5 is `e0deebd3c3f560212af17c68b9344bae` - exactly the md5 of
+2048 bytes of 0xff. The pattern's md5 is `1ca3d2317cbd496def4e98605bd83629` and its first byte is
+0x5a. So the erase works (the page is erased, not the seed), and the program does NOT land. The
+readback zeros were the read path's behavior on an erased page, exactly as its own comments say.
+
+The OP_CFG 0x9D0 is right (the tracked driver's measured "PROGRAM 0x9D0"). What the path never
+sends is the program execute: the vendor's live register dump after a real write holds FMC_CMD =
+0x10. `phase2q` issues that command-only execute after the load and then restores the if-mode. The
+same vendor dd after the fire is the readout: pattern bytes mean the write finally lands.
+
+## 2026-11-10 - PHASE B COMPARISON 8: the execute did not land - back to the proven shape
+
+Fire `phase2q` added the command-only program execute (FMC_CMD = 0x10) after the load. The vendor
+read mtd15 page 0 as all-0xff again. The execute step alone is not the answer.
+
+The ledger's own page-163 proof (2026-11-08) is the reference for a write that DID land: the
+post-kick `luofu_fmc_wait_ready()` removed, LUFU + 0xa5 pattern on the vendor's read, C98 =
+0xC0DEA00C, and C88 = 0x04327400 - the self-test read clean, with wr_cmd 0x32 and if_type 3 /
+addr_cyc 5 / dummy 0, i.e. the defaults and the 0x9D0 OP_CFG. That shape had NO explicit write
+enable and NO separate execute; the vendor's disassembly says the controller performs both. The
+explicit WREN and the execute are later additions, and the write has not landed since.
+
+`phase2r` removes both additions and restores the proven shape: OP_CFG 0x9D0, OP_CTRL low 3 plus
+wr_cmd 0x32 read-modify-write, address in ADDRH/ADDRL, data in dma_buf, the INT poll, and nothing
+else. The vendor dd of mtd15 page 0 is again the readout.
+
+## 2026-11-10 - PHASE B COMPARISON 9: the proven shape still misses on rootfs_data page 0
+
+Fire `phase2r` restored the proven shape (no explicit WREN, no execute, 0x9D0, the 0x32 read-modify
+write, the INT poll). The vendor's dd of mtd15 page 0 is still all-0xff, so the shape alone does not
+put data on the rootfs_data page.
+
+The target is now the difference that matters. The page-163 proof landed on the `upgrade`
+partition, and the earlier hook fire on `upgrade` 0x20000 showed the vendor's page carrying our
+buffer ANDed with the old header from offset 0x38 - the write DID land there, which also proves the
+0x20000 "erase did nothing" reading was the ERASE failing, not the write. The rootfs_data page 0
+erases fine (all-0xff) and then refuses to program, after a boot that has already mounted jffs2 on
+that same partition. `phase2s` moves the same test to the upgrade page 163 (offset 0x51800) and the
+vendor dd of that partition is the readout.
+
+## 2026-11-10 - PHASE B BREAKTHROUGH: the write lands on the upgrade page 163
+
+Fire `phase2s` wrote the 0x5a^i pattern at the upgrade page 163 and the vendor read back:
+
+    00000000  48 51 40 51 04 05 04 05  00 01 00 01 04 05 04 05
+
+That is exactly the pattern ANDed with the old LUFU/0xa5 bytes (0x4c&0x5a=0x48, 0x55&0x5b=0x51,
+0x46&0x58=0x40, 0xa5&0x5e=0x04, ...). THE WRITE WORKS on the upgrade partition. C94=0x8E404848
+also shows the read path returning the programmed content (0x48), not zeros, so the earlier zeros
+were the read path's erased-page behaviour. The upgrade block's erase still fails (the AND, not the
+pure pattern), which is consistent with every erase result on those blocks.
+
+The split is now partition-level: writes land on the unmounted `upgrade`, and rootfs_data page 0
+refuses them while erasing to all-0xff. The seed test's apparent success is indistinguishable from
+a silently refused write over the PREVIOUS boot's seed. That is the signature of the vendor's boot
+locking the filesystem blocks (the SPI-NAND block lock, not the CONFIG BP bits). `phase2t` issues
+the global block unlock (0x7b, after a write enable) before the rootfs_data block-0 erase/write; the
+vendor's dd of mtd15 page 0 is the readout. A pattern there ends the rootfs_data wall.
+
+## 2026-11-10 - PHASE B COMPARISON 10: the global unlock changed nothing; test a third block
+
+Fire `phase2t` issued the global block unlock (0x7b, after a write enable) and then the same
+rootfs_data block-0 erase/write. The vendor's dd of mtd15 page 0 is still all-0xff. Either the 0x7b
+op is not what this chip accepts, or the lock is not the cause at all.
+
+Two blocks of rootfs_data (0 and 7) have now refused a program while upgrade block 790 accepted
+one. A bad block explains that just as well as a lock, and the seed test cannot tell a successful
+write from a silently refused one because the previous boot's seed reads back the same. `phase2u`
+moves the test to rootfs_data block 3 (offset 0x60000, the vendor's dd is mtd15 page 192) and checks
+`mtd_block_isbad()` first: a bad verdict comes back as 0x8E0B0B, and any other result plus the
+vendor dd settles whether the partition or specific blocks are the problem.
+
+## 2026-11-10 - PHASE B COMPARISON 11: 0x8E005A5A is a read-path false positive
+
+Fire `phase2u` on rootfs_data block 3 returned C94=0x8E005A5A: the raw and MTD readbacks both
+matched the pattern, and the bad-block check passed. But the vendor's dd of mtd15 page 192 is all
+0xff. The readback is a FALSE POSITIVE: the read path returned the write's own DMA buffer when the
+controller delivered nothing. That is the same stale-buffer behaviour the driver documented on
+2026-10-14, and it means every in-kernel readback in this line of tests is untrustworthy unless a
+vendor dd corroborates it.
+
+So block 3 is good, the write still never lands on the mounted partition, and the lock question is
+open. `phase2v` reads the NAND's feature status (0xA0) and config (0xB0) into the verdict - the
+status byte carries the block-protection/lock bits - and then issues the per-block unlock (0x7f)
+with the block's row address, in the erase command shape, before the same erase/write. The vendor
+dd of mtd15 page 192 remains the verdict that counts.
+
+## 2026-11-10 - PHASE B ROOT CAUSE: the probe SETS the FMC write-protect the vendor clears
+
+Fire `phase2v` returned C94=0x8E00005A: the status byte read from feature 0xA0 is 0x00, so the NAND
+itself is not block-protected, and the per-block unlock changed nothing. The vendor dd of page 192 is
+still all-0xff.
+
+The answer was in the vendor module all along. `hi_flash.ko` has `hi_fmc_wp_en_set` /
+`hi_fmc_wp_en_check` (bit 6 of `FMC_GLOBAL_CFG`) and `hi_nand_wp_enable` / `hi_nand_wp_disable`,
+and its MTD erase prints "Device is write protected" when the bit is set. The vendor's driver clears
+the bit before a write or erase and sets it after.
+
+**Our probe does the opposite.** The line whose comment reads "clear the write-protect bit by hand,
+ as the vendor does" is
+
+    writel(readl(fmc->regs + FMC_GLOBAL_CFG) | BIT(6), fmc->regs + FMC_GLOBAL_CFG);
+
+It ORs the bit in. Our driver has been turning the flash write protection ON at every boot and then
+wondering why accepted programs leave the array untouched. Fixed: `& ~FMC_GCFG_WP_EN`. `phase2w`
+reruns the rootfs_data block-3 write; the vendor dd of page 192 should finally show the pattern.
+
+## 2026-11-10 - PHASE B AFTER THE WP FIX: 0x9D0000E3 is the OVERLAY MOUNT failing
+
+Fire `phase2w` returned C94=0x9D0000E3. That is the failure layout, not a success: the tag 0x9D with
+the status bits says j1 (jffs2) and j2 (squashfs) mounted, and j3 (the overlay mount) did NOT. The
+`wr` write test only runs when all three mounts are zero, so it never ran and the vendor's page 192
+is still ff.
+
+So the write-protect fix changed the boot in a different way: the seed test's erase and seed now
+actually happen, the jffs2 mounts read-write, and the overlay mount is the next refusal. The failure
+layout currently does not carry the j3 errno (it carries j1's and j2's), so `phase2x` swaps the j2
+errno field for the j3's. The next verdict will name the overlay mount's error directly.
+
+## 2026-11-10 - PHASE B: j3 = EINVAL (22); the test never created the overlay dirs
+
+Fire `phase2x` returned C94=0x9D1600E3: the j3 errno field is 0x16 = 22 = EINVAL. That is overlayfs
+refusing the mount, most often on the workdir check. Reading the mount test explains why: it creates
+/overlay, /mnt, /mnt/lower and /mnt/new, but NEVER /overlay/upper or /overlay/work. The mount only
+worked while the seed image happened to carry those directories, and any leftover work entries from
+an unclean reset (this box is always reset by the watchdog) make the workdir non-empty, which
+overlayfs rejects with EINVAL.
+
+`phase2y` creates /overlay/upper and /overlay/work on the just-mounted jffs2 before the overlay
+mount. The seed test has already erased and reseeded the partition this boot, so the workdir is
+genuinely empty. The verdict's j3 field says whether the overlay mount finally comes up.
+
+## 2026-11-10 - PHASE B: THE OVERLAY MOUNT IS UP - the write test is the only failure left
+
+Fire `phase2y` returned C94=0x8E00005A. That tag is only reachable through the branch that requires
+j1, j2 and j3 all zero and wr != 0: the fresh /overlay/upper and /overlay/work directories fixed the
+EINVAL and the overlay mount came up. The write test (`kernel_write` + `fsync` to
+/mnt/new/persist.txt) is now the single failing step, and the 0x8E branch did not carry its errno.
+
+`phase2z` puts the write's errno in the verdict's high byte: C94 = 0x8E | (-wr << 16) | (raw/mtd
+bits). The likely values are EROFS if the overlay superblock is read-only, EIO from the jffs2 write
+path, or ENOSPC from the small partition. The raw/mtd byte pair stays as the secondary readout.
+
+## 2026-11-10 - PHASE B: wr = EROFS (30) - the overlayfs INDEX feature forces the read-only sb
+
+Fire `phase2z` returned C94=0x8E1E005A: the write test's errno is 0x1E = 30 = EROFS. The overlay
+mount succeeded but its superblock is read-only, so the file open/write is refused.
+
+The kernel source names the reason. In fs/overlayfs/super.c the mount ends with:
+
+    if (!ovl_force_readonly(ofs) && ofs->config.index) {
+            err = ovl_get_indexdir(sb, ofs, oe, &upperpath);
+            ...
+            if (!ofs->indexdir)
+                    sb->s_flags |= SB_RDONLY;
+    }
+
+With the index feature enabled by default, a jffs2 upper that cannot host the index directory leaves
+ofs->indexdir empty and the overlay is FORCED READ-ONLY - exactly the observed mount-ok, write-EROFS
+pair. The jffs2 upper here does not provide that index directory.
+
+`phase3a` mounts with `index=off`, which skips the block entirely. If the sb then comes up rw the
+write test runs, and its success tag is 0xC0DE9D0F (the 0xC0DE9D00 base with the j1/j2/j3/wr bits).
+
+## 2026-11-10 - PHASE B: index=off did not help - name the read-only superblock
+
+Fire `phase3a` returned the same C94=0x8E1E005A (wr = EROFS). The index branch was not the cause.
+The other overlayfs ro sources are `!ofs->workdir` and a read-only upper superblock, and the two
+cannot be told apart from the current cells.
+
+`phase3b` reads both superblocks directly: kern_path("/overlay") is the jffs2, kern_path("/mnt/new")
+is the overlay, and the verdict is 0x8F | wr_err << 16 | sb_flags << 8 | 0xAA, where bit 0 means the
+jffs2 is SB_RDONLY and bit 1 means the overlay is. That splits the remaining possibilities cleanly:
+a read-only jffs2 points at the MTD/JFFS2 mount, while a read-only overlay with a writable jffs2
+points back into overlayfs's own workdir/index logic.
+
+## 2026-11-10 - PHASE B: jffs2 is RW, overlay is forced RO by overlayfs itself
+
+Fire `phase3b` returned C94=0x8F1E02AA: the write error is still EROFS, bit 0 is clear and bit 1 is
+set, so the jffs2 on /overlay is READ-WRITE and the overlay on /mnt/new is READ-ONLY. The overlayfs
+is refusing its own superblock, not inheriting a read-only upper.
+
+The kernel has exactly three assignments that can do this in `ovl_fill_super`: `!ofs->workdir`,
+`!ovl_upper_mnt(ofs)`, and the index branch (already ruled out with index=off). The upper mount and
+the workdir are private `struct ovl_fs` fields; `phase3c` includes the overlayfs header and reads
+them from the mounted superblock, extending the verdict bits: 4 = the upper mount is set, 8 = the
+workdir is set. Bit 8 clear would name `!ofs->workdir` as the culprit; bit 4 clear would name the
+upper. Both set means the ro comes from somewhere else and the indexdir branch needs a second look.
+
+## 2026-11-11 - PHASE B: the workdir pointer is NULL; overlayfs, not the index, forces RO
+
+The ledger's last entry ended with `phase3c` pending. Its verdict is C94=0x8F1E06AA: sb_flags =
+0x06, so bit 1 (the overlay is SB_RDONLY) and bit 2 (the upper mount is set) are on, and bit 3
+(the workdir is set) is off. With `index=off` already ruled out, `!ofs->workdir` is the read-only
+source. `phase3d` adds bit 4 (the workbasedir is set) and returns C94=0x8F1E16AA: the upper mount
+and the workbasedir are both set and only the workdir pointer is NULL, so the failure is inside
+`ovl_workdir_create`'s own mkdir of the `work` subdirectory, not in path resolution.
+
+## 2026-11-11 - PHASE B: the work mkdir is EEXIST; a stale /overlay/work/work is cleaned and refused
+
+`phase3e` repeats the workdir mkdir from the mount test and carries its errno in the verdict's high
+byte: C94=0x8F1116AA, so wr = 0x11 = 17 = EEXIST, with the same sb_flags. The work directory
+already exists from the previous unclean reset, and overlayfs's `ovl_workdir_cleanup` refuses a
+non-empty workdir, so the mount silently falls back to read-only.
+
+`phase3f` moves the overlay's workdir to a brand-new `/overlay/wk2`, whose `work` subdirectory
+cannot be the stale one. C94=0x9D0200E3: the upper mkdir succeeded (0), the wk2 mkdir is 0x02 =
+-ENOENT, and the overlay mount fails to resolve `/overlay/wk2`. The question moves from overlayfs's
+cleanup to why a new mkdir under the mounted jffs2 does not appear.
+
+## 2026-11-11 - PHASE B: upper is EEXIST and wk2 is ENOSPC; rootfs_data was 1 MiB
+
+`phase3g` carries both mkdir errnos in the verdict: C94=0x9D1C11E3. The `/overlay/upper` mkdir is
+0x11 = EEXIST (the seed carries it, harmless) and the fresh `/overlay/wk2` mkdir is 0x1C = 28 =
+ENOSPC. The jffs2 partition our DTS declares is 1 MiB, and after the seed it has no room for
+another directory.
+
+The DTS grows rootfs_data to 8 MiB (0x4c80000 to 0x5480000, still clear of `upgrade` at 0x6280000).
+The first `zImage` build did not rebuild the DTB, so the fire used the old one; `make dtbs` was
+needed explicitly. `phase3h` then returned C94=0x9D1611E3: upper is 0x11 = EEXIST and wk2 is 0x16 =
+22 = EINVAL. The space problem is gone and the failure has moved into jffs2's mkdir path.
+
+## 2026-11-11 - PHASE B: highest_ino is not the EINVAL; the seed is clean but the write path is not
+
+`phase3i` reads jffs2's `c->highest_ino` through the mounted superblock. The probe's bit was only
+reported in the write-failure branch, which this run did not reach, so the verdict is unchanged at
+0x9D1611E3. Reading `jffs2_new_inode` shows the only EINVAL it can return from the inode insert:
+`insert_inode_locked` fails with -EBUSY on an inode-number collision and jffs2 masks that as
+-EINVAL. The seed's inode numbering was the suspect.
+
+`phase3j` replaces the hand-crafted 364-byte seed with a real `mkfs.jffs2` image (472 bytes, inodes
+numbered 2 through 5, `-e 0x20000 -s 0x800`). The verdict returns to ENOSPC (0x9D1C11E3), so the
+partition was still 1 MiB: the appended DTB in the slice was stale even though the DTS carried
+8 MiB fourteen times.
+
+## 2026-11-11 - PHASE B: the kernel sees 8 MiB; the EINVAL survives the clean seed
+
+`phase3k` prints the mounted rootfs_data size into the verdict. C94=0x9E801616: the size byte is
+0x80, so the booted kernel really does see an 8 MiB partition and the DTB question is closed. Both
+mkdirs now return 0x16 = 22 = EINVAL. The clean seed did not change the error, so the inode-number
+theory is dead.
+
+## 2026-11-12 - PHASE B ROOT CAUSE: 5.10 never gives jffs2 a write buffer on this MTD
+
+The EINVAL is not jffs2's inode hash. It is this driver refusing the write jffs2 issues.
+
+In 5.10, `fs/jffs2/os-linux.h` hardcodes `jffs2_cleanmarker_oob(c)` to 0, so `jffs2_nand_flash_setup()`
+is never called and the write buffer is set up only by `jffs2_nor_wbuf_flash_setup()`, whose
+predicate is `c->mtd->type == MTD_NORFLASH && !(c->mtd->flags & MTD_BIT_WRITEABLE)`. Our partitions
+inherit `MTD_NANDFLASH` from the master, so that predicate is false:
+
+- `jffs2_is_writebuffered(c)` is false,
+- `jffs2_flash_writev()` takes `jffs2_flash_direct_writev()`,
+- which hands `mtd_write()` the node's exact offset and length, e.g. a 0x44-byte dirent at 0x1d8,
+- and `luofu_mtd_write()` is a page programmer: it returns -EINVAL for any write whose length is
+  not a whole `writesize` or whose offset is not write-size aligned.
+
+So the first node a mkdir writes is refused with -EINVAL, and every mkdir returns it. The mount is
+green because it only reads, which is why a read-only jffs2 looked healthy while every write was
+dead.
+
+Fix (`phase3l`): type the rootfs_data PARTITION as `MTD_NORFLASH` after the partition table is
+registered, keeping `MTD_CAP_NANDFLASH` flags (so `MTD_BIT_WRITEABLE` stays clear and obsolete
+marking stays off). That turns on jffs2's write buffer: nodes are accumulated and flushed as whole
+write-size pages, which is exactly the shape this driver accepts. The master keeps MTD_NANDFLASH so
+UBI on rootfsb and every other consumer see the real geometry. Verified in the linked image: the
+store `mov r2, #3; strb r2, [r3]` sits immediately after the new `get_mtd_device_nm("rootfs_data")`
+call in `luofu_fmc_probe` (c0327ca4).
+
+## 2026-11-12 - PHASE B: C94 cannot carry a cross-boot latch; the persistence fire uses a build switch
+
+The persistence proof needs one boot that leaves the jffs2 partition untouched (the seed test
+otherwise erases it) and then checks the file the previous boot wrote. The obvious latch is C94:
+the verdict survives the vendor fallback, so the seed test could skip the reseed when the previous
+boot reported `0xC0DE9D0F`.
+
+It cannot. The mach pet timer writes C94 every 5 s from the first second of a boot, and until the
+mount test publishes a verdict it writes `0x9F0000xx`. The seed test is a `late_initcall`, long after
+the first beat, so it always reads the pet's marker, never the previous boot's verdict.
+
+The honest fix is a build switch, not another cell: `LUOFU_SEED_OFF` in `luofu_seed_test_init()`
+compiles a build whose seed test does nothing and sets `luofu_preserve`, and in that build the mount
+test *reads* `/mnt/new/persist.txt` and compares it with `LUFU-PERSIST\n` instead of writing it. The
+file's presence and exact content after a reboot are then the primary evidence, and the write bit in
+C94 is the secondary one.
+
+## 2026-11-12 - PHASE B: the write buffer works; the ERASE MARKER is refused and every block goes bad
+
+Fire `phase3l` (the partition typed MTD_NORFLASH) returned C94=0x9E801C1C: the partition is 8 MiB
+(byte 0x80), and both mkdirs now return 0x1C = 28 = ENOSPC. The -EINVAL is gone, so jffs2's write
+buffer is active and the node writes land. ENOSPC on a partition with 63 untouched blocks is the
+next defect, and the source names it exactly.
+
+`jffs2_mark_erased_block()` writes the erase-complete marker with `jffs2_flash_direct_writev()`, a
+raw `mtd_write()` of `sizeof(struct jffs2_unknown_node)` = 12 bytes at the block's start. That is a
+legal partial write on NOR, which is why the code is shaped that way, but this driver is a page
+programmer: `luofu_mtd_write()` refuses any offset/length that is not a whole write-size unit with
+-EINVAL. So every block jffs2 tried to erase failed at the marker write, `jffs2_erase_failed()`
+moved it to the bad list, and the first mkdir found no space. The mount still succeeds because the
+seed block is a valid partial-dirty block; only the erase path is dead.
+
+`phase3o` routes that marker through `jffs2_flash_write()` (the write buffer) instead of the direct
+write. Every other node already goes through it, the wbuf was flushed before the erase by
+`jffs2_flush_wbuf_pad()`, and the flush is one whole write-size page, which is the shape this driver
+accepts. The change is in `fs/jffs2/erase.c` and is a no-op for non-writebuffered devices because
+`jffs2_flash_write()` falls back to the same direct write there.
+
+Diagnosis chain, one fire per step: EINVAL (node write refused) -> write buffer -> ENOSPC (erase
+marker refused) -> marker through the buffer.
+
+## 2026-11-12 - PHASE C DESIGN: run the VENDOR init on our kernel, from the vendor squashfs root
+
+The plan's Phase C is not "assemble the overlay in the kernel and pivot into it". The vendor already
+knows how to do that: `/sbin/init` is procd, and the vendor's own preinit mounts `mtdblock15` at
+`/mnt`, writes `upper/etc/mount_protect`, and `/sbin/mount_root` (fstools) builds the overlay from
+the squashfs root and the jffs2 upper. Testing that chain is what the reversal needs, because it is
+exactly the shape the final image has.
+
+So the initramfs `/init` only has to get out of the way:
+1. detach the kernel mount test's overlay and jffs2 mounts - jffs2 must NEVER be mounted twice, and
+   the vendor's preinit mounts the same partition; two superblocks writing one flash corrupt it;
+2. mount the vendor squashfs (`/dev/ubiblock0_0`, fallback `/dev/mtdblock13`) at `/newroot`;
+3. move devtmpfs into the new root (the kernel mounted it on the initramfs /dev);
+4. `pivot_root(".", ".")` + `umount2(".", MNT_DETACH)` (busybox switch_root's exact sequence);
+5. `execve("/sbin/init")`.
+
+The proof that the vendor userspace ran is a file, not a cell: the kernel mount test writes
+`upper/etc/rc.local` on the jffs2 before the overlay exists, which shadows the squashfs rc.local
+once mount_root builds the overlay, and `/etc/init.d/done` runs it at START=95. It writes
+`/etc/procd-ran`, which lands in the jffs2 upper and is readable on the vendor afterwards.
+
+Cells cannot carry this marker: by the time userspace runs, the pet timer owns C94 (it republishes
+the mount verdict every 5 s), the log/home tick owns C18 and C1C, and the FMC read path owns C88 and
+C98. The file is immune to all of them. The box also self-returns after 620 s (`LUOFU_HOME_TIMER_S`
+-> `emergency_restart`), so the whole Phase C test is bounded without the watchdog.
+
+## 2026-11-12 - PHASE D PREP: the ethernet driver is back in the tree and links built-in
+
+The G4 row ("one defect from green") described a build that no longer exists: the current `.config`
+had `# CONFIG_ETHERNET is not set` (shrink fragment) and the gmac/mdio sources were absent from the
+build tree, another casualty of the source loss that took the watchdog. Both sources are staged again
+(`drivers/net/ethernet/luofu/`, from `opensource/lab/luofu-gmac` and `luofu-mdio`) with Kconfig and
+Makefile entries.
+
+One core change was needed for a built-in consumer: `PHYLINK` is `tristate` with NO prompt, so it can
+only be selected, and nothing selects it as `y`. A `CONFIG_LUOFU_GMAC=y` build therefore demoted the
+gmac to `=m`, and the module could not link (`phylink_create` and friends undefined, because there is
+no built-in phylink and no module build). `drivers/net/phy/Kconfig` now gives PHYLINK a prompt, and
+with `CONFIG_ETHERNET=y CONFIG_PHYLINK=y CONFIG_LUOFU_MDIO=y CONFIG_LUOFU_GMAC=y` the full `zImage`
+builds with both drivers in.
+
+No fire has run with the driver yet. The measured target is unchanged: 2026-10-30, ARP resolves,
+frames move, host ping 0/3, cable on eth2.
+
+## 2026-11-12 - PHASE B: phase3o hung inside the mount test; the erase path now needs a crumb ladder
+
+Fire `phase3o` (cleanmarker through the write buffer) returned C94 = 0xC0DE9A01. That is not a mount
+verdict at all: it is the mach's own `luofu_boot_stage` deposit (`late_initcall_sync`, written before
+the mount test), and C18 = 0xC0DE52A1 is `luofu_restart` folding an UNCHANGED C04 (the UBI diag's
+0xC0DE9A01) into its low byte. Both cells therefore say the same thing: the mount test never reached
+its own C94 write.
+
+The box did come back on its own at 14:41:45, and the link drop at 14:41:10 with C18 = 0xC0DE52A1
+proves `luofu_restart` ran and its reset magic took. The home timer (`LUOFU_HOME_TIMER_S` = 620 s,
+armed at the end of the FMC probe, ~14:30:50) is what returned it.
+
+So `phase3o` is inconclusive about whether the marker write works: the boot hung somewhere inside the
+mount test, after the jffs2 mount and before the verdict. The two candidates the source allows are
+(a) the mkdir path now doing real erases, each erase verifying 128 KiB and writing a marker through
+the write buffer, and (b) a deadlock in that new marker write.
+
+`phase3s` therefore adds a crumb ladder to the mount test. Each step writes `0xC0DE9A00 | step` into
+C04, which is exactly the value `luofu_restart` folds into C18's low byte, so a hang leaves
+`C18 = 0xC0DE52E<n>` naming the last step entered:
+
+    0xE1 entered            0xE2 jffs2 mounted
+    0xE3 upper mkdir        0xE4 wk2 mkdir
+    0xE5 overlay mounted    0xE6 write test returned
+
+The Phase C rc.local shadow and the gmac/ethernet config are compiled out for this fire so the only
+variable is the crumb ladder.
+
+One hardening landed with it: `luofu_restart` now calls `del_timer_sync()` on the boot pet timer
+before it parks. The boot pet keeps clearing the watchdog every 5 s, so a park with it alive is not
+"the watchdog will do it" - it is a box that sits on this kernel until the pet's 600-beat budget runs
+out. The reset magic took this time, so the box was not stranded, but the backstop was not a backstop.
+
+## 2026-11-12 - PHASE B: the marker belongs in the DRIVER, not in jffs2's write buffer
+
+The marker-through-wbuf change was wrong for a structural reason, not a tuning one. `__jffs2_flush_wbuf()`
+assumes the caller owns `c->nextblock` (it dereferences `c->nextblock->allocated_refs`) and it
+accounts the padded tail of the page against the block. The erase path calls the marker write while
+`c->nextblock` is NULL - the source even comments "c->nextblock is NULL, no update to c->nextblock
+allowed" at the flush-before-erase site - so routing a 12-byte marker through the wbuf from
+`jffs2_mark_erased_block()` is not a supported shape. That is consistent with `phase3o`: the mount
+test never published, which means it died inside the first mkdir that needed an erase.
+
+The right layer is the driver. A NAND page is programmed as a whole page, and the MTD contract does
+not say a write must be page-shaped, so the driver must do the merge:
+
+    read the page (returns 0xff on a freshly erased page),
+    overlay the caller's bytes,
+    program the whole page.
+
+The only partial write jffs2 issues is the erase-complete marker, and it always lands on a freshly
+erased page, so the read-merge is exact. `luofu_mtd_write()` now takes that path for any write that
+is not page-aligned and a whole number of pages; the page-aligned fast path is unchanged.
+
+With this, `fs/jffs2/erase.c` goes back to upstream (`jffs2_flash_direct_writev`, 12 bytes) and the
+patch recorded in the submodule is retired. `phase3t` is the fire.
+
+## 2026-11-12 - PHASE B WRITE-THROUGH IS GREEN: 0xC0DE9D0F and the file is in the jffs2 upper
+
+Fire `phase3s` (the crumb-instrumented build of the marker-through-wbuf change) returned
+C94 = 0xC0DE9D0F: jffs2 mounted, the vendor squashfs mounted through `ubiblock0_0`, the overlay
+mounted, and the write test's open/write/fsync all returned clean. The vendor then read the file
+back from the raw jffs2 mount:
+
+    /overlay/upper/persist.txt   13 bytes   LUFU-PERSIST
+    /persist.txt                 13 bytes   (the same data through the merged overlay)
+
+/overlay/upper also carries `upper/` and `wk2/`, the directories the mount test creates, and the box
+is healthy: 2 wiphys, 6 interfaces, calibration `[SUCC]` on both bands.
+
+So Phase B's first half is closed on hardware: a file written through the assembled overlay lands in
+the persistent jffs2 upper and is readable from the vendor's own mount of the same partition.
+
+Two notes about the earlier `phase3o` hang. `phase3o` and `phase3s` differ only by the crumb
+instrumentation, and `phase3s` did not hang, so the hang is not the marker-through-wbuf shape per se.
+The crumb readout did not help either, because the last two fires did not go through `luofu_restart`
+(C18 stayed at the FMC probe's 0xC0DE50E5, so the reset came from the watchdog, not the home timer).
+The C94 verdict is the reliable channel; the C04->C18 fold is not, and the plan's crumb idea should be
+treated as opportunistic rather than trusted.
+
+`phase3t` (the driver read-modify-write for partial writes) is built and staged but no longer
+required for this result; it remains the cleaner layering and the next full-image build carries it.
+`phase3u` is the persistence fire: seed disabled, the mount test reads the file back instead of
+writing it, and the verdict is 0xC0DE9D0F only if the 13 bytes match what `phase3s` wrote.

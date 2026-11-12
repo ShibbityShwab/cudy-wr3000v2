@@ -67,6 +67,7 @@ No LSP applies (shell + standalone python + Lua bytecode). Centrality by referen
 - Never write CA `0x400392f0`. Never read the RC misc window `0x10161000` (a read-only `devmem` there PANICKED the box). Measure through the endpoints' BAR0/BAR2 only. Never `rmmod` the vendor modules.
 - Never commit a real credential: no keys, passwords, or per-unit values in tracked text (they were scrubbed before the first commit).
 - Never run the device cycle in the foreground - a dead agent strands the router in takeover config with Wi-Fi down.
+- Never end a turn after a device fire, build, or verdict while the todo list has open work: read the result and start the next action in the same turn. While a fire is in flight, do the kernel/source work that does not need the device. The runtime's todo backstop allows only two nudges, then stops the run as `todo_guard`/`cap` and the session sits stalled (observed 2026-11-11).
 - Never restore calibration without first verifying `MANIFEST.sha256` against a snapshot.
 - Never `rm -rf` or hand-edit `.omo-secrets/`, `.sshwrap/`.
 - Leave the router healthy: 2 wiphys, 6 interfaces, calibration `[SUCC]` on both bands, no `.omo-off` leftovers.
