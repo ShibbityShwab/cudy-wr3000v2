@@ -252,6 +252,20 @@ Objective: mount the vendor squashfs as `/`, overlay it with our jffs2 upper, ru
 
 ### The vendor-init variant (2026-11-12)
 
+**Injury and correction.** `phase3w` ran this path and the box came back with only DNS (53) listening:
+the vendor's `dropbear`/`uhttpd` never start because their `/etc/config` entries live in `rootfs_data`,
+the partition the seed test has been erasing on every fire. The vendor-init path also let the vendor's
+own preinit and `mount_root` run on that partition, which is what finished it off. The correction is
+to stop treating `rootfs_data` as lab scratch:
+
+- The lab overlay upper and the seed test move to the **`upgrade` partition** (mtd16, 29.5 MiB at
+  0x6280000), which the vendor does not mount at boot. The vendor's `rootfs_data` is then left alone.
+- Phase C's proof marker becomes ONE targeted write into the vendor's upper, not a partition erase:
+  the initramfs `/init` mounts `/dev/mtdblock15` read-write, writes `upper/etc/rc.local` (the marker
+  script), unmounts, then pivots. A single 100-byte file does not endanger the vendor's config.
+- Recovery note: if a fire still leaves the vendor unreachable, the door is RESET-hold + TFTP
+  (`tftp/recovery.bin`).
+
 The kernel image keeps its initramfs, and the initramfs `/init` does the minimum:
 
 1. mount the vendor squashfs (`/dev/ubiblock0_0`, fallback `/dev/mtdblock13`) at `/newroot`;

@@ -20684,3 +20684,49 @@ The tree carries the driver read-modify-write (the cleaner layering); `fs/jffs2/
 The one gap is our own read-back verdict on the seed-disabled boot: the mount test stalls on the
 un-reseeded partition (stale workdir/whiteout nodes, the case the seed test exists to avoid), so the
 persistence evidence is the file read from the vendor rather than a kernel verdict.
+
+## 2026-11-12 - PHASE C FIRE (phase3w) AND THE INJURY: the vendor came back with DNS only
+
+`phase3w` ran the vendor-init path: our kernel's mount test assembled the overlay, `/init` detached the
+lab mounts, mounted the vendor squashfs (`/dev/ubiblock0_0`, `/dev/mtdblock13` fallback), moved
+devtmpfs, pivoted with `pivot_root(".", ".")` + `umount2(".", MNT_DETACH)`, and exec'd `/sbin/init`.
+
+The box reset on schedule and is back at 192.168.10.1, but only port 53 answers. SSH (22), HTTP (80)
+and HTTPS (443) are closed; ICMP and DNS answer, MAC d4:0d:ab:64:1c:73. The fire script gave up at
+poll 150: "VENDOR DID NOT RETURN".
+
+The likely cause is cumulative: every seed-on fire erases the first 8 MiB of the vendor's own jffs2,
+and this boot additionally let the vendor's preinit and `mount_root` run on that filesystem. The
+vendor's `/etc/config` (dropbear, uhttpd) lives in the same partition, so those services no longer
+start; dnsmasq still answers from built-ins. That is consistent with the vendor's own scan messages
+and with the fact that the same box returned fully manageable after every Phase B fire.
+
+Consequence for the plan: the seed-on strategy is not safe for Phase C. The lab must not leave the
+vendor's config partition in a state the vendor's `mount_root` will reformat. Options for the next
+attempt: keep the vendor's jffs2 untouched (no seed) and give our overlay a dedicated scratch
+partition, or restore the vendor's config from the factory image before every vendor-init fire.
+
+Recovery needs hands on the box: a power cycle first, then, if SSH/web do not return, a ~15 s RESET
+hold for the TFTP door (`tftp/recovery.bin`, md5 421114c8ea999c925b7aa79cc548af81). After a successful
+recovery the documented wizard + `passwd` + dropbear sequence restores manageable state.
+
+## 2026-11-12 - PHASE C REWORK: the lab overlay moves off the vendor's config partition
+
+The injury is structural, not a one-off: the lab's jffs2 upper and the seed test have been using
+`rootfs_data`, which is the partition the vendor's own `/etc/config` (dropbear, uhttpd) lives on.
+Every seed-on fire erased its first 8 MiB, and `phase3w` finally left the vendor with dnsmasq only.
+
+The rework:
+- the lab overlay upper, the seed test, the mount test's jffs2 mount and the NOR typing all move to
+  the `upgrade` partition (mtd16, 29.5 MiB at 0x6280000). The vendor does not mount it at boot; its
+  jffs2 scan of that partition is the "236 blocks" line that has always been in its dmesg, and it
+  tolerates a valid filesystem there.
+- `rootfs_data` is left to the vendor. The only write the lab makes to it is one targeted file:
+  the initramfs `/init` mounts `/dev/mtdblock15`, writes `upper/etc/rc.local` (the proof marker),
+  unmounts, and then pivots. A 100-byte file cannot take out a config partition the way an 8 MiB
+  erase loop can.
+- the mount test no longer writes the phase C shadow (`LUOFU_PHASE_C_SHADOW 0`); the shadow moved
+  into `/init` where it belongs.
+
+`phase3x` is the rebuilt slice: lab overlay on upgrade, vendor init from the squashfs, one targeted
+rc.local write into rootfs_data. It cannot fire until the box is reachable again.
