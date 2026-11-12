@@ -20988,3 +20988,20 @@ After a run, a line in `/kernel-ran.log` carrying the 2026 build string is the p
 reached the vendor userspace's `done`; a log with only the 2023 line means it did not, and the
 C94 value is a leftover from the stock boot. Until that line is read, Phase C is CANDIDATE, not
 closed.
+
+## 2026-11-13 06:33 - phase3ar: the vendor's preinit never reaches its own boot scripts on our kernel
+
+`phase3ar` shadowed S10boot, S18hyfibrd, S20network and S95done with scripts that append to
+/boot.log before exec'ing the real script, and tag the kernel version in /kernel-ran.log. After the
+run, /boot.log contained exactly four lines, ALL carrying `#0 SMP Sat Nov 25 18:18:57 2023` - the
+stock kernel's boot - and /kernel-ran.log held two lines, both the stock kernel. So on OUR kernel the
+vendor userspace never reached /etc/rc.d at all: it stops in the vendor's preinit (or before procd
+runs its scripts), not in any of the S* scripts.
+
+The most likely cause, and the one this build tests: our init mounts `mtd:rootfs_data` at /vendor to
+write the shadow and then LEFT IT MOUNTED (the lazy unmount was removed in phase3am and never
+restored). The vendor's `mount_root` then tries to mount that same partition and finds it busy.
+`phase3as` writes the same shadows and breadcrumbs but releases the device with a PROPER unmount (not
+MNT_DETACH) before the chroot, which is safe now that the DTS gives rootfs_data its real size and the
+jffs2 sync completes. If the breadcrumbs come back with a 2026 build line, the double mount was the
+blocker and the vendor preinit runs; if they stay stock-only, the stall is earlier in the preinit.
