@@ -20919,3 +20919,24 @@ State of the vendor-init path after phase3x..3am:
 The box ends this session on the vendor kernel, config intact (LuCI login page), ssh restored
 (dropbear -p 22 -R after removing the squashfs's zero-byte RSA host key), 2 wiphys, 6 interfaces,
 calibration SUCC on both bands, bootflag=a.
+
+## 2026-11-12 20:31 - The stall is ABOVE the driver: no page program and no erase were ever attempted
+
+`phase3an` carried crumbs inside luofu_fmc_write_page (C64: 0x77a0 entered / 0x77a1 completed /
+0x77af failed, row in the low half) and luofu_fmc_erase_block (C68: 0x77e0/0x77e1/0x77ef). After the
+run: C64 = 0 and C68 = 0. The init's vendor-fs mount succeeded (C94 low half 0x6B01) and then nothing
+touched the driver at all - not one page program, not one block erase, and not even the mount test's
+own write test (which writes through jffs2 and returned success, so its data stayed in the jffs2
+write buffer and was never flushed).
+
+So the stall is inside jffs2 above the mtd layer: block reservation, garbage collection, or the
+write-buffer flush waiting on one of those. The most likely trigger is the TRUNCATED DEVICE: our DTS
+gave rootfs_data 8 MiB of the vendor's 22 MiB partition, so jffs2 mounts a filesystem whose nodes and
+free-space accounting were built for 0x1600000 bytes while it only sees 0x800000. With no free block
+inside that window, every write and every mkdir waits for a GC pass that never finds one, and the GC
+thread itself may be waiting on data outside the window.
+
+`phase3ao` is the same image with rootfs_data at its real size (<0x4c80000 0x1600000>, which ends
+exactly where `upgrade` starts at 0x6280000), so jffs2 sees the device the vendor's filesystem was
+made for. The same crumbs stay in place: if the write now reaches the driver, C64 shows 0x77a1xxxx,
+and if the shadow lands the tag gains bit 8.
