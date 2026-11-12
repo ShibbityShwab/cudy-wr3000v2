@@ -20805,3 +20805,22 @@ done): 0x6A00 init started, 0x6A01/0x6A02 vendor fs mounted/failed, 0x6A03/0x6A0
 written/open failed, 0x6A05/0x6A06 squashfs source, 0x6A07 neither mount, 0x6A08 pivot done and
 execve attempted, 0xF0xx fail() code. `phase3ae` carries the mmap cell writer and a 1500 s home
 timer (was 620 s) so the vendor userspace has room to boot on our kernel.
+
+## 2026-11-12 - Phase C instrumented: the init RUNS; mounts were never the problem, the pivot is
+
+`phase3af` finally reported from inside the initramfs init: C94 = 0xC0DEF001, i.e. fail(1) after
+BOTH squashfs mounts returned non-zero. Two tooling facts were established on the way, both by
+running freestanding test binaries on the vendor's kernel:
+- `/dev/mem` is not in devtmpfs (the mem driver registers a bare chrdev), so the init must mknod
+  chr 1:1 itself; and a file-position write() to /dev/mem returns -EFAULT while an mmap of the same
+  page plus a plain store works (busybox devmem uses mmap). The init now mmaps page 0x10100.
+- mount()'s fifth argument is fine in r4 on this kernel (both the r4 and the stack-slot variants
+  of a mount("tmpfs") test returned 0), so the mount ABI was never the bug.
+
+`phase3ah` then pivoted into the squashfs the KERNEL MOUNT TEST already mounted at /mnt/lower
+(a second mount of ubiblock0_0 while the first was lazily detached is what failed), and reported
+C94 = 0xC0DEF003: fail(3), i.e. `pivot_root(".", ".")` was refused after chdir(/mnt/lower) worked.
+`phase3ai` therefore records every errno in one accumulated word (0x6B000000 | tags: vendor-fs
+mount errno bits 4-7, shadow-written bit 8, /dev-move errno 12-15, chdir errno 16-19, pivot_root
+errno 20-23, chroot errno 24-27, exec bit 28) and falls back to chroot(".") when pivot_root is
+refused, because the vendor's preinit only needs the squashfs as its root, not a namespace change.
