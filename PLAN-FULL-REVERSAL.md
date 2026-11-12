@@ -309,6 +309,14 @@ the jffs2 upper before the overlay is built. The vendor's `/etc/init.d/done` run
 at START=95, and ours deposits `0xC0DE600D` in C94 and writes `/etc/procd-ran`. If the box comes back
 with C94 still `0x9F00xxxx` (the pet's no-verdict marker), procd never reached the end of boot.
 
+**CLOSED 2026-11-12 21:01 by `phase3ao`.** The proof landed: C94 = `0xC0DE600D`,
+`/overlay/upper/etc/procd-ran` = `LUFU-PROCD`, the shadow still on the fs. The chain that ran is
+this initramfs init, then the vendor's preinit, `mount_root`, procd and `/etc/init.d/done`, all on
+our kernel. The stall that had hidden it was a DTS mistake: `rootfs_data` was declared as 8 MiB of
+its real 22 MiB, so jffs2 had no allocatable block and blocked in reservation/GC without ever
+reaching the mtd layer (confirmed by crumbs inside the write and erase functions reading zero).
+`<0x4c80000 0x1600000>` is the correct size, and it ends exactly where `upgrade` starts.
+
 ## Phase D - Ethernet
 
 Objective: close the last defect from green. The current state: ARP resolves, frames move, host

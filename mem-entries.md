@@ -20940,3 +20940,26 @@ thread itself may be waiting on data outside the window.
 exactly where `upgrade` starts at 0x6280000), so jffs2 sees the device the vendor's filesystem was
 made for. The same crumbs stay in place: if the write now reaches the driver, C64 shows 0x77a1xxxx,
 and if the shadow lands the tag gains bit 8.
+
+## 2026-11-12 21:01 - PHASE C CLOSED: the vendor's own procd reached the end of boot on our kernel
+
+`phase3ao` closed Phase C. Evidence, all read back from the vendor after the run:
+
+    C94 = 0xC0DE600D                     (the value the shadow rc.local deposits)
+    /overlay/upper/etc/procd-ran          -> "LUFU-PROCD"   (written by /etc/init.d/done)
+    /overlay/upper/etc/rc.local           -> our 109-byte shadow script, still on the fs
+    /proc/mtd on the running vendor       -> rootfs_data 0x1600000 (the vendor's own view)
+
+The chain that ran: our initramfs init mounted `mtd:rootfs_data`, wrote the rc.local shadow into
+`upper/etc`, moved devtmpfs into the squashfs, chrooted into the kernel-mounted vendor squashfs,
+exec'd `/sbin/init`; the vendor's preinit and `mount_root` built the overlay on our kernel, procd
+booted, and `/etc/init.d/done` executed our rc.local, which wrote procd-ran and deposited 0xC0DE600D
+before starting dropbear. Every one of those steps is the vendor's own userspace, on our kernel.
+
+ROOT CAUSE OF THE LONG STALL: the DTS gave `rootfs_data` 8 MiB of its real 22 MiB. jffs2 mounted a
+filesystem built for 0x1600000 bytes inside an 0x800000 window, so its free-space accounting had no
+allocatable block and every write or mkdir blocked in reservation/GC WITHOUT ever reaching the mtd
+layer - which is exactly what the C64/C68 crumbs showed (no page program, no erase). Restoring the
+real size (`<0x4c80000 0x1600000>`, ending where `upgrade` starts at 0x6280000) fixed the write path
+and with it the whole vendor-init chain. The 8 MiB view was a lab artifact from when rootfs_data was
+scratch; as a view of a 22 MiB filesystem it was silently self-defeating.
