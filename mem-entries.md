@@ -20645,3 +20645,42 @@ treated as opportunistic rather than trusted.
 required for this result; it remains the cleaner layering and the next full-image build carries it.
 `phase3u` is the persistence fire: seed disabled, the mount test reads the file back instead of
 writing it, and the verdict is 0xC0DE9D0F only if the 13 bytes match what `phase3s` wrote.
+
+## 2026-11-12 - PHASE B PERSISTENCE: the file survives a reboot; the seed-off boot stalls before its verdict
+
+`phase3u` (seed disabled, RMW driver, read-back mode) returned no verdict: C94 ended at
+0x00080080, which is the FMC's per-operation config snapshot (FMC_GLOBAL_CFG) writing C94 after the
+mount test's last real deposit. C1C = 0xC0DE4B01 shows the home tick fired, so the boot ran its full
+window with the mount test unfinished.
+
+The primary evidence is unaffected and is what the plan asked for: the vendor reads
+`/overlay/upper/persist.txt` again, still 13 bytes, still `LUFU-PERSIST`, after a complete reboot of
+our kernel with the seed test disabled. So the file written through the overlay in `phase3s`
+survives a reboot cycle, which is Phase B item 3.
+
+What did NOT happen is our own read-back verdict. The seed-off boot is the one case the seed test
+was written to avoid: its comment records that the overlay leaves workdir/whiteout nodes behind and
+"the next boot's scan merges them". That is the cost of not reseeding: the mount test stalls inside
+the jffs2/overlay work on the un-reseeded partition.
+
+`phase3t` isolates the other variable - the driver read-modify-write - by running the same fix with
+the seed ON. If it returns 0xC0DE9D0F, the RMW is good and the stall belongs to the stale-workdir
+case, which Phase C must avoid by keeping the reseed (or by giving the overlay a fresh work basedir
+each boot, which the mount test already does with /overlay/wk2).
+
+## 2026-11-12 - PHASE B IS CLOSED: both write-path fixes are green, and the file persists
+
+`phase3t` (the driver read-modify-write for partial MTD writes, seed on) returned C94 = 0xC0DE9D0F:
+jffs2, the vendor squashfs through `ubiblock0_0`, the overlay, and the write test all clean. Together
+with `phase3s` (the same result through the jffs2 write-buffer patch) and `phase3u` (the seed-disabled
+reboot, after which the vendor still reads `/overlay/upper/persist.txt` = `LUFU-PERSIST`), Phase B is
+closed on hardware:
+
+1. a file written through the assembled overlay lands in the persistent jffs2 upper;
+2. the vendor's own mount of the same partition reads it back;
+3. it survives a reboot of our kernel with the seed disabled.
+
+The tree carries the driver read-modify-write (the cleaner layering); `fs/jffs2/erase.c` is upstream.
+The one gap is our own read-back verdict on the seed-disabled boot: the mount test stalls on the
+un-reseeded partition (stale workdir/whiteout nodes, the case the seed test exists to avoid), so the
+persistence evidence is the file read from the vendor rather than a kernel verdict.
