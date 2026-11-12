@@ -20824,3 +20824,27 @@ C94 = 0xC0DEF003: fail(3), i.e. `pivot_root(".", ".")` was refused after chdir(/
 mount errno bits 4-7, shadow-written bit 8, /dev-move errno 12-15, chdir errno 16-19, pivot_root
 errno 20-23, chroot errno 24-27, exec bit 28) and falls back to chroot(".") when pivot_root is
 refused, because the vendor's preinit only needs the squashfs as its root, not a namespace change.
+
+## 2026-11-12 - phase3ai: the init's first real stage word, and a second factory reset
+
+`phase3ai` (chroot fallback + accumulated stage word) returned C94 = 0xD0FE6B21. The low half is
+ours (0x6B00 | 0x21): bit 0 (the init ran) plus bits 4-7 = 2, i.e. the vendor-fs mount returned
+ENOENT. The high half (0xD0FE) is not ours and was written after; the vendor's own boot does touch
+C94 on some boots, so only the low half is trustworthy when the value's top bytes are not 0xC0DE.
+The /dev/mtdblock15 source was the problem: devtmpfs on this kernel does not carry the mtdblock
+nodes any more than it carries /dev/mem, so the mount source does not resolve. The init now mounts
+`mtd:rootfs_data` (the form the kernel mount test itself uses for mtd:lab), and creates
+/mnt/lower/dev before the MS_MOVE of devtmpfs.
+
+The box came back on the FIRST-RUN WIZARD again: rootfs_data was reformatted during the run. The
+vendor's own dmesg in the same window shows the real reason - the fs was damaged ("Eep. No valid
+nodes for ino #4335", repeated), so the vendor's fstools decided the overlay was unusable and
+rebuilt it. That also reset /etc/dropbear, so SSH had to be re-keyed (rm the zero-byte host key,
+dropbearkey -t ed25519, write authorized_keys, start /usr/sbin/dropbear -p 22 -R).
+
+Two side facts from the same boot:
+- the vendor mounts /dev/mtdblock16 as /upgrade jffs2 at every boot, so the `upgrade` seed the lab
+  wrote during phase3x (8 cleanmarkers at its start) is scanned by the vendor and produces
+  "No valid nodes for ino" warnings; the lab scratch is now mtd17 (`lab`), the tail of that range.
+- the vendor's mount_root tolerates a reformattable fs but not a corrupt one; a fresh fs now makes
+  the vendor-init run on our kernel the fair test it was meant to be.
