@@ -20871,3 +20871,28 @@ One more recovery detail from the same session: after a factory reset dropbear r
 and dropbear parses it at startup. Removing the empty RSA/DSS key files and starting
 `/usr/sbin/dropbear -p 22 -R` is what restores SSH; the ed25519 host key plus authorized_keys alone
 are not enough while the empty file sits there.
+
+## 2026-11-12 - phase3al: the stall is BEFORE the /dev move, and a shadow-free run leaves the config intact
+
+`phase3al` removed the vendor-fs touch entirely (no mount, no shadow) and left only: tag, the two
+lazy unmounts, the devtmpfs move, chdir(/mnt/lower), pivot_root or chroot, execve. C94 came back
+0xD0FE6B01: low half 0x6B01 means the init ran and NOTHING after the first tag landed - not even the
+/dev-move tag. So the stall in this build is in one of the calls between the first tag and the move:
+the lazy `umount2("/overlay", MNT_DETACH)` (the mount test's jffs2 upper) or
+`umount2("/mnt/new", MNT_DETACH)` (the overlay glue). A lazy unmount of a jffs2 whose write buffer
+is dirty is a plausible synchronous flush point, which ties this stall to the same jffs2 write path
+that stopped phase3ak's mkdir.
+
+Useful counter-result: the box came back with its config INTACT (the LuCI login page, not the
+wizard). Every earlier vendor-init attempt ended factory-default because OUR kernel had mounted the
+vendor's config partition (and left a lazily detached, dirty superblock) before the vendor's own
+mount_root saw it. A run that never touches rootfs_data does not trigger the vendor's rebuild.
+
+C94 reporting caveat: the low 16 bits are ours and reliable, but the HIGH half read back is 0xD0FE,
+not our 0xC0DE, in every post-init read. The vendor's kernel preserves a value written to C94 (a
+0xC0DE1234 store read back exactly), so something on OUR kernel writes the upper half after the tag
+store - most likely the driver's own crumb writes to C98 (0x9A000009 in the same reads). Treat only
+the low half of a post-init C94 as the stage word until that is disentangled.
+
+`phase3am` removes both lazy unmounts as well, so the only calls left before the pivot are mkdir
+(EROFS on the read-only squashfs, harmless), the devtmpfs move, chdir, pivot/chroot and execve.
