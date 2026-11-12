@@ -20896,3 +20896,26 @@ the low half of a post-init C94 as the stage word until that is disentangled.
 
 `phase3am` removes both lazy unmounts as well, so the only calls left before the pivot are mkdir
 (EROFS on the read-only squashfs, harmless), the devtmpfs move, chdir, pivot/chroot and execve.
+
+## 2026-11-12 19:39 - phase3am and the state of the vendor-init path at the end of this session
+
+`phase3am` (umount-free) did not reach the init: the box came back on the vendor kernel about 50 s
+after our kernel started, and C18 held 0xC0DE50E5 - a probe-stage crumb, not the restart handler's
+0xC0DE5207 - so that boot died early, before userspace. C94 still read 0xD0FE6B01, i.e. the value
+phase3al had left, which is consistent with the init never running in this build.
+
+State of the vendor-init path after phase3x..3am:
+- Proven: the initramfs init EXECUTES on our kernel (stage tags land; phase3af's fail(1) and
+  phase3ak's mount tag both came from it), the vendor squashfs is already mounted at /mnt/lower by
+  the kernel mount test, `pivot_root(".", ".")` against it returns EINVAL, chroot(".") is the
+  fallback, the vendor config partition mounts by `mtd:rootfs_data` (path sources return ENOENT in
+  the initramfs devtmpfs), and a run that never touches rootfs_data leaves the vendor config intact.
+- Blocking: the first jffs2 WRITE/flush on our kernel stalls (phase3ak's mkdir under the upper,
+  phase3al's stall before the /dev move with the lazy unmounts in between), and one build (phase3am)
+  died in early boot. Until our kernel can complete a jffs2 write on the vendor's config partition,
+  neither the rc.local shadow nor the vendor's own mount_root can finish on this kernel.
+- Tooling caveat: only the LOW 16 bits of a post-init C94 are ours; the high half reads 0xD0FE.
+
+The box ends this session on the vendor kernel, config intact (LuCI login page), ssh restored
+(dropbear -p 22 -R after removing the squashfs's zero-byte RSA host key), 2 wiphys, 6 interfaces,
+calibration SUCC on both bands, bootflag=a.
