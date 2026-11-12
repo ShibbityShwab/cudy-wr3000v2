@@ -268,9 +268,36 @@ to stop treating `rootfs_data` as lab scratch:
 
 The kernel image keeps its initramfs, and the initramfs `/init` does the minimum:
 
-1. mount the vendor squashfs (`/dev/ubiblock0_0`, fallback `/dev/mtdblock13`) at `/newroot`;
-2. `pivot_root(".", ".")` + `umount2(".", MNT_DETACH)`, i.e. busybox switch_root's exact sequence;
-3. `execve("/sbin/init")` and, if that fails, `execve("/etc/preinit")`.
+1. mount the vendor's config partition with `mount("mtd:rootfs_data", "/vendor", "jffs2", 0, NULL)`,
+   write `upper/etc/rc.local` (the marker script) and detach it. The `mtd:` form is required: the
+   initramfs devtmpfs does not carry `/dev/mtdblock15` (nor `/dev/mem`; the init mknods chr 1:1
+   itself), so path sources return ENOENT;
+2. move devtmpfs onto `/mnt/lower/dev` (the squashfs has an empty `/dev`);
+3. `chdir("/mnt/lower")` and `pivot_root(".", ".")`, falling back to `chroot(".")` because an
+   initramfs `pivot_root(".", ".")` against the kernel mount test's squashfs mount returns EINVAL;
+4. `execve("/sbin/init")` and, if that fails, `execve("/etc/preinit")`.
+
+The squashfs at `/mnt/lower` is the one the kernel mount test (j2) already mounted read-only from
+ubiblock0_0; a second mount of that block device while the first is lazily detached fails, so the
+init pivots into it instead of mounting its own.
+
+Every stage reports into C94 through an mmap of page 0x10100 (a file-position `write()` to
+`/dev/mem` returns EFAULT on this SoC, while an mmap plus a plain store lands). The word is
+accumulated: `0x6B000000 | tags`, with the vendor-fs mount errno in bits 4-7, a shadow-written bit
+at 8, the devtmpfs move errno in 12-15, the chdir errno in 16-19, the `pivot_root` errno in 20-23,
+the `chroot` errno in 24-27 and an exec bit at 28. A top half other than 0xC0DE means the vendor's
+own boot wrote the cell afterwards, so only the low half is read as ours.
+
+Instrumented results so far: the init runs (`phase3af` proved the stage tag lands, and its
+`fail(1)` showed both squashfs mount sources refused); a pivot into the kernel-mounted squashfs
+fails at `pivot_root(".", ".")` (`phase3ah`), which is why the chroot fallback exists; and a
+vendor-fs mount by path returns ENOENT (`phase3ai`), which is why the mount source is now
+`mtd:rootfs_data`.
+
+A fire that leaves the box factory-default is not necessarily a crash: the vendor's own dmesg shows
+it found the config fs corrupt (`Eep. No valid nodes for ino #4335`) and rebuilt it. The reset also
+wipes `/etc/dropbear`, so SSH is restored by mknod'ing the host key fresh with `dropbearkey` and
+restarting `/usr/sbin/dropbear -p 22 -R` over the web command sink.
 
 Everything else is the vendor's own machinery: `/sbin/init` is procd, and the vendor's preinit
 mounts `mtdblock15` at `/mnt`, writes `upper/etc/mount_protect`, and `/sbin/mount_root` builds the
