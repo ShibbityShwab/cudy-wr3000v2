@@ -20757,3 +20757,28 @@ After recovery: OpenWrt 22.03.6 / 2.4.15, 2 wiphys, 6 interfaces, calibration `[
 The Phase C marker and `persist.txt` were destroyed with the old config partition, so `phase3w`'s
 vendor-init run cannot be proven from the filesystem; the code path itself ran (the box reset on the
 home timer and the vendor booted afterwards).
+
+## 2026-11-12 - Phase C on the vendor init: `phase3x` returned the box on the vendor kernel, and the partition table explains why
+
+`phase3x` (vendor squashfs root + our /init, lab overlay on `upgrade`) booted, the mount test failed
+(C94 = 0x9ED80000: tag 0x9E, size byte 0xD8 = the 29.5 MiB `upgrade`, both mkdirs clean => the jffs2
+mount itself was refused, the partition was never seeded by our kernel on that first boot), and the
+vendor came back on ITS kernel (the /proc/mtd of the running box lists 17 partitions with no `lab`,
+and C94 still holds 0x9ED80000, so the vendor never wrote it).
+
+Two facts fell out of that run:
+1. The lab scratch cannot be `upgrade`: 29.5 MiB is 236 eraseblocks, and the jffs2 mount has to scan
+   all of it (minutes), on a partition the seed test can only prepare in a LATER boot. A dedicated
+   8 MiB `lab` partition (the tail of the vendor's `upgrade` range, at 0x7780000) gives 64 blocks,
+   which is the size every proven jffs2 test used.
+2. The vendor's `rootfs_data` is 22 MiB (mtd15, 0x1600000); our DTS sees the first 8 MiB of it. Our
+   /init mounts `/dev/mtdblock15` and drops the `upper/etc/rc.local` shadow there; the vendor's own
+   mount sees the same start offset, so the shadow is visible to its mount_root.
+3. The init is now INSTRUMENTED: every stage writes a tag into C94 through /dev/mem
+   (0x6A01 vendor fs mounted, 0x6A02 + errno mount failed, 0x6A03 shadow written, 0x6A04 open
+   failed, 0x6A05/0x6A06 squashfs source, 0x6A07 neither, 0x6A08 pivot done and execve attempted,
+   0xF0xx a fail() exit). C94 survives a warm reset and the vendor never writes it, so the value
+   read after the vendor returns names the exact stage. `fail()` writes 0xF0xx before it exits.
+
+`phase3aa` = the instrumented init + the `lab` partition (seed/mount/typing retargeted), built
+2026-11-12 16:25.

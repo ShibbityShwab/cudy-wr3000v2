@@ -11,6 +11,16 @@ Pins are not written here. Derive them: `git rev-parse --short HEAD` and
 
 ## 0. BENCH STATE - read this before trusting any "box healthy" line below
 
+**RECOVERED AGAIN 2026-11-12.** `phase3w` (the vendor-init test) ran the vendor's own preinit on a
+config partition the lab had been erasing, and the box came back with only DNS. A power cycle did not
+help; a RESET hold brought the first-run wizard, and SSH was restored over HTTP: wizard
+(`sha256(pw+salt)`), login (double hash with the page token), then the systime sink to set root's
+password and start dropbear after removing its zero-byte host keys. Verified after recovery:
+OpenWrt 22.03.6 / 2.4.15, 2 wiphys, 6 interfaces, calibration `[SUCC]` both bands, 40 `hi_` modules,
+bootflag=a, boot_reg=0x10, ssh key login. Full recipe: `mem-entries.md` 2026-11-12 (RECOVERY).
+The lab overlay, the seed test and the NOR typing now live on the `upgrade` partition; the vendor's
+`rootfs_data` is left alone except for one targeted `rc.local` shadow written by the Phase C init.
+
 **As of 2026-11-01 the router is RECOVERED and HEALTHY on the vendor image.** It came back **on its own**
 (no RESET hold was needed) after a strand caused by three `luofu_verdict_cell()` marks on sysctrl offsets
 `C00`, `C10`, `C14` - cells the cell map lists as having **no writer**. That was read as "safe" and it is
