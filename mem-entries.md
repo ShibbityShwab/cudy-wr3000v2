@@ -20782,3 +20782,26 @@ Two facts fell out of that run:
 
 `phase3aa` = the instrumented init + the `lab` partition (seed/mount/typing retargeted), built
 2026-11-12 16:25.
+
+## 2026-11-12 - WHY NO CELL FROM THE INIT: /dev/mem write() returns EFAULT, mmap is the only working door
+
+The initramfs init never left a crumb in C94 through `open("/dev/mem") + lseek() + write()`, and
+that was the tooling, not the init. Measured on the vendor's own kernel with a freestanding ARM
+test binary (source kept at /tmp/celltest.c during the session):
+
+    open("/dev/mem", O_RDWR|O_SYNC)      -> fd 3
+    lseek(fd, 0x10100C94, 0, SEEK_SET)   -> 0x10100c94  (SUCCESS)
+    write(fd, &v, 4)                     -> 0xfffffff2 = -EFAULT
+    mmap2(NULL, 4096, RW, SHARED, fd, 0x10100) -> 0xb6f16000, and p[0xC94/4] = v LANDS
+
+So a file-position write through /dev/mem faults on this SoC (ARMv7, 5.10) while an mmap of the
+same page writes fine. busybox `devmem` uses mmap for exactly this reason. `init-vendorroot.c` now
+maps page 0x10100 once and stores the stage tag with a plain store. Two more traps fixed on the
+way: the raw lseek ABI splits the 64-bit offset into r1:r2, and a mapped address like 0xb6f16000
+is NEGATIVE as a signed long, so the mmap error check must compare against 0xfffff001, not 0.
+
+Stage tags (also in the shadow rc.local, which writes 0xC0DE600D when the vendor's procd reaches
+done): 0x6A00 init started, 0x6A01/0x6A02 vendor fs mounted/failed, 0x6A03/0x6A04 shadow
+written/open failed, 0x6A05/0x6A06 squashfs source, 0x6A07 neither mount, 0x6A08 pivot done and
+execve attempted, 0xF0xx fail() code. `phase3ae` carries the mmap cell writer and a 1500 s home
+timer (was 620 s) so the vendor userspace has room to boot on our kernel.
