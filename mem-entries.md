@@ -20848,3 +20848,26 @@ Two side facts from the same boot:
   "No valid nodes for ino" warnings; the lab scratch is now mtd17 (`lab`), the tail of that range.
 - the vendor's mount_root tolerates a reformattable fs but not a corrupt one; a fresh fs now makes
   the vendor-init run on our kernel the fair test it was meant to be.
+
+## 2026-11-12 - phase3ak: the vendor fs mounts (mtd:rootfs_data), but its FIRST WRITE never returns
+
+`phase3ak` typed rootfs_data as MTD_NORFLASH (the same typing the lab partition has carried since
+phase3s) so jffs2 would use the proven write path, then ran the shadow write. The result:
+C94 = 0xD0FE6B01 again. Low half 0x6B01 = the init ran, the vendor-fs mount returned 0 (SUCCESS),
+and NOTHING after it - no shadow tag (bit 8), no /dev move, no pivot. So the mount is fine and the
+first jffs2 write inside it, the `mkdir /vendor/upper/etc`, never returns; the typing does not
+change that. The init was still alive when the 1500 s home timer fired, so this is a block inside
+the jffs2 write/erase path on rootfs_data, not a crash.
+
+Consequence: any Phase C design that writes to the vendor's overlay from our kernel - our rc.local
+shadow, or the vendor's own mount_root creating /etc/config - hits the same stall. The next build,
+`phase3al`, therefore does not touch rootfs_data at all: it moves devtmpfs onto /mnt/lower/dev,
+chroots (or pivots) into the kernel-mounted squashfs and execs /sbin/init, so the vendor preinit
+becomes the first and only mounter of the config partition. That isolates "can the vendor userspace
+start on our kernel" from "can our kernel write the vendor fs", which is now the named driver wall.
+
+One more recovery detail from the same session: after a factory reset dropbear refuses to start with
+"Early exit: Bad buf_getptr" because the squashfs ships a ZERO-BYTE /etc/dropbear/dropbear_rsa_host_key
+and dropbear parses it at startup. Removing the empty RSA/DSS key files and starting
+`/usr/sbin/dropbear -p 22 -R` is what restores SSH; the ed25519 host key plus authorized_keys alone
+are not enough while the empty file sits there.
