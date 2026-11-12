@@ -309,13 +309,15 @@ the jffs2 upper before the overlay is built. The vendor's `/etc/init.d/done` run
 at START=95, and ours deposits `0xC0DE600D` in C94 and writes `/etc/procd-ran`. If the box comes back
 with C94 still `0x9F00xxxx` (the pet's no-verdict marker), procd never reached the end of boot.
 
-**CLOSED 2026-11-12 21:01 by `phase3ao`.** The proof landed: C94 = `0xC0DE600D`,
-`/overlay/upper/etc/procd-ran` = `LUFU-PROCD`, the shadow still on the fs. The chain that ran is
-this initramfs init, then the vendor's preinit, `mount_root`, procd and `/etc/init.d/done`, all on
-our kernel. The stall that had hidden it was a DTS mistake: `rootfs_data` was declared as 8 MiB of
-its real 22 MiB, so jffs2 had no allocatable block and blocked in reservation/GC without ever
-reaching the mtd layer (confirmed by crumbs inside the write and erase functions reading zero).
-`<0x4c80000 0x1600000>` is the correct size, and it ends exactly where `upgrade` starts.
+**CANDIDATE, NOT CLOSED (corrected 2026-11-13 05:37).** `phase3ao` left C94 = `0xC0DE600D` and
+`/overlay/upper/etc/procd-ran` = `LUFU-PROCD`, but the shadow rc.local lives in the overlay and the
+STOCK kernel's `/etc/init.d/done` runs it on every boot, so that pair does not name the kernel.
+`phase3aq` added a version tag: `/kernel-ran.log` came back with only `#0 SMP Sat Nov 25 18:18:57
+2023` and C94 = `0xC0DE600E` (the vendor-kernel branch), so our kernel has NOT been observed
+reaching the vendor's `done`. The DTS fix (rootfs_data at its real `0x1600000`) IS real and was what
+unblocked the jffs2 write. `phase3ar` shadows S10boot, S18hyfibrd, S20network and S95done with
+breadcrumb scripts that append to `/boot.log` before exec'ing the real script, so the last line names
+the last script the vendor's procd reached on our kernel.
 
 ## Phase D - Ethernet
 
