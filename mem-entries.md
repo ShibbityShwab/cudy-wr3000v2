@@ -21094,3 +21094,38 @@ Conclusion for Phase D: the proper fix is the crg clock/reset provider the DTS a
 the mach code even looks for a driver named "luofu-crg"). The tree has no such driver; the vendor
 ships two (hi_crg, hi_clk). Until that provider exists, the MAC/MDIO probes either defer forever
 (no netdevs, #162: only `lo`) or crash the box after done (#164/#165).
+
+## 2026-11-13 08:37 - The luofu-crg driver is written; #166 runs the vendor userspace to S95done and dies ~6 s later
+
+New driver `arch/arm/mach-luofu/crg.c` (platform driver named "luofu-crg", matching "hsan,crg"):
+it registers one gate clock per `hsan,clk-gate` child (child order = the LUOFU_CLK_* index, parent
+apb_clk), publishes them with of_clk_hw_onecell_get, and registers a reset controller whose two-cell
+(offset, bit) specifier is folded into an id so assert/deassert is a bit write at base+offset. It
+builds clean (Crg.cc) and its probe prints one line; the mach code's `driver_find("luofu-crg")`
+should now find it.
+
+`phase3aw` (#166) booted with it. `/boot.log` shows our kernel running the vendor's boot chain:
+
+    S10boot   1763000648  #166 SMP Fri Nov 13 08:09:15 +07 2026
+    S18hyfibrd 1763000665
+    S20network 1763000669
+    S95done    1763000679
+    S10boot   1763000685  #0 SMP Sat Nov 25 18:18:57 2023
+
+So the userspace got to S95done on our kernel and the box reset SIX seconds later, before
+/etc/init.d/done reached /etc/rc.local (no #166 line in /kernel-ran.log, no #166 section in
+/net-state.log even though the marker syncs). The same post-done death hits #164, #165 and #166 -
+every build where the GEMAC/MDIO probes are allowed to proceed - while #162, whose MACs still
+deferred on the missing clock provider, ran its marker one second after S95done and lived to the
+25-minute home timer.
+
+That correlation is now the leading hypothesis for the crash: the MAC/MDIO bring-up (now with real
+clocks and deasserted resets) pokes hardware that kills the kernel a few seconds later. The clean
+bisect is the same crg kernel with `status = "disabled"` on the four gmac nodes: if the post-done
+death disappears, the MAC bring-up is the cause and the next suspect is whatever it touches (PHY
+access, the switch driver, the hyfi hooks); if it persists, the crg driver's own clock/reset writes
+are suspect. Until that is settled, the Phase D measurement (does eth2 come up?) still has no dump.
+
+The box ends healthy on the vendor kernel: 2 wiphys, 6 interfaces, calibration SUCC both bands, and
+the C8C/C94 cells hold the vendor's own values (0x80004000 / 0xC0DE600E), so they cannot be read as
+ours on a post-fallback boot.
