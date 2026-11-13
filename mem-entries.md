@@ -21129,3 +21129,29 @@ are suspect. Until that is settled, the Phase D measurement (does eth2 come up?)
 The box ends healthy on the vendor kernel: 2 wiphys, 6 interfaces, calibration SUCC both bands, and
 the C8C/C94 cells hold the vendor's own values (0x80004000 / 0xC0DE600E), so they cannot be read as
 ours on a post-fallback boot.
+
+## 2026-11-13 09:30 - Bisect result: neither the MACs nor the MDIO bus cause the post-done reset; the log ring is scrubbed
+
+Two more bisects, same crg kernel, only the device tree changed:
+
+    phase3ax  four gmac nodes status="disabled"   -> box died ~2 min in (vendor fallback at 09:22)
+    phase3ay  gmac nodes AND mdio node disabled   -> box died ~2 min in (vendor fallback at 09:27)
+
+The boot.log for the MAC-disabled run shows the same shape as #166: S10boot #166 -> S95done, then
+the vendor's S10boot six seconds later. So the post-done death is NOT the GEMAC bring-up and NOT the
+MDIO bus scan. With those nodes disabled their drivers never probe, which also makes the
+tolerant-clock patch inert, so the patch is not the cause either. The remaining differences from
+the surviving #162 are the new luofu-crg driver and plain boot-to-boot variance.
+
+Post-mortem channel: the mach code's comment about reading the previous kernel's log ring at
+0x80603000 through /dev/mem does not work on this box any more - the same source records that "the
+vendor's boot scrubs ... every page of 0x80600000..0x80620000 holds ITS text", and a read at that
+address under the vendor returns nothing. A panic capture has to be built deliberately: CONFIG_PSTORE
+is on and the DTS already reserves a `pstore` partition (mtd10, 0x40000 at 0xd40000), but there is no
+ramoops/pstore backend wired to it (CONFIG_PSTORE_RAM is not set and no reserved-memory node exists).
+Wiring that is the next step that would turn this from bisecting into reading an actual trace.
+
+Current best reading: the crash is intermittent and correlates with how far the vendor userspace
+gets on our kernel, not with any single driver this session added. #162 lived 25 minutes; every build
+after it has died within two minutes of boot. Until a panic trace is captured, the Phase D network
+measurement cannot be trusted to survive to the marker.
