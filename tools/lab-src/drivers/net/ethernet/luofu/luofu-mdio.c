@@ -207,17 +207,18 @@ static int luofu_mdio_probe(struct platform_device *pdev)
 	m->clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(m->clk)) {
 		/*
-		 * The crg node has no driver in this tree, so the clock provider
-		 * never registers and this would defer forever. The MDIO gate is
-		 * left as the bootloader set it; continue without owning it.
+		 * HONOR THE DEFERRAL (2026-11-13). This used to tolerate -EPROBE_DEFER and continue with no
+		 * clock, on the assumption that no provider would ever appear. The crg driver does appear,
+		 * eight milliseconds after this probe runs - and without the gate the controller never
+		 * completes a transfer: every read times out with "MDIO bus hasn't done reading" and the
+		 * data line sits at 0xff92, which is exactly what stopped every PHY from existing.
 		 */
 		if (PTR_ERR(m->clk) == -EPROBE_DEFER) {
 			luofu_diag(0xc0de7013);
-			m->clk = NULL;
-		} else {
-			luofu_diag(0xc0de7f03);	/* no clock provider */
-			return dev_err_probe(dev, PTR_ERR(m->clk), "no clock\n");
+			return -EPROBE_DEFER;
 		}
+		luofu_diag(0xc0de7f03);	/* no clock provider */
+		return dev_err_probe(dev, PTR_ERR(m->clk), "no clock\n");
 	}
 	luofu_diag(0xc0de7003);
 
