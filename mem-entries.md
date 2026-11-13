@@ -21358,3 +21358,23 @@ The other two:
   hi_kmac/hi_swa modules loading instead, ours can stay as it is.
 
 phase3bi is the vermagic-matched build under test.
+
+## 2026-11-13 16:29 - #177: vermagic fixed, watchdog registered, and a new module wall (PLT)
+
+The dump's #177 section, with the vermagic matched:
+
+    luofu-wdt 14880000.watchdog: luofu-wdt: registered (hwver 2, en+0x64 set+0x50 clr+0x70),
+                                   timeout 30s, max 512s
+    nf_dup_netdev: module PLT section(s) missing
+    kmodloader: - nf_dup_netdev - 0   (and its two dependants)
+
+So the region conflict is gone and our watchdog driver is live with the vendor's own register map.
+The vermagic no longer blocks the vendor's modules; the next wall is PLT: our kernel is built with
+CONFIG_ARM_MODULE_PLTS=y while the vendor's modules were built for a kernel without it, so their ELF
+has no .plt sections and our loader refuses them. The vendor's own kernel evidently placed modules
+within branch range, which is why they needed none.
+
+phase3bj disables ARM_MODULE_PLTS to match, and that is the build now under test. If the vendor's
+modules load, their hi_swa/hi_kmac stack - the same drivers that ran on the vendor's kernel in the
+first dump - should bring eth2 and br-lan up on our kernel, which is the Phase D milestone and very
+likely the wireless one too.
