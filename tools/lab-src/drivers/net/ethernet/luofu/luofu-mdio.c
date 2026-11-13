@@ -189,7 +189,8 @@ static int luofu_mdio_read(struct mii_bus *bus, int phy, int reg)
 	v = readl(m->base + LUOFU_MDIO_WSTATUS);
 	writel(v, m->base + LUOFU_MDIO_WSTATUS);
 
-	writel(frame, m->base + LUOFU_MDIO_FRAME);
+	/* The second frame carries bit 14 (the command phase); see the layout note above luofu_mdio_frame. */
+	writel(frame | 0x4000u, m->base + LUOFU_MDIO_FRAME);
 
 	if (luofu_mdio_wait_busy(m, LUOFU_MDIO_WSTATUS))
 		return -ETIMEDOUT;

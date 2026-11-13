@@ -21663,3 +21663,17 @@ likely the actual read command, with the first word being something else entirel
 
 State: criteria 1, 3 and 4 PASS. Criterion 2 open on the MDIO controller's second frame word; the
 ledger carries the disassembly addresses (0x3ac..0x3d4) and the decoded layout of the first word.
+
+## 2026-11-14 02:56 - The two frame words differ: the second is the command phase
+
+Decoding the second assembly at hi_mdio_read+0x3ac..0x3d4 gives a second word distinct from the first:
+
+    phy=2  reg=1  -> first 0x8102, second 0xc102
+    phy=4  reg=1  -> first 0x8104, second 0xc104
+    phy=2  reg=4  -> first 0x8402, second 0xc402
+    phy=0  reg=0  -> first 0x8000, second 0xc000
+    phy=31 reg=31 -> first 0x9f1f, second 0xdf1f
+
+so the second word is the first with bit 14 set (0xc000 | reg << 8 | phy). Our driver wrote the SAME
+word twice. phase3cf writes 0x8000|... for the address phase and 0xc000|... for the command phase,
+each followed by the write-status wait and acknowledgement, then reads +0x74.
