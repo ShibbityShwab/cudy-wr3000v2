@@ -21284,3 +21284,27 @@ vendor's early init) is also in play.
 
 State of the verdict cells after #171: C18=0xC0DE50E5, C1C=0xC0DE5E05, C70=0x1F40 (8000),
 C88=0x9C009B46, C90=0x5AFE0003.
+
+## 2026-11-13 14:09 - #172: pet shim plus real driver extends the lifetime to ~90 s
+
+`phase3be` enabled BOTH the mach pet shim (from 1 s, 5 s period, writing the vendor clear sequence
+reset-val0 then reset-val1 to clr-offset) AND the real driver. Our kernel reached S10boot (#172,
+14:08:24) and the vendor booted at ~14:09:38, so the box lived about 90 s - longer than either
+configuration alone (35 s with the shim only, 50 s with the driver only). The watchdog is clearly the
+gate, and each improvement in feeding it buys more time, but none of them cleanly survives.
+
+The pattern says the remaining gap is the hand-off: the mach shim starts at 1 s but is a diagnostic
+with a bounded budget, and the driver only pings once a userspace process opens /dev/watchdog, which
+on the vendor's own boot happens well after S10boot. Between the two there is a window with no keeper.
+
+## 2026-11-13 14:36 - A userspace keeper in the init (phase3bf)
+
+The fix that does not depend on either mechanism: the initramfs init now forks a child right before
+exec'ing the vendor's init. That child creates /dev/watchdog (misc 10:130), opens it, and writes the
+keepalive byte every 5 s forever. Because the driver is in the image, the open binds to the real
+luofu-wdt, whose ping is the vendor's own clear sequence, so the timer is fed by the same path the
+vendor's procd would use - but from the first second and independent of procd's schedule.
+
+The init binary (4356 B) was embedded and verified in the built image (usr/initramfs_inc_data
+decompresses to the new /init, which contains the /dev/watchdog string). phase3bf is the slice under
+test.
