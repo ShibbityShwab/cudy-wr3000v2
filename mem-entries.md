@@ -21155,3 +21155,27 @@ Current best reading: the crash is intermittent and correlates with how far the 
 gets on our kernel, not with any single driver this session added. #162 lived 25 minutes; every build
 after it has died within two minutes of boot. Until a panic trace is captured, the Phase D network
 measurement cannot be trusted to survive to the marker.
+
+## 2026-11-13 10:20 - The panic capture wrote nothing; the crash leaves no pstore record
+
+`phase3az` carried CONFIG_PSTORE_BLK (kmsg zone 64 KB, pmsg/console 0) on the existing `pstore`
+partition (mtd10, 0x40000 at 0xd40000), and the partition was erased with `mtd erase pstore` before
+the run so any record would be unambiguously ours. The run died the usual way, and after the vendor
+came back the whole 256 KiB partition read as 0xff: no record at all.
+
+So one of two things is true and they need different fixes:
+  (a) pstore_blk never registered: its blkdev lookup happens at init and /dev/mtdblock10 may not exist
+      yet, in which case the backend fails silently and no panic can be stored. Verification is cheap
+      from inside the initramfs init: after mounting pstore, `ls /sys/fs/pstore` plus the
+      `/sys/module/pstore_blk` presence tells whether the backend registered at all.
+  (b) the reset is not a software panic at all (a watchdog or a hard fault with the console down),
+      and nothing gets a chance to write.
+
+Before this run the same partition DID hold panic records, but they listed the vendor's modules
+(hi_*), i.e. they were the stock kernel's own crashes, not ours. The partition is shared: the vendor's
+kernel uses it for its pstore too, which is why it was erased before this capture.
+
+Next step is (a) before more fires: have the initramfs init report whether pstore/pstore_blk
+registered (a line in its marker log), and only then decide between fixing the backend's device
+timing and falling back to a panic-notifier crumb in the mach code (a cell the vendor's boot does not
+overwrite).
