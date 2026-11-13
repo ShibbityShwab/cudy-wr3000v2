@@ -21043,3 +21043,30 @@ that the four gmac nodes reference, not the MAC driver itself.
 
 Also visible in the same dmesg, and worth keeping: our FMC diag reads UBI# off rootfsa, and the
 watchdog pet timer is armed at 5 s on our kernel.
+
+## 2026-11-13 07:38 - phase3au (#164): the vendor boot scripts ran on our kernel again, but the box reset after done and the marker's writes never flushed
+
+`phase3au` (the GEMAC/MDIO drivers made tolerant of the missing crg clock provider) produced, on OUR
+kernel build #164:
+    S10boot   1763000504  #164 SMP Fri Nov 13 07:08:51 +07 2026
+    S18hyfibrd 1763000521
+    S20network 1763000525
+    S95done    1763000535
+That is Phase C confirmed a SECOND time, now with the version line in the breadcrumb log itself.
+
+But the marker's own evidence is missing: /kernel-ran.log has no #164 line and /net-state.log has no
+#164 section, while the vendor's next boot starts at 1763000541, about six seconds after S95done. So
+our kernel died within seconds of reaching done, before the jffs2 write buffer flushed the marker's
+appends. The boot.log lines survived because they were written earlier and had been flushed; the
+marker's lines (written ~1 s later) were still buffered. This is the same instability class as the
+bit-0xc0de50 crumb deaths: a reset shortly after the vendor userspace gets going, whose mechanism the
+mach-luofu page-table probe line ("LUOFU-PG") was built to chase.
+
+Two consequences:
+- Phase D still has no measurement from our kernel (the #164 interface dump was lost), so the
+  tolerant-driver effect on eth2 is unknown.
+- The marker must flush before anything can kill the box: `phase3av` adds `sync` after the dump
+  append, so the version line and the interface/dmesg section reach flash immediately.
+
+The #162 section of /net-state.log remains the reference for Phase D pre-patch: only `lo`, four
+`/ethernet@14xx0000: Failed to get clk index: 0 ret: -517` lines, radio0/radio1 with no PHY.
