@@ -21472,3 +21472,15 @@ its own. Every slice from 09:25 to 21:14 therefore appended a DTB in which the M
 MAC ever probed, no netdev could exist, and the earlier bisect reading ("MAC bring-up is not the
 cause") was measuring nothing at all. `make ARCH=arm ... dtbs` rebuilt it; dtc now reports status
 "okay" and the probes run. Build recipe note: always run the dtbs target after a DTS edit.
+
+## 2026-11-13 22:13 - The keeper race: a failed open left the armed watchdog unfed
+
+phase3bw reached S10boot (#188) and the vendor was back five seconds later - the early reset from
+before the keeper existed. The mechanism this time is a race in the keeper itself: it opens
+/dev/watchdog once, and if the luofu-wdt misc device has not registered yet that open fails, the loop
+then sleeps and writes to nothing while U-Boot's 30 s timer runs out. The open now retries every beat,
+so a late-registering driver is picked up instead of being missed forever.
+
+Also this run: the gmac path now clears clocks and resets and stops at phylink_of_phy_connect with
+-ENOENT, deferring on the MDIO bus (crumbs 6001/6002/6003/6f04/6004/6013/6f0d/6f07). The mdio driver
+now prints its crumbs too ("luofu-mdio: DIAG %08x") and the dump reads its cell at C98.
