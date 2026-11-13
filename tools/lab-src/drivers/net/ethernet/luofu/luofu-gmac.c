@@ -362,7 +362,7 @@ static const struct ethtool_ops luofu_gmac_ethtool_ops = {
  * outlives a fallback.
  */
 #define LUOFU_DIAG_BASE	0x10100000UL
-#define LUOFU_DIAG_OFF	0xc94	/* gmac DIAGNOSTIC cell. Moved off 0xC94 (2026-11-13): the initramfs init writes its own tag to 0xC94 at the exec, before these probes run over the same page, so the tag was hiding the last crumb. 0xC7C is used by nothing. */
+#define LUOFU_DIAG_OFF	0xc94	/* gmac DIAGNOSTIC cell. 0xC7C reads back zero (dead), 0xC80 and 0xC88 are live registers, so C94 is the only cell that takes a write; the driver also prints every crumb (see luofu_diag). */
 
 extern u32 luofu_net_diag;
 
@@ -371,6 +371,17 @@ static void luofu_diag(u32 v)
 	void __iomem *p;
 
 	luofu_net_diag = v;	/* survive the fallback: the FMC tick carries this */
+
+	/*
+	 * THE LOG IS THE CRUMB CHANNEL NOW (2026-11-13).
+	 *
+	 * C94 is shared: the mach's seed test, its init_machine marker, the pet timer's verdict
+	 * republish and the overlay mount test all wrote it at different times, and whichever ran last
+	 * erased this driver's probe state before the dump could read the cell. The 64 KB kernel ring
+	 * holds the whole boot, so every crumb is also printed here with its timestamp - ordered,
+	 * attributable, and immune to whoever else owns the cell.
+	 */
+	pr_info("luofu-gmac: DIAG %08x\n", v);
 
 	p = ioremap(LUOFU_DIAG_BASE, 0x1000);
 	if (!p)

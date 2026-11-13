@@ -848,13 +848,15 @@ static void luofu_wdt_pet(struct timer_list *t)
 	 *   0xC0DE9B0x  the exec ladder was the last writer, so no verdict survived
 	 *   0x9f00xxxx  this timer ran with no verdict ever published
 	 */
-	if (luofu_pet_cell) {
-		if (luofu_overlay_verdict)
-			writel(luofu_overlay_verdict, luofu_pet_cell + 0x94);
-		else
-			writel(0x9f000000u | (luofu_wdt_pet_count & 0xffffu),
-			       luofu_pet_cell + 0x94);
-	}
+	/*
+	 * THE C94 REPUBLISH IS GONE (2026-11-13).
+	 *
+	 * Every beat wrote the overlay verdict (or the beat counter) into C94, the one SYSCTRL cell this
+	 * board has proven writable. That is the cell the gmac driver publishes its probe crumbs to, and
+	 * the beat landed a few seconds after those probes, so the crumbs were being erased before the
+	 * dump could read them. The verdict still reaches the ledger through the driver's own log line;
+	 * the cell now belongs to whoever is being measured.
+	 */
 }
 
 static int __init luofu_wdt_pet_init(void)
