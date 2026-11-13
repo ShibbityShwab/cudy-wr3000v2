@@ -21508,3 +21508,31 @@ blind end.
 
 Also this run: the flat sh_done shadow works - the dump carries its "=== dump-start ===" marker and
 every section, and kernel-ran-final.log now has the #191 line.
+
+## 2026-11-14 00:06 - The MDIO clock is obtained and the transfers still time out; the gate index is next
+
+phase3ca honored the clock deferral and the driver retried eight milliseconds later:
+
+    [2.488] luofu-mdio: DIAG c0de7001  entry, then c0de7013 -> -EPROBE_DEFER
+    [6.461] luofu-mdio: DIAG c0de7001  retry, entry
+    [6.465] luofu-mdio: DIAG c0de7003  clock obtained
+    [6.703] luofu-mdio: DIAG c0de7f04  resets tolerated
+    [6.710] luofu-mdio: DIAG c0de7005  resets released
+    [6.809] luofu-mdio 14000000.mdio: MDIO bus hasn't done reading   <- still times out
+
+so the clock handle is now real and the block still never completes a transfer. The vendor's live
+device tree confirms the base is right: mdio0 reg = 0x14000000 size 0x1000, phy0 reg = 1,
+compatible "hsan,mdio", clocks = a single phandle. Reading the vendor's own controller registers at
+0x14000000 returns 0xEAFFFE02 / 0xE3E03015 / 0xE58D3004 ... which read like ARM instruction words,
+plus 0x04400000 at +0x60 and 0x54545014 at +0x6c, i.e. the status register's low nibble is non-zero
+on the vendor - the controller is alive there and dead on ours.
+
+The remaining hypothesis is the GATE ID: the crg publishes 16 gates indexed by child order and the
+MDIO node asks for <&crg LUOFU_CLK_MDIO>. If that index does not name the MDIO gate, the block stays
+unclocked even though devm_clk_get succeeded, which matches every observation: handle valid, registers
+reading zero, transfers timing out.
+
+Next experiment (not yet run): print clk_get_rate() in the mdio probe and have the S95done dump read
+0x14000060 / 0x1400006c with devmem, then compare against the vendor's live values above. If the rate
+is zero or the registers read zero, fix the gate index in the DTS/clk table; that is the last link
+between this driver and a working PHY.
