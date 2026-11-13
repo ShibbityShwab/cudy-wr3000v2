@@ -325,14 +325,30 @@ Objective: close the last defect from green. The current state: ARP resolves, fr
 ping 0/3. Check the GMAC driver's RX path, the PHY link state, and the IP configuration. The vendor's
 GMAC driver and the dumps in `dumps/router-20261108` are the references.
 
-State on 2026-11-13: MEASURED on our kernel with the vendor userspace fully up (Phase C confirmed).
-The userspace sees only `lo`; the kernel dmesg for build #162 says, four times,
-`/ethernet@14380000: Failed to get clk index: 0 ret: -517` (and 14400000/14480000/14500000), i.e. all
-four GMAC nodes sit in EPROBE_DEFER waiting for a clock provider that never registers. The vendor's
-netifd runs (S20network logged) and the cmdline `ip=192.168.10.1:...:eth2` is present, but eth2 does
-not exist, so there is nothing to configure. The Phase D work is therefore the clk provider those
-gmac nodes reference, not the MAC driver. Wi-Fi is absent for the known reason: `Could not find PHY
-for device 'radio0'/'radio1'`.
+State on 2026-11-13: MEASURED on our kernel with the vendor userspace fully up (Phase C confirmed
+three times, builds #162/#164/#165). The userspace sees only `lo`; the kernel dmesg for build #162
+says, four times, `/ethernet@14380000: Failed to get clk index: 0 ret: -517` (and
+14400000/14480000/14500000), i.e. all four GMAC nodes sit in EPROBE_DEFER waiting for a clock
+provider that never registers. The vendor's netifd runs (S20network logged) and the cmdline
+`ip=192.168.10.1:...:eth2` is present, but eth2 does not exist, so there is nothing to configure.
+Wi-Fi is absent for the known reason: `Could not find PHY for device 'radio0'/'radio1'`.
+
+Why the provider never registers: the DTS already declares the controller (`crg@14880000`,
+compatible `hsan,crg`, `#clock-cells = <1>`, `#reset-cells = <2>`, 16 `hsan,clk-gate` children whose
+CHILD ORDER is the `LUOFU_CLK_*` table, gemac_clk1 = index 11), and mach-luofu even looks for a
+driver named `luofu-crg` (`driver_find("luofu-crg", &platform_bus_type)`), but NO driver with that
+compatible exists anywhere in this tree. The vendor ships two (`hi_crg` for resets, `hi_clk` for the
+20 gates); ours was lost with the gmac/mdio sources. A tolerant build that lets the MAC/MDIO probes
+continue without clocks (builds #164/#165) crashes the box about six seconds after
+`/etc/init.d/done`, inside its 384 KiB `mount_protect` write, so probing unclocked, still-in-reset
+MACs is not a shortcut.
+
+The Phase D work is therefore: implement `luofu-crg` as one platform driver on `hsan,crg` that
+(a) registers one gate clock per child (`compatible = "hsan,clk-gate"`, `reg-offset`, `bit`,
+`clock-output-names`) and publishes them with `of_clk_add_hw_provider` so the `LUOFU_CLK_*` indices
+resolve, and (b) registers a reset controller with `(reg-offset, bit)` cells for the gmac/mdio
+`resets` properties. The FMC's `sfc_clk` is index 0 and already works without a provider only
+because the FMC probe does not require it, which is why the flash worked while the network did not.
 
 State on 2026-11-12: the current image has NO ethernet driver at all. The shrink fragment sets
 `# CONFIG_ETHERNET is not set` and the gmac/mdio sources were missing from the build tree (lost in
