@@ -21179,3 +21179,33 @@ Next step is (a) before more fires: have the initramfs init report whether pstor
 registered (a line in its marker log), and only then decide between fixing the backend's device
 timing and falling back to a panic-notifier crumb in the mach code (a cell the vendor's boot does not
 overwrite).
+
+## 2026-11-13 12:00 - pstore IS registered, the crash is not a stored panic, and #168 dies 4 s into the vendor's rc.d
+
+`phase3ba` (same pstore_blk kernel, init now mounts the pstore filesystem and records the result in
+`/vendor/upper/pstore-check.txt`) came back with:
+
+    pstore mount OK: a backend registered
+
+So the empty partition in the previous run was NOT a missing backend. pstore_blk is registered; a
+panic that reached the pstore dumper would have left a record. None appeared, so the reset either
+never reaches a software panic path or the panic-time write is preempted before pstore can store it.
+
+The same run's boot.log pins the timing better than any earlier one:
+
+    S10boot 1763000974  #168 SMP Fri Nov 13 11:33:02 +07 2026   (ours)
+    S10boot 1763000978  #0 SMP Sat Nov 25 18:18:57 2023         (vendor, 4 s later)
+
+Our kernel got the vendor userspace to `S10boot` and died four seconds later; the vendor kernel then
+booted and ran its own chain to S95done. So this is not the "post-done" death at all - the reset
+happens INSIDE the vendor's first boot script, minutes before done. The earlier "6 s after S95done"
+readings were the same event seen from the other side: the vendor's own S10boot timestamp lands a few
+seconds after whatever our kernel was doing when it died.
+
+The FMC driver already carries a panic notifier (`luofu_panic_notify`) that runs on the panic path and
+stamps a crumb, and it also carries a kmsg dumper. The next fire should make that crumb unmistakable:
+a fixed magic written to a cell the vendor's boot provably does not touch (C88/C98 have preserved our
+driver's values across vendor boots every time). If the magic appears after a crash, the kernel
+panicked and its notifier ran, and the question becomes why pstore did not store; if it does not
+appear, the reset is below the kernel entirely (watchdog/PMIC/hard fault that bypasses panic) and the
+chip-level reset reason is what to chase.
