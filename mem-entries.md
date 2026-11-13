@@ -21070,3 +21070,27 @@ Two consequences:
 
 The #162 section of /net-state.log remains the reference for Phase D pre-patch: only `lo`, four
 `/ethernet@14xx0000: Failed to get clk index: 0 ret: -517` lines, radio0/radio1 with no PHY.
+
+## 2026-11-13 08:08 - phase3av (#165): vendor userspace ran on our kernel again, and the tolerant-clock patch is what kills the box after done
+
+`phase3av` (the sync-flushed marker over the clock-tolerant GEMAC/MDIO build) produced:
+    /boot.log: S10boot 1763000576 #165 SMP Fri Nov 13 07:40:13 +07 2026
+               S18hyfibrd 1763000597, S20network 1763000597, S95done 1763000607
+So the vendor's boot chain ran on our kernel for the third time (#162, #164, #165). But the marker
+still never executed: no #165 line in /kernel-ran.log, and the vendor's next boot starts at
+1763000613, six seconds after S95done. The marker sits in /etc/init.d/done AFTER the
+`dd if=/dev/random of=/etc/mount_protect bs=1024 count=384` write, so the box dies inside that 384 KiB
+jffs2 write or just before it.
+
+The correlation that matters: #162 (phase3as) had NO tolerant-clock patch and its marker ran one
+second after S95done; #164 and #165 carry the patch and both died within ~6 s of S95done. With the
+patch, the four GMAC nodes and the MDIO bus stop deferring and probe with NO crg clock provider,
+i.e. they touch MAC/PHY registers that nothing has clocked or released from reset. That is the most
+likely cause of the post-done reset, and it means "run on the bootloader's gates" is not a safe
+shortcut.
+
+Conclusion for Phase D: the proper fix is the crg clock/reset provider the DTS already describes
+(compatible "hsan,crg", 16 gate children in LUOFU_CLK_* order, #clock-cells 1, #reset-cells 2, and
+the mach code even looks for a driver named "luofu-crg"). The tree has no such driver; the vendor
+ships two (hi_crg, hi_clk). Until that provider exists, the MAC/MDIO probes either defer forever
+(no netdevs, #162: only `lo`) or crash the box after done (#164/#165).
