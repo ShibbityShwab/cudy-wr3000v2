@@ -21005,3 +21005,41 @@ restored). The vendor's `mount_root` then tries to mount that same partition and
 MNT_DETACH) before the chroot, which is safe now that the DTS gives rootfs_data its real size and the
 jffs2 sync completes. If the breadcrumbs come back with a 2026 build line, the double mount was the
 blocker and the vendor preinit runs; if they stay stock-only, the stall is earlier in the preinit.
+
+## 2026-11-13 07:06 - PHASE C CONFIRMED WITH KERNEL-VERSION EVIDENCE, and Phase D's exact failure in hand
+
+The retry of `phase3as` (proper unmount of the shadow mount before the chroot) produced the proof that
+the earlier marker could not:
+
+    /boot.log
+      S10boot   1763000383  #162 SMP Fri Nov 13 06:33:52 +07 2026
+      S18hyfibrd 1763000400
+      S20network 1763000404
+      S95done    1763000414
+    /kernel-ran.log
+      1763000415  #162 SMP Fri Nov 13 06:33:52 +07 2026
+
+Build #162 is THIS tree (Nov 13 2026). So the vendor's own preinit, mount_root, procd and its entire
+rc.d chain (boot, hyfibrd, network, done) ran to the END on our kernel, and its /etc/rc.local ran too.
+The earlier stock-kernel lines in the same logs are the box's later fallback boot, not our run.
+
+The fix that let it through: `phase3as` releases /vendor with a PROPER umount instead of leaving the
+vendor config partition mounted (phase3ar) or lazily detached. While our mount held the device, the
+vendor's mount_root could not take it and the preinit never reached a single boot script.
+
+PHASE D is now measured, not guessed. The #162 section of /net-state.log shows our kernel's
+userspace with ONLY `lo`: no eth0..eth3, no br-lan, no wlan. Its dmesg carries the reason:
+
+    /ethernet@14380000: Failed to get clk index: 0 ret: -517
+    /ethernet@14400000: Failed to get clk index: 0 ret: -517
+    /ethernet@14480000: Failed to get clk index: 0 ret: -517
+    /ethernet@14500000: Failed to get clk index: 0 ret: -517
+
+-517 is -EPROBE_DEFER: all four GMAC nodes are waiting for a clock provider that never registers, so
+netifd has nothing to configure (the cmdline `ip=192.168.10.1:...:eth2` line is present but eth2 does
+not exist). Wi-Fi is absent for the expected reason: "Could not find PHY for device 'radio0/radio1'",
+i.e. no PCIe/wifi bring-up. The driver work for Phase D is therefore the clk provider (luofu-clk)
+that the four gmac nodes reference, not the MAC driver itself.
+
+Also visible in the same dmesg, and worth keeping: our FMC diag reads UBI# off rootfsa, and the
+watchdog pet timer is armed at 5 s on our kernel.

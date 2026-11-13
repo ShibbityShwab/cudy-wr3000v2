@@ -309,21 +309,30 @@ the jffs2 upper before the overlay is built. The vendor's `/etc/init.d/done` run
 at START=95, and ours deposits `0xC0DE600D` in C94 and writes `/etc/procd-ran`. If the box comes back
 with C94 still `0x9F00xxxx` (the pet's no-verdict marker), procd never reached the end of boot.
 
-**CANDIDATE, NOT CLOSED (corrected 2026-11-13 05:37).** `phase3ao` left C94 = `0xC0DE600D` and
-`/overlay/upper/etc/procd-ran` = `LUFU-PROCD`, but the shadow rc.local lives in the overlay and the
-STOCK kernel's `/etc/init.d/done` runs it on every boot, so that pair does not name the kernel.
-`phase3aq` added a version tag: `/kernel-ran.log` came back with only `#0 SMP Sat Nov 25 18:18:57
-2023` and C94 = `0xC0DE600E` (the vendor-kernel branch), so our kernel has NOT been observed
-reaching the vendor's `done`. The DTS fix (rootfs_data at its real `0x1600000`) IS real and was what
-unblocked the jffs2 write. `phase3ar` shadows S10boot, S18hyfibrd, S20network and S95done with
-breadcrumb scripts that append to `/boot.log` before exec'ing the real script, so the last line names
-the last script the vendor's procd reached on our kernel.
+**CONFIRMED 2026-11-13 07:06 (kernel-version evidence).** The retry of `phase3as` logged, from the
+vendor userspace running on OUR kernel: `/boot.log` = `S10boot 1763000383 #162 SMP Fri Nov 13
+06:33:52 +07 2026`, then S18hyfibrd, S20network, S95done, and `/kernel-ran.log` = `1763000415 #162
+SMP ... 2026`. Build #162 is this tree, so the vendor's preinit, `mount_root`, procd and the whole
+rc.d chain ran to the end on our kernel. The enabler was releasing the `/vendor` shadow mount with a
+PROPER umount before the chroot: while our mount held the config partition, the vendor's `mount_root`
+could not take it and the preinit never reached S10boot (the stock kernel's later fallback boots run
+the same shadow, which is what made the C94-only evidence ambiguous). The DTS fix to `rootfs_data`
+(`<0x4c80000 0x1600000>`) is what made the shadow write and the proper unmount safe.
 
 ## Phase D - Ethernet
 
 Objective: close the last defect from green. The current state: ARP resolves, frames move, host
 ping 0/3. Check the GMAC driver's RX path, the PHY link state, and the IP configuration. The vendor's
 GMAC driver and the dumps in `dumps/router-20261108` are the references.
+
+State on 2026-11-13: MEASURED on our kernel with the vendor userspace fully up (Phase C confirmed).
+The userspace sees only `lo`; the kernel dmesg for build #162 says, four times,
+`/ethernet@14380000: Failed to get clk index: 0 ret: -517` (and 14400000/14480000/14500000), i.e. all
+four GMAC nodes sit in EPROBE_DEFER waiting for a clock provider that never registers. The vendor's
+netifd runs (S20network logged) and the cmdline `ip=192.168.10.1:...:eth2` is present, but eth2 does
+not exist, so there is nothing to configure. The Phase D work is therefore the clk provider those
+gmac nodes reference, not the MAC driver. Wi-Fi is absent for the known reason: `Could not find PHY
+for device 'radio0'/'radio1'`.
 
 State on 2026-11-12: the current image has NO ethernet driver at all. The shrink fragment sets
 `# CONFIG_ETHERNET is not set` and the gmac/mdio sources were missing from the build tree (lost in
