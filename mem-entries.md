@@ -21406,3 +21406,22 @@ phylink create, the register step - with crumbs, since the driver is silent on t
 
 Box left healthy on the vendor kernel: 2 wiphys, 6 interfaces, 19 links, calibration present, no
 .omo-off leftovers.
+
+## 2026-11-13 18:01 - The wireless route is our own lab line, and it builds
+
+A dedicated search answered the vendor-source question with a clean negative: there is no
+hi5622/hi_wifi/hi_wlan source anywhere on this machine, only the vendor's binary modules
+(rootfs-2.4.15/lib/hisilicon/ko/hi5622v100_{wifi,plat}.ko) and its firmware blobs. The acquisition
+route is the Cudy/Jeton GPL request, already sent on 2026-10-01 with no reply.
+
+What does exist is our own lab line: opensource/lab/{luofu-wifi,wifidrv1,hccaccept,wifiskel,wifidrv0}.
+All five build locally against build/linux-kbuild/linux-5.10.201:
+
+    make -C <tree> M=$PWD ARCH=arm CROSS_COMPILE=<toolchain>/arm-none-linux-gnueabihf- modules
+
+    luofu-wifi.ko 15900 B   wifidrv1.ko 88400 B   hccaccept.ko 74336 B
+    wifiskel.ko 6692 B      wifidrv0.ko 10704 B
+
+Their vermagic reads "5.10.201 SMP mod_unload ARMv7 " - the same string our kernel now emits after
+dropping the p2v8 tag, and the same one the vendor's modules carry. So these are loadable on both
+kernels, which is the first time the wireless question has had a concrete, buildable answer.
