@@ -343,12 +343,26 @@ continue without clocks (builds #164/#165) crashes the box about six seconds aft
 `/etc/init.d/done`, inside its 384 KiB `mount_protect` write, so probing unclocked, still-in-reset
 MACs is not a shortcut.
 
-The Phase D work is therefore: implement `luofu-crg` as one platform driver on `hsan,crg` that
-(a) registers one gate clock per child (`compatible = "hsan,clk-gate"`, `reg-offset`, `bit`,
-`clock-output-names`) and publishes them with `of_clk_add_hw_provider` so the `LUOFU_CLK_*` indices
-resolve, and (b) registers a reset controller with `(reg-offset, bit)` cells for the gmac/mdio
-`resets` properties. The FMC's `sfc_clk` is index 0 and already works without a provider only
-because the FMC probe does not require it, which is why the flash worked while the network did not.
+The Phase D work is therefore a driver: `arch/arm/mach-luofu/crg.c` now implements `luofu-crg` as one
+platform driver on `hsan,crg` that (a) registers one gate clock per child (`compatible =
+"hsan,clk-gate"`, `reg-offset`, `bit`, `clock-output-names`, parent `apb_clk`) and publishes them
+with `of_clk_hw_onecell_get` so the `LUOFU_CLK_*` indices resolve, and (b) registers a reset
+controller whose two-cell `(offset, bit)` specifier is folded into an id and written as a bit at
+`base + offset`. It compiles and the mach code's `driver_find("luofu-crg")` now has something to
+find.
+
+First run with it, `phase3aw` (#166):
+
+    S10boot   1763000648  #166 SMP Fri Nov 13 08:09:15 +07 2026
+    S18hyfibrd 1763000665 / S20network 1763000669 / S95done 1763000679
+    S10boot   1763000685  #0 SMP Sat Nov 25 18:18:57 2023   (the vendor's fallback boot)
+
+The vendor boot chain ran on our kernel to S95done and the box reset six seconds later, before
+`/etc/init.d/done` reached `/etc/rc.local`, so even the synced marker never ran. The same post-done
+death hits #164 and #165, i.e. every build whose GEMAC/MDIO probes proceed, and not #162, whose MACs
+still deferred on the missing clock provider. That makes the MAC bring-up the leading suspect.
+Bisect: the same crg kernel with `status = "disabled"` on the four gmac nodes; if the death
+disappears, chase what the MAC bring-up touches (PHY access, the switch, the hyfi hooks).
 
 State on 2026-11-12: the current image has NO ethernet driver at all. The shrink fragment sets
 `# CONFIG_ETHERNET is not set` and the gmac/mdio sources were missing from the build tree (lost in
