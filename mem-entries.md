@@ -21235,3 +21235,52 @@ a beat every 5 s, so two different values mean the pet is alive and the WDT is b
 identical values mean the kernel is not petting and the WDT reset theory is confirmed. That is one
 initramfs change, no driver work, and it settles the last remaining explanation for a reset that
 leaves no kernel trace.
+
+## 2026-11-13 14:02 - #170: the disarm did not save it; the vendor's own driver names the watchdog
+
+`phase3bc` (LAB BUILD disarming the hsan watchdog at boot with the vendor's stop magic) produced:
+
+    S10boot 1763001082  #170 SMP Fri Nov 13 13:34:43 +07 2026   (ours)
+    S95done 1763001114                                          (ours, done ran)
+    S10boot 1763001118  #0 SMP Sat Nov 25 18:18:57 2023         (vendor, 4 s later)
+
+So even with the stop magic written to CRG+0x64 the box still resets about four seconds after our
+S95done, and the marker inside done never got its writes to flash. Either the stop magic is not the
+right disarm for this watchdog, or the reset is not the watchdog at all.
+
+The vendor's own kernel names the device and its parameters:
+
+    hsan-watchdog-driver 14880000.watchdog: Hsan watchdog timeout=30 sec, nowayout=1
+    /dev/watchdog and /dev/watchdog0 exist
+
+So the watchdog lives in the SAME 0x14880000 page the mach code pets (CRG+0x70 clear, +0x64 enable are
+the vendor DT's clr/en offsets), it times out in 30 s, and nowayout=1 means nothing ever stops it. The
+~30 s timing fits every early reset in this session, including #170's death 4 s after done (done lands
+around 30 s after boot). That makes the pet shim the prime suspect even after the disarm attempt: if
+the shim's 5 s period is not real in wall-clock terms (its own comments record a measured ~1.74 s per
+beat and a 600-beat budget), the clear can arrive too late, and if the disarm magic is not what this
+driver expects, the stop write is a no-op.
+
+The clean fix is not another magic: it is the luofu-wdt driver that was lost with the gmac/mdio
+sources. Its probe sets WDOG_HW_RUNNING and the watchdog core pings it through the standard path, with
+a real 30 s margin, instead of a mach shim guessing at register semantics. Until that driver exists,
+every long run is a race against a 30 s timer.
+
+## 2026-11-13 14:05 - #171: the real watchdog driver did not stop the reset either
+
+`phase3bd` enabled the real `luofu-wdt` driver (CONFIG_LUOFU_WATCHDOG=y) and skipped the mach pet
+shim by design, expecting the vendor's procd to open /dev/watchdog and ping it through the core. It
+did not survive:
+
+    S10boot 1763001152  #171 SMP Fri Nov 13 14:03:14 +07 2026   (ours, 32 s in)
+    ... no S18/S20/S95 breadcrumb and no marker writes; the vendor booted ~50 s after the fire.
+
+So the reset moved later (about 50 s instead of 30-35 s) but did not disappear, and this time it took
+the boot down BEFORE S18hyfibrd, where #170 had reached S95done. Three different watchdog
+configurations (mach pet, mach disarm, real driver) give three different lifetimes, which says the
+reset is tied to the watchdog but is not a simple "the timer fires at 30 s" story: either the driver's
+probe/registration changes the timeout and the ping path, or something else (the jffs2 mount, the
+vendor's early init) is also in play.
+
+State of the verdict cells after #171: C18=0xC0DE50E5, C1C=0xC0DE5E05, C70=0x1F40 (8000),
+C88=0x9C009B46, C90=0x5AFE0003.
