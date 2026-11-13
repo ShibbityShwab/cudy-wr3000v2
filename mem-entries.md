@@ -21378,3 +21378,16 @@ phase3bj disables ARM_MODULE_PLTS to match, and that is the build now under test
 modules load, their hi_swa/hi_kmac stack - the same drivers that ran on the vendor's kernel in the
 first dump - should bring eth2 and br-lan up on our kernel, which is the Phase D milestone and very
 likely the wireless one too.
+
+## 2026-11-13 16:57 - #178 never booted: CONFIG_EMBEDDED was collateral damage
+
+The PLT build (phase3bj) produced no breadcrumb at all and C94 still held the vendor's marker
+0xC0DE600E, so that kernel never reached the initramfs. The only config differences from the working
+#177 were CONFIG_ARM_MODULE_PLTS=n and CONFIG_EMBEDDED=y, and EMBEDDED was my own collateral from
+trying to expose ARM_PATCH_PHYS_VIRT (which ARCH_MULTIPLATFORM selects anyway). EMBEDDED flips the
+defaults of many unprompted options across the tree, which is plenty to make a kernel that does not
+boot on this board.
+
+phase3bk reverts EMBEDDED and keeps only the PLT change, which is the one that matters for loading the
+vendor's modules. If it boots and the dump appears, the next question is whether the vendor's hi_*
+modules now load, and with them the network.
