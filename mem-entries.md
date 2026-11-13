@@ -21209,3 +21209,29 @@ driver's values across vendor boots every time). If the magic appears after a cr
 panicked and its notifier ran, and the question becomes why pstore did not store; if it does not
 appear, the reset is below the kernel entirely (watchdog/PMIC/hard fault that bypasses panic) and the
 chip-level reset reason is what to chase.
+
+## 2026-11-13 12:18 - The reset is BELOW the kernel: the panic notifier never ran
+
+`phase3bb` put a fixed magic (0xdead0a17) at the very end of the FMC driver's panic notifier, in C98,
+a cell that has preserved this driver's crumbs across every vendor fallback. After the crash, C98
+read 0x9A000009 - the driver's last ordinary read crumb - not the magic. So:
+
+    the kernel never panicked; the box resets below panic().
+
+That closes the capture question from the other direction: no pstore record was expected, because no
+panic dump ever runs. The panics found in mtd10 before the erase were the stock kernel's own
+(hi_* modules), never ours.
+
+What resets the SoC below the kernel: the vendor's hardware watchdog is the leading suspect. The
+mach-luofu code arms a "watchdog pet timer, 5 s period" (visible in our kernel's dmesg as
+`luofu: watchdog pet timer armed, 5 s period`), and the standalone luofu-wdt driver was lost with the
+gmac/mdio sources. If the pet timer stops, or its register write does nothing, the armed WDT fires on
+its own timeout and the box is back on the vendor with no panic to show. That also explains the
+run-to-run variance: #162 and a couple of later boots lived the full 25 minutes, while most die
+within seconds - a pet that works only sometimes.
+
+Cheap discriminator, next fire: have the initramfs init sleep ~6 s and read C94 twice. The pet writes
+a beat every 5 s, so two different values mean the pet is alive and the WDT is being fed; two
+identical values mean the kernel is not petting and the WDT reset theory is confirmed. That is one
+initramfs change, no driver work, and it settles the last remaining explanation for a reset that
+leaves no kernel trace.
