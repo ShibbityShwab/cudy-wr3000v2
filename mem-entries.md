@@ -21721,3 +21721,27 @@ That is why the clock, the frame layout and the handshake order all had to be ri
 still never answered: it was being driven through registers it never reads.
 
 phase3cg implements the real sequence on 0x2c/0x30/0x20/0x38 with the decoded frame and bounded waits.
+
+## 2026-11-14 04:24 - All four MDIO hypotheses tested; the remaining suspect is the switch in front of it
+
+Six builds have now exercised every element the vendor module exposes: the clock (real, 100 MHz), the
+handshake order, the frame layout (0x8000|reg<<8|phy plus the bit-14 command word) and the register map
+the bus op actually reaches (0x20 acknowledge, 0x2c status bits 18:16, 0x30 frame, 0x38 data). Every
+one of them times out, and the diagnostic cell shows -110 truncated to 0xff92.
+
+What that eliminates is as useful as what it proves. It is not the gate, not the frame, not the poll
+order and not the offsets - with those all correct the controller still never raises a completion bit.
+The remaining difference from the vendor's boot is the stack in front of it: the vendor loads hi_swa,
+hi_lsw_dp, hi_lsw_pfe and hi_kphy before hi_kmdio, and its own module dependencies show hi_kphy (and
+therefore hi_kmdio) sitting on top of that switch bring-up. On our kernel the lsw nodes only get their
+gate clocks enabled and their resets released by the gmac driver's switch branch (diag 6201/6202);
+nothing programs the internal LSW. The MDIO's five PHYs hang off that switch, so no completion bit may
+ever arrive until the switch is brought up.
+
+Next steps, in order: (1) read the vendor's hi_swa/hi_lsw_dp init sequence and find the minimum register
+programming that makes the switch pass MDIO through - the modinfo deps and the dmesg ordering both say
+it runs first; (2) if that is a large port, test the alternative directly: bit-bang MDIO over the two
+pins the vendor's pinctrl shows for the mdio node, which bypasses the controller entirely.
+
+State: criteria 1, 3, 4 PASS (committed). Criterion 2 open, now attributed to the internal switch rather
+than to the MDIO controller. The box is healthy on the vendor kernel.
