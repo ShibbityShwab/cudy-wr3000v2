@@ -21628,3 +21628,20 @@ instructions exactly is the next step, then replacing luofu_mdio_frame() with th
 
 Everything else stands: criterion 1 PASS (named stop step), criterion 3 PASS (wireless line builds),
 criterion 4 PASS (tree clean, ledger current). Criterion 2 remains open on this one frame word.
+
+## 2026-11-14 01:56 - The vendor frame decoded: 0x8000 | (reg << 8) | phy
+
+Emulating hi_mdio_read's frame assembly (0x344..0x378) for every address pair gives a clean layout:
+
+    phy=2  reg=1  -> 0x8102
+    phy=4  reg=1  -> 0x8104
+    phy=2  reg=4  -> 0x8402
+    phy=0  reg=0  -> 0x8000
+    phy=31 reg=31 -> 0x9f1f
+
+i.e. frame = 0x8000 | (reg << 8) | phy - the start bit in bit 15, the register in bits 12..8, the PHY
+address in bits 4..0. Our luofu_mdio_frame() built (phy << 8) | reg: the two fields SWAPPED and no
+start bit. That is why the controller never began a transaction regardless of the handshake order: we
+were addressing the wrong register on a (mostly) nonexistent PHY with a frame that had no start pulse.
+
+phase3ce carries the corrected layout with the vendor's four-phase handshake.

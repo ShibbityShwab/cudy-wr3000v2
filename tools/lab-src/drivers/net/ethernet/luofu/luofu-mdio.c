@@ -143,11 +143,22 @@ static int luofu_mdio_wait_busy(struct luofu_mdio *m, u32 status_off)
 	return -ETIMEDOUT;
 }
 
-/* Build the frame word the controller shifts out: phy(5) | reg(5) in the halves. */
+/*
+ * THE VENDOR FRAME LAYOUT (decoded from hi_mdio_read, 2026-11-14).
+ *
+ * Emulating the instruction sequence at 0x344..0x378 for every (phy, reg) gives
+ *     0x8000 | (reg << 8) | phy
+ * exactly: phy=2/reg=1 -> 0x8102, phy=4/reg=1 -> 0x8104, phy=2/reg=4 -> 0x8402,
+ * phy=0/reg=0 -> 0x8000, phy=31/reg=31 -> 0x9f1f.
+ *
+ * The old helper built (phy << 8) | reg, i.e. the two fields swapped and with no start bit - which is
+ * why the controller never started a transaction no matter how the handshake was ordered.
+ */
 static u32 luofu_mdio_frame(unsigned int phy, unsigned int reg)
 {
-	return ((u32)(phy & LUOFU_MDIO_PHY_MASK) << 8) |
-	       (u32)(reg & LUOFU_MDIO_REG_MASK);
+	return 0x8000u |
+	       ((u32)(reg & LUOFU_MDIO_REG_MASK) << 8) |
+	       (u32)(phy & LUOFU_MDIO_PHY_MASK);
 }
 
 static int luofu_mdio_read(struct mii_bus *bus, int phy, int reg)
