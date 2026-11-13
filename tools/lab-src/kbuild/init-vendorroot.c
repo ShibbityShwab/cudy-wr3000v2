@@ -109,6 +109,8 @@ static const char sh_done[] =
     "  echo \"=== dmesg net ===\"; dmesg | grep -iE 'gmac|luofu|mdio|phy|eth[0-9]|netdev' | tail -40 2>&1\n"
     "  echo \"=== clocks ===\"; ls /sys/kernel/debug/clk 2>&1 | head -20\n"
     "  echo \"=== modules ===\"; lsmod 2>&1 | head -25\n"
+    "  echo \"=== cells ===\"; /sbin/devmem 0x10100C94 32 2>&1; /sbin/devmem 0x10100C80 32 2>&1; /sbin/devmem 0x10100C88 32 2>&1; /sbin/devmem 0x10100C18 32 2>&1\n"
+    "  echo \"=== gmac ===\"; dmesg | grep -iE 'luofu-gmac|luofu_gmac|Hi-GEMAC|gemac' | tail -30 2>&1\n"
     "} >> $OUT 2>&1\n"
     "echo \"$(date +%s) $(uname -v) shadow\" >> /overlay/upper/kernel-ran-final.log\n"
     "sync\n"
