@@ -21484,3 +21484,27 @@ so a late-registering driver is picked up instead of being missed forever.
 Also this run: the gmac path now clears clocks and resets and stops at phylink_of_phy_connect with
 -ENOENT, deferring on the MDIO bus (crumbs 6001/6002/6003/6f04/6004/6013/6f0d/6f07). The mdio driver
 now prints its crumbs too ("luofu-mdio: DIAG %08x") and the dump reads its cell at C98.
+
+## 2026-11-13 23:37 - The MDIO controller never completes a read (named blocker)
+
+The flat shadow finally exposed the mdio driver's crumb chain (dump #191):
+
+    luofu-mdio: DIAG c0de7001   entry
+    luofu-mdio: DIAG c0de7013   clock defer tolerated (no provider yet)
+    luofu-mdio: DIAG c0de7003   clock ok
+    luofu-mdio: DIAG c0de7f04   reset array failed, tolerated
+    luofu-mdio: DIAG c0de7004
+    luofu-mdio: DIAG c0de7005   resets released
+    luofu-mdio 14000000.mdio: MDIO bus hasn't done reading
+    luofu-mdio: DIAG 0000ff92   <- the BMSR read returns the idle pattern
+    luofu-mdio: DIAG c0de7d01 / c0de7c04 / c0de7b25..7efb   the retry loop timing out
+    luofu-mdio 14000000.mdio: luofu-mdio: PHYPROBE-C84 bmsr=0000ff92
+
+So the MDIO block is clocked, mapped and out of reset, but the controller never signals a completed
+read: every transfer times out and the data line reads 0xff92 (idle). No PHY device exists, so
+phylink_of_phy_connect returns -ENOENT in every MAC and the MACs defer forever. That is the whole
+remaining GEMAC gap, and it is one specific defect in the MDIO read/write programming rather than a
+blind end.
+
+Also this run: the flat sh_done shadow works - the dump carries its "=== dump-start ===" marker and
+every section, and kernel-ran-final.log now has the #191 line.

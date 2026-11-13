@@ -90,32 +90,40 @@ static const char sh_done[] =
     "#!/bin/sh\n"
     "echo \"S95done $(date +%s)\" >> /boot.log\n"
     /*
-     * DUMP BEFORE THE VENDOR'S done RUNS (2026-11-13).
+     * FLAT APPENDS, NO BRACE BLOCK (2026-11-13).
      *
-     * The vendor's done writes 384 KiB of /dev/random to /etc/mount_protect
-     * before it ever reaches rc.local, and every reset in this session lands
-     * inside that window - which is why no marker ever wrote. The net dump and
-     * the kernel-ran line therefore go first, straight into the overlay upper,
-     * so the measurement survives even if the dd takes the box down.
+     * phase3by reached this script - the S95done breadcrumb is in /boot.log - but nothing after it
+     * ran: no dump section, no kernel-ran line. A brace-grouped redirect is all-or-nothing and gave
+     * no way to see where it stopped. Every line below is its own append, so one failing command
+     * cannot take the rest down, and the dump-start / dump-end markers bracket exactly how far the
+     * script got.
      */
     "OUT=/overlay/upper/net-dump-final.txt\n"
-    "{\n"
-    "  echo \"=== kernel ===\"; cat /proc/version; uname -v\n"
-    "  echo \"=== uptime ===\"; cat /proc/uptime\n"
-    "  echo \"=== ip link ===\"; ip link 2>&1\n"
-    "  echo \"=== ip addr ===\"; ip addr 2>&1\n"
-    "  echo \"=== bridge ===\"; brctl show 2>&1\n"
-    "  echo \"=== iw dev ===\"; iw dev 2>&1\n"
-    "  echo \"=== dmesg net ===\"; dmesg | grep -iE 'gmac|luofu|mdio|phy|eth[0-9]|netdev' | head -80 2>&1\n"
-    "  echo \"=== clocks ===\"; ls /sys/kernel/debug/clk 2>&1 | head -20\n"
-    "  echo \"=== modules ===\"; lsmod 2>&1 | head -25\n"
-    "  echo \"=== cells ===\"; /sbin/devmem 0x10100C94 32 2>&1; /sbin/devmem 0x10100C98 32 2>&1; /sbin/devmem 0x10100C80 32 2>&1; /sbin/devmem 0x10100C88 32 2>&1; /sbin/devmem 0x10100C18 32 2>&1\n"
-    "  echo \"=== gmac ===\"; dmesg | grep -iE 'luofu-gmac|luofu_gmac|luofu-mdio|luofu_mdio|Hi-GEMAC|gemac' | head -70 2>&1\n"
-    "} >> $OUT 2>&1\n"
+    "echo \"=== dump-start $(date +%s) ===\" >> $OUT\n"
+    "echo \"=== kernel ===\" >> $OUT\n"
+    "cat /proc/version >> $OUT 2>&1\n"
+    "uname -v >> $OUT 2>&1\n"
+    "echo \"=== uptime ===\" >> $OUT\n"
+    "cat /proc/uptime >> $OUT 2>&1\n"
+    "echo \"=== ip link ===\" >> $OUT\n"
+    "ip link >> $OUT 2>&1\n"
+    "echo \"=== ip addr ===\" >> $OUT\n"
+    "ip addr >> $OUT 2>&1\n"
+    "echo \"=== iw dev ===\" >> $OUT\n"
+    "iw dev >> $OUT 2>&1\n"
+    "echo \"=== dmesg net ===\" >> $OUT\n"
+    "dmesg | grep -iE 'gmac|luofu|mdio|phy|eth[0-9]|netdev' >> $OUT 2>&1\n"
+    "echo \"=== cells ===\" >> $OUT\n"
+    "/sbin/devmem 0x10100C94 32 >> $OUT 2>&1\n"
+    "/sbin/devmem 0x10100C98 32 >> $OUT 2>&1\n"
+    "/sbin/devmem 0x10100C80 32 >> $OUT 2>&1\n"
+    "/sbin/devmem 0x10100C18 32 >> $OUT 2>&1\n"
+    "echo \"=== dump-end $(date +%s) ===\" >> $OUT\n"
     "echo \"$(date +%s) $(uname -v) shadow\" >> /overlay/upper/kernel-ran-final.log\n"
     "sync\n"
     "exec /etc/init.d/done \"$@\"\n"
     ;
+
 static const char p_jf[]    = "jffs2";
 static const char p_mem[]   = "/dev/mem";
 static const char p_pst[]   = "/pstore";
