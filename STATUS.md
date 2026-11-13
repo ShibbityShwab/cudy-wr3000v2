@@ -1,10 +1,41 @@
 # STATUS - Cudy WR3000 v2.0
 
-Regenerated, never appended. Last edit 2026-11-12 (Phase B: the jffs2 write-buffer root cause).
+Regenerated, never appended. Last edit 2026-11-14 (session outcome added in 0.5; the page below is the
+2026-11-12 snapshot).
 Current state: this file. The dated record is [`STATE.md`](STATE.md) and `mem-entries.md`; it is history
 and is not a starting point. The claim-by-claim audit behind this page is
 `build/audit/lane-e/DRIFT-MATRIX.md` (gitignored). The full reversal plan is
 [`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md).
+
+## 0.5 SESSION 2026-11-13/14 - what changed (read before the rest of this page)
+
+The sections below are the 2026-11-12 snapshot and their Phase C lines are stale. The session that ran
+2026-11-13 06:00 to 2026-11-14 06:00 established, with device evidence committed in `mem-entries.md`:
+
+- **Phase C CONFIRMED** with kernel-version breadcrumbs (#162..#191): the vendor's preinit,
+  `mount_root`, procd and the whole rc.d chain run on our kernel from the squashfs root.
+- **The reset was below the kernel.** No panic was ever captured (a fixed magic at the end of the FMC
+  panic notifier never appeared). Its cause was a userspace watchdog race: `/dev/watchdog` was opened
+  once, before the luofu-wdt driver registered. The initramfs init now forks a keeper at the very start
+  that re-opens every 5 s; the box holds the full 25-minute home timer.
+- **The measurement pipeline works.** The S95done shadow writes `/overlay/upper/net-dump-final.txt`
+  (flat appends, dump-start/dump-end markers) before the vendor's 384 KiB `mount_protect` write, and
+  survives the crash window.
+- **The GEMAC path.** The four MAC nodes had been DISABLED in every image since 2026-11-13 09:25
+  because the built DTB was stale (`make zImage` never rebuilds a DTB; `make dtbs` does). With a fresh
+  DTB they probe, take clocks and resets, and defer at `phylink_of_phy_connect` because the MDIO
+  controller never completes a transfer. The vendor's `hi_kmdio.ko` was pulled and disassembled; the
+  clock (100 MHz), handshake order, both frame words and the bus-op register map are all implemented.
+  The vendor's own `0x14000000` reads as instruction words, so the controller's access decode is still
+  open, and the PHYs sit behind the internal LSW whose init lives in `hi_lsw_dp.ko`/`hi_lsw_pfe.ko`
+  (~120 KB of driver).
+- **Wireless.** No vendor source exists. The route is our own `opensource/lab` line: all five modules
+  (`luofu-wifi`, `wifidrv1`, `hccaccept`, `wifiskel`, `wifidrv0`) build against our tree with vermagic
+  `5.10.201 SMP mod_unload ARMv7`, matching both our kernel and the vendor's.
+- **The tracked kernel snapshot** is `tools/lab-src` (the build tree itself is gitignored).
+
+Remaining: the Ethernet milestone needs the internal switch ported; the wireless stack needs its lab
+driver advanced beyond the read-only skeleton.
 
 Pins are not written here. Derive them: `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
