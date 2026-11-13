@@ -289,6 +289,16 @@ void _start(void)
     long r;
     long fd;
 
+    /*
+     * THE KEEPER STARTS FIRST (2026-11-14).
+     *
+     * U-Boot arms the watchdog before this kernel even starts, so every second before the keeper's
+     * first ping comes straight off the margin. This used to fork just before the exec, after the
+     * slow overlay mount; now the child exists before any mount runs and pings the whole time. The
+     * /dev/watchdog node is the kernel's devtmpfs and the fd survives the pivot.
+     */
+    start_petter();
+
     tg = 1;
     tag();
 
@@ -369,8 +379,6 @@ void _start(void)
 
     if (sc1(SYS_chdir, (long)p_root) != 0)
         fail(4);
-
-    start_petter();
 
     tg |= 1ul << 28;
     tag();

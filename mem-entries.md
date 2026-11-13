@@ -21554,3 +21554,26 @@ State of the goal at this point:
   not exist because the MDIO controller times out every transfer. The clock handle is now real and the
   block still reads dead, so the next check is the gate index / clk rate with a run that survives long
   enough to dump 0x14000060/0x1400006c.
+
+## 2026-11-14 00:39 - MDIO: the clock is 100 MHz, our writes land, the controller never starts
+
+The phase3cc dump settles the clock question and narrows the defect to the register programming:
+
+    luofu-mdio: CLKRATE 100000000 Hz        <- the gate is real and running at 100 MHz
+    ...every transfer still times out, data line 0xff92...
+    probe of 14000000.mdio failed with error -5
+
+and the register reads from OUR kernel:
+
+    0x14000000 = 0x0000000D    <- our own command write stuck; the block is writable and responsive
+    0x14000060 = 0x00000000    <- write-status: never completes
+    0x1400006C = 0x00000000    <- read-status: never completes
+
+The vendor's live reads at the same base (0xEAFFFE02 / 0x04400000 / 0x54545014) do not look like a
+command register at all, so the vendor is not leaving 0x0d at +0x00 - which is the first concrete sign
+that our offset/command map from the hi_kmdio disassembly is not the vendor's real sequence.
+
+Next step is static, no device needed: re-derive hi_mdio_read / hi_mdio_write from the vendor's
+hi_kmdio.ko (ko_disasm.py / the tools in opensource/lab) and compare each store's offset and value
+against drivers/net/ethernet/luofu/luofu-mdio.c. If the command register or the frame layout is off by
+one field, that is the whole remaining gap: our writes land, the block simply never starts.
