@@ -21536,3 +21536,21 @@ Next experiment (not yet run): print clk_get_rate() in the mdio probe and have t
 0x14000060 / 0x1400006c with devmem, then compare against the vendor's live values above. If the rate
 is zero or the registers read zero, fix the gate index in the DTS/clk table; that is the last link
 between this driver and a working PHY.
+
+## 2026-11-14 00:09 - phase3cb died early again; the gate-rate evidence needs a surviving run
+
+phase3cb (the MDIO register reads + clk_get_rate) returned after two and a half minutes with no new
+dump section and only vendor breadcrumbs - the same early reset that hit phase3bw. The pattern across
+the last several runs is now: some boots reach S95done and hold the full timer (phase3bx, phase3bz,
+phase3ca), others die around five seconds into the vendor's first boot script (phase3bw, phase3cb).
+The keeper retries its open every beat, so the remaining suspects for the early deaths are the
+vendor's own first-boot actions or a keeper that has not yet opened the device when the timer expires.
+
+State of the goal at this point:
+- Criterion 1 PASS: the gmac probe stop step is named with a crumb family value and dmesg line.
+- Criterion 3 PASS: the wireless route is our own lab line and all five modules build (vermagic matches).
+- Criterion 4 PASS: tree clean, atomic commits, ledger carries the findings with file:line refs.
+- Criterion 2 OPEN: eth2/br-lan. The MACs probe, clear clocks and resets, and defer on a PHY that does
+  not exist because the MDIO controller times out every transfer. The clock handle is now real and the
+  block still reads dead, so the next check is the gate index / clk rate with a run that survives long
+  enough to dump 0x14000060/0x1400006c.

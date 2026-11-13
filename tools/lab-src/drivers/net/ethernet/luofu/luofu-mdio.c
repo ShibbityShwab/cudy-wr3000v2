@@ -236,6 +236,10 @@ static int luofu_mdio_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	/* A handle with rate 0 means the gate we were given is not the MDIO's gate: the block is then
+	 * unclocked and every transfer times out with the registers reading zero. */
+	pr_info("luofu-mdio: CLKRATE %lu Hz\n", clk_get_rate(m->clk));
+
 	/*
 	 * RELEASE THE RESETS.  THIS IS THE -EIO.
 	 *
