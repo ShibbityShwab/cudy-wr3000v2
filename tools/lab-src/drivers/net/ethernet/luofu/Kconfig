@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# HiSilicon luofu (Hi5671Y) network controllers
+#
+
+config LUOFU_GMAC
+	tristate "HiSilicon luofu GMAC ethernet controller"
+	depends on OF
+	depends on PHYLINK
+	help
+	  Ethernet MAC driver for the HiSilicon luofu SoC family (Cudy WR3000
+	  v2). Five MAC instances share one MDIO bus; the driver is a phylink
+	  port like the vendor's hi_kmac.ko.
+
+config LUOFU_MDIO
+	tristate "HiSilicon luofu MDIO bus controller"
+	depends on OF
+	help
+	  MDIO bus driver for the HiSilicon luofu SoC family. The vendor's
+	  module is hi_kmdio.ko; the register map in the driver came from its
+	  own hi_mdio_read/hi_mdio_write.
