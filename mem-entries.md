@@ -21425,3 +21425,19 @@ All five build locally against build/linux-kbuild/linux-5.10.201:
 Their vermagic reads "5.10.201 SMP mod_unload ARMv7 " - the same string our kernel now emits after
 dropping the p2v8 tag, and the same one the vendor's modules carry. So these are loadable on both
 kernels, which is the first time the wireless question has had a concrete, buildable answer.
+
+## 2026-11-13 19:22 - C80 is a live register: writing 0xc0de60xx there hangs the boot
+
+phase3bp moved the gmac's diagnostic crumbs from the dead 0xC7C to 0xC80 and never reached userspace:
+no S10boot breadcrumb, no dump section, C94 still holding the vendor's 0xC0DE600E. The only other
+cells our drivers write there are C88/C94/C98/C84 and they have all been written across dozens of
+successful boots. The inference is direct: 0xC80 in the SYSCTL page is NOT a scratch cell - writing
+the 0xc0de60xx crumb family into it wedges the kernel before the initramfs init runs. The PHYLOOKUP's
+own 0x000NNNNN value (phyaddr<<16|BMSR) at C80 is evidently harmless, so the register tolerates that
+bit pattern but not this one.
+
+Rule for the rest of this work and the ledger: prove a cell scratch by writing the exact value family
+you intend, and treat any cell the vendor's own code touches as live until proven otherwise.
+
+phase3bq moves the crumbs to 0xC88, the gmac's own phylink-error cell (proven writable: it has held
+0x9C00B51C and 0xe0... values across boots), which the init never touches.
