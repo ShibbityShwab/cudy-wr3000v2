@@ -21745,3 +21745,26 @@ pins the vendor's pinctrl shows for the mdio node, which bypasses the controller
 
 State: criteria 1, 3, 4 PASS (committed). Criterion 2 open, now attributed to the internal switch rather
 than to the MDIO controller. The box is healthy on the vendor kernel.
+
+## 2026-11-14 04:25 - The vendor's own 0x14000000 region reads as instruction words
+
+Live reads of the vendor's MDIO block at its DT address return ARM opcodes, not register values:
+
+    +20=0x1A000045  +24=0xE28DD030  +28=0xE8BD87F0  +2c=0xE5D61001
+    +30=0xE5D63000  +34=0xE1833001  +38=0xE5D61002  +3c=0xE1833001
+
+0xE28DD030 is `add sp, sp, #48`; 0xE8BD87F0 is `pop {r4-r10, pc}`. That is code, and the SYSCTRL reads
+from the same /dev/mem tool are sane (0x10100c94 etc.), so the tool is not broken. Either the vendor's
+mdio0 reg is a window onto the LSW/PFE block whose register file genuinely holds instruction words, or
+the controller is reached indirectly and the flat offsets in the decompiled routine apply to a mapped
+window rather than to that physical address.
+
+This closes the loop on why our flat MMIO driver never gets a completion bit even with the vendor's own
+offsets: we may be writing to a different decode of that address than the vendor's driver reaches.
+
+What that implies for the next attempt is concrete: dump the vendor's ioremap base and the first
+kilobyte of that mapping while its driver is live (via the module's own DFX nodes if they expose it),
+or take the bit-bang route over the pinctrl's MDIO pins, which sidesteps the controller decode entirely.
+
+State unchanged and recorded: criteria 1, 3, 4 PASS; criterion 2 open. The box is healthy on the vendor
+kernel, all findings are committed, and the ledger carries every address and decode.
