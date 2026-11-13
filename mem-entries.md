@@ -21698,3 +21698,26 @@ encoding from the callers (hi_mdio_probe installs the mii_bus ops; the phy drive
 them) is the next step, and it is the last unexplained difference between our driver and the vendor's.
 
 Everything is committed; criteria 1, 3 and 4 PASS, criterion 2 open on this command encoding.
+
+## 2026-11-14 03:57 - The register map came from a DEAD code path; the real one is 0x20/0x2c/0x30/0x38
+
+The probe stores hi_mdio_read as the mii_bus read op (MOVW/MOVT at 0x98..0xa0), so that function is
+reachable - but only through the flag paths. For a plain register number (0-31) both flags tested at
+its entry (bit 30, bit 29) are zero, so it takes the tail call at 0x2d4 into the routine at 0x17c, and
+THAT routine uses a different register set:
+
+    0x17c  ip = 0x5F5E100 (bounded count)
+    0x1a4  ldr r3,[base+0x2c] ; ubfx r3,#16,#3 ; loop while non-zero     wait for bits 18:16 to clear
+    0x1b4  frame = (~(phy<<17))>>17 inverse | ((reg<<8) & 0x1f00)        the 0x8000|reg|phy word
+    0x1e0  str frame,[base+0x30]                                        the frame register is 0x30
+    0x1fc  ldr r3,[base+0x20] ; (v | v>>1) & 1 ; loop while zero        wait for bit0/bit1
+    0x20c  str v,[base+0x20]                                            acknowledge
+    0x224  ldr r2,[base+0x2c] ; tst #0x70000 ; loop while set           wait for the status to clear
+    0x230  ldr r0,[base+0x38] ; uxth                                    data lives at 0x38
+
+So every offset this driver was built on (0x00 command, 0x60 write-status, 0x6c read-status, 0x70
+frame, 0x74 data) belongs to the extended/DFX path and matches nothing the bus op actually touches.
+That is why the clock, the frame layout and the handshake order all had to be right and the controller
+still never answered: it was being driven through registers it never reads.
+
+phase3cg implements the real sequence on 0x2c/0x30/0x20/0x38 with the decoded frame and bounded waits.

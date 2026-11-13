@@ -161,43 +161,67 @@ static u32 luofu_mdio_frame(unsigned int phy, unsigned int reg)
 	       (u32)(phy & LUOFU_MDIO_PHY_MASK);
 }
 
+/*
+ * THE REAL REGISTER MAP (from the main read routine at 0x17c, 2026-11-14).
+ *
+ * The offsets this driver used (0x00/0x60/0x6c/0x70/0x74) came from hi_mdio_read, which the probe
+ * never installs as the bus op - it is the extended/DFX path. The routine the bus op actually reaches
+ * (the tail call at 0x2d4 for a plain register number) uses different registers entirely:
+ *
+ *   0x20  write-status / acknowledge (bit0 or bit1 set = done)
+ *   0x2c  status, bits 18:16 (non-zero = busy)
+ *   0x30  the frame word
+ *   0x38  the read data (low 16 bits)
+ *
+ * and the sequence is: wait for 0x2c[18:16] to clear, write the frame to 0x30, wait for 0x20 bit0/bit1,
+ * acknowledge by writing that value back, wait for 0x2c[18:16] to clear again, read 0x38.
+ */
+#define LUOFU_MDIO_RSTAT2	0x2c
+#define LUOFU_MDIO_FRAME2	0x30
+#define LUOFU_MDIO_WSTAT2	0x20
+#define LUOFU_MDIO_RDATA2	0x38
+
+static int luofu_mdio_wait_clear32(struct luofu_mdio *m)
+{
+	unsigned long timeout = jiffies + msecs_to_jiffies(100);
+
+	do {
+		if ((readl(m->base + LUOFU_MDIO_RSTAT2) & 0x70000) == 0)
+			return 0;
+		cpu_relax();
+	} while (time_before(jiffies, timeout));
+
+	return -ETIMEDOUT;
+}
+
 static int luofu_mdio_read(struct mii_bus *bus, int phy, int reg)
 {
 	struct luofu_mdio *m = bus->priv;
 	u32 frame = luofu_mdio_frame(phy, reg);
 	u32 v;
+	unsigned long timeout;
 
-	/*
-	 * THE VENDOR'S FOUR-PHASE HANDSHAKE (from hi_mdio_read, disassembled 2026-11-14).
-	 *
-	 * The old body wrote the frame then the command and polled the read-status until its low nibble
-	 * was NON-zero. The vendor's code does the opposite at every step: command first, then it waits
-	 * for the read-status low nibble to read ZERO, writes the frame, waits for the write-status low
-	 * nibble to read NON-ZERO, acknowledges it by writing the status value back, writes the frame
-	 * again, acknowledges again, and only then reads the data. Every transfer timed out because the
-	 * single wait looked for the wrong state.
-	 */
-	writel(LUOFU_MDIO_CMD_READ, m->base + LUOFU_MDIO_CMD);
-
-	if (luofu_mdio_wait_zero(m, LUOFU_MDIO_RSTATUS))
+	if (luofu_mdio_wait_clear32(m))
 		return -ETIMEDOUT;
 
-	writel(frame, m->base + LUOFU_MDIO_FRAME);
+	writel(frame, m->base + LUOFU_MDIO_FRAME2);
 
-	if (luofu_mdio_wait_busy(m, LUOFU_MDIO_WSTATUS))
+	timeout = jiffies + msecs_to_jiffies(100);
+	do {
+		v = readl(m->base + LUOFU_MDIO_WSTAT2);
+		if ((v | (v >> 1)) & 1)
+			break;
+		cpu_relax();
+	} while (time_before(jiffies, timeout));
+	if (time_after_eq(jiffies, timeout))
 		return -ETIMEDOUT;
-	v = readl(m->base + LUOFU_MDIO_WSTATUS);
-	writel(v, m->base + LUOFU_MDIO_WSTATUS);
 
-	/* The second frame carries bit 14 (the command phase); see the layout note above luofu_mdio_frame. */
-	writel(frame | 0x4000u, m->base + LUOFU_MDIO_FRAME);
+	writel(v, m->base + LUOFU_MDIO_WSTAT2);
 
-	if (luofu_mdio_wait_busy(m, LUOFU_MDIO_WSTATUS))
+	if (luofu_mdio_wait_clear32(m))
 		return -ETIMEDOUT;
-	v = readl(m->base + LUOFU_MDIO_WSTATUS);
-	writel(v, m->base + LUOFU_MDIO_WSTATUS);
 
-	return readl(m->base + LUOFU_MDIO_RDATA) & LUOFU_MDIO_DATA_MASK;
+	return readl(m->base + LUOFU_MDIO_RDATA2) & LUOFU_MDIO_DATA_MASK;
 }
 
 static int luofu_mdio_write(struct mii_bus *bus, int phy, int reg, u16 val)
