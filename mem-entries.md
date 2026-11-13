@@ -21391,3 +21391,18 @@ boot on this board.
 phase3bk reverts EMBEDDED and keeps only the PLT change, which is the one that matters for loading the
 vendor's modules. If it boots and the dump appears, the next question is whether the vendor's hi_*
 modules now load, and with them the network.
+
+## 2026-11-13 17:25 - #179: ARM_MODULE_PLTS=n does not boot either
+
+phase3bk (EMBEDDED off, PLTS=n) also produced no breadcrumb and no dump; C94 stayed 0xC0DE600E and the
+boot.log's last version-tagged line is still #177. So the PLT change itself is fatal to this image, not
+just the embedded flag. The vendor-module shortcut is therefore closed for now: their modules cannot be
+loaded without a kernel that boots, and the config that would accept them does not.
+
+The direct path is back in front: our own luofu-gmac driver. Its probe reaches the MAC path (the reset
+WARN in the logs is the dp/pfe switch branch, which continues by design) but no eth netdev appears in
+the dump. The next probe needs to say where the MAC path stops - the clk_bulk_get_all result, the
+phylink create, the register step - with crumbs, since the driver is silent on that path today.
+
+Box left healthy on the vendor kernel: 2 wiphys, 6 interfaces, 19 links, calibration present, no
+.omo-off leftovers.
