@@ -21677,3 +21677,24 @@ Decoding the second assembly at hi_mdio_read+0x3ac..0x3d4 gives a second word di
 so the second word is the first with bit 14 set (0xc000 | reg << 8 | phy). Our driver wrote the SAME
 word twice. phase3cf writes 0x8000|... for the address phase and 0xc000|... for the command phase,
 each followed by the write-status wait and acknowledgement, then reads +0x74.
+
+## 2026-11-14 03:23 - Two-phase frames still time out; the vendor passes a FLAGS-encoded command
+
+phase3cf wrote both decoded words (0x8000|reg<<8|phy, then the same with bit 14) with the vendor's
+handshake and the same result: every transfer times out and luofu_mdio_read returns -110, which the
+diagnostic cell shows as 0xff92.
+
+Re-reading hi_mdio_read's entry exposes what is still missing: it treats its THIRD argument as a flags
+word, not a register number -
+
+    0x2c0  ands r2, r4, #0x40000000     bit 30: the read path (writes cmd 0x0d to +0x00)
+    0x2cc  ands r4, r4, #0x20000000     bit 29: a second path (writes the flags to +0x00, waits on +0x60)
+    0x2d4  str  r4, [ip]                neither bit: writes 0 to +0x00 and tails into another routine
+
+So the vendor's mii read is not called with (phy, reg); it is called with an encoded command whose high
+bits select the operation and whose low bits carry the register. Our driver writes a bare 0x0d to +0x00
+and assumes the frame carries everything, which is not how this controller is driven. Decoding that
+encoding from the callers (hi_mdio_probe installs the mii_bus ops; the phy driver calls back through
+them) is the next step, and it is the last unexplained difference between our driver and the vendor's.
+
+Everything is committed; criteria 1, 3 and 4 PASS, criterion 2 open on this command encoding.
