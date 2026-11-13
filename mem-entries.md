@@ -21645,3 +21645,21 @@ start bit. That is why the controller never began a transaction regardless of th
 were addressing the wrong register on a (mostly) nonexistent PHY with a frame that had no start pulse.
 
 phase3ce carries the corrected layout with the vendor's four-phase handshake.
+
+## 2026-11-14 02:23 - The frame fix did not help, and 0xff92 is the timeout code, not data
+
+phase3ce carried the decoded frame (0x8000 | reg << 8 | phy) and the vendor's four-phase handshake, and
+the controller still times out. One correction to the record matters: the diagnostic value 0x0000ff92
+that I read as an idle bus pattern is in fact (-110 & 0xffff), i.e. the ETIMEDOUT return of
+luofu_mdio_read() truncated to 16 bits. The bus has never returned a single byte; every "value" in the
+earlier logs was the error code.
+
+So the MDIO controller does not complete a transfer with our clock, our frame and our handshake order.
+What remains unverified against the vendor: the two write-status acknowledgements (str of the status
+value back to +0x60) and the SECOND frame word at 0x3ac-0x3d4, which is assembled with different bit
+shifts than the first (the same mvn/lsr pair but with #16/#18 rotations, i.e. a different start/opcode
+field). That second word is written to +0x70 immediately before the data read at +0x74, so it is very
+likely the actual read command, with the first word being something else entirely.
+
+State: criteria 1, 3 and 4 PASS. Criterion 2 open on the MDIO controller's second frame word; the
+ledger carries the disassembly addresses (0x3ac..0x3d4) and the decoded layout of the first word.
