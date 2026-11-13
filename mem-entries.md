@@ -21602,3 +21602,29 @@ write the frame, wait for the write-status low nibble to become NON-ZERO, acknow
 frame again, acknowledge again, read the data. The frame encoding is still ours; if the PHYs answer
 but with wrong register values, that encoding is the next comparison against the vendor's bit tricks
 at 0x344-0x378.
+
+## 2026-11-14 01:08 - The handshake order was necessary but not sufficient; the frame word is next
+
+phase3cd ran the vendor's four-phase handshake (command, wait-for-zero, frame, wait-for-nonzero, ack,
+frame, ack, data) and the controller still times out with the data line at 0xff92. The remaining
+difference is the frame word itself. Our luofu_mdio_frame() builds (phy << 8) | reg; the vendor builds
+it at hi_mdio_read+0xcc..0x100 with a bit pattern we do not reproduce:
+
+    0x344  and r6, r6, #31          phy & 31
+    0x34c  bfi r1, r2, #16, #16     high half seeded from the status value
+    0x354  mvn r2, r6, lsl #17
+    0x358  and r4, r4, #31          reg & 31
+    0x360  movw r0, #0x60e0
+    0x364  mvn r2, r2, lsr #17      the rotate trick that places the opcode/start bits
+    0x368  and r0, r0, r1, lsr #16
+    0x36c  orr r2, r2, r4, lsl #8
+    0x370  orr r2, r2, r0
+    0x374  bfi r1, r2, #16, #16
+    0x378  str r1, [ip, #112]       the frame word
+
+so the high half carries (start | opcode | phy) in a layout the controller expects, and the `mvn/lsr`
+pair is the standard rotate-immediate the compiler emits for a constant mask. Decoding those two
+instructions exactly is the next step, then replacing luofu_mdio_frame() with the decoded layout.
+
+Everything else stands: criterion 1 PASS (named stop step), criterion 3 PASS (wireless line builds),
+criterion 4 PASS (tree clean, ledger current). Criterion 2 remains open on this one frame word.
