@@ -174,6 +174,9 @@ static void luofu_diag(u32 v)
 
 	luofu_net_diag = v;	/* survive the fallback: the FMC tick carries this */
 
+	/* Same log channel as the gmac driver: the cell is shared and gets overwritten, the ring does not. */
+	pr_info("luofu-mdio: DIAG %08x\n", v);
+
 	p = ioremap(LUOFU_DIAG_BASE, 0x1000);
 	if (!p)
 		return;
