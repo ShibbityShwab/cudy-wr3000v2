@@ -21768,3 +21768,19 @@ or take the bit-bang route over the pinctrl's MDIO pins, which sidesteps the con
 
 State unchanged and recorded: criteria 1, 3, 4 PASS; criterion 2 open. The box is healthy on the vendor
 kernel, all findings are committed, and the ledger carries every address and decode.
+
+## 2026-11-14 05:57 - Both remaining routes scoped: bit-bang closed, the switch port is the only path
+
+Bit-bang is closed. The vendor's pinmux node (pinctrl@0x14900000) exposes only jtag_gpio2..5,
+led0_1, led1_1, pmupwm and spi states - there is no MDIO pin group, so those pads are fixed-function
+and there are no GPIO numbers to drive an mdio-gpio bus with.
+
+The switch port is the remaining route, and its shape is now known: hi_swa.ko (11340 bytes) is only
+netdev/switchdev glue - swa_netdevice_event, swa_switchdev_blocking_event, swa_dfx_*, the notifier
+blocks, all 8..0x374 byte functions - it contains no hardware init. The register programming must live
+in hi_lsw_dp.ko (67164) and hi_lsw_pfe.ko (52412), the big modules whose dependencies (hi_swa,
+hi_basic, hi_kcl) the vendor's own lsmod shows under hi_kmdio.
+
+So the port is a real RE job on ~120 KB of driver across two modules, and that is the decision point
+put to the user: continue here, consolidate for a fresh session, or revisit loading the vendor's own
+modules with a different mechanism.
