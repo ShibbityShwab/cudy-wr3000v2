@@ -361,8 +361,18 @@ The vendor boot chain ran on our kernel to S95done and the box reset six seconds
 `/etc/init.d/done` reached `/etc/rc.local`, so even the synced marker never ran. The same post-done
 death hits #164 and #165, i.e. every build whose GEMAC/MDIO probes proceed, and not #162, whose MACs
 still deferred on the missing clock provider. That makes the MAC bring-up the leading suspect.
-Bisect: the same crg kernel with `status = "disabled"` on the four gmac nodes; if the death
-disappears, chase what the MAC bring-up touches (PHY access, the switch, the hyfi hooks).
+Bisect results (`phase3ax`, `phase3ay`): the same crg kernel with the four gmac nodes disabled still
+dies within two minutes, and with the `mdio` node disabled too it still dies. So the post-done reset
+is neither the GEMAC bring-up nor the MDIO bus scan, and with those nodes off the tolerant-clock
+patch never even runs. The remaining differences from the surviving #162 are the new `luofu-crg`
+driver and plain boot-to-boot variance.
+
+The `/dev/mem` log-ring channel is dead: the mach code itself records that the vendor's boot scrubs
+0x80600000..0x80620000, and a read at 0x80603000 under the vendor returns nothing. Capturing the
+crash therefore has to be built: `CONFIG_PSTORE=y` is already set and the DTS reserves a `pstore`
+partition (mtd10, 0x40000 at 0xd40000), but there is no ramoops/pstore backend (`CONFIG_PSTORE_RAM`
+is not set and there is no reserved-memory node). Wiring a ramoops region, or a panic-notifier crumb
+in the mach code, is the next step that turns bisecting into reading an actual trace.
 
 State on 2026-11-12: the current image has NO ethernet driver at all. The shrink fragment sets
 `# CONFIG_ETHERNET is not set` and the gmac/mdio sources were missing from the build tree (lost in
