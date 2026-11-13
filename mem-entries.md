@@ -21328,3 +21328,33 @@ The dump file itself was written by our boot and then OVERWRITTEN by the vendor'
 same shadow runs there too and the dump used ">". The content read back was the vendor's state
 (eth0-eth3, br-lan, vap0/1/3, Hi-GEMAC). The fix is one character: append (">>") with the kernel
 banner in the header, so both sections accumulate and ours survives. phase3bh carries that change.
+
+## 2026-11-13 16:00 - The dump names all three causes; the vermagic is the lever
+
+Our kernel's own section of the dump (#175) is unambiguous:
+
+    luofu-crg 14880000.crg: 16 gate clocks and the reset controller registered     <- works
+    luofu-wdt 14880000.watchdog: can't request region [mem 0x14880000-0x14880fff] -EBUSY
+    luofu_gmac_probe: devm_reset_control_array_get failed
+    nf_dup_netdev: version magic '5.10.201 SMP mod_unload ARMv7 ' should be
+                  '5.10.201 SMP mod_unload ARMv7 p2v8 '
+
+and the network is lo only, exactly as before.
+
+The vermagic line is the important one, and it reads backwards: OUR kernel carries
+"p2v8", the VENDOR'S MODULES do not. The vendor's kernel was built without phys-to-virt
+patching, so every hi_* module - their whole driver stack, network and wireless included -
+is rejected at load. ARCH_MULTIPLATFORM selects ARM_PATCH_PHYS_VIRT, so the option cannot
+be turned off without restructuring the platform config; the lab fix is to emit the same
+tag from arch/arm/include/asm/vermagic.h while keeping the patching. Our kernel's vermagic
+now reads "5.10.201 SMP mod_unload ARMv7", character-for-character what the vendor's
+modules expect.
+
+The other two:
+- luofu-wdt failed because devm_platform_ioremap_resource claims the whole 0x14880000 page,
+  which the crg driver already owns; it now maps with devm_ioremap and registers.
+- luofu_gmac_probe dies in devm_reset_control_array_get; that is the crg reset provider's
+  lookup, and it matters only if our own gmac driver is the one to run - with the vendor's
+  hi_kmac/hi_swa modules loading instead, ours can stay as it is.
+
+phase3bi is the vermagic-matched build under test.
