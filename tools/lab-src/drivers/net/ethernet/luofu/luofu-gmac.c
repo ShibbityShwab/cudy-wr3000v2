@@ -362,7 +362,7 @@ static const struct ethtool_ops luofu_gmac_ethtool_ops = {
  * outlives a fallback.
  */
 #define LUOFU_DIAG_BASE	0x10100000UL
-#define LUOFU_DIAG_OFF	0xc80	/* gmac DIAGNOSTIC cell. Moved off 0xC94 (2026-11-13): the initramfs init writes its own tag to 0xC94 at the exec, before these probes run over the same page, so the tag was hiding the last crumb. 0xC7C is used by nothing. */
+#define LUOFU_DIAG_OFF	0xc94	/* gmac DIAGNOSTIC cell. Moved off 0xC94 (2026-11-13): the initramfs init writes its own tag to 0xC94 at the exec, before these probes run over the same page, so the tag was hiding the last crumb. 0xC7C is used by nothing. */
 
 extern u32 luofu_net_diag;
 

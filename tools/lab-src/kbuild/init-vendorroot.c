@@ -223,7 +223,15 @@ static unsigned long tg;
  */
 static void tag(void)
 {
-    cell(0xC0DE6B00u | (tg & 0x1fffffffu));
+    /*
+     * DELIBERATELY A NO-OP (2026-11-13).
+     *
+     * This wrote the boot tag into C94, the one SYSCTRL cell on this board proven to accept a written
+     * value. The gmac driver writes its probe crumbs to that same cell and its probes run first, so
+     * every tag here was erasing the driver's evidence before the dump could read it. The dump's
+     * kernel-ran-final.log line already proves the init ran and names the kernel, so the tag buys
+     * nothing and C94 now belongs to the gmac crumbs.
+     */
 }
 
 /*
