@@ -21441,3 +21441,34 @@ you intend, and treat any cell the vendor's own code touches as live until prove
 
 phase3bq moves the crumbs to 0xC88, the gmac's own phylink-error cell (proven writable: it has held
 0x9C00B51C and 0xe0... values across boots), which the init never touches.
+
+## 2026-11-13 21:41 - Criterion 1 PASS: the MAC probe stops at the resets (c0de6f04, -EINVAL)
+
+phase3bu (the first slice with a FRESH dtb) finally ran the four MAC probes. The log carries the
+ordered crumbs now:
+
+    luofu-gmac: DIAG c0de6001     <- entry
+    luofu-gmac: DIAG c0de6002     <- reg base mapped
+    luofu-gmac: DIAG c0de6003     <- clocks attached
+    luofu-gmac: DIAG c0de6f04     <- RESET ARRAY GET FAILED
+    luofu-gmac: probe of 14480000.ethernet failed with error -22
+    luofu-mdio 14000000.mdio: error -EINVAL: no resets
+
+So the stop step is the reset handle: devm_reset_control_array_get() returns -EINVAL against the crg
+reset provider, and both the MAC and the MDIO driver treated that as fatal. The DT looks correct
+(#reset-cells = 2, specifiers <&crg 0x30 0xf> / <&crg 0x30 0x6>, all arguments inside the provider's
+0xff/0x1f ranges), so the provider contract itself needs work later.
+
+phase3bv: both drivers now continue without the handles (diag 6f04/7f04, handle NULL; deassert on a
+NULL handle is a no-op) and the log line says so. The MACs are already out of reset from U-Boot with
+their gate clocks enabled by the crg driver, so the link can be tested now; the reset contract stays
+open as a named follow-up.
+
+## 2026-11-13 21:14 - The stale DTB: why no MAC ever probed
+
+arch/arm/boot/dts/luofu-r116.dtb was built at 09:25 by the phase3ax bisect that set the four gmac
+nodes disabled; the .dts was edited back to "okay" at 09:31 and "make zImage" never rebuilds a dtb on
+its own. Every slice from 09:25 to 21:14 therefore appended a DTB in which the MACs were disabled - no
+MAC ever probed, no netdev could exist, and the earlier bisect reading ("MAC bring-up is not the
+cause") was measuring nothing at all. `make ARCH=arm ... dtbs` rebuilt it; dtc now reports status
+"okay" and the probes run. Build recipe note: always run the dtbs target after a DTS edit.
