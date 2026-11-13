@@ -464,9 +464,15 @@ static int luofu_gmac_probe(struct platform_device *pdev)
 
 	g->resets = devm_reset_control_array_get(&pdev->dev, false, true);
 	if (IS_ERR(g->resets)) {
-		ret = PTR_ERR(g->resets);
-		luofu_diag(0xc0de6f04);	/* no reset controller (optional=false -> fatal) */
-		goto err_free;
+		/*
+		 * CONTINUE WITHOUT OWNING THE RESETS (2026-11-13). The crg reset provider rejects this
+		 * DT's (offset, bit) specifiers with -EINVAL even though #reset-cells and the argument
+		 * ranges look right, and the MACs are already out of reset from U-Boot with their gate
+		 * clocks enabled by the crg driver. Owning the handle is preferable, but refusing to
+		 * probe over it means no netdev at all; reset_control_deassert(NULL) below is a no-op.
+		 */
+		luofu_diag(0xc0de6f04);
+		g->resets = NULL;
 	}
 	luofu_diag(0xc0de6004);
 

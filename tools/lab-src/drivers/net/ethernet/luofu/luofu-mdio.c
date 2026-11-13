@@ -220,8 +220,11 @@ static int luofu_mdio_probe(struct platform_device *pdev)
 
 	m->resets = devm_reset_control_array_get(dev, false, true);
 	if (IS_ERR(m->resets)) {
-		luofu_diag(0xc0de7f04);	/* no reset controller */
-		return dev_err_probe(dev, PTR_ERR(m->resets), "no resets\n");
+		/* Same trade as the gmac: the crg provider rejects these specifiers, and the bus is
+		 * already out of reset from U-Boot. Refusing to probe over the handle means no MDIO
+		 * bus, hence no PHY and no link, which is strictly worse. */
+		luofu_diag(0xc0de7f04);
+		m->resets = NULL;
 	}
 	luofu_diag(0xc0de7004);
 
