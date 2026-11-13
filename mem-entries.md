@@ -21577,3 +21577,28 @@ Next step is static, no device needed: re-derive hi_mdio_read / hi_mdio_write fr
 hi_kmdio.ko (ko_disasm.py / the tools in opensource/lab) and compare each store's offset and value
 against drivers/net/ethernet/luofu/luofu-mdio.c. If the command register or the frame layout is off by
 one field, that is the whole remaining gap: our writes land, the block simply never starts.
+
+## 2026-11-14 00:40 - The vendor MDIO read, disassembled: our poll polarity was inverted
+
+The vendor's hi_kmdio.ko (/lib/hisilicon/ko/hi_kmdio.ko, pulled as gzip-hex over ssh) carries the
+symbols hi_mdio_read and hi_mdio_write. Disassembling hi_mdio_read with the lab toolchain shows the
+real handshake, and our driver got two things backwards:
+
+    0x314  mov r2,#13 ; str r2,[ip]          command 0x0d goes to +0x00 FIRST
+    0x338  ldr r2,[r1] ; ands r2,r2,#15      read-status at +0x6c
+    0x340  bne 0x330                         NON-ZERO -> keep looping (busy)
+    0x344..0x378                             frame assembled, written to +0x70 only AFTER the status clears
+    0x394  ldr r2,[lr] ; ands #15 ; beq      write-status at +0x60: ZERO -> keep looping (waits for NON-zero)
+    0x3a0  str r2,[ip,#96]                   acknowledge by writing the status value back
+    0x3d4  str r2,[ip,#112]                  the frame written a second time
+    0x3ec  poll +0x60 until NON-zero, acknowledge again
+    0x3fc  ldr r0,[ip,#116] ; uxth r0,r0     data read from +0x74, low 16 bits
+
+Our body wrote the frame first, then the command, then polled the read-status waiting for NON-zero
+(the inverse of the vendor's done condition) and gave up. Every transfer timed out for that reason.
+
+phase3cd implements the vendor's sequence: command, wait for the read-status low nibble to read ZERO,
+write the frame, wait for the write-status low nibble to become NON-ZERO, acknowledge it, write the
+frame again, acknowledge again, read the data. The frame encoding is still ours; if the PHYs answer
+but with wrong register values, that encoding is the next comparison against the vendor's bit tricks
+at 0x344-0x378.

@@ -115,6 +115,34 @@ static int luofu_mdio_wait(struct luofu_mdio *m, u32 status_off)
 	return -ETIMEDOUT;
 }
 
+/* Vendor handshake, phase 1: the read-status low nibble must read ZERO before the frame goes out. */
+static int luofu_mdio_wait_zero(struct luofu_mdio *m, u32 status_off)
+{
+	unsigned long timeout = jiffies + msecs_to_jiffies(100);
+
+	do {
+		if ((readl(m->base + status_off) & 0x0f) == 0)
+			return 0;
+		cpu_relax();
+	} while (time_before(jiffies, timeout));
+
+	return -ETIMEDOUT;
+}
+
+/* Vendor handshake, phases 2 and 3: the write-status low nibble must go NON-ZERO, then be acknowledged. */
+static int luofu_mdio_wait_busy(struct luofu_mdio *m, u32 status_off)
+{
+	unsigned long timeout = jiffies + msecs_to_jiffies(100);
+
+	do {
+		if (readl(m->base + status_off) & 0x0f)
+			return 0;
+		cpu_relax();
+	} while (time_before(jiffies, timeout));
+
+	return -ETIMEDOUT;
+}
+
 /* Build the frame word the controller shifts out: phy(5) | reg(5) in the halves. */
 static u32 luofu_mdio_frame(unsigned int phy, unsigned int reg)
 {
@@ -125,16 +153,37 @@ static u32 luofu_mdio_frame(unsigned int phy, unsigned int reg)
 static int luofu_mdio_read(struct mii_bus *bus, int phy, int reg)
 {
 	struct luofu_mdio *m = bus->priv;
-	int ret;
+	u32 frame = luofu_mdio_frame(phy, reg);
+	u32 v;
 
-	writel(luofu_mdio_frame(phy, reg), m->base + LUOFU_MDIO_FRAME);
+	/*
+	 * THE VENDOR'S FOUR-PHASE HANDSHAKE (from hi_mdio_read, disassembled 2026-11-14).
+	 *
+	 * The old body wrote the frame then the command and polled the read-status until its low nibble
+	 * was NON-zero. The vendor's code does the opposite at every step: command first, then it waits
+	 * for the read-status low nibble to read ZERO, writes the frame, waits for the write-status low
+	 * nibble to read NON-ZERO, acknowledges it by writing the status value back, writes the frame
+	 * again, acknowledges again, and only then reads the data. Every transfer timed out because the
+	 * single wait looked for the wrong state.
+	 */
 	writel(LUOFU_MDIO_CMD_READ, m->base + LUOFU_MDIO_CMD);
 
-	ret = luofu_mdio_wait(m, LUOFU_MDIO_RSTATUS);
-	if (ret) {
-		dev_err(m->dev, "MDIO bus hasn't done reading\n");
-		return ret;
-	}
+	if (luofu_mdio_wait_zero(m, LUOFU_MDIO_RSTATUS))
+		return -ETIMEDOUT;
+
+	writel(frame, m->base + LUOFU_MDIO_FRAME);
+
+	if (luofu_mdio_wait_busy(m, LUOFU_MDIO_WSTATUS))
+		return -ETIMEDOUT;
+	v = readl(m->base + LUOFU_MDIO_WSTATUS);
+	writel(v, m->base + LUOFU_MDIO_WSTATUS);
+
+	writel(frame, m->base + LUOFU_MDIO_FRAME);
+
+	if (luofu_mdio_wait_busy(m, LUOFU_MDIO_WSTATUS))
+		return -ETIMEDOUT;
+	v = readl(m->base + LUOFU_MDIO_WSTATUS);
+	writel(v, m->base + LUOFU_MDIO_WSTATUS);
 
 	return readl(m->base + LUOFU_MDIO_RDATA) & LUOFU_MDIO_DATA_MASK;
 }
