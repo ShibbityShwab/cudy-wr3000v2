@@ -21308,3 +21308,23 @@ vendor's procd would use - but from the first second and independent of procd's 
 The init binary (4356 B) was embedded and verified in the built image (usr/initramfs_inc_data
 decompresses to the new /init, which contains the /dev/watchdog string). phase3bf is the slice under
 test.
+
+## 2026-11-13 15:05 - #174: the shadow reaches S95done and the dump is real
+
+phase3bf (the userspace watchdog keeper in the init) changed the game: the box ran the full 25-minute
+home timer, and #173/#174 reached S95done on our kernel. The keeper keeps /dev/watchdog fed from the
+first second after the pivot, through the real luofu-wdt driver, so the 30 s timer finally stops
+killing the run.
+
+The marker work is now done inside the S95done shadow, BEFORE the vendor's own done script, because
+that script writes 384 KiB of /dev/random to /etc/mount_protect before it ever calls rc.local, and
+every earlier reset landed inside that window. phase3bg proved the ordering:
+
+    /overlay/upper/kernel-ran-final.log:
+      1763001361 #174 SMP Fri Nov 13 15:05:08 +07 2026 shadow    <- ours
+      1763001399 #0  SMP Sat Nov 25 18:18:57 2023 shadow         <- vendor, 38 s later
+
+The dump file itself was written by our boot and then OVERWRITTEN by the vendor's boot, because the
+same shadow runs there too and the dump used ">". The content read back was the vendor's state
+(eth0-eth3, br-lan, vap0/1/3, Hi-GEMAC). The fix is one character: append (">>") with the kernel
+banner in the header, so both sections accumulate and ours survives. phase3bh carries that change.
