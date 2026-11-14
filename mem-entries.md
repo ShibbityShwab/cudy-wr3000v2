@@ -21829,3 +21829,25 @@ they never did - carry no .plt sections to bridge it.
 State unchanged: criteria 1, 3, 4 PASS; criterion 2 open. Record for the next session: instrument
 apply_relocate_add with the module's base, the target address and the delta for the first failure;
 that single print names the distance and therefore the layout problem to fix.
+
+## 2026-11-14 14:27 - The module loader refused every module that had no .plt, before checking whether one was needed
+
+module_frob_arch_sections() (arch/arm/kernel/module-plts.c) fails the load the moment a module carries
+no .plt and .init.plt sections:
+
+    if (!mod->arch.core.plt || !mod->arch.init.plt) { pr_err("...missing"); return -ENOEXEC; }
+
+The vendor images and their whole module set were built against a kernel with PLT support off, so none
+of their ELF files has those sections - and neither did any module fail for a real range problem. The
+check fires before any relocation is examined, which is why every module on our kernel failed, the
+kernel's own crypto helpers included, and why lsmod was empty.
+
+phase3cj makes the sections optional in two places:
+- module_frob_arch_sections: a module without .plt logs one line and continues;
+- get_module_plt: if a relocation ever genuinely needs a PLT and the module has none, it prints the
+  target and location and returns the value unchanged, so the existing range check fails the load
+  honestly with the distance written down instead of dereferencing a null section.
+
+Together with the near-region-only allocator from earlier, ordinary modules need no PLT at all, which
+is the vendor's own situation. If this works, the vendor's hi_* stack loads and its switch, MDIO, MAC
+and PHY drivers run on our kernel - the whole Ethernet milestone with no further reverse engineering.
