@@ -21873,3 +21873,28 @@ failing on .plt, which is now known to be the loader's over-strict check plus th
 
 The vendor modules cannot load until this is resolved, and the .plt gate remains the single blocker for
 running their whole stack (switch, MDIO, MAC, PHY) on our kernel.
+
+## 2026-11-14 16:31 - Bisect step 1 also fails: the loader edit is not the mechanism, the kernel's layout is
+
+    #200 phase3ci  unmodified loader          -> boots, shadow written
+    #201 phase3cj  frob + guard (2 runs)      -> never reaches userspace
+    #202 phase3ck  unmodified loader (control)-> boots, shadow written
+    #203 phase3cl  frob only                  -> never reaches userspace
+
+The frob change alone is enough to lose the boot, and that function cannot execute before userspace -
+nothing on the boot path loads a module. So the edit is not what breaks it; what changes is the kernel
+image itself. This tree already carries a measured hazard of exactly this kind: the FMC driver claimed
+16 KiB of physical memory without reserving it, and the ledger records that six driver bisects all
+returned identical results because every suspect sat downstream of that corruption. A change in
+`.text` size moves whatever the unclaimed window overlaps.
+
+CONCLUSION for the next session, and it outranks the loader work: the boot is sensitive to kernel image
+layout, so any change must be validated against that first. Two concrete checks: (1) compare the
+System.map / section addresses of a booting and a non-booting build around the FMC's claimed window;
+(2) build the same source with a harmless size change (a new unused function) and confirm the boot dies,
+which proves the sensitivity without touching the loader at all.
+
+The tree is reverted to the working loader (phase3ck equivalent): the near-region allocator, the decoded
+crumbs, the dump, the early keeper. The vendor modules still fail on .plt there, so the vendor stack
+still cannot load - but the loader work is now correctly blocked behind the layout question rather than
+in front of it.
