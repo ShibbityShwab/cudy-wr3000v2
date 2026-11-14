@@ -22119,3 +22119,48 @@ The two blockers that had held this for days were both in the loader, not the dr
 What remains is polish, not blockers: hi_kteam.ko is board-specific and absent (fd=-2), the vendor's own
 hsan script logs EEXIST for modules we already loaded, and the load log should be truncated per boot
 instead of appended.
+
+## 2026-11-14 23:5x - The MDIO controller protocol, decoded from the live driver
+
+The vendor's hi_kmdio.ko was never a bit-bang. Its bus op reaches a helper at 0x17c (read) and 0xa4
+(write) which drive an MMIO controller with FOUR registers, not the 0x60/0x70/0x74 set the driver had
+been using (those belong to the DFX/extended path):
+
+    base+0x2c  status, bits 18:16 non-zero = busy
+    base+0x30  the frame word
+    base+0x20  write-status: bit0|bit1 set = complete, write the value back to acknowledge
+    base+0x38  read data, low 16 bits
+
+and the frame itself is assembled in the HIGH half:
+
+    read : ((0x8000 | reg<<8 | phy) << 16)          written to base+0x30
+    write: ((0x8000 | reg<<8 | phy) << 16) | data   written to base+0x30
+
+The sequence: wait 0x2c[18:16]==0, write the frame, poll 0x20 bit0|bit1, acknowledge, wait 0x2c[18:16]==0,
+read 0x38. The driver was writing the frame UNSHIFTED, which is why the controller never started a
+transaction no matter how the handshake was ordered. Fixed; the sequence now matches the vendor's
+instruction-for-instruction.
+
+## The Genius PHY, identified locally
+
+hi_kphy.ko's .data holds its phy_driver match at +0x50: phy_id 0x20669a00, mask 0xffffff00. The module
+also loads a patch file (lsw/hi_ephy_%xv%x.bin) into the PHY - that download is the one piece of the
+vendor PHY we do not reproduce yet, and the new driver documents it as the known gap rather than
+pretending it is done.
+
+drivers/net/ethernet/luofu/luofu-phy.c now registers that ID with the genphy operations. Together with
+luofu-mdio and luofu-gmac the kernel has a complete clean-room network chain: MDIO controller, Genius
+PHY and GEMAC. All three build into the image.
+
+## The next fire is a coexistence test, not a risk
+
+Our drivers are built-in and probe before any module loads, so on the same DT they bind first and the
+vendor's hi_kmdio/hi_kphy/hi_kmac cannot claim those nodes - while hi_swa, the LSW modules and the
+kcfe chain still load and run. One boot therefore answers three questions at once:
+
+  - does our MDIO complete a real transfer (read the PHY ID at mdio0:04)?
+  - does our Genius PHY driver bind that PHY?
+  - does our GEMAC attach through phylink and bring eth2 up?
+
+The dmesg line to look for is `Hi-GEMAC ... eth2: PHY [14000000.mdio0:04] driver [Luofu Genius PHY]`.
+If it appears, M2's core is proven with our code alone on the network path.
