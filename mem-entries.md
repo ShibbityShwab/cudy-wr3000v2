@@ -22164,3 +22164,31 @@ kcfe chain still load and run. One boot therefore answers three questions at onc
 
 The dmesg line to look for is `Hi-GEMAC ... eth2: PHY [14000000.mdio0:04] driver [Luofu Genius PHY]`.
 If it appears, M2's core is proven with our code alone on the network path.
+
+## 2026-11-14 23:15 - M2 core proven: our MDIO and GEMAC carry a real 1Gbps link
+
+The coexistence boot answered every question it was built to ask:
+
+    [29.449] Hi-GEMAC 14480000.gemac eth2: PHY [14000000.mdio0:04] driver [Hisilicon Genius Phy]
+    [29.799] Hi-GEMAC 14400000.gemac eth1: PHY [14000000.mdio0:03] driver [Hisilicon Genius Phy]
+    [30.119] Hi-GEMAC 14380000.gemac eth0: PHY [14000000.mdio0:02] driver [Hisilicon Genius Phy]
+    [30.349] Hi-GEMAC 14500000.gemac eth3: PHY [14000000.mdio0:05] driver [Hisilicon Genius Phy]
+    [33.258] Hi-GEMAC 14480000.gemac eth2: Link is Up - 1Gbps/Full - flow control rx/tx
+
+    eth2   operstate up, speed 1000
+    /sys/bus/mdio_bus/devices/14000000.mdio0:02..05
+    phy_id 0x20669a09 on all four
+
+So, with OUR luofu-mdio and OUR luofu-gmac running:
+
+  - our MDIO completes real C22 transfers - the phy_id reads back 0x20669a09, which is the vendor's
+    0x20669a00 plus revision 9, the byte the 0xffffff00 mask ignores. The register decode and the
+    high-half frame are correct, proven on hardware;
+  - our GEMAC attaches all four ports through phylink and trains eth2 to gigabit;
+  - the bus is ours: every PHY device is a child of 14000000.mdio0.
+
+The PHY driver that bound is the vendor's hi_kphy, because the init loads it at ~2 s while the platform
+devices probe at ~29 s, so it is first in the match list. That is the one remaining vendor network
+module, and dropping it from the init list is the next boot: our built-in luofu-phy (phy_id 0x20669a00,
+mask 0xffffff00, genphy ops) then binds instead and the network chain becomes fully clean-room except
+for the LSW switch, which is M3.

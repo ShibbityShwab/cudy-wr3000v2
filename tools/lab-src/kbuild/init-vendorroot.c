@@ -78,8 +78,8 @@ static const char p_mtd13[] = "/dev/mtdblock13";
  */
 static const char *const vmods[] = {
     "hi_basic", "hi_kpinctrl", "hi_sysctrl", "hi_acp", "hi_kpie",
-    "hi_lsw_pub", "hi_lsw_dp", "hi_lsw_pfe", "hi_kmdio", "hi_kphy", "hi_kmac",
-    "hi_kteam", "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",
+    "hi_lsw_pub", "hi_lsw_dp", "hi_lsw_pfe",
+    "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",
     "hi_kcfe_lrn_mc", "hi_kcfe_mc_list", "hi_kcfe_lrn_vxlan", "hi_kcara", "hi_khslink",
     "hi_swa",
     0
