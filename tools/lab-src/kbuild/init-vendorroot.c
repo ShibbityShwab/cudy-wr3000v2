@@ -175,6 +175,7 @@ static const char p_vmtd[]  = "mtd:rootfs_data";
 static const char p_vetc[]  = "/vendor/upper/etc";
 static const char p_vrc[]   = "/vendor/upper/etc/rc.local";
 static const char p_vrd[]   = "/vendor/upper/etc/rc.d";
+static const char p_vid[]   = "/vendor/upper/etc/init.d";
 static const char sh_boot[] =
     "#!/bin/sh\n"
     "echo \"S10boot $(date +%s) $(uname -v)\" >> /boot.log\n"
@@ -438,6 +439,7 @@ void _start(void)
      * procd reached on our kernel.
      */
     sc2(SYS_mkdir, (long)p_vrd, 0755);
+    sc2(SYS_mkdir, (long)p_vid, 0755);
     wfile("/vendor/upper/etc/rc.d/S10boot", sh_boot, 0755);
     wfile("/vendor/upper/etc/init.d/luofu", sh_luofu, 0755);
     wfile("/vendor/upper/etc/rc.d/S18hyfibrd", sh_hyfi, 0755);
