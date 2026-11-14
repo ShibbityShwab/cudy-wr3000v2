@@ -21800,3 +21800,32 @@ fallback (a load that cannot fit near now fails honestly) and prints the allocat
 
 If the vendor's hi_* stack then loads, its own switch/MDIO/MAC drivers run on our kernel and the
 Ethernet milestone stops depending on any of our re-derived register maps.
+
+## 2026-11-14 13:44 - Near-only allocation did not stop the PLT errors, and its print never appeared
+
+The module-capture run finally shows the whole picture, and it is uniform:
+
+    [16.48] kmodloader: loading kernel modules from /etc/modules-boot.d/*
+    [16.52] gpio_button_hotplug: module PLT section(s) missing
+    [17.35] hi_kpinctrl: module PLT section(s) missing
+    [19.85] hi_swa: module PLT section(s) missing
+    [24.08] authenc / cbc / libdes / ecb / hmac / md5 / drbg ... : module PLT section(s) missing
+
+Every module fails, including the kernel's own crypto helpers, and `lsmod` in that same dump is empty.
+So the load path fails long before any vendor-specific module is involved.
+
+Two facts narrow it. First, the change IS in the image: strings on the built vmlinux contains
+"luofu: module_alloc %lu bytes -> %px (near region only)". Second, that print never appears in the log,
+so module_alloc is either not reached for these loads or the failure happens before it in a way that
+still lets a relocation run.
+
+That points at the relocation PLT test itself rather than at placement: module-plts.c emits this
+message when a module relocation targets an address further than the branch range from the module's
+own text, and it is now clear that happens for every module on this kernel regardless of allocation.
+The likely reason is the kernel's own layout: our build places the kernel text and the modules region
+such that ordinary relocations exceed the range, and the vendor's modules - built for a kernel where
+they never did - carry no .plt sections to bridge it.
+
+State unchanged: criteria 1, 3, 4 PASS; criterion 2 open. Record for the next session: instrument
+apply_relocate_add with the module's base, the target address and the delta for the first failure;
+that single print names the distance and therefore the layout problem to fix.
