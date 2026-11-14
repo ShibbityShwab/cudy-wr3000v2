@@ -21960,3 +21960,21 @@ Attaching the UART, or arming a second capture channel that survives a pre-users
 prerequisite for the next loader attempt.
 
 Reverted both experiments; the tree is back to the working image.
+
+## 2026-11-14 18:17 - Console-free probe: the init stamps the crash partition before anything else
+
+The fifth frob-edit run also failed (#205 absent again), so the edit is 5/5 while every control boots.
+With no console (the UART's receive path is dead on the bench - the TX resistor the user reports burned
+kills the only direction the kernel can speak), the failing boot had no observable at all.
+
+phase3cn adds one: the initramfs init's very first statement opens /dev/mtdblock10 (the pstore
+partition), writes "LUFU-INIT-REACHED" and syncs - before any mount, before the keeper, before the
+breadcrumbs. That splits the failure cleanly:
+
+    marker present -> the kernel booted and reached the initramfs; the death is in the init/userspace
+    marker absent  -> the kernel died before the initramfs (decompression, early init, or the DTB)
+
+The image is the failing kernel (frob edit) plus this init, so the marker reports on the exact
+configuration that has failed five times. Read it back from the vendor with:
+
+    hexdump -C /dev/mtdblock10 | head -2        (or: strings /dev/mtd10 | grep LUFU)

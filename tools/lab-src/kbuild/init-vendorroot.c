@@ -34,6 +34,7 @@ static inline long sc6(long n, long a, long b, long c, long d, long e, long f)
 
 #define SYS_exit     1
 #define SYS_fork     2
+#define SYS_sync     36
 #define SYS_write    4
 #define SYS_open     5
 #define SYS_close    6
@@ -291,6 +292,25 @@ void _start(void)
 {
     long r;
     long fd;
+
+    /*
+     * CONSOLE-FREE BOOT PROBE (2026-11-14).
+     *
+     * The first thing this init does is stamp the crash partition. A boot that dies before userspace
+     * leaves no trace on this bench - there is no console here and pstore never captured anything
+     * because the failure is below the panic path - so this marker is the only evidence that the
+     * kernel reached the initramfs at all. It writes to /dev/mtdblock10 (the pstore partition), which
+     * the lab erases between runs, and it happens before any mount.
+     */
+    {
+        long mfd = sc3(SYS_open, (long)"/dev/mtdblock10", 1, 0);
+
+        if (mfd >= 0) {
+            sc3(SYS_write, mfd, (long)"LUFU-INIT-REACHED\n", 17);
+            sc2(SYS_close, mfd, 0);
+            sc2(SYS_sync, 0, 0);
+        }
+    }
 
     /*
      * THE KEEPER STARTS FIRST (2026-11-14).
