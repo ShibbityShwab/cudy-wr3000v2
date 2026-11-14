@@ -181,13 +181,16 @@ static const char sh_boot[] =
     "echo \"S10boot $(date +%s) $(uname -v)\" >> /boot.log\n"
     "exec /etc/init.d/boot \"$@\"\n";
 /*
- * The vendor's /etc/init.d/luofu loads hi_kpinctrl, hi_kefuse, hi_kmdio, hi_kphy, hi_kmac and the LSW
- * modules at ~18 s, before the platform devices probe at ~29 s, so its PHY driver always wins the match
- * against our built-in luofu-phy. Our init loads the stack it needs; this shadow stops the duplicate.
+ * The vendor's /etc/rc.d/luofu loads the modules the boot depends on - above all hi_kpinctrl, without
+ * which the MDIO and Ethernet pins are never muxed and no PHY is ever visible. Our init's own load of
+ * hi_kpinctrl fails (-ENOENT on an unresolved symbol), so that script is not optional. It also loads
+ * hi_kmdio/hi_kphy/hi_kmac, which our own drivers own. This shadow runs the vendor's script with only
+ * those three lines removed, so pinmux, IRQ affinity, sysctls and everything else stay intact.
  */
 static const char sh_luofu[] =
     "#!/bin/sh\n"
-    "exit 0\n";
+    "sed -e '/hi_kphy\\.ko/d' -e '/hi_kmdio\\.ko/d' -e '/hi_kmac\\.ko/d' /rom/etc/rc.d/luofu > /tmp/luofu-f.sh\n"
+    "sh /tmp/luofu-f.sh\n";
 static const char sh_hyfi[] =
     "#!/bin/sh\n"
     "echo \"S18hyfibrd $(date +%s)\" >> /boot.log\n"

@@ -22192,3 +22192,30 @@ devices probe at ~29 s, so it is first in the match list. That is the one remain
 module, and dropping it from the init list is the next boot: our built-in luofu-phy (phy_id 0x20669a00,
 mask 0xffffff00, genphy ops) then binds instead and the network chain becomes fully clean-room except
 for the LSW switch, which is M3.
+
+## 2026-11-15 01:30 - The no-op shadow was a mistake: hi_kpinctrl is load-bearing
+
+phase3db replaced /etc/rc.d/luofu with `exit 0` to stop the vendor's PHY driver from winning the match.
+The box never came back: 150 polls, no vendor return, SSH closed.
+
+Reading the script from rootfs-2.5.24 shows why. Its FIRST action is
+
+    insmod /lib/hisilicon/ko/hi_kpinctrl.ko
+
+and our init's own attempt to load that module fails with -ENOENT on an unresolved symbol. Without the
+pinctrl, the MDIO and Ethernet pins are never muxed, no PHY is visible on the bus, eth2 never comes up,
+and the box is unreachable. The script also sets the CPU governor, the PIE IRQ affinity, ip_forward,
+conntrack limits and the temperature sensors - all of which the stock boot expects.
+
+The box is in the watchdog loop: our image boots, the network does not come up, the keeper's home timer
+resets it, the bootflag still points at our image. Recovery is the U-Boot boot count fallback after
+enough attempts, or a power cycle to add attempts faster. A monitor is armed on the SSH port.
+
+The fix, built and waiting: the shadow now runs the vendor's own script with ONLY the three modules our
+drivers own filtered out:
+
+    sed -e '/hi_kphy\.ko/d' -e '/hi_kmdio\.ko/d' -e '/hi_kmac\.ko/d' /rom/etc/rc.d/luofu
+
+so pinmux, IRQ affinity, sysctls and everything else stay intact, and our luofu-phy finally gets the
+match. Lesson recorded: on this board, any overlay shadow of a vendor script must be a filtered copy of
+the original, never a replacement.
