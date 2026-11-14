@@ -179,6 +179,14 @@ static const char sh_boot[] =
     "#!/bin/sh\n"
     "echo \"S10boot $(date +%s) $(uname -v)\" >> /boot.log\n"
     "exec /etc/init.d/boot \"$@\"\n";
+/*
+ * The vendor's /etc/init.d/luofu loads hi_kpinctrl, hi_kefuse, hi_kmdio, hi_kphy, hi_kmac and the LSW
+ * modules at ~18 s, before the platform devices probe at ~29 s, so its PHY driver always wins the match
+ * against our built-in luofu-phy. Our init loads the stack it needs; this shadow stops the duplicate.
+ */
+static const char sh_luofu[] =
+    "#!/bin/sh\n"
+    "exit 0\n";
 static const char sh_hyfi[] =
     "#!/bin/sh\n"
     "echo \"S18hyfibrd $(date +%s)\" >> /boot.log\n"
@@ -431,6 +439,7 @@ void _start(void)
      */
     sc2(SYS_mkdir, (long)p_vrd, 0755);
     wfile("/vendor/upper/etc/rc.d/S10boot", sh_boot, 0755);
+    wfile("/vendor/upper/etc/init.d/luofu", sh_luofu, 0755);
     wfile("/vendor/upper/etc/rc.d/S18hyfibrd", sh_hyfi, 0755);
     wfile("/vendor/upper/etc/rc.d/S20network", sh_net, 0755);
     wfile("/vendor/upper/etc/rc.d/S95done", sh_done, 0755);
