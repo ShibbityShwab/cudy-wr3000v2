@@ -21898,3 +21898,25 @@ The tree is reverted to the working loader (phase3ck equivalent): the near-regio
 crumbs, the dump, the early keeper. The vendor modules still fail on .plt there, so the vendor stack
 still cannot load - but the loader work is now correctly blocked behind the layout question rather than
 in front of it.
+
+## 2026-11-14 17:03 - Layout control boots: image size is not the hazard; the frob edit is implicated
+
+    #200 unmodified                 -> boots
+    #202 unmodified (control)       -> boots
+    #204 unmodified + unused fn     -> boots        <- the layout control
+    #203 frob-only edit             -> no userspace
+    #201 frob + guard (2 runs)      -> no userspace
+
+A harmless ~40-byte .text growth in a different file boots fine, so "the image moved" is not the
+mechanism - the earlier layout theory is dead. What remains is the frob edit itself, at 3 failures
+versus 0 for every control. The intermittent restart affects roughly half of all runs, so single runs
+cannot settle it and a repeat of the frob-only slice is now in flight.
+
+If the repeat also fails, the next question is mechanical and narrow: why a function that only runs for
+modules changes a boot that loads none. Candidates worth checking in that case: an initcall or a
+section-scan side effect in module_frob_arch_sections' callers; the `fixed_plts` array placement being
+moved by the edit (it lives in .text of that file and is read by prealloc_fixed); or a build artefact
+(diff the two vmlinux maps around module-plts.o and the fixed_plts symbol).
+
+If the repeat boots, the three failures were the intermittent restart and the frob edit is fine - the
+loader work then resumes at the guard edit alone.
