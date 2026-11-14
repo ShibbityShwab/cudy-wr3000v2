@@ -85,6 +85,40 @@ static const char *const vmods[] = {
     0
 };
 
+static void append(const char *path, const char *s, long n)
+{
+    long fd = sc3(SYS_open, (long)path, 0x441, 0644);
+
+    if (fd >= 0) {
+        sc3(SYS_write, fd, (long)s, n);
+        sc2(SYS_close, fd, 0);
+    }
+}
+
+static int utoa(char *b, long v)
+{
+    char t[16];
+    int i = 0, j = 0;
+
+    if (v < 0) {
+        b[j++] = '-';
+        v = -v;
+    }
+    do {
+        long q = 0, r = v;
+
+        while (r >= 10) {
+            r -= 10;
+            q++;
+        }
+        t[i++] = '0' + r;
+        v = q;
+    } while (v);
+    while (i)
+        b[j++] = t[--i];
+    return j;
+}
+
 static void load_vendor_modules(void)
 {
     static const char pfx[] = "/vendor/upper/lib/hisilicon/ko/";
@@ -93,7 +127,9 @@ static void load_vendor_modules(void)
 
     for (i = 0; vmods[i]; i++) {
         const char *s = vmods[i];
-        long fd;
+        char line[64];
+        int k = 0;
+        long fd, ret = -1;
 
         for (j = 0; pfx[j] && j < 40; j++)
             path[j] = pfx[j];
@@ -106,9 +142,26 @@ static void load_vendor_modules(void)
 
         fd = sc3(SYS_open, (long)path, 0, 0);
         if (fd >= 0) {
-            sc3(SYS_finit_module, fd, (long)"", 0);
+            ret = sc3(SYS_finit_module, fd, (long)"", 0);
             sc2(SYS_close, fd, 0);
         }
+
+        s = vmods[i];
+        while (*s)
+            line[k++] = *s++;
+        line[k++] = ' ';
+        line[k++] = 'f';
+        line[k++] = 'd';
+        line[k++] = '=';
+        k += utoa(line + k, fd);
+        line[k++] = ' ';
+        line[k++] = 'r';
+        line[k++] = 'e';
+        line[k++] = 't';
+        line[k++] = '=';
+        k += utoa(line + k, ret);
+        line[k++] = '\n';
+        append("/vendor/upper/mod-load.log", line, k);
     }
 }
 static const char p_sdev[]  = "/dev";
@@ -164,7 +217,7 @@ static const char sh_done[] =
     "echo \"=== modules ===\" >> $OUT\n"
     "lsmod >> $OUT 2>&1\n"
     "echo \"=== module log ===\" >> $OUT\n"
-    "dmesg | grep -iE 'module_alloc|PLT|version magic|kmodloader|kmdio|kmac|hi_swa|hi_lsw|hi_kphy' >> $OUT 2>&1\n"    "echo \"=== cells ===\" >> $OUT\n"
+    "dmesg | grep -iE 'module|hi_|insmod|finit|PLT|symbol' >> $OUT 2>&1\n"    "echo \"=== cells ===\" >> $OUT\n"
     "/sbin/devmem 0x10100C94 32 >> $OUT 2>&1\n"
     "/sbin/devmem 0x10100C98 32 >> $OUT 2>&1\n"
     "/sbin/devmem 0x10100C80 32 >> $OUT 2>&1\n"
