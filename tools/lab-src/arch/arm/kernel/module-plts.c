@@ -55,15 +55,6 @@ u32 get_module_plt(struct module *mod, unsigned long loc, Elf32_Addr val)
 	struct plt_entries *plt;
 	int idx;
 
-	/* A module built without PLT support has no section to hand out. Returning the target unchanged
-	 * lets the range check at the call site fail with the distance printed, instead of dereferencing
-	 * a null section here. */
-	if (!pltsec->plt) {
-		pr_err("%s: relocation needs a PLT the module does not have (target %#x, loc %#lx)\n",
-		       mod->name, val, loc);
-		return val;
-	}
-
 	/* cache the address, ELF header is available only during module load */
 	if (!pltsec->plt_ent)
 		pltsec->plt_ent = (struct plt_entries *)pltsec->plt->sh_addr;
@@ -242,18 +233,8 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 	}
 
 	if (!mod->arch.core.plt || !mod->arch.init.plt) {
-		/*
-		 * MODULES BUILT WITHOUT PLT SUPPORT (2026-11-14).
-		 *
-		 * The vendor images and the whole vendor module set were built against a kernel with PLT support
-		 * off, so their ELF carries no .plt sections at all. Refusing the load here is what made every
-		 * single module fail on this kernel, including the vendor's own driver stack. A module only needs
-		 * a PLT when one of its relocations exceeds the branch range; get_module_plt() now names that
-		 * case with its distance and the relocation check below fails honestly, so the load can simply
-		 * continue when nothing is needed.
-		 */
-		pr_info("%s: no .plt sections (built without PLT support), continuing\n", mod->name);
-		return 0;
+		pr_err("%s: module PLT section(s) missing\n", mod->name);
+		return -ENOEXEC;
 	}
 	if (!syms) {
 		pr_err("%s: module symtab section missing\n", mod->name);

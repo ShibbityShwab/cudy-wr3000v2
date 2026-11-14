@@ -21851,3 +21851,25 @@ phase3cj makes the sections optional in two places:
 Together with the near-region-only allocator from earlier, ordinary modules need no PLT at all, which
 is the vendor's own situation. If this works, the vendor's hi_* stack loads and its switch, MDIO, MAC
 and PHY drivers run on our kernel - the whole Ethernet milestone with no further reverse engineering.
+
+## 2026-11-14 15:50 - A/B: the PLT-tolerance change breaks the boot; the control boots
+
+Three builds, same tree except one file:
+
+    #200 phase3ci  near-only allocator, original loader   -> reaches S10boot, writes its shadow
+    #201 phase3cj  + PLT-tolerant loader (2 runs)         -> never reaches userspace, no shadow
+    #202 phase3ck  loader reverted = control              -> reaches S10boot, writes its shadow
+
+So the two edits in module-plts.c (skip the .plt check in module_frob_arch_sections, guard the null
+.plt in get_module_plt) correlate with a boot that dies before the initramfs init runs - i.e. before any
+module could possibly be loaded. The mechanism is not obvious from the source: nothing on the boot path
+calls either function. Two candidates to bisect next: (a) one of the two edits independently (apply only
+the frob change, then only the guard); (b) the .text size change shifting something the FMC/mach code
+depends on, which is checkable by comparing the two vmlinux builds' section addresses.
+
+Until that is settled the working image is phase3ck: the original loader, the near-region-only
+allocator, the decoder/dump changes, the early keeper. Its module capture still shows the vendor stack
+failing on .plt, which is now known to be the loader's over-strict check plus the vendor's no-PLT build.
+
+The vendor modules cannot load until this is resolved, and the .plt gate remains the single blocker for
+running their whole stack (switch, MDIO, MAC, PHY) on our kernel.
