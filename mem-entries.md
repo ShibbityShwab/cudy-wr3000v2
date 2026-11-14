@@ -21920,3 +21920,25 @@ moved by the edit (it lives in .text of that file and is read by prealloc_fixed)
 
 If the repeat boots, the three failures were the intermittent restart and the frob edit is fine - the
 loader work then resumes at the guard edit alone.
+
+## 2026-11-14 17:30 - The frob-only slice fails again (4/4 with the edit, 3/3 without)
+
+    with the frob edit:      #201 x2, #203, and this repeat   -> 4 failures, none reached userspace
+    without any edit:        #200, #202, #204 (size control) -> 3 boots
+
+At roughly a 50 percent intermittent rate, four straight failures against three straight boots is
+about a 1-in-100 coincidence, so the edit is implicated. The mechanism still does not follow from the
+source: module_frob_arch_sections runs only when a module is loaded, and nothing loads modules before
+the initramfs init writes its breadcrumbs. Two mechanical suspects remain and both are checkable
+without the box:
+
+1. `fixed_plts` lives in module-plts.o's .text and prealloc_fixed() reads it with ARRAY_SIZE; diff the
+   System.map and the object's section layout between a booting and a failing build.
+2. The early return may leave mod->arch.core.plt NULL in a path the core reaches even when the load is
+   later aborted - i.e. the failure mode is a null dereference in a load that the boot does attempt
+   after all. Checking requires the console log of a failing boot, which we do not have on this bench
+   (the log dies with the box); a serial console would settle it in one run.
+
+The loader route therefore needs either the System.map diff or a console before another blind build.
+The working image is unchanged and boots; the vendor modules still fail on .plt there. Everything above
+is committed in mem-entries.md.
