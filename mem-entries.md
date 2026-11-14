@@ -21978,3 +21978,27 @@ The image is the failing kernel (frob edit) plus this init, so the marker report
 configuration that has failed five times. Read it back from the vendor with:
 
     hexdump -C /dev/mtdblock10 | head -2        (or: strings /dev/mtd10 | grep LUFU)
+
+## 2026-11-14 20:11 - Three observation channels tried; none can see a failing boot on this bench
+
+    UART            : adapter open at 115200 8N1, zero bytes through two full boots. The router's
+                      transmit line is the direction the reading needs, and the user reports the
+                      transmitting side burned out. Unavailable until repaired.
+    pstore (mtd10)  : the init stamps offset 0 and offset 0x20000; the vendor's own DBGC records
+                      occupy BOTH erase blocks on every vendor boot, so no marker survives to be read.
+    log (mtd9)      : the init stamps offset 0x400000 with a five-second retry while the FMC probes.
+                      The control boot reaches S10boot and the marker is absent, so the initramfs
+                      either has no MTD block node to write or the write does not land.
+
+Consequence: the reason a module-loader-only edit kills the boot before userspace is still unknown
+after five failing boots and five booting controls. Every further build without a working console is a
+guess, and tonight has cost enough of those.
+
+What is READY the moment the console works (a soldering job on the router's TX line):
+- the loader fix, written and half-bisected (the frob tolerance, the get_module_plt guard);
+- the near-region module allocator that removes the PLT distance problem;
+- verification that every module fails the PLT gate, which the console boot log would show directly;
+- after the loader: the vendor's hi_* stack loads, and with it the switch, MDIO, MAC and PHY drivers
+  that the Ethernet milestone needs.
+
+The box is healthy on the vendor kernel; the tree is the working image; nothing is left in a lab state.
