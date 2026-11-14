@@ -38,7 +38,7 @@ will not open another file; where the two disagree, `STATE.md` wins. The structu
 | **G1** FMC reads real flash | **GREEN** | page-0 magic `UBI#` at the probe; and a level-7 probe through the MTD layer found the partition by name, the EC magic, `vid_hdr_offset = 0x800`, and `PEB0+0x800` reading `'U'` |
 | **G2** program path | **GREEN** | a page written by our kernel read back byte-exact through the vendor driver |
 | **G3** our kernel + real rootfs + userspace | **GREEN (2026-11-14)** | the vendor's own preinit, `mount_root`, procd and the full rc.d chain run on our kernel from the squashfs root, proven by kernel-version breadcrumbs `#162`..`#199` in `/boot.log` plus the `S95done` shadow |
-| **G4** Ethernet on our kernel | **blocked on the PHY** | the four MACs probe, take clocks and resets and create their phylink, then defer at `phylink_of_phy_connect`: no PHY exists because the MDIO controller never completes a transfer (see the module table below) |
+| **G4** Ethernet on our kernel | **GREEN (2026-11-14)** | the vendor's own switch/MDIO/PHY/MAC drivers load and run on our kernel as patched modules: `Hi-GEMAC 14480000.gemac eth2: PHY [14000000.mdio0:04] driver [Hisilicon Genius Phy]`, `eth2` UP with LOWER_UP, `br-lan` up at `192.168.10.1/24` with the WiFi vaps bridged in, and `ping` 3/3 from the host |
 | **G5** Wi-Fi on our kernel | vendor-only | the lab `wifidrv`/`hccaccept` line builds and loads; no wiphy yet |
 | **G6** sustained uptime | **GREEN (2026-11-14)** | the reset was below the kernel (no panic ever captured) and its cause was a userspace watchdog race; the initramfs keeper now holds the full 25-minute home timer on surviving boots |
 
@@ -46,6 +46,13 @@ will not open another file; where the two disagree, `STATE.md` wins. The structu
 
 Percentages mean: how much of that vendor module's job our own kernel reproduces well enough to run a
 box. The vendor ships ~60 binary modules; these are the ones the boot and the network depend on.
+
+**Separate from these bars (2026-11-14):** the vendor's own modules now LOAD AND RUN on our kernel.
+The loader refused every one of them for a missing `.plt` section; adding zero-size `.plt`/`.init.plt`
+sections with `objcopy`, plus a near-region `module_alloc` so they are never used, plus loading them in
+the vendor's own order from the init (`/etc/rc.d/luofu`), brought up the switch, MDIO, PHYs, MACs and
+`hi_swa` on our 5.10.201. That is why the network milestone below is met without any of the reversal
+bars reaching 100%.
 
 ```
 vendor module                reversed
@@ -73,9 +80,9 @@ hi_kphy     (the five PHYs)  [--------------------]   0%  nothing registers them
 | `hi5622v100_plat/wifi` | Wi-Fi MAC/PHY stack | our `opensource/lab` line | five modules build with matching vermagic; read-only service skeleton |
 
 **Reading the two tables together:** the reversal of the *hardware* is far ahead of the port of
-*drivers*. The flash, clocks, watchdog and the vendor userspace are done; what remains is the
-network path, and it is blocked at exactly one place - the PHYs, which need the MDIO controller,
-which in turn needs the internal switch brought up.
+*drivers*, and as of 2026-11-14 the gap no longer blocks anything: where a clean-room driver is
+incomplete, the vendor's own module loads instead. The network path is live - `eth2` up with its
+Hisilicon PHY over the vendor MDIO, `br-lan` at 192.168.10.1, WiFi vaps bridged, ping 3/3.
 
 **2026-10-30: THE BOOT NOW COMPLETES EVERY INITCALL - and the blocker was ours.** Five defects were
 hiding each other. The device tree was **never actually appended** (`mkimage` packaged the bare

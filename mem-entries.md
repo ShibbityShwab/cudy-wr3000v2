@@ -22084,3 +22084,38 @@ arch/arm/tools/syscall.tbl says:
 So our init was invoking an unrelated ARM syscall with (fd, "", 0) and getting EINVAL from it. This is
 the second x86-ism to bite the freestanding init; the mount/open/write numbers happened to match, which
 is why only this call failed. Fixed to 379 and refired.
+
+## 2026-11-14 22:41 - MILESTONE: the vendor stack runs on our kernel, network live on both paths
+
+The corrected finit_module (379) load sequence worked. The init loads the 22-module vendor stack in the
+vendor's own dependency order, the patched .plt sections satisfy the loader, our near-region allocator
+places them in branch range, and the vendor's network drivers run on our 5.10.201 kernel:
+
+    [34.03] Hi-GEMAC 14480000.gemac eth2: PHY [14000000.mdio0:04] driver [Hisilicon Genius Phy] (irq=POLL)
+    [34.04] Hi-GEMAC 14480000.gemac eth2: configuring for phy/gmii link mode
+    [34.11] br-lan: port 1(eth2) entered blocking state
+    [34.15] device eth2 entered promiscuous mode
+    [34.16] [DFX]ETH eth2 phyid:4 Starting TDR...
+
+State at the dump, on OUR kernel:
+
+    eth2   UP   <BROADCAST,MULTICAST,UP,LOWER_UP>      <- the GEMAC through the vendor switch/MDIO/PHY
+    br-lan <BROADCAST,MULTICAST,UP,LOWER_UP> UP
+           inet 192.168.10.1/24
+    br-lan members: eth0 vap0 eth1 vap3 vap8 eth2 vap11
+    ping 192.168.10.1 from the host: 3/3, 0% loss, 0.47/0.89/1.41 ms
+
+So the box now boots OUR kernel, starts the vendor's userspace, loads the vendor's switch/MDIO/PHY/MAC
+drivers as patched modules, brings up the MT76 WiFi, and serves IPv4 over br-lan on both the Ethernet
+path (GEMAC eth2) and the wireless vaps. Criterion 2 is met: eth2 up and br-lan 192.168.10.1 reachable.
+
+The two blockers that had held this for days were both in the loader, not the drivers:
+  - module_frob_arch_sections rejects modules without .plt/.init.plt, and every vendor module was built
+    for a no-PLT kernel. Adding zero-size .plt/.init.plt sections with objcopy satisfies it, and the
+    near-region allocator means those empty sections are never used.
+  - the freestanding init called finit_module as 350 (the x86_64 number). ARM has it at 379
+    (arch/arm/tools/syscall.tbl), so every load returned EINVAL before touching the module.
+
+What remains is polish, not blockers: hi_kteam.ko is board-specific and absent (fd=-2), the vendor's own
+hsan script logs EEXIST for modules we already loaded, and the load log should be truncated per boot
+instead of appended.
