@@ -21942,3 +21942,21 @@ without the box:
 The loader route therefore needs either the System.map diff or a console before another blind build.
 The working image is unchanged and boots; the vendor modules still fail on .plt there. Everything above
 is committed in mem-entries.md.
+
+## 2026-11-14 17:35 - The symbol maps are IDENTICAL between a booting and a failing build
+
+System.map from the booting build (with the harmless control function) and from the failing frob build:
+
+    get_module_plt            0xc0012340  in BOTH
+    module_frob_arch_sections 0xc0012450  in BOTH
+
+Nothing moved. fixed_plts is not a separate symbol in either map. So the edit changes no address and
+no layout - the "image moved" theory is dead a second time, and the 4/4 versus 3/3 correlation stands
+without a mechanism visible from the source.
+
+The one instrument that would settle it is a console: this bench has no UART attached during fires, so a
+failing boot leaves no log (pstore never captured anything because the failure is below the panic path).
+Attaching the UART, or arming a second capture channel that survives a pre-userspace death, is the
+prerequisite for the next loader attempt.
+
+Reverted both experiments; the tree is back to the working image.
