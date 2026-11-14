@@ -22063,3 +22063,24 @@ there and their insmods are no-ops.
 
 If this lands, hi_kmdio/hi_kphy/hi_kmac/hi_lsw_* run on our kernel and the Ethernet milestone arrives
 through the vendor's own drivers, with none of our re-derived register maps involved.
+
+## 2026-11-14 22:13 - EINVAL explained: the ARM finit_module number is 379, not 350
+
+The diagnostic log named it exactly. Every patched module opened fine and every load returned -22
+(EINVAL):
+
+    hi_basic fd=0 ret=-22
+    hi_kmdio fd=0 ret=-22
+    hi_swa   fd=0 ret=-22
+    (22 lines, all -22; hi_kteam fd=-2, no such file - it is built per-board)
+
+EINVAL before module_alloc, with the file found and the vermagic matching, is the syscall contract
+check at the top of finit_module: flags outside MODULE_INIT_IGNORE_MODVERSIONS|IGNORE_VERMAGIC return
+-EINVAL. The init was calling 350, which is the x86_64 number. The ARM table in
+arch/arm/tools/syscall.tbl says:
+
+    379  common  finit_module  sys_finit_module
+
+So our init was invoking an unrelated ARM syscall with (fd, "", 0) and getting EINVAL from it. This is
+the second x86-ism to bite the freestanding init; the mount/open/write numbers happened to match, which
+is why only this call failed. Fixed to 379 and refired.

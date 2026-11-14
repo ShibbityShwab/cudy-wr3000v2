@@ -40,7 +40,7 @@ static inline long sc6(long n, long a, long b, long c, long d, long e, long f)
 #define SYS_close    6
 #define SYS_chdir    12
 #define SYS_mount    21
-#define SYS_finit_module 350
+#define SYS_finit_module 379
 #define SYS_umount2  52
 #define SYS_execve   11
 #define SYS_mkdir    39
