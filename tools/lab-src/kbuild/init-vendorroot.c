@@ -294,43 +294,6 @@ void _start(void)
     long fd;
 
     /*
-     * CONSOLE-FREE BOOT PROBE (2026-11-14).
-     *
-     * The first thing this init does is stamp the crash partition. A boot that dies before userspace
-     * leaves no trace on this bench - there is no console here and pstore never captured anything
-     * because the failure is below the panic path - so this marker is the only evidence that the
-     * kernel reached the initramfs at all. It writes to /dev/mtdblock10 (the pstore partition), which
-     * the lab erases between runs, and it happens before any mount.
-     */
-    {
-        long mfd = -1;
-        int i;
-
-        /* The MTD block devices only exist once the FMC has probed, about 2.5 s in, and this init runs
-         * at about 1 s. Retrying for up to five seconds is what makes the marker observable at all;
-         * a kernel that dies before the initramfs still leaves nothing here. */
-        for (i = 0; i < 50 && mfd < 0; i++) {
-            mfd = sc3(SYS_open, (long)"/dev/mtdblock9", 1, 0);
-            if (mfd < 0) {
-                long ts[2];
-
-                ts[0] = 0;
-                ts[1] = 100000000;
-                sc2(SYS_nanosleep, (long)ts, 0);
-            }
-        }
-        if (mfd >= 0) {
-            /* Tail of the 4.4 MB log partition: the vendor writes its boot records at the start, and
-             * the pstore partition is overwritten in both of its erase blocks, so this is the one
-             * window that survives a vendor boot. Offset 4 MiB, inside the partition. */
-            sc3(SYS_lseek, mfd, 0x400000, 0 /* SEEK_SET */);
-            sc3(SYS_write, mfd, (long)"LUFU-INIT-REACHED\n", 17);
-            sc2(SYS_close, mfd, 0);
-            sc2(SYS_sync, 0, 0);
-        }
-    }
-
-    /*
      * THE KEEPER STARTS FIRST (2026-11-14).
      *
      * U-Boot arms the watchdog before this kernel even starts, so every second before the keeper's
