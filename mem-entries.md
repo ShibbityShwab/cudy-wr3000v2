@@ -22019,3 +22019,27 @@ So the fix belongs in the modules, not in the kernel:
 This path needs no kernel edit, no console and no loader bisect. Our kernel boots unchanged, the vendor
 userspace's kmodloader loads the patched modules, and if the drivers come up the switch, MDIO, MAC and
 PHY work as the vendor built them. phase3cs is exactly that boot; the dump's lsmod section reports it.
+
+## 2026-11-14 20:44 - The module patch works: hi_swa loads past the PLT gate
+
+The patched modules in the overlay are accepted by the loader. The proof is in the log:
+
+    [21.895322] luofu: module_alloc 16384 bytes -> bf000000 (near region only)
+    [21.902189] luofu: module_alloc 4096 bytes -> bf005000 (near region only)
+    [21.909039] hi_swa: Unknown symbol hi_cfe_flush_by_mac (err -2)   <- and 13 more
+
+hi_swa reached module_alloc and relocation, which happens only after module_frob_arch_sections accepts
+the .plt sections. The zero-size sections added by objcopy satisfy the gate, and the near-region
+allocator keeps the module in branch range so no PLT entry is ever used. The whole PLT wall - the one
+that took five failed boots on the kernel side - is bypassed without touching the kernel.
+
+What remains is the vendor's own loading flow, not the loader: only hi_swa was attempted (its two
+allocations are the only ones in the log), so hi_basic, hi_kcl, hi_kcfe_* and the rest never loaded, and
+hi_swa's symbols were unresolved. The kmodloader also reports "failed to find dependency hi_kcfe_lrn"
+four times. The vendor's /etc/init.d/hsan_* scripts insmod in a fixed order and one of them waits on
+/dev/hi_ipc, so a single early failure stalls the chain.
+
+Next step, clear and bounded: load the vendor's hi_* stack ourselves from the initramfs init in the
+order hs an_appm uses, before exec'ing the vendor init. The patched modules are in the overlay; each
+needs one finit_module call with its parameters. If the base modules come up first, hi_swa, hi_kmac,
+hi_kmdio and the switch resolve against them and the vendor's network stack runs on our kernel.
