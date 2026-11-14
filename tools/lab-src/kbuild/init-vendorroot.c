@@ -442,6 +442,7 @@ void _start(void)
     sc2(SYS_mkdir, (long)p_vid, 0755);
     wfile("/vendor/upper/etc/rc.d/S10boot", sh_boot, 0755);
     wfile("/vendor/upper/etc/init.d/luofu", sh_luofu, 0755);
+    wfile("/vendor/upper/etc/rc.d/luofu", sh_luofu, 0755);
     wfile("/vendor/upper/etc/rc.d/S18hyfibrd", sh_hyfi, 0755);
     wfile("/vendor/upper/etc/rc.d/S20network", sh_net, 0755);
     wfile("/vendor/upper/etc/rc.d/S95done", sh_done, 0755);
