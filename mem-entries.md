@@ -21784,3 +21784,19 @@ hi_basic, hi_kcl) the vendor's own lsmod shows under hi_kmdio.
 So the port is a real RE job on ~120 KB of driver across two modules, and that is the decision point
 put to the user: continue here, consolidate for a fresh session, or revisit loading the vendor's own
 modules with a different mechanism.
+
+## 2026-11-14 12:22 - Why the vendor's modules could not load: our kernel placed them FAR
+
+arch/arm/kernel/module.c's module_alloc tries the near window (MODULES_VADDR..MODULES_END) first and,
+with CONFIG_ARM_MODULE_PLTS=y, falls back to the far vmalloc region whenever that fails - PLTs then
+bridge the distance. The vendor's modules were built against a kernel that never needed PLTs, so their
+ELF has no .plt sections, and once a load is placed far every relocation over 32 MB dies with exactly
+the message we kept seeing: "module PLT section(s) missing".
+
+So the vermagic work was necessary but the placement was the actual wall. phase3ch removes the far
+fallback (a load that cannot fit near now fails honestly) and prints the allocation address and size:
+
+    luofu: module_alloc <size> bytes -> <addr> (near region only)
+
+If the vendor's hi_* stack then loads, its own switch/MDIO/MAC drivers run on our kernel and the
+Ethernet milestone stops depending on any of our re-derived register maps.
