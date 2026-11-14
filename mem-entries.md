@@ -22002,3 +22002,20 @@ What is READY the moment the console works (a soldering job on the router's TX l
   that the Ethernet milestone needs.
 
 The box is healthy on the vendor kernel; the tree is the working image; nothing is left in a lab state.
+
+## 2026-11-14 20:17 - The other way: patch the modules, not the kernel
+
+The loader gate that has blocked the vendor stack all night checks only that a module CARRIES .plt and
+.init.plt sections (module_frob_arch_sections). It never asks whether a PLT is needed, and with the
+near-region allocator from phase3ch the vendor's modules land inside the branch range, where none is.
+
+So the fix belongs in the modules, not in the kernel:
+- every vendor module is copied out (58 files, tar.gz over ssh, binary works both directions);
+- arm-none-linux-gnueabihf-objcopy --add-section .plt= --add-section .init.plt= on each (58/58 ok,
+  both sections present, zero size - the loader resizes them itself);
+- the patched set is pushed into /overlay/upper/lib/hisilicon/ko/, which shadows the read-only
+  squashfs originals for the vendor's own modprobe.
+
+This path needs no kernel edit, no console and no loader bisect. Our kernel boots unchanged, the vendor
+userspace's kmodloader loads the patched modules, and if the drivers come up the switch, MDIO, MAC and
+PHY work as the vendor built them. phase3cs is exactly that boot; the dump's lsmod section reports it.
