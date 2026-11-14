@@ -40,6 +40,7 @@ static inline long sc6(long n, long a, long b, long c, long d, long e, long f)
 #define SYS_close    6
 #define SYS_chdir    12
 #define SYS_mount    21
+#define SYS_finit_module 350
 #define SYS_umount2  52
 #define SYS_execve   11
 #define SYS_mkdir    39
@@ -64,6 +65,52 @@ static const char p_home[]  = "HOME=/";
 static const char p_term[]  = "TERM=linux";
 static const char p_ubi[]   = "/dev/ubiblock0_0";
 static const char p_mtd13[] = "/dev/mtdblock13";
+
+/*
+ * THE VENDOR STACK, LOADED IN THE VENDOR'S OWN ORDER (2026-11-14).
+ *
+ * /etc/rc.d/luofu on the vendor image loads these in exactly this sequence, and the order is the
+ * dependency graph: the LSW trio before the MDIO, the MDIO and PHY before the MAC, the kcfe chain
+ * before hi_swa. The vendor's scripts only fail to do this on our kernel because their first insmod
+ * is refused, so the chain never starts. The modules under /vendor/upper/lib/hisilicon/ko are the
+ * patched copies (objcopy added the .plt sections the loader demands), and the overlay upper is
+ * where they live until the pivot makes it /lib/hisilicon/ko.
+ */
+static const char *const vmods[] = {
+    "hi_basic", "hi_kpinctrl", "hi_sysctrl", "hi_acp", "hi_kpie",
+    "hi_lsw_pub", "hi_lsw_dp", "hi_lsw_pfe", "hi_kmdio", "hi_kphy", "hi_kmac",
+    "hi_kteam", "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",
+    "hi_kcfe_lrn_mc", "hi_kcfe_mc_list", "hi_kcfe_lrn_vxlan", "hi_kcara", "hi_khslink",
+    "hi_swa",
+    0
+};
+
+static void load_vendor_modules(void)
+{
+    static const char pfx[] = "/vendor/upper/lib/hisilicon/ko/";
+    char path[96];
+    int i, j;
+
+    for (i = 0; vmods[i]; i++) {
+        const char *s = vmods[i];
+        long fd;
+
+        for (j = 0; pfx[j] && j < 40; j++)
+            path[j] = pfx[j];
+        while (*s && j < 90)
+            path[j++] = *s++;
+        path[j++] = '.';
+        path[j++] = 'k';
+        path[j++] = 'o';
+        path[j] = 0;
+
+        fd = sc3(SYS_open, (long)path, 0, 0);
+        if (fd >= 0) {
+            sc3(SYS_finit_module, fd, (long)"", 0);
+            sc2(SYS_close, fd, 0);
+        }
+    }
+}
 static const char p_sdev[]  = "/dev";
 static const char p_ndev[]  = "/mnt/lower/dev";
 static const char p_olay[]  = "/mnt/new";
@@ -353,6 +400,8 @@ void _start(void)
      * superblock still holding it is a conflict. The jffs2 write path works
      * since the DTS gave rootfs_data its real size, so the sync completes.
      */
+    load_vendor_modules();
+
     sc2(SYS_umount2, (long)p_vend, 0);
 
     /* devtmpfs rides into the new root so the vendor's preinit can see /dev. */

@@ -22043,3 +22043,23 @@ Next step, clear and bounded: load the vendor's hi_* stack ourselves from the in
 order hs an_appm uses, before exec'ing the vendor init. The patched modules are in the overlay; each
 needs one finit_module call with its parameters. If the base modules come up first, hi_swa, hi_kmac,
 hi_kmdio and the switch resolve against them and the vendor's network stack runs on our kernel.
+
+## 2026-11-14 20:48 - The init loads the vendor stack in the vendor's own order
+
+/etc/rc.d/luofu on the vendor image carries the loading sequence, and it is the dependency graph:
+
+    hi_basic -> hi_kpinctrl -> hi_sysctrl -> hi_acp -> hi_kpie
+    -> hi_lsw_pub -> hi_lsw_dp -> hi_lsw_pfe          (the switch first)
+    -> hi_kmdio -> hi_kphy -> hi_kmac                 (MDIO, PHYs, MACs)
+    -> hi_kteam
+    -> hi_kcfe_pub -> hi_kcfe_lrn(+l3/l4/mc/mc_list/vxlan) -> hi_kcara -> hi_khslink
+    -> hi_swa
+
+The vendor's own scripts only fail to establish this on our kernel because their FIRST insmod is
+refused, so the chain never starts and every later module reports unresolved symbols. The initramfs init
+now loads the same 22 modules, in that order, from /vendor/upper/lib/hisilicon/ko (the patched copies)
+before it mounts the pivot and hands over. By the time the vendor's scripts run, the stack is already
+there and their insmods are no-ops.
+
+If this lands, hi_kmdio/hi_kphy/hi_kmac/hi_lsw_* run on our kernel and the Ethernet milestone arrives
+through the vendor's own drivers, with none of our re-derived register maps involved.
