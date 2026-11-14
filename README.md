@@ -27,7 +27,7 @@ our kernel, our drivers, no vendor kernel.
 
 ---
 
-## Progress at a glance (updated 2026-10-30)
+## Progress at a glance (updated 2026-11-14)
 
 **The headline is the gate table in [`STATE.md`](STATE.md).** This section restates it for readers who
 will not open another file; where the two disagree, `STATE.md` wins. The structural audit is
@@ -37,10 +37,45 @@ will not open another file; where the two disagree, `STATE.md` wins. The structu
 | --- | --- | --- |
 | **G1** FMC reads real flash | **GREEN** | page-0 magic `UBI#` at the probe; and a level-7 probe through the MTD layer found the partition by name, the EC magic, `vid_hdr_offset = 0x800`, and `PEB0+0x800` reading `'U'` |
 | **G2** program path | **GREEN** | a page written by our kernel read back byte-exact through the vendor driver |
-| **G3** our kernel + real rootfs + userspace | **NOT YET** | the boot completes **every initcall** and reaches level 7, but `ubiblock0_0` does not resolve, so `mount_root` has no root device |
-| **G4** Ethernet on our kernel | **one defect from green** | ARP resolves, bridge answers, hundreds of frames move; the host ping still does not |
-| **G5** Wi-Fi on our kernel | vendor-only | - |
-| **G6** sustained uptime | **changed shape** | the old "~70 s reset" was a memory-corruption symptom; with it removed the boot runs the full 310 s and restarts on the `mount_root` failure |
+| **G3** our kernel + real rootfs + userspace | **GREEN (2026-11-14)** | the vendor's own preinit, `mount_root`, procd and the full rc.d chain run on our kernel from the squashfs root, proven by kernel-version breadcrumbs `#162`..`#199` in `/boot.log` plus the `S95done` shadow |
+| **G4** Ethernet on our kernel | **blocked on the PHY** | the four MACs probe, take clocks and resets and create their phylink, then defer at `phylink_of_phy_connect`: no PHY exists because the MDIO controller never completes a transfer (see the module table below) |
+| **G5** Wi-Fi on our kernel | vendor-only | the lab `wifidrv`/`hccaccept` line builds and loads; no wiphy yet |
+| **G6** sustained uptime | **GREEN (2026-11-14)** | the reset was below the kernel (no panic ever captured) and its cause was a userspace watchdog race; the initramfs keeper now holds the full 25-minute home timer on surviving boots |
+
+### Vendor module/driver reversal status (2026-11-14)
+
+Percentages mean: how much of that vendor module's job our own kernel reproduces well enough to run a
+box. The vendor ships ~60 binary modules; these are the ones the boot and the network depend on.
+
+```
+vendor module                reversed
+---------------------------- ----------------------------------------
+hi_flash    (NAND FMC)       [###################-]  95%  reads, writes, erases; MTD/UBI/squashfs/jffs2
+hi_crg      (clocks/resets)  [##################--]  90%  16 gate clocks + reset provider registered
+hi_wdt      (watchdog)       [####################] 100%  registered, vendor register map, 30 s, petted
+hi_kmac     (Ethernet MAC)   [##############------]  70%  probes, clocks, resets, phylink; no PHY to attach
+hi_kmdio    (MDIO)           [############--------]  60%  frame, handshake and bus-op map decoded; no transfer completes
+hi_pcie     (PCIe host)      [########------------]  40%  link + BAR enumeration experiments (phases 19-22)
+hi5622      (Wi-Fi)          [######--------------]  30%  service map + hcc/wifidrv lab probes build and load
+lsw_dp/pfe  (internal switch)[###-----------------]  15%  clocks and resets only; its init gates the PHYs
+hi_kpinctrl (pinmux)         [##------------------]  10%  no driver; the DT pins are untouched
+hi_kphy     (the five PHYs)  [--------------------]   0%  nothing registers them; every MAC waits here
+```
+
+| module | what it does | our driver | what is measured |
+| --- | --- | --- | --- |
+| `hi_flash` / FMC | NAND controller | `luofu-fmc` | page reads return `UBI#`; writes verified byte-exact; the vendor rootfs mounts from it |
+| `hi_crg` / `hi_clk` | gate clocks + resets | `luofu-crg` | 16 gates and the reset controller register; every consumer resolves |
+| `hi_wdt` | hardware watchdog | `luofu-wdt` | registered with the vendor's hwver-2 map, 30 s timeout |
+| `hi_kmac` | Ethernet MAC (5) | `luofu-gmac` | probe crumbs `6001`..`6013`, then `6f07` deferring on the PHY |
+| `hi_kmdio` | MDIO controller | `luofu-mdio` | clock 100 MHz; vendor frame `0x8000` + `reg<<8` + `phy`; four-phase handshake; bus-op map `0x20/0x2c/0x30/0x38` |
+| `hi_swa`, `hi_lsw_dp`, `hi_lsw_pfe` | internal LSW switch | none | `hi_swa` is switchdev glue; the init lives in the two big LSW modules (~120 KB) |
+| `hi5622v100_plat/wifi` | Wi-Fi MAC/PHY stack | our `opensource/lab` line | five modules build with matching vermagic; read-only service skeleton |
+
+**Reading the two tables together:** the reversal of the *hardware* is far ahead of the port of
+*drivers*. The flash, clocks, watchdog and the vendor userspace are done; what remains is the
+network path, and it is blocked at exactly one place - the PHYs, which need the MDIO controller,
+which in turn needs the internal switch brought up.
 
 **2026-10-30: THE BOOT NOW COMPLETES EVERY INITCALL - and the blocker was ours.** Five defects were
 hiding each other. The device tree was **never actually appended** (`mkimage` packaged the bare
@@ -117,7 +152,7 @@ programme.
 | Pinctrl / IOMUX driver | 40% | code exists |
 | PCIe host driver (DWC) | 25% | code exists |
 | NAND / FMC controller driver | 85% | **reads real flash, verified at level 7**; the write path is proven byte-exact |
-| Ethernet GMAC / MDIO / switch driver | 75% | **working - link up, MAC programmed** |
+| Ethernet GMAC / MDIO / switch driver | 70% | MACs probe and phylink exists; **blocked on the PHY**: the MDIO controller completes no transfer and the internal LSW is not ported. The vendor link (eth2, 1 Gbps) runs only on the vendor kernel |
 | Boot chain / U-Boot source | 10% | **not started** |
 | UART / GPIO / watchdog / thermal | 20% | partial |
 
