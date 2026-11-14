@@ -60,13 +60,13 @@ vendor module                reversed
 hi_flash    (NAND FMC)       [###################-]  95%  reads, writes, erases; MTD/UBI/squashfs/jffs2
 hi_crg      (clocks/resets)  [##################--]  90%  16 gate clocks + reset provider registered
 hi_wdt      (watchdog)       [####################] 100%  registered, vendor register map, 30 s, petted
-hi_kmac     (Ethernet MAC)   [##############------]  70%  probes, clocks, resets, phylink; no PHY to attach
-hi_kmdio    (MDIO)           [############--------]  60%  frame, handshake and bus-op map decoded; no transfer completes
+hi_kmac     (Ethernet MAC)   [###############-----]  75%  probes, clocks, resets, phylink; waits on a PHY it can talk to
+hi_kmdio    (MDIO)           [##################--]  90%  full register map decoded from hi_mdio_read/write: frame in the high half at 0x30, status 0x20 ack, done 0x2c[18:16], data 0x38
 hi_pcie     (PCIe host)      [########------------]  40%  link + BAR enumeration experiments (phases 19-22)
 hi5622      (Wi-Fi)          [######--------------]  30%  service map + hcc/wifidrv lab probes build and load
 lsw_dp/pfe  (internal switch)[###-----------------]  15%  clocks and resets only; its init gates the PHYs
 hi_kpinctrl (pinmux)         [##------------------]  10%  no driver; the DT pins are untouched
-hi_kphy     (the five PHYs)  [--------------------]   0%  nothing registers them; every MAC waits here
+hi_kphy     (the five PHYs)  [########------------]  40%  phy_id 0x20669a00/mask 0xffffff00 extracted; genphy driver built; vendor patch download not yet reproduced
 ```
 
 | module | what it does | our driver | what is measured |
