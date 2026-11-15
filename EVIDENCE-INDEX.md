@@ -16,6 +16,7 @@ with the command in the last column before relying on it.
 | G5: Wi-Fi is vendor-only on our kernel | `opensource/docs/phase49/README.md`, `phase49/gic-view.md`; `mem-entries.md` 2026-11-14 | committed | load the lab line and check for a wiphy; there is none yet |
 | G6: reset was a userspace watchdog race | `mem-entries.md` 2026-11-13 and 2026-11-14; `STATUS.md` | committed | boot the keeper image and hold the 25-minute timer |
 | Current blocker: `/vendor` can be read-only | commits `e81b407`, `359ee59`; `mem-entries.md` 2026-11-15 03:30 and 04:10 | committed | fire an image with a kmsg-visible mount and read C18 |
+| Broker fire path and the 3de result | `build/linux-kbuild/fire-phase3de-broker*.log`; `/tmp/poll-3de.log`; `build/linux-kbuild/http-fire.log`; `tools/box-provision.sh` | script committed; logs local | `tools/box-provision.sh --stage fire`; the host must allow TCP 8000 from the lab subnet; the box's own `mtd verify` is the receipt |
 | Recovery works | `mem-entries.md` 2026-11-12 (RECOVERY); `HARDWARE-IDENTITY.md`; `RUNBOOK.md` | committed | reset-hold plus TFTP, or the broker lane |
 | Broker/JWT root channel | `gist-cudy-wr3000v2-mqtt-jwt.md`; `tools/forge_jwt.py`; `tools/mqtt_takeover.py`; `dumps/router-20261108/evidence/` | doc and tools committed; dumps local | forge a token from the bdinfo secret and read the box's response |
 | Web-UI RCE sink | `gist-cudy-wr3000v2-systime-rce.md`; `patched/*.lua`; `rpc_inj.json` | committed | replay the JSON-RPC payload against a stock image |

@@ -8,8 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-13 |  | 2026-11-13 17:25 - #179: ARM_MODULE_PLTS=n does not boot either | `mem-entries.md:21395` |
-| 2026-11-13 |  | 2026-11-13 18:01 - The wireless route is our own lab line, and it builds | `mem-entries.md:21410` |
 | 2026-11-13 |  | 2026-11-13 19:22 - C80 is a live register: writing 0xc0de60xx there hangs the boot | `mem-entries.md:21429` |
 | 2026-11-13 |  | 2026-11-13 21:41 - Criterion 1 PASS: the MAC probe stops at the resets (c0de6f04, -EINVAL) | `mem-entries.md:21445` |
 | 2026-11-13 |  | 2026-11-13 21:14 - The stale DTB: why no MAC ever probed | `mem-entries.md:21467` |
@@ -48,6 +46,8 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 01:30 - The no-op shadow was a mistake: hi_kpinctrl is load-bearing | `mem-entries.md:22196` |
 | 2026-11-15 |  | 2026-11-15 03:30 - The broker-staged fire works; the shadow writes do not land | `mem-entries.md:22223` |
 | 2026-11-15 |  | 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap | `mem-entries.md:22251` |
+| 2026-11-15 |  | 2026-11-15 13:07 - 3de broker fire, attempt 1: the host firewall blocked the slice download | `mem-entries.md:22275` |
+| 2026-11-15 |  | 2026-11-15 13:33 - 3de broker fire: the image boots, the shadow writes are still silent | `mem-entries.md:22284` |
 
 ## All dated entries
 
@@ -598,3 +598,5 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 01:30 - The no-op shadow was a mistake: hi_kpinctrl is load-bearing | `mem-entries.md:22196` |
 | 2026-11-15 |  | 2026-11-15 03:30 - The broker-staged fire works; the shadow writes do not land | `mem-entries.md:22223` |
 | 2026-11-15 |  | 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap | `mem-entries.md:22251` |
+| 2026-11-15 |  | 2026-11-15 13:07 - 3de broker fire, attempt 1: the host firewall blocked the slice download | `mem-entries.md:22275` |
+| 2026-11-15 |  | 2026-11-15 13:33 - 3de broker fire: the image boots, the shadow writes are still silent | `mem-entries.md:22284` |

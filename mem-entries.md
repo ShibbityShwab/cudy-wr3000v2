@@ -22271,3 +22271,36 @@ C18, so one more fire names it even if the writes stay silent.
 Until then the system is safe but the lab boot runs the vendor's script in full (hence the vendor PHY
 winning the match): the network, the web and the broker channel all work, so the box is recoverable and
 VERIFIABLE at every point - only the M2 ownership of the PHY is pending.
+
+## 2026-11-15 13:07 - 3de broker fire, attempt 1: the host firewall blocked the slice download
+
+The fail-closed broker path caught it: the box's `wget` to `192.168.10.44:8000` never
+connected, because ufw allowed only UDP 69 from the lab subnet. The broker reply was
+only `id`, with code 0; there was no `FIRE_OK`, and `set -e` stopped before
+`mtd erase`. The box stayed on the vendor slot (uptime 4615 s, 40 `hi_` modules).
+Added `ufw allow in on enp195s0f3u1 from 192.168.10.0/24 to any port 8000 proto tcp`
+and re-fired. Evidence: `build/linux-kbuild/fire-phase3de-broker.log`.
+
+## 2026-11-15 13:33 - 3de broker fire: the image boots, the shadow writes are still silent
+
+The 3de slice was fired through the broker lane after the host ufw rule. Attempt 1
+was blocked by the firewall (no TCP 8000); attempt 2 wedged in the host MQTT client;
+attempt 3 downloaded the slice. The box's `/tmp/slice.bin` is 2,765,860 bytes, md5
+`3aad1f5198ee2dfed375883a38fe2a15`, and `mtd verify /tmp/slice.bin kernelb` returned
+0, so the write is correct even though the chain's immediate verify made the host stop
+before FIRE_OK. The image ships no `/bin/fw_setenv`; the
+`ln -sf /bin/fw_printenv /tmp/fw_setenv` symlink set `bootflag=b`. The reboot returned
+the vendor userspace at uptime 49 s with 40 `hi_` modules.
+
+Cells: `C04=0 C18=0 C1C=0 C70=0x1F40 C88=0 C90=0 C94=0 C98=0 C9C=0`.
+Overlay: `/overlay/upper` holds only `etc/`, `lib/`, `sbin/`; there is no `boot.log`,
+no `mod-load.log`; `/etc/rc.d/luofu` is the vendor's original. `hi_kphy`, `hi_kmdio`,
+`hi_kmac` are all resident; the M2 PHY is still the vendor's.
+
+So the 3de rw-mount fix is negative: `C18=0` says the mount errno is clean, yet the
+`wfile()` writes are still silent. The next action is the 2026-11-15 04:10 plan:
+instrument `wfile()`'s open() return, not re-run 3dc. The transport is fully green: the
+broker lane stage, the download, the write, the bootflag, and the reboot all work.
+
+Evidence (local): `build/linux-kbuild/fire-phase3de-broker-3.log`; `/tmp/poll-3de.log`;
+`build/linux-kbuild/http-fire.log`; the box's `/tmp/slice.bin`.

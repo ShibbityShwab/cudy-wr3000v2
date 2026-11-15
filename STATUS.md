@@ -13,9 +13,9 @@
   checkout. The broker channel is `tools/box-provision.sh` with
   `dumps/router-20261108/bdinfo.bin`.
 - Latest build (local-only): `build/linux-kbuild/luofu-slice-phase3de.bin`
-  (2026-11-15 11:49), assembled one minute after the init/cpio rebuild (11:48:55).
-  No fire log and no ledger entry for `phase3de` exists, so it is built but
-  unverified. Rebuild and compare before treating it as a receipt.
+  (2026-11-15 11:49). Fired through the broker on 2026-11-15 13:33; the image
+  boots and the transport is green, but the shadow writes are still silent. The
+  result is the negative in section 3; the next action is `wfile()` instrumentation.
 - The latest SSH fire script (local-only) is `build/linux-kbuild/run-phase3dc.sh`;
   3dd and 3de have slices but no run scripts. The broker lane is
   `tools/box-provision.sh --stage fire` and now defaults to the newest
@@ -45,7 +45,11 @@ init's `wfile()` shadow writes are silent: no `boot.log`, no `mod-load.log`, no
 `net-dump-final.txt`, and `/etc/rc.d/luofu` stays the vendor's original script. The
 vendor's own `hi_kphy` then wins the PHY match.
 
-Evidence: commits `e81b407` and `359ee59`; `mem-entries.md` 2026-11-15 03:30 and 04:10.
+Evidence: commits `e81b407` and `359ee59`; `mem-entries.md` 2026-11-15 03:30, 04:10,
+and 13:33. The 3de fire (2026-11-15 13:33) is negative: `C18=0` (the mount errno is
+clean), `C94=0`, no `boot.log` or `mod-load.log` in `/overlay/upper`, and the vendor
+`hi_kphy` is still resident. The rw-mount fix did not resolve the silent `wfile()`;
+the next step is to instrument `wfile()`'s open() return.
 The same partition is writable from userspace through `/overlay`, so this is a mount
 strap, not a code regression. The 2026-11-15 04:10 entry names the fix: mount jffs2 with
 the `rw` data option, check the result, and remount `rw` if needed. The mount errno is
@@ -58,11 +62,11 @@ Ethernet, and the watchdog are green or have a working vendor path.
 
 ## 4. Next actions
 
-1. Fire the 3de slice through the broker or a fresh SSH run script. Read C18 (mount
-   errno) and C94 (verdict), then check `/vendor/upper` for `boot.log` and
-   `mod-load.log`. `tools/check-init-shadow.sh` must print PASS first.
-2. If the mount is still read-only, instrument the mount flags and errno, and try the
-   `rootfs_data` path. Do not re-run 3dc; its result is already in the ledger.
+1. The 3de fire is done. It is negative for the rw-mount fix: `C18=0` and the writes
+   are still silent. Instrument `wfile()`'s open() return into
+   `/vendor/upper/wfile.log` (the 04:10 plan), then fire once more.
+2. If the mount/write path still fails, instrument the mount flags and errno, and try
+   the `rootfs_data` path. Do not re-run 3dc; its result is already in the ledger.
 3. Keep the Wi-Fi lane (G5) separate. The vendor modules own the radio on our kernel.
 
 ## 5. How to run
