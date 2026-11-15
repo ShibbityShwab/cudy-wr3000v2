@@ -6,15 +6,21 @@ HOST=root@192.168.10.1
 # Key auth when the project key is present (works non-interactively on this bench); the
 # password lane below is the fallback. OpenSSH *for Windows* ignores SSH_ASKPASS_REQUIRE=force
 # with a console attached, so the password path cannot be driven from an agent.
-KEY="$ROOT/.omo-secrets/omo_rsa"
+KEY="${ROUTER_SSH_KEY:-$ROOT/.omo-secrets/router_ed25519}"
 if [ -f "$KEY" ]; then
 	SSH_OPTS=(-i "$KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
 else
+	ASKPASS="$ROOT/.sshwrap/askpass.sh"
+	if [ ! -x "$ASKPASS" ]; then
+		echo "no SSH key at $KEY and no askpass at $ASKPASS" >&2
+		exit 1
+	fi
 	SSH_OPTS=(-o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
-	export SSH_ASKPASS="$ROOT/.sshwrap/askpass.sh" SSH_ASKPASS_REQUIRE=force DISPLAY=:0
+	export SSH_ASKPASS="$ASKPASS" SSH_ASKPASS_REQUIRE=force DISPLAY=:0
 fi
 
-OUT="$ROOT/build/cal-snapshots/$(date -u +%Y%m%d-%H%M%S)"
+SNAP_ROOT="${CAL_SNAPSHOT_ROOT:-$ROOT/build/linux-kbuild/cal-snapshots}"
+OUT="$SNAP_ROOT/$(date -u +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT"
 echo "snapshot dir: $OUT"
 

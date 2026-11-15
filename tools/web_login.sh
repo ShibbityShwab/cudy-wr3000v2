@@ -1,9 +1,12 @@
 #!/bin/bash
 set -eu
-cd "$(dirname "$0")/../build/tmp" || exit 1
+WORK="${WEB_LOGIN_DIR:-$(dirname "$0")/../build/linux-kbuild/web-login}"
+mkdir -p "$WORK"
+cd "$WORK" || exit 1
 H="http://192.168.10.1"
-SALT=f2e816513d9cb58b008f4404af651581
-PW=<ROUTER-WEB-PASSWORD>
+SALT="${ROUTER_WEB_SALT:-f2e816513d9cb58b008f4404af651581}"
+PW="${ROUTER_WEB_PASSWORD:-}"
+[ -n "$PW" ] || { echo "web_login.sh: set ROUTER_WEB_PASSWORD" >&2; exit 1; }
 rm -f wj.txt
 curl -s -c wj.txt "$H/cgi-bin/luci/admin/wizard" -o wizard.html
 CSRF=$(grep -o 'name="_csrf"[^>]*value="[^"]*"' wizard.html | sed 's/.*value="//;s/"//')

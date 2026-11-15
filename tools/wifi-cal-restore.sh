@@ -6,7 +6,7 @@ HOST=root@192.168.10.1
 # lane below cannot be driven from an agent: OpenSSH *for Windows* ignores
 # SSH_ASKPASS_REQUIRE=force with a console attached, and the placeholder askpass this script used
 # to emit could never authenticate anyway.
-KEY="$SCRIPT_DIR/../.omo-secrets/omo_rsa"
+KEY="${ROUTER_SSH_KEY:-$SCRIPT_DIR/../.omo-secrets/router_ed25519}"
 if [ -f "$KEY" ]; then
 	SSH_OPTS=(-i "$KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10)
 else

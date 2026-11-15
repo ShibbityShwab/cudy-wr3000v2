@@ -34,6 +34,18 @@ fake_bdinfo.bin
 *.log
 *.tmp
 nohup.out
+tmp-*.tgz
+tmp-payload-*.bin
+
+# Tracked snapshot must stay source-only; build products belong in build/
+tools/lab-src/**/*.o
+tools/lab-src/**/*.a
+tools/lab-src/**/*.dtb
+tools/lab-src/**/*.mod
+tools/lab-src/**/*.mod.c
+tools/lab-src/**/*.cmd
+tools/lab-src/**/Module.symvers
+tools/lab-src/**/modules.order
 
 # omo workspace state (per-session; init-deep snapshot + scaffolding)
 .omo/

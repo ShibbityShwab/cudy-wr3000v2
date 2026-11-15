@@ -10,7 +10,7 @@
 #      one-shot /etc/init.d loader that self-deletes
 #   3. reboot and wait for SSH (bounded poll, no fixed sleeps)
 #   4. capture dmesg, lsmod, /proc/interrupts, the module's log lines and any
-#      files it wrote into build/register-dumps/exp/<timestamp>/
+#      files it wrote into build/linux-kbuild/evidence/exp/<timestamp>/
 #   5. cancel the watchdog, restore both vendor modules, remove the loader and
 #      the staged module, rmmod, reboot
 #   6. verify health (2 wiphys, 6 interfaces, calibration [SUCC], 0 .omo-off)
@@ -33,6 +33,9 @@ EXP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXP_ROOT="$(cd "$EXP_DIR/.." && pwd)"
 EXP_RSH="$EXP_ROOT/.sshwrap/rsh.sh"
 EXP_RSCP="$EXP_ROOT/.sshwrap/rscp.sh"
+# .sshwrap/ is absent in a plain checkout; the tracked wrappers use the project key.
+[ -x "$EXP_RSH" ]  || EXP_RSH="$EXP_DIR/rsh.sh"
+[ -x "$EXP_RSCP" ] || EXP_RSCP="$EXP_DIR/rscp.sh"
 EXP_HOST="root@192.168.10.1"
 
 : "${EXP_WATCH:=1800}"                 # device watchdog window (s)
@@ -42,6 +45,7 @@ EXP_HOST="root@192.168.10.1"
 : "${EXP_POLL:=3}"                     # poll interval between probes (s)
 : "${EXP_KVER:=5.10.201}"
 : "${EXP_EVID_SUFFIX:=}"
+: "${EXP_EVID_ROOT:=$EXP_ROOT/build/linux-kbuild/evidence}"
 : "${EXP_EXTRA_STAGE:=}"               # newline list of "local:remote" files to stage
 : "${EXP_EXTRA_PULL:=}"                # newline list of remote paths to pull
 : "${EXP_DONE_CMD:=dmesg | grep -q ': done ('}"  # remote test: experiment finished
@@ -583,12 +587,12 @@ exp_plan() {
 exp_run() {
 	if [ "$DRY" = 1 ]; then
 		TS="<TS>"
-		EVID="$EXP_ROOT/build/register-dumps/exp/$TS$EXP_EVID_SUFFIX"
+		EVID="$EXP_EVID_ROOT/exp/$TS$EXP_EVID_SUFFIX"
 		exp_plan
 		return 0
 	fi
 	TS="$(date -u +%Y%m%d-%H%M%S)"
-	EVID="$EXP_ROOT/build/register-dumps/exp/$TS$EXP_EVID_SUFFIX"
+	EVID="$EXP_EVID_ROOT/exp/$TS$EXP_EVID_SUFFIX"
 	if ! exp_preflight; then
 		FAILURE="preflight: $EXP_PREFLIGHT_ERR"
 		exp_summary
@@ -648,8 +652,8 @@ exp_main() {
 		printf 'module    : %s\n' "$MODULE"
 		printf 'module id : %s (staged as /lib/modules/%s/%s)\n' "$MODNAME" "$EXP_KVER" "$MODBASE"
 		printf 'params    : [%s]\n' "$PARAMS"
-		printf 'evidence  : %s/build/register-dumps/exp/<TS>%s/\n' "$EXP_ROOT" "$EXP_EVID_SUFFIX"
-		printf 'host      : %s (via .sshwrap/rsh.sh, .sshwrap/rscp.sh)\n' "$EXP_HOST"
+		printf 'evidence  : %s/exp/<TS>%s/\n' "$EXP_EVID_ROOT" "$EXP_EVID_SUFFIX"
+		printf 'host      : %s (via %s, %s)\n' "$EXP_HOST" "$EXP_RSH" "$EXP_RSCP"
 		printf 'watchdog  : WATCH=%ss, boot timeout=%ss, run timeout=%ss, poll=%ss\n' \
 			"$EXP_WATCH" "$EXP_BOOT_TIMEOUT" "$EXP_RUN_TIMEOUT" "$EXP_POLL"
 		printf '# NOTHING BELOW IS EXECUTED IN --dry-run.  ssh/scp shape is exact.\n'

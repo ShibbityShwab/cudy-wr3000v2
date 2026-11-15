@@ -40,7 +40,7 @@
 # does not (it never creates anything, and is device-free/host-only).
 #
 # Host-only by default: the only device I/O is the optional --live probe set (read-only
-# ls/md5sum/cat/iw/iwpriv/lsmod through .sshwrap/rsh.sh).  Never writes CA 0x400392f0, never
+# ls/md5sum/cat/iw/iwpriv/lsmod through the project SSH wrapper).  Never writes CA 0x400392f0, never
 # reads 0x4016010c or 0x10161000, never stages anything -- see the hard rules in AGENTS.md.
 #
 # 2026-10-05 - built for task st_01a10c6f (cures the recurring worker-files gap).
@@ -48,8 +48,11 @@ set -uo pipefail
 
 FE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FE_ROOT="$(cd "$FE_DIR/.." && pwd)"
+FE_RSH="$FE_ROOT/.sshwrap/rsh.sh"
+[ -x "$FE_RSH" ] || FE_RSH="$FE_DIR/rsh.sh"
+FE_EVID_ROOT="${FE_EVID_ROOT:-$FE_ROOT/build/linux-kbuild/evidence}"
 PARAMS_FILE="$FE_ROOT/tools/params/definitive-run.params"
-PINNED_KO="$FE_ROOT/build/tmp/wifidrv1-art/wifidrv1.ko"
+PINNED_KO="${PINNED_KO:-$FE_ROOT/build/linux-kbuild/wifidrv1-art/wifidrv1.ko}"
 KVER=5.10.201
 
 fe_usage() {
@@ -121,7 +124,7 @@ PROBE
 DIR=""; VARIANT=""; KO=""; INTERP_SRC=""; LIVE=0
 MODE=finish; LABEL=""; PATTERN=""
 
-diffs_root() { printf '%s' "$FE_ROOT/build/register-dumps/diffs"; }
+diffs_root() { printf '%s' "$FE_EVID_ROOT/diffs"; }
 
 fe_bad_pattern() {
 	case "$1" in
@@ -453,8 +456,8 @@ else
 		echo "  [blob md5s] LOADED=${BLOB_LOADED:-?} STOCK=${BLOB_STOCK:-?}"
 		echo
 		if [ "$LIVE" = 1 ]; then
-			echo "--- live probe output (read-only, via .sshwrap/rsh.sh) ---"
-			( cd "$FE_ROOT" && ./.sshwrap/rsh.sh "
+			echo "--- live probe output (read-only, via the project SSH wrapper) ---"
+			( cd "$FE_ROOT" && "$FE_RSH" "
 K=$KVER
 echo 'lsmod (expect hi5622v100_plat + hi5622v100_wifi, NO wifidrv1)'; lsmod | grep -E 'wifidrv1|hi5622v100' || true
 echo 'stock md5 (expect 0e530b976d5a20e87358671f1a577695)'; md5sum /lib/firmware/hi_wifi/FIRMWARE.bin
