@@ -8,9 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-13 |  | 2026-11-13 19:22 - C80 is a live register: writing 0xc0de60xx there hangs the boot | `mem-entries.md:21429` |
-| 2026-11-13 |  | 2026-11-13 21:41 - Criterion 1 PASS: the MAC probe stops at the resets (c0de6f04, -EINVAL) | `mem-entries.md:21445` |
-| 2026-11-13 |  | 2026-11-13 21:14 - The stale DTB: why no MAC ever probed | `mem-entries.md:21467` |
 | 2026-11-13 |  | 2026-11-13 22:13 - The keeper race: a failed open left the armed watchdog unfed | `mem-entries.md:21476` |
 | 2026-11-13 |  | 2026-11-13 23:37 - The MDIO controller never completes a read (named blocker) | `mem-entries.md:21488` |
 | 2026-11-14 |  | 2026-11-14 00:06 - The MDIO clock is obtained and the transfers still time out; the gate index is next | `mem-entries.md:21512` |
@@ -48,6 +45,9 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap | `mem-entries.md:22251` |
 | 2026-11-15 |  | 2026-11-15 13:07 - 3de broker fire, attempt 1: the host firewall blocked the slice download | `mem-entries.md:22275` |
 | 2026-11-15 |  | 2026-11-15 13:33 - 3de broker fire: the image boots, the shadow writes are still silent | `mem-entries.md:22284` |
+| 2026-11-15 |  | 2026-11-15 14:36 - 3df fire: no captured readout, the shadow writes are undecided | `mem-entries.md:22308` |
+| 2026-11-15 |  | 2026-11-15 14:39 - 3df broker fire ended at SIZE_FAIL: the box never ran 3df | `mem-entries.md:22361` |
+| 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |
 
 ## All dated entries
 
@@ -600,3 +600,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap | `mem-entries.md:22251` |
 | 2026-11-15 |  | 2026-11-15 13:07 - 3de broker fire, attempt 1: the host firewall blocked the slice download | `mem-entries.md:22275` |
 | 2026-11-15 |  | 2026-11-15 13:33 - 3de broker fire: the image boots, the shadow writes are still silent | `mem-entries.md:22284` |
+| 2026-11-15 |  | 2026-11-15 14:36 - 3df fire: no captured readout, the shadow writes are undecided | `mem-entries.md:22308` |
+| 2026-11-15 |  | 2026-11-15 14:39 - 3df broker fire ended at SIZE_FAIL: the box never ran 3df | `mem-entries.md:22361` |
+| 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |

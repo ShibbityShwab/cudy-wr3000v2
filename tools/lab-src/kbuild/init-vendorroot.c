@@ -246,6 +246,7 @@ static const char sh_done[] =
 
 static const char p_jf[]    = "jffs2";
 static const char p_mem[]   = "/dev/mem";
+static const char p_dtmp[]  = "devtmpfs";
 static const char p_pst[]   = "/pstore";
 static const char ps_ok[]   = "pstore mount OK: a backend registered\n";
 static const char ps_no[]   = "pstore mount FAILED: no backend registered\n";
@@ -278,13 +279,75 @@ static char *const argv_sh[] = { (char *)p_pre, 0 };
 
 static void cell(unsigned long v);
 
+/*
+ * wfile() VERDICT CELL (3df, 2026-11-15).
+ *
+ * Every earlier instrument died silently. tag() is a no-op (line 372) and cell()
+ * is never called (279/329), so C94 never carries anything; C18 is never written
+ * by this init (only read, line 236) and the FMC's 5 s tick rewrites it
+ * (drivers/mtd/nand/luofu/luofu-fmc.c:5197); C1C is the FMC's tick payload; C9C
+ * is the mach's FMC diagnostic (arch/arm/mach-luofu/luofu.c:532).
+ *
+ * C98 is the FMC's NAND read-progress cell: written only from the read paths
+ * during probe (luofu-fmc.c:905,1172,1197,1224,1257,1293,1331,1340,1343,1631),
+ * all before /init runs and never from the 5 s tick, so a write from here is the
+ * last writer and holds until the next boot. The cost is the FMC's last read
+ * crumb for that boot, which read 0 on 3de anyway (mem-entries 13:33).
+ *
+ * One accumulated word, because only the last value survives:
+ *   bits 31..24  record index
+ *                  0  devtmpfs mounted on /dev            (3df prerequisite)
+ *                  1  /vendor mount or remount verdict
+ *                  2..8 the seven wfile() calls, source order
+ *   bits 23..0   verdict, two's complement: >0 = the fd, <0 = -errno
+ * The FIRST negative verdict is sticky, so a later success cannot erase the
+ * one failure that matters.
+ */
+static long wrec_bad, wrec_bad_i;
+
+static void wmark(long rec, long verdict)
+{
+    static long *wm;
+    long fd, p;
+
+    if (verdict < 0 && !wrec_bad) {
+        wrec_bad = verdict;
+        wrec_bad_i = rec;
+    }
+    if (wrec_bad) {
+        rec = wrec_bad_i;
+        verdict = wrec_bad;
+    }
+    if (wm == 0) {
+        fd = sc2(SYS_open, (long)p_mem, 2 | 0x1000 /* O_RDWR|O_SYNC */);
+        if (fd < 0) {
+            sc3(SYS_mknod, (long)p_mem, 020600, 0x101);
+            fd = sc2(SYS_open, (long)p_mem, 2 | 0x1000);
+        }
+        if (fd < 0)
+            return;
+        p = sc6(SYS_mmap2, 0L, 4096L, 3L, 1L, fd, 0x10100L);
+        if ((unsigned long)p >= 0xfffff001UL)
+            return;
+        sc2(SYS_close, fd, 0);
+        wm = (long *)p;
+    }
+    wm[0xC98 / 4] = ((rec & 0xff) << 24) | ((unsigned long)verdict & 0xffffffUL);
+}
+
 static void wfile(const char *path, const char *s, long mode)
 {
+    static long wf_n;
     long fd = sc3(SYS_open, (long)path, 0x241 /* WRONLY|CREAT|TRUNC */, mode);
     long n = 0;
     char line[96];
-    int k = 0;
+    char vl[128];
+    int k = 0, m = 0;
     const char *p = path;
+
+    /* THE CELL COMES FIRST: everything below needs a working /dev or a
+     * writable /vendor, and those are exactly what this fire is testing. */
+    wmark(2 + wf_n++, fd);
 
     line[k++] = '<';
     line[k++] = '6';
@@ -302,6 +365,24 @@ static void wfile(const char *path, const char *s, long mode)
     }
     line[k++] = '\n';
     append("/dev/kmsg", line, k);
+
+    /* SECOND CHANNEL, deliberately redundant: this lands only when the jffs2
+     * mount is really writable, so a cell verdict with no wfile.log line is
+     * exactly the read-only split. */
+    p = path;
+    while (*p && m < 88)
+        vl[m++] = *p++;
+    vl[m++] = ' ';
+    vl[m++] = 'n';
+    vl[m++] = '=';
+    m += utoa(vl + m, wf_n - 1);
+    vl[m++] = ' ';
+    vl[m++] = 'f';
+    vl[m++] = 'd';
+    vl[m++] = '=';
+    m += utoa(vl + m, fd);
+    vl[m++] = '\n';
+    append("/vendor/upper/wfile.log", vl, m);
 
     if (fd < 0)
         return;
@@ -422,7 +503,7 @@ static void start_petter(void)
 
 void _start(void)
 {
-    long r;
+    long r, r2;
     long fd;
 
     /*
@@ -433,6 +514,20 @@ void _start(void)
      * slow overlay mount; now the child exists before any mount runs and pings the whole time. The
      * /dev/watchdog node is the kernel's devtmpfs and the fd survives the pivot.
      */
+    /*
+     * /dev DOES NOT EXIST IN THIS INITRAMFS (3df, 2026-11-15).
+     *
+     * initramfs-site.cpio carries only `init`, and the kernel mounts devtmpfs on
+     * /dev only from prepare_namespace() (init/do_mounts.c:630), which
+     * init/main.c:1567-1570 skips whenever /init exists. So every /dev path in
+     * this file has been an ENOENT on every boot: append("/dev/kmsg"), cell()'s
+     * /dev/mem, and the keeper's /dev/watchdog. Create /dev and mount devtmpfs
+     * here, before the keeper forks, and the keeper can finally feed the timer.
+     */
+    sc2(SYS_mkdir, (long)p_sdev, 0755);
+    r = sc5(SYS_mount, (long)p_dtmp, (long)p_sdev, (long)p_dtmp, 0, 0);
+    wmark(0, r);
+
     start_petter();
 
     tg = 1;
@@ -440,11 +535,16 @@ void _start(void)
 
     sc2(SYS_mkdir, (long)p_vend, 0755);
     r = sc5(SYS_mount, (long)p_vmtd, (long)p_vend, (long)p_jf, 0, (long)"rw");
+    r2 = 0;
     if (r < 0)
-        sc5(SYS_mount, (long)p_vmtd, (long)p_vend, (long)p_jf, 32 /* MS_REMOUNT */, (long)"rw");
-    tg |= (((unsigned long)(-r)) & 0xfu) << 4;
+        r2 = sc5(SYS_mount, (long)p_vmtd, (long)p_vend, (long)p_jf, 32 /* MS_REMOUNT */, (long)"rw");
+    /* The remount's return used to be thrown away here, and the tag reported the
+     * FIRST mount's errno even when the remount succeeded. Record 1 carries the
+     * verdict that actually decides the mount. */
+    wmark(1, r < 0 ? r2 : r);
+    tg |= (((unsigned long)(-(r < 0 ? (r2 < 0 ? r2 : 0) : 0))) & 0xfu) << 4;
     tag();
-    if (r == 0) {
+    if (r == 0 || r2 == 0) {
         sc2(SYS_mkdir, (long)p_vetc, 0755);
         fd = sc3(SYS_open, (long)p_vrc, 0x241 /* WRONLY|CREAT|TRUNC */, 0644);
         if (fd >= 0) {

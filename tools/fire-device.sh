@@ -26,6 +26,9 @@ ln -sf /bin/fw_printenv /tmp/fw_setenv
 echo 0x21 > /sys/devices/platform/sysenv/boot_reg
 devmem 0x10100C94 32 0xDEAD0000
 
+# bootcmd is "mtd read kernel${bootflag} ...", so the variable alone selects the slot. Without
+# the register write and the C94 word above, the vendor userspace's own boot handler still
+# boots stock from kernelb (#0, jenkins@cudyrd1): the 15:29 3df fire did exactly that.
 printf 'bootflag='; fw_printenv bootflag | cut -d= -f2
 printf ' boot_reg='; cat /sys/devices/platform/sysenv/boot_reg; echo
 

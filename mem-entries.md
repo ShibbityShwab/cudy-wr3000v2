@@ -22304,3 +22304,134 @@ broker lane stage, the download, the write, the bootflag, and the reboot all wor
 
 Evidence (local): `build/linux-kbuild/fire-phase3de-broker-3.log`; `/tmp/poll-3de.log`;
 `build/linux-kbuild/http-fire.log`; the box's `/tmp/slice.bin`.
+
+## 2026-11-15 14:36 - 3df fire: no captured readout, the shadow writes are undecided
+
+The 3df slice is built and sound, but the fire that was supposed to test the `wfile()`
+instrumentation has produced no readout, so nothing can be said yet about whether the
+shadow writes land. There is no `waves/3df/fire.md`, and no 3df boot or box readout
+exists under `build/`.
+
+The slice: `luofu-slice-phase3df.bin`, 2,766,628 bytes, md5
+`9e4015cadd2aa507a1763615b6ac914e`; the served copy `tmp-payload-slice.bin` has the same
+size and md5. The embedded initramfs carries the 3df-instrumented init
+(`waves/3df/build-slice.md`), and `tools/check-init-shadow.sh` printed PASS twice: in
+`waves/3df/guard.md` and again inside the fire.
+
+The fire was started at 14:34:43 host time (UTC 07:34:43) on the broker lane:
+`HTTP_IP=192.168.10.44 SLICE=.../luofu-slice-phase3df.bin tools/box-provision.sh
+--bdinfo dumps/router-20261108/bdinfo.bin --stage fire`, teed to
+`build/linux-kbuild/fire-phase3df-broker.log`. That log holds seven lines and ends at
+`[*] writing the image to kernelb via the broker channel`. The box did fetch the
+payload (`http-fire.log`: `192.168.10.1 ... GET
+/build/linux-kbuild/tmp-payload-slice.bin HTTP/1.1" 200` at 14:34:48).
+
+After the fetch the box session stopped answering: the broker Python held
+`192.168.10.44:51389 -> 192.168.10.1:1883` with no reply, and the `run_remote` timeout
+(255 s) was still counting at 14:36. So there is no `FIRE_OK`, no
+`mtd write`/`mtd verify` line, and no reboot marker. The broker lane's device command
+has no polling or readback step of its own, so even a later `FIRE_OK` would not by
+itself settle the shadow writes.
+
+State of the blocker: unresolved and unchanged in substance. The 3de rw-mount fix is
+still negative (13:33 entry); the 3df test of the `wfile()` open() instrumentation has
+not returned a result.
+
+Postscript, 14:39: the fire has since ended, and it never reached the box's flash. The
+device command's own size check failed at 14:38:49:
+
+    error: the broker fire did not report FIRE_OK; out: uid=0(root) gid=0(root)\nSIZE_FAIL\n","code":0}
+    === exit=1 ===
+
+So `mtd erase/write/verify kernelb` never ran, `bootflag` stayed `a`, and the box was
+never rebooted onto 3df. The box had fetched the whole file (the single HTTP 200), so
+the question is why the file on the box was not 2,766,628 bytes: no box-side
+`stat`/`wget.log` was captured. No shadow-write evidence exists for 3df, in either
+direction.
+
+Next: check the broker log for `FIRE_OK` or one of the named failure codes
+(`WGET_FAIL`, `SIZE_FAIL`, `MD5_FAIL`, `ERASE_FAIL`, `WRITE_FAIL`, `VERIFY_FAIL`,
+`SETENV_FAIL`); it reported `SIZE_FAIL`, so next is to read the box's own `ls -l
+/tmp/slice.bin`, the head of `/tmp/wget.log` and `df -h /tmp` through the broker
+`--cmd` lane before re-firing. After a fire that actually reboots, read the
+`wfile-audit.md` section 4.2 verdict: `/vendor/upper/wfile.log`, `boot.log` and
+`mod-load.log` on `/overlay/upper`, and whether the vendor `hi_kphy` is still
+resident. That read is the only thing that decides "shadow writes landed".
+
+## 2026-11-15 14:39 - 3df broker fire ended at SIZE_FAIL: the box never ran 3df
+
+The 3df fire is dead and it never touched flash. The broker log went from its seven
+lines to a failure at 14:38:49:
+
+    error: the broker fire did not report FIRE_OK; out: uid=0(root) gid=0(root)\nSIZE_FAIL\n","code":0}
+    === exit=1 ===
+
+The failing step is the broker's first box-side test,
+`test "$(stat -c %s slice.bin)" = "$SLICE_SIZE"` in `tools/box-provision.sh --stage
+fire`. With `set -e`, everything after it was skipped: no `mtd erase`, no `mtd write`,
+no `mtd verify`, no `bootflag b`, no reboot. The box stayed on its pre-fire vendor boot
+(bootflag `a`, 40 `hi_` modules), so there is no 3df boot, no `C98`, no
+`/vendor/upper/wfile.log`, and no shadow-write evidence in either direction.
+
+The served side was sound. `http-fire.log` holds one completed request,
+`192.168.10.1 ... GET /build/linux-kbuild/tmp-payload-slice.bin HTTP/1.1" 200` at
+14:34:48, from `tmp-payload-slice.bin` (2,766,628 bytes, md5
+`9e4015cadd2aa507a1763615b6ac914e`, same as the slice). So the file the box assembled
+was not that size. What it actually was is not captured: the broker lane prints only
+the device command's last line, the size `test` prints nothing, and the `wget.log` tail
+is printed only when `wget` itself exits non-zero. The md5 check after the size check,
+which would have separated a truncation from a bad write, never ran.
+
+Working hypothesis, not a finding: a truncated transfer on the box side. Nothing
+captured separates that from a partial write of `slice.bin`.
+
+Next: a read-only broker `--cmd` for `ls -l /tmp/slice.bin`, the head of
+`/tmp/wget.log`, and `df -h /tmp` (the slice is 2.7 MB), then re-fire 3df once a fire
+can be shown to reach `FIRE_OK` and a reboot. The `wfile()` verdict is still the
+`wfile-audit.md` section 4.2 read, and it still has no data.
+
+Evidence (local): `build/linux-kbuild/waves/3df/{build-slice,guard,wfile-audit,wfile-instrument}.md`;
+`build/linux-kbuild/luofu-slice-phase3df.bin`.
+
+## 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock
+
+Attempt 4 (15:29, broker lane) is the first 3df fire that reached the box's flash and
+verified it: `fire-phase3df-broker-4.log` reads `image written and verified; rebooting
+the box`, `=== exit=0 ===`. `http-fire.log` holds one `GET ... 200` for the payload at
+15:29:47. The lane worked because three defects were fixed first: the box's size gate
+used `stat` (absent on this userland), `root_cmd` built the JSON envelope in a
+double-quoted shell string (an inner quote split it), and the device command used
+backslash continuations that do not survive the device's JSON decode (`ac: command
+not found`).
+
+The box came back on the stock kernel: `Linux version 5.10.201 (jenkins@cudyrd1) #0
+SMP Sat Nov 25 18:18:57 2023`, uptime 121 s, `bootflag=a`, 40 `hi_` modules,
+`/overlay/upper` still the Oct 30 tree, no `boot.log`, no `wfile.log`. `bootcmd` is
+`mtd read kernel${bootflag} ${loadaddr};bootfip ${loadaddr}`, so `bootflag=b` did
+select `kernelb`; the stock vendor userspace boots its own image anyway.
+
+The instrument is in the slice, proven host-side rather than by a boot: the XZ stream
+at offset 24932 of `phase3df-payload.bin` decompresses to the arm kernel; its embedded
+`initramfs_inc_data` is the 14:31 `initramfs-site.cpio`, one `init`, 7224 bytes, md5
+`d21247bea9d1c8dbf133cd421774316c`; a fresh compile of
+`tools/lab-src/kbuild/init-vendorroot.c` with the same flags reproduces that md5; and
+the binary carries `wfile.log`, `devtmpfs` and `0x10100C98`.
+
+So the shadow writes are unmeasured, not negative. The audit's 4.2 read
+(`C98=0x00000000` at 08:37 and 08:38 UTC) is the "nothing was written" row and matches
+a stock-kernel boot; it is not a mount verdict. The second read also showed the broker
+reply is cut near 400 bytes, so a read that matters goes in its own `--cmd`.
+
+The redirect: `/sys/devices/platform/sysenv/boot_reg` is readable, and under a stock
+vendor boot it reads `10`, not `0x21`. `tools/fire-device.sh` writes `0x21` there plus
+the `C94 0xDEAD0000` word; the broker lane did neither and now does both.
+
+What the 14:39 entry got wrong: it reported the fire dead at `SIZE_FAIL` and "never
+reached the box". `fire-phase3df-broker-2.log` (14:53) has `image written and
+verified`, and `-3.log` (14:59) is the third attempt, not the second. Corrected in
+`build/linux-kbuild/waves/3df/verify.md`.
+
+Next: a fire whose first read is `cat /proc/version` and requires our banner, not `#0`;
+only then is `C98` a verdict. The broker lane now sets boot_reg; if the vendor
+userspace still boots stock, the escalation is the SSH lane (`tools/fire.sh ssh`),
+whose device script has always written both the register and the C94 word.
