@@ -26,6 +26,15 @@ echo "snapshot dir: $OUT"
 
 run() { ssh "${SSH_OPTS[@]}" "$HOST" "$1" 2>/dev/null; }
 
+# The stock image has no dropbear, so the SSH lane is dead there. Fail closed before
+# writing anything: a snapshot with empty sections is worse than none, because the
+# restore path trusts its MANIFEST and would put blanks back on the box.
+if ! ssh "${SSH_OPTS[@]}" -o ConnectTimeout=10 "$HOST" 'cat /proc/uptime' >/dev/null 2>&1; then
+	echo "error: no SSH to $HOST; nothing captured (the stock image has no dropbear)" >&2
+	rmdir "$OUT" 2>/dev/null || true
+	exit 1
+fi
+
 {
 	echo "== captured $(date -u +%Y-%m-%dT%H:%M:%SZ) =="
 	run "uname -a; cat /etc/custom-firmware-version 2>/dev/null; cat /sys/class/ubi/ubi0/mtd_num"
