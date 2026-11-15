@@ -115,7 +115,9 @@ fi
 MODS_DIR=${MODS_DIR:-/tmp/vmods}
 PATCHED=${PATCHED:-/tmp/vmods-patched}
 OBJCOPY=${OBJCOPY:-$HERE/build/linux-kbuild/toolchain/bin/arm-none-linux-gnueabihf-objcopy}
-SLICE=${SLICE:-$HERE/build/linux-kbuild/luofu-slice-phase3dc.bin}
+if [ -z "${SLICE:-}" ]; then
+    SLICE=$(ls -t "$HERE"/build/linux-kbuild/luofu-slice-phase*.bin 2>/dev/null | head -1 || true)
+fi
 HTTP_PORT=${HTTP_PORT:-8000}
 HTTP_IP=${HTTP_IP:-192.168.10.88}
 
@@ -144,23 +146,54 @@ lab)
         done
     fi
     echo "[*] packing and serving $(ls "$PATCHED"/*.ko | wc -l) modules"
-    ( cd "$PATCHED" && tar -czf "$HERE/tmp-vmods.tgz" ./*.ko )
+    mkdir -p "$HERE/build/linux-kbuild"
+    ( cd "$PATCHED" && tar -czf "$HERE/build/linux-kbuild/tmp-vmods.tgz" ./*.ko )
     serve_and_push "$HERE"
-    root_cmd "mkdir -p /overlay/upper/lib/hisilicon/ko; cd /tmp; wget -q -O vmods.tgz http://$HTTP_IP:$HTTP_PORT/tmp-vmods.tgz; tar -xzf vmods.tgz -C /overlay/upper/lib/hisilicon/ko; ls /overlay/upper/lib/hisilicon/ko/*.ko | wc -l" 60
+    if ! root_cmd "set -e; mkdir -p /overlay/upper/lib/hisilicon/ko; cd /tmp; wget -q -O vmods.tgz http://$HTTP_IP:$HTTP_PORT/build/linux-kbuild/tmp-vmods.tgz; tar -xzf vmods.tgz -C /overlay/upper/lib/hisilicon/ko; ls /overlay/upper/lib/hisilicon/ko/*.ko | wc -l" 60; then
+        stop_serve
+        echo "error: the module push failed" >&2
+        exit 1
+    fi
     stop_serve
     ;;
 fire)
     "$HERE/tools/check-init-shadow.sh" || exit 1
-    if [ ! -f "$SLICE" ]; then
-        echo "error: slice not found: $SLICE" >&2
+    if [ -z "$SLICE" ] || [ ! -f "$SLICE" ]; then
+        echo "error: slice not found: ${SLICE:-<none>}; set SLICE=<path>" >&2
         exit 2
     fi
-    cp "$SLICE" "$HERE/tmp-payload-slice.bin"
+    TRAILER="$HERE/build/linux-kbuild/slice-trailer-40732.bin"
+    if [ -f "$TRAILER" ]; then
+        if ! tail -c 40732 "$SLICE" | cmp -s - "$TRAILER"; then
+            echo "error: slice trailer mismatch: $SLICE" >&2
+            exit 2
+        fi
+    else
+        echo "warning: $TRAILER not found; cannot validate the slice tail" >&2
+    fi
+    SLICE_SIZE=$(stat -c %s "$SLICE")
+    SLICE_MD5=$(md5sum "$SLICE" | awk '{print $1}')
+    echo "[*] slice: $SLICE ($SLICE_SIZE bytes, md5 $SLICE_MD5)"
+    mkdir -p "$HERE/build/linux-kbuild"
+    cp "$SLICE" "$HERE/build/linux-kbuild/tmp-payload-slice.bin"
     serve_and_push "$HERE"
     echo "[*] writing the image to kernelb via the broker channel"
-    root_cmd "cd /tmp; wget -q -O slice.bin http://$HTTP_IP:$HTTP_PORT/tmp-payload-slice.bin; ls -l slice.bin | awk '{print \$5}'; mtd erase kernelb; mtd write slice.bin kernelb; ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag b; fw_printenv bootflag; sync; reboot" 120
+    OUT=$(root_cmd "set -e; cd /tmp; wget -q -O slice.bin http://$HTTP_IP:$HTTP_PORT/build/linux-kbuild/tmp-payload-slice.bin; test \"\$(stat -c %s slice.bin)\" = \"$SLICE_SIZE\"; test \"\$(md5sum slice.bin | cut -d' ' -f1)\" = \"$SLICE_MD5\"; mtd erase kernelb; mtd write slice.bin kernelb; mtd verify slice.bin kernelb; ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag b; fw_printenv bootflag; sync; echo FIRE_OK" 180) || {
+        stop_serve
+        echo "error: the broker fire command failed" >&2
+        exit 1
+    }
     stop_serve
-    echo "[*] image written; the box reboots into the lab kernel"
+    case "$OUT" in
+        *FIRE_OK*)
+            echo "[*] image written and verified; rebooting the box"
+            ;;
+        *)
+            echo "error: the broker fire did not report FIRE_OK; out: $OUT" >&2
+            exit 1
+            ;;
+    esac
+    root_cmd "sync; reboot" 10 || true
     ;;
 *)
     echo "error: --stage must be base, lab or fire" >&2
