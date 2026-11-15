@@ -43,7 +43,7 @@ wins.
 
 | path | what |
 | --- | --- |
-| `tools/` | current harness and CLIs: `fire.sh`, `check-init-shadow.sh`, `box-provision.sh`, `rsh.sh`, crypto and RE tools; `requirements.txt` pins the Python deps |
+| `tools/` | current harness and CLIs: `fire.sh`, `check-init-shadow.sh`, `box-provision.sh`, `rsh.sh`, crypto and RE tools; `setup-python.sh` and `requirements.txt` set up the Python deps |
 | `tools/lab-src/` | tracked mirror of the modified kernel sources; run `tools/check-lab-src.sh` |
 | `tools/archive/` | historical scratch tools; not part of the live surface |
 | `build/linux-kbuild/` | gitignored kernel tree, toolchain, slices, fire logs, calibration snapshots, and evidence; the source of truth |

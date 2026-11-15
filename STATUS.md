@@ -19,10 +19,10 @@
 - The latest SSH fire script (local-only) is `build/linux-kbuild/run-phase3dc.sh`;
   3dd and 3de have slices but no run scripts. The broker lane is
   `tools/box-provision.sh --stage fire` and now defaults to the newest
-  `luofu-slice-phase*.bin`; pass `SLICE=` to pin one. The SSH lane is bench-local:
-  a fresh clone has no run script. The dynamic default and the HTTP path changes
-  are code-verified and dry-run checked, not device-verified; the next fire tests
-  them.
+  `luofu-slice-phase*.bin`; pass `SLICE=` to pin one. The per-phase run scripts are
+  bench-local; the tracked generic `fire.sh ssh` driver covers a fresh clone. The
+  dynamic default and the HTTP path changes are code-verified and dry-run checked,
+  not device-verified; the next fire tests them.
 
 ## 2. Gates (2026-11-14)
 
@@ -71,9 +71,8 @@ Ethernet, and the watchdog are green or have a working vendor path.
 tools/check-init-shadow.sh
 SLICE="$PWD/build/linux-kbuild/luofu-slice-phase3de.bin" \
   tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage fire
-# 3de has no run script; the SSH lane is bench-local and only works for a phase
-# that has a run script on this checkout:
-tools/fire.sh run <phase> --detach
+# 3de has no run script; the tracked generic SSH driver is available when SSH is:
+tools/fire.sh ssh --slice "$PWD/build/linux-kbuild/luofu-slice-phase3de.bin" --label 3de --detach
 tools/fire.sh verdict
 ```
 

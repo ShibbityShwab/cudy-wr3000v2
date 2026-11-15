@@ -36,7 +36,7 @@ MT7981 v1. Read `HARDWARE-IDENTITY.md` before any UART or firmware work.
   `tools/rscp.sh`.
 - Python: use `.provision-venv/bin/python` for the dependency tools (see
   `tools/requirements.txt`). Stock `python3` is 3.14 and lacks pycryptodome,
-  PyJWT, paho-mqtt, and passlib.
+  PyJWT, paho-mqtt, and passlib. Fresh clone: `tools/setup-python.sh`.
 - Kernel working tree: `build/linux-kbuild/linux-5.10.201` (gitignored; this is the
   source of truth).
 - Tracked snapshot: `tools/lab-src` (a mirror; `tools/check-lab-src.sh` checks the

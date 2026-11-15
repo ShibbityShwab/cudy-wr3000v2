@@ -9,6 +9,7 @@
 #   tools/fire.sh status <phase>
 #   tools/fire.sh verdict
 #   tools/fire.sh broker [--slice <path>] [--lab] [--dry-run]
+#   tools/fire.sh ssh --slice <path> [--device-script <path>] [--label <name>] --detach
 #
 # The per-phase scripts stay in build/linux-kbuild and are gitignored. This
 # dispatcher is the stable entry point and the only one that may run detached.
@@ -80,12 +81,52 @@ cmd_run() {
     echo "script log  $KB/fire-phase${tag}.log"
 }
 
+cmd_ssh() {
+    local slice="" script="$ROOT/tools/fire-device.sh" label="manual" detach=0 dry=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --slice) slice=$2; shift ;;
+            --device-script) script=$2; shift ;;
+            --label) label=$2; shift ;;
+            --detach) detach=1 ;;
+            --dry-run) dry=1 ;;
+            -*) echo "unknown option: $1" >&2; exit 2 ;;
+            *) echo "unexpected argument: $1" >&2; exit 2 ;;
+        esac
+        shift
+    done
+    [ -n "$slice" ] || { echo "usage: fire.sh ssh --slice <path> [--device-script <path>] [--label <name>] --detach" >&2; exit 2; }
+    [ -f "$slice" ] || { echo "no such slice: $slice" >&2; exit 2; }
+    [ -f "$script" ] || { echo "no such device script: $script" >&2; exit 2; }
+    local log="$KB/fire-$label.out.log"
+    local pidfile="$KB/fire-$label.pid"
+    if [ "$dry" -eq 1 ]; then
+        echo "would run: bash $ROOT/tools/fire-ssh.sh --slice $slice --device-script $script --label $label"
+        echo "log: $log"
+        return 0
+    fi
+    cmd_guard || exit 1
+    if [ "$detach" -ne 1 ]; then
+        echo "refusing to run in the foreground; pass --detach" >&2
+        exit 2
+    fi
+    : > "$log"
+    setsid bash "$ROOT/tools/fire-ssh.sh" --slice "$slice" --device-script "$script" --label "$label" >>"$log" 2>&1 </dev/null &
+    echo $! > "$pidfile"
+    echo "detached pid $(cat "$pidfile")"
+    echo "log $log"
+}
+
 cmd_status() {
     local phase=${1:-}
     [ -n "$phase" ] || { echo "usage: fire.sh status <phase>" >&2; exit 2; }
     local tag=${phase#phase}
     local pidfile="$KB/fire-phase${tag}.pid"
     local log="$KB/fire-phase${tag}.out.log"
+    if [ ! -f "$log" ] && [ -f "$KB/fire-${tag}.out.log" ]; then
+        pidfile="$KB/fire-${tag}.pid"
+        log="$KB/fire-${tag}.out.log"
+    fi
     if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
         echo "running: pid $(cat "$pidfile")"
     else
@@ -135,6 +176,7 @@ case "$cmd" in
     latest) cmd_latest ;;
     guard) cmd_guard ;;
     run) cmd_run "$@" ;;
+    ssh) cmd_ssh "$@" ;;
     status) cmd_status "$@" ;;
     verdict) cmd_verdict ;;
     broker) cmd_broker "$@" ;;

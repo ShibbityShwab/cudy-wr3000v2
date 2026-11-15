@@ -12,6 +12,7 @@ still historical and is not the kernel cycle.
 - Toolchain at `build/linux-kbuild/toolchain/bin/arm-none-linux-gnueabihf-`.
 - For the broker lane: `dumps/router-20261108/bdinfo.bin` and
   `tools/box-provision.sh`.
+- On a fresh clone, run `tools/setup-python.sh` once for the Python dependencies.
 - The guard must pass before any fire: `tools/check-init-shadow.sh`.
 
 ## 1. Build
@@ -83,6 +84,16 @@ tools/fire.sh status <phase>
 writes a log. Those per-phase scripts are gitignored; the dispatcher is the stable
 entry point.
 
+For a fresh clone, the tracked generic driver is:
+
+```sh
+tools/fire.sh ssh --slice "$PWD/build/linux-kbuild/luofu-slice-phaseX.bin" --label phaseX --detach
+tools/fire.sh status phaseX
+```
+
+It stages `tools/fire-device.sh`, verifies the remote md5, fires, polls the vendor
+slot, and prints the verdict cells and the overlay listing.
+
 ### Broker lane (no SSH)
 
 ```sh
@@ -96,9 +107,8 @@ reboots. It also runs the guard internally. These verification steps are code-re
 and dry-run checked, not device-verified; the first fire after this change validates
 them.
 
-The SSH lane's per-phase run scripts are bench-local. A fresh clone has no run script;
-use the broker lane, or add a tracked host driver before relying on `fire.sh run`.
-To refresh the patched vendor modules first:
+The per-phase run scripts are bench-local; for a fresh clone, use the tracked generic
+`fire.sh ssh` driver. To refresh the patched vendor modules first:
 
 ```sh
 tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage lab

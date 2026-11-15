@@ -11,7 +11,9 @@ scratch and is not part of the live surface.
 
 | Task | File | Notes |
 | --- | --- | --- |
-| Fire cycle | `fire.sh` | `list`, `latest`, `guard`, `run <phase> --detach`, `status`, `verdict`, `broker` |
+| Fire cycle | `fire.sh` | `list`, `latest`, `guard`, `run <phase> --detach`, `status`, `verdict`, `broker`, `ssh` |
+| Generic SSH fire | `fire-ssh.sh` | tracked host driver: stage, fire, poll, read |
+| Device-side fire | `fire-device.sh` | write `kernelb`, verify, set `bootflag`, reboot |
 | Shadow guard | `check-init-shadow.sh` | must print PASS before any fire |
 | Broker provision | `box-provision.sh` | `--stage base`, `lab`, `fire`; no SSH required |
 | SSH transport | `rsh.sh`, `rscp.sh` | project key `.omo-secrets/router_ed25519` |
@@ -54,8 +56,9 @@ scratch and is not part of the live surface.
   fall back to the tracked wrappers.
 - Python: use `.provision-venv/bin/python` for `decrypt_bdinfo.py`, `forge_jwt.py`,
   `mqtt_takeover.py`, `mk_fake_bdinfo.py`, `crack.py`, and `scan_image.py`. Stock
-  `python3` is 3.14 and lacks pycryptodome, PyJWT, paho-mqtt, and passlib. Install
-  with `.provision-venv/bin/pip install -r tools/requirements.txt`.
+  `python3` is 3.14 and lacks pycryptodome, PyJWT, paho-mqtt, and passlib. On a fresh
+  clone run `tools/setup-python.sh`; it creates `.provision-venv` and installs
+  `tools/requirements.txt`.
 - Credentials are placeholders. Live values come from `.omo-secrets/`.
 - Scratch goes in `archive/`; do not add a new variant to the live surface.
 
@@ -72,5 +75,6 @@ scratch and is not part of the live surface.
 - `exp.sh` and `batch.sh` are the old Wi-Fi module lane, not the kernel cycle. The
   fallback wrappers keep them runnable, but do not use them for kernel work.
 - `tftp_server.py` is unauthenticated and writes uploads under `tftp/inbox`; LAN only.
-- No flash writes in this set except `box-provision.sh --stage fire`, which writes
-  `kernelb` through the broker. Recovery is the TFTP path in `RUNBOOK.md`.
+- No flash writes in this set except `box-provision.sh --stage fire` and the tracked
+  `fire-device.sh` used by `fire.sh ssh`. Both write `kernelb`; recovery is the TFTP
+  path in `RUNBOOK.md`. Do not run `fire-device.sh` on the host.

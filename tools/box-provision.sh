@@ -9,7 +9,8 @@
 # usage:
 #   box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --admin-pass <pw>
 #                    [--ssid <ssid>] [--wifi-pass <pw>] [--host 192.168.10.1]
-#                    [--ssh-key <pubkey-file>] [--telnetd] [--dry-run]
+#                    [--ssh-key <pubkey-file>] [--telnetd] [--cmd <command>]
+#                    [--stage base|lab|fire] [--dry-run]
 #
 # --dry-run prints the box's current wireless config and exits; use it before changing anything.
 set -eu
@@ -24,6 +25,7 @@ SSH_KEY=""
 START_TELNETD=0
 STAGE=base
 DRY_RUN=0
+CMD=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -35,6 +37,7 @@ while [ $# -gt 0 ]; do
         --ssh-key) SSH_KEY=$2; shift 2 ;;
         --telnetd) START_TELNETD=1; shift ;;
         --stage) STAGE=$2; shift 2 ;;
+        --cmd) CMD=$2; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -77,7 +80,12 @@ fi
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
-    root_cmd 'uci show wireless' 15
+    root_cmd "${CMD:-uci show wireless}" 30
+    exit 0
+fi
+
+if [ -n "$CMD" ]; then
+    root_cmd "$CMD" 60
     exit 0
 fi
 
