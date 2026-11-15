@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-13 |  | 2026-11-13 22:13 - The keeper race: a failed open left the armed watchdog unfed | `mem-entries.md:21476` |
 | 2026-11-13 |  | 2026-11-13 23:37 - The MDIO controller never completes a read (named blocker) | `mem-entries.md:21488` |
 | 2026-11-14 |  | 2026-11-14 00:06 - The MDIO clock is obtained and the transfers still time out; the gate index is next | `mem-entries.md:21512` |
 | 2026-11-14 | 3cb | 2026-11-14 00:09 - phase3cb died early again; the gate-rate evidence needs a surviving run | `mem-entries.md:21540` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 14:36 - 3df fire: no captured readout, the shadow writes are undecided | `mem-entries.md:22308` |
 | 2026-11-15 |  | 2026-11-15 14:39 - 3df broker fire ended at SIZE_FAIL: the box never ran 3df | `mem-entries.md:22361` |
 | 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |
+| 2026-11-15 |  | 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle | `mem-entries.md:22439` |
 
 ## All dated entries
 
@@ -603,3 +603,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 14:36 - 3df fire: no captured readout, the shadow writes are undecided | `mem-entries.md:22308` |
 | 2026-11-15 |  | 2026-11-15 14:39 - 3df broker fire ended at SIZE_FAIL: the box never ran 3df | `mem-entries.md:22361` |
 | 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |
+| 2026-11-15 |  | 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle | `mem-entries.md:22439` |

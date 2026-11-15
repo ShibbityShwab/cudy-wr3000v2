@@ -22435,3 +22435,33 @@ Next: a fire whose first read is `cat /proc/version` and requires our banner, no
 only then is `C98` a verdict. The broker lane now sets boot_reg; if the vendor
 userspace still boots stock, the escalation is the SSH lane (`tools/fire.sh ssh`),
 whose device script has always written both the register and the C94 word.
+
+## 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle
+
+The 15:52 fire (attempt 5, `fire-phase3df-broker-5.log`) wrote `kernelb` and verified
+it, but the lane never rebooted: the box sat on the stock kernel with uptime 1609 s,
+`bootflag=b`, `boot_reg=21`. A read-only check then confirmed the write itself: `mtd
+verify /tmp/slice.bin kernelb` rc 0, 2,766,628 bytes, md5
+`9e4015cadd2aa507a1763615b6ac914e`. So the flash, the slot variable and the handover
+word were all correct at 16:04.
+
+At 16:03 host time the box took `sync; reboot` through the broker (reply code 0).
+Since then it has answered nothing: no ARP, ICMP, broker (1883), telnet (23) or SSH
+(22). The host's USB Ethernet (`enp195s0f3u1`) keeps carrier but its receive counter
+has not moved off 656, so nothing is arriving on the wire. Logged
+`carrier off` 2833 s -> `carrier on` 2844 s on the host, which is the host side of the
+link, not the box.
+
+This is the first reboot in this session with `boot_reg=0x21`, so it is also the first
+time the slice on `kernelb` was actually allowed to run. The box did not come back, and
+there is no console to say why: the UART RX path is dead (J10 pin 3, `rx:0`).
+
+State of the bench: `kernelb` holds a verified image, the vendor slot is untouched,
+`bootflag=b` and `boot_reg=21` are set, and the host assets for recovery are present
+(`tftp/recovery.bin`, `tools/tftp_server.py`). Recovery is a physical power cycle with
+RESET held and a TFTP boot per `RUNBOOK.md` section 6; nothing on the host can reach the
+box until someone is at the bench. This is the one blocker only the bench can clear.
+
+Verdict on 3df: unmeasured. The instrument is in the image and the box may or may not
+have run it; no read of `C98`, `/vendor/upper/wfile.log` or `dmesg` exists for this
+boot.

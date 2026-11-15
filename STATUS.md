@@ -7,8 +7,15 @@
 
 ## 1. Bench
 
-- Box: the last known state is the stock 2.4.15 image, recovered and provisioned.
-  Root telnet on 23, Wi-Fi `cudy-lab`, LAN `192.168.10.1`.
+- Box: **unreachable since 16:05** (host clock). Last contact 16:04: the stock vendor
+  userspace with `bootflag=b` and `boot_reg=21`, `kernelb` holding the 3df slice verified
+  byte-exact (`mtd verify` rc 0, 2,766,628 bytes, md5 `9e4015cadd2aa507a1763615b6ac914e`).
+  A broker `sync; reboot` was issued at 16:03 to hand control to that slice. Since then the
+  box answers no ARP, the host's USB Ethernet keeps carrier with zero received packets,
+  and the broker, telnet and SSH ports stay closed. There is no console: the UART RX path
+  is dead (J10 pin 3). Recovery is the TFTP path in `RUNBOOK.md` section 6 and needs a
+  physical power cycle with RESET held; `tftp/recovery.bin` and `tools/tftp_server.py`
+  are present on the host.
 - Access: SSH key `.omo-secrets/router_ed25519`. There is no `.sshwrap/` in this
   checkout. The broker channel is `tools/box-provision.sh` with
   `dumps/router-20261108/bdinfo.bin`.
@@ -16,10 +23,10 @@
   (2026-11-15 14:33, 2,766,628 bytes, md5 `9e4015cadd2aa507a1763615b6ac914e`). It
   carries the `wfile()` instrumentation, and that instrument is in the image: the XZ
   kernel stream decompresses to an initramfs whose single `init` is byte-identical to
-  the tracked source's current compile. The 15:29 broker fire (attempt 4) wrote and
-  verified `kernelb` and rebooted, and the box came back on the stock kernel (`#0
-  SMP Nov 25 2023`), so the instrument never ran. See section 3 for why and
-  section 4 for the next fire.
+  the tracked source's current compile. Two broker fires wrote and verified `kernelb`
+  (15:29 and 15:52) and the box booted the stock kernel (`#0 SMP Nov 25 2023`) both
+  times; the 16:03 reboot after setting `boot_reg` is the first one that could hand
+  control to the slice, and the box has not answered since. See section 3.
 - The latest SSH fire script (local-only) is `build/linux-kbuild/run-phase3dc.sh`;
   3dd, 3de and 3df have slices but no run scripts. The broker lane is
   `tools/box-provision.sh --stage fire` and now defaults to the newest
