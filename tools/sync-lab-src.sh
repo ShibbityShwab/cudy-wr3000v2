@@ -25,5 +25,6 @@ done < "$SNAP/FILES"
 mkdir -p "$SNAP/kbuild" "$SNAP/config"
 cp "$KB/init-vendorroot.c" "$SNAP/kbuild/init-vendorroot.c"
 cp "$SRC/.config" "$SNAP/config/kernel.config"
+sed -i 's|^CONFIG_INITRAMFS_SOURCE=.*|CONFIG_INITRAMFS_SOURCE="../initramfs-site.cpio"|' "$SNAP/config/kernel.config"
 
-echo "synced $n files plus kbuild/init-vendorroot.c and config/kernel.config"
+echo "synced $n files plus kbuild/init-vendorroot.c and a sanitized config/kernel.config"

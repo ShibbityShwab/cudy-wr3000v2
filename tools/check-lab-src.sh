@@ -43,6 +43,16 @@ for pair in "kbuild/init-vendorroot.c:$KB/init-vendorroot.c" "config/kernel.conf
     if [ ! -f "$SNAP/$s" ] || [ ! -f "$t" ]; then
         echo "MISSING: $s or $t"
         fail=1
+    elif [ "$s" = "config/kernel.config" ]; then
+        a=$(mktemp)
+        b=$(mktemp)
+        grep -v '^CONFIG_INITRAMFS_SOURCE=' "$SNAP/$s" > "$a" || true
+        grep -v '^CONFIG_INITRAMFS_SOURCE=' "$t" > "$b" || true
+        if ! cmp -s "$a" "$b"; then
+            echo "DRIFT: $s"
+            fail=1
+        fi
+        rm -f "$a" "$b"
     elif ! cmp -s "$SNAP/$s" "$t"; then
         echo "DRIFT: $s"
         fail=1

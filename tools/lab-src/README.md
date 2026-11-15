@@ -41,9 +41,11 @@ completeness. The complete check needs `VANILLA_TREE` or the
 4. Copy `config/kernel.config` to `.config`, run `olddefconfig`, then `zImage` and
    `dtbs`.
 
-`config/kernel.config` contains an absolute `CONFIG_INITRAMFS_SOURCE` path from this
-workstation. Rewrite that line for the new host before building. The manifest check
-prints a warning while it is absolute.
+`config/kernel.config` is sanitized to
+`CONFIG_INITRAMFS_SOURCE="../initramfs-site.cpio"`; the live `.config` keeps the
+workstation path. The manifest check ignores that one line when comparing, so the
+snapshot is portable. If you copy a live config by hand and it has an absolute path,
+the check warns.
 
 The initramfs init is built with:
 
