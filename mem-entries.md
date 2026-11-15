@@ -22541,3 +22541,42 @@ TFTP recovery. Evidence and the reproduce line:
 Next bench action, when the box is fired again: read the `wfile()` verdict from
 `dmesg | grep /vendor/upper`, not from C98 and not from pstore. It decides EROFS vs
 ENOENT in one read and costs no extra flash cycle.
+
+## 2026-11-15 19:05 - Emulation closes the init-side question: the shadow writes work when /vendor mounts
+
+The 3df init was taken as far as an emulator can take it. With a real jffs2 image stapled
+into guest RAM (`-device loader,file=...,addr=0x5c000000`) and exposed as `mtd:rootfs_data`
+(`mem=448M phram.phram=rootfs_data,0x5c000000,0x2000000`), the tracked init mounts it and
+all seven `wfile()` calls land:
+
+    /vendor/upper/etc/rc.d/S10boot OK
+    /vendor/upper/etc/init.d/luofu OK
+    /vendor/upper/etc/rc.d/luofu OK
+    /vendor/upper/etc/rc.d/S18hyfibrd OK
+    /vendor/upper/etc/rc.d/S20network OK
+    /vendor/upper/etc/rc.d/S95done OK
+    /vendor/upper/pstore-check.txt OK
+
+Without a jffs2 image the same run says `E=2` on every line. So on the console the verdict
+word separates three states: `OK` (write landed), `E=2` (path absent: the mount did not
+produce `/vendor/upper/etc/rc.d`), anything else (a different errno). The init, its mount,
+its append and its verdict line are all correct software; nothing in them needs fixing
+before the next fire.
+
+Four build facts learned, all cheap to repeat and expensive to rediscover:
+- `CONFIG_JFFS2_FS` is not in `hisi_defconfig`; without it every jffs2 mount is `E=2`.
+- `luofu-fmc.c` needs `CONFIG_MTD_UBI`, `MTD_PSTORE` needs `PSTORE`+`PSTORE_BLK`, and
+  `init/main.c` calls `luofu_overlay_verdict`, so `ARCH_LUOFU` cannot be disabled.
+- `phram` maps zeroed guest RAM: load the image with `-device loader` or the mount sees
+  no valid jffs2 nodes (`E=5`).
+- A `qemu-src` tree that was both reconfigured and rebuilt stopped reaching userspace on
+  `virt` (SIGILL for a known-good init) while a fresh `qemu-baseline` copy with the same
+  options ran everything. Keep the fiddled tree and the baseline tree separate.
+
+What emulation cannot say: the phram is SRAM-backed MTD, not the FMC; NAND geometry, ECC
+and timing are absent, and the mount takes 8.6 s where the live FMC is far quicker. The
+overlay test still reports `j1=-2`/`-19` because this host has no `rootfsb` or `lab`
+partition. That is the boundary; anything past it is the board's.
+
+Evidence: `build/linux-kbuild/waves/3df/emulation.md` (reproduce block included),
+`/tmp/realm-3df.log`, and the baseline kernel at `build/linux-kbuild/qemu-baseline`.
