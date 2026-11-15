@@ -22615,3 +22615,31 @@ reaching userspace on `virt` (SIGILL for a known-good init) while a fresh
 Evidence and the reproduce block: `build/linux-kbuild/waves/3df/emulation.md`. Logs:
 `/tmp/realm-3df.log` (all `OK`), `/tmp/mkdirtest.log` (`EEXIST` + mount 0). Commit
 `39d8732` carries the first version of this finding.
+
+## 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran
+
+The fire itself worked: guard PASS, slice md5 `9e4015cadd2aa507a1763615b6ac914e` served
+and fetched at 19:29:27, `kernelb` written and verified, `bootflag=b`, and
+`/sys/devices/platform/sysenv/boot_reg` = `21` (the handover the earlier fires never set).
+The box still runs the stock kernel (`#0 SMP Sat Nov 25 18:18:57 2023`, uptime 46,050 s).
+
+What did not work is the broker's device command, and it is a separate defect from 3df.
+The broker answers `id`: a raw publish of `{"cmd":"id","reply":1}` gets
+`{"message":"success","data":"uid=0(root) gid=0(root)\n","code":0}` back in about a
+second, and `cat /proc/uptime` answers when wrapped alone. Every command that also
+touches flash or U-Boot env returns an empty reply: `fw_printenv bootflag`,
+`mtd verify`, `sync; reboot`. Five reboot attempts produced nothing, and the wrapper
+scripts hung or exited without a line. So the publish reaches the reply topic and the
+failure is after it; not diagnosed further.
+
+State left behind: stock slot, `bootflag=b`, `boot_reg=21`, `kernelb` holding the
+verified slice. A power cycle boots it. Recovery is `fw_setenv bootflag a` plus a reboot,
+or the TFTP door in `RUNBOOK.md` section 6.
+
+Receipt: `build/linux-kbuild/waves/3df/fire6.md`; fire log
+`build/linux-kbuild/fire-phase3df-broker-6.log` (471 bytes, no exit line); pre-fire
+snapshots `cal-snapshots/prefire-20261115-122125` and `broker-20261115-111802`, both
+MANIFEST-verified.
+
+The 3df verdict is still unmeasured, and it now costs one power cycle rather than another
+flash write.

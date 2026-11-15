@@ -26,7 +26,10 @@
   the tracked source's current compile. Two broker fires wrote and verified `kernelb`
   (15:29 and 15:52) and the box booted the stock kernel (`#0 SMP Nov 25 2023`) both
   times; the 16:03 reboot after setting `boot_reg` is the first one that could hand
-  control to the slice, and the box has not answered since. See section 3.
+  control to the slice. Fire 6 (19:29) wrote and verified the slice again and set
+  `bootflag=b` and `boot_reg=21`, but its own reboot did not run and the box stayed on
+  the stock kernel at uptime 46,050 s. A power cycle is what boots the slice now. See
+  `build/linux-kbuild/waves/3df/fire6.md` and section 3.
 - The latest SSH fire script (local-only) is `build/linux-kbuild/run-phase3dc.sh`;
   3dd, 3de and 3df have slices but no run scripts. The broker lane is
   `tools/box-provision.sh --stage fire` and now defaults to the newest
