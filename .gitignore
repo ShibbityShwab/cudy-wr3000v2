@@ -37,3 +37,4 @@ nohup.out
 
 # omo workspace state (per-session; init-deep snapshot + scaffolding)
 .omo/
+.provision-venv/
