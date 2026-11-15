@@ -22473,3 +22473,32 @@ item is the read of the 16:03 boot, which needs the box back. A detached host wa
 (`/tmp/boxwatch.sh`, 15 min cadence) logs any ping or broker answer; if the box comes
 back, the first read is `cat /proc/version` and only a non-`#0` banner makes `C98` a
 verdict.
+
+## 2026-11-15 18:30 - Bench recovered by TFTP; the calibration snapshot is real now, and 3df stays unmeasured
+
+Recovery: the box answered nothing after the first reboot into the 3df slice. A 40-minute
+host watch (rx counter frozen at 656 frames the whole time, carrier up) saw no return, and
+a normal power cycle did not bring it back either. TFTP recovery then worked: with RESET
+held and `tools/tftp_server.py 69` serving, the server logged
+`RRQ recovery.bin -> tftp/recovery.bin` and `RRQ sent 20975775 bytes`, and 192.168.10.1
+answered 14 s later. The box is on the stock vendor slot: `#0 SMP Sat Nov 25 18:18:57
+2023`, `bootflag=a`, uptime from zero, 3/3 ping, web 80 and broker 1883 open, 2 wiphys
+and 6 interfaces, both bands broadcasting.
+
+Calibration: `tools/wifi-cal-snapshot.sh` had been writing a snapshot full of empty files
+whenever the box had no SSH (it is SSH-only, and the stock image has no dropbear), and
+`wifi-cal-restore.sh` trusts the MANIFEST, so that could have restored blanks. It now
+probes first and fails closed, removing the directory. Both cal scripts were tracked mode
+100644 and are now 100755. Commit `ef53001`.
+
+A real snapshot was captured over the broker channel instead:
+`build/linux-kbuild/cal-snapshots/broker-20261115-111802/` with `identity.txt` (stock
+banner, 582-byte boardinfo), `alg-values.txt` holding actual `[SUCC]` power tables for
+2g and 5g from `iwpriv Hisilicon0 alg`, `wireless-config.txt` (uci wifi-device/iface,
+2g on phy0, hsanwifi, 11bgnax), and `factory-files.txt`. All four verify against
+`MANIFEST.sha256` (`sha256sum -c`: OK). The two earlier partial captures were deleted
+rather than left to be trusted.
+
+3df verdict: still unmeasured. The slice is proven to carry the instrument and the fire
+lane is proven to write and verify it, but every boot into it leaves the box silent, with
+no console to say why (UART RX dead, J10 pin 3). Nothing has been read from a 3df boot.
