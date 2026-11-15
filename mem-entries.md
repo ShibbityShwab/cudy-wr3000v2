@@ -22219,3 +22219,31 @@ drivers own filtered out:
 so pinmux, IRQ affinity, sysctls and everything else stay intact, and our luofu-phy finally gets the
 match. Lesson recorded: on this board, any overlay shadow of a vendor script must be a filtered copy of
 the original, never a replacement.
+
+## 2026-11-15 03:30 - The broker-staged fire works; the shadow writes do not land
+
+The full cycle ran with no SSH anywhere: box-provision.sh --stage lab pushed 58 patched modules into the
+overlay, --stage fire served the slice, the box wget'd 2,765,564 bytes, mtd wrote kernelb, fw_setenv set
+bootflag=b, and the reboot brought the lab kernel back on the LAN. The guard printed PASS before the
+write. That lane is proven.
+
+What it revealed, which earlier SSH-based tests hid: the img's wfile() calls to the overlay are NOT
+landing. On the running box:
+
+    /overlay/upper/etc/rc.d/     -> only the stock K50dropbear/S22dropbear symlinks
+    /etc/rc.d/luofu              -> 3846 bytes, the vendor's ORIGINAL script
+    lsmod                        -> hi_kphy, hi_kmdio, hi_kmac all resident
+
+and the PHY line is `driver [Hisilicon Genius Phy]`, the vendor's, because the vendor's script ran and
+insmod'd it. So:
+  - the vendor script loads hi_kpinctrl (why the network came up at all - the filtered shadow was never
+    needed on this boot, the original ran in full);
+  - our luofu-phy loses the match to hi_kphy exactly as before;
+  - the S10boot/S20network/S95done shadows are also absent, so the boot.log breadcrumbs and the dump are
+    not being produced by our init either. The init's module loads DID work (hi_basic etc. are resident
+    and the /vendor mount is clearly readable), so the failure is specific to wfile().
+
+Next: instrument wfile() to write its open() return into /vendor/upper/wfile.log (the parent dirs exist,
+as the mount is proven), fire once more, and fix whatever it reports. The WAN link staying at 1Gbps and
+the box being reachable by broker proves the transport; the remaining M2 gap is only which driver owns
+the PHY.
