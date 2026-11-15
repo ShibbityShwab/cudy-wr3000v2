@@ -1,5 +1,30 @@
 # Start here
 
+## Current state (2026-11-15) - recovery is proven, the network path is ours
+
+The stock 2.4.15 firmware is back on the box and provisioned (Wi-Fi `cudy-lab`, admin password set by
+`tools/box-provision.sh`, root telnet on 23). The lab kernel and drivers are all committed; the next
+fire is `build/linux-kbuild/run-phase3dc.sh` (the filtered-shadow image, `7c6a2b3`).
+
+What was proven and what it cost:
+
+- Our `luofu-mdio` completes real C22 transfers and our `luofu-gmac` trains `eth2` to 1Gbps; the PHY
+  IDs read back `0x20669a09`. The only vendor piece left in that path was `hi_kphy`.
+- A shadow that replaced `/etc/rc.d/luofu` with a no-op took the box off the network (no `hi_kpinctrl`
+  means no pinmux, no MDIO, no Ethernet, no Wi-Fi). Never do that: `tools/check-init-shadow.sh` must
+  print PASS before any fire, and it verifies that the filter keeps everything except the three modules
+  our drivers own.
+- Recovery, proven twice: hold reset during power-on, the U-Boot prints `recovery button press`, and it
+  tftpboots `recovery.bin` from `192.168.1.88` (run `tools/tftp_server.py 69`; the official image is at
+  `tftp/recovery.bin`). The stock LAN comes up at `192.168.10.1` on a LAN port.
+- Root on stock, no SSH: `tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin ...` uses the
+  broker's JWT channel and returns command output. The stock image has neither dropbear nor opkg.
+- A recovery flash wipes `rootfs_data`, so the patched vendor modules must be re-pushed before a fire.
+
+The safe fire protocol from here: check the guard, re-push the patched modules, fire, and if the box
+does not answer, the web admin password plus the systime RCE or the broker channel gets root back, and
+`fw_setenv bootflag a` returns the box to stock without a reset-hold.
+
 ## Current state (2026-11-12) - read this block before anything below
 
 The kernel work is in `build/linux-kbuild/linux-5.10.201` (a gitignored working tree, the source of
