@@ -22465,3 +22465,11 @@ box until someone is at the bench. This is the one blocker only the bench can cl
 Verdict on 3df: unmeasured. The instrument is in the image and the box may or may not
 have run it; no read of `C98`, `/vendor/upper/wfile.log` or `dmesg` exists for this
 boot.
+
+Postscript to the 16:20 entry: `build/linux-kbuild/waves/3df/verify.md` now carries the
+full verdict state. The instrument and the transport are both proven (the second fire's
+verify returned rc 0 on a byte-exact slice, `bootflag=b`, `boot_reg=21`); the only open
+item is the read of the 16:03 boot, which needs the box back. A detached host watcher
+(`/tmp/boxwatch.sh`, 15 min cadence) logs any ping or broker answer; if the box comes
+back, the first read is `cat /proc/version` and only a non-`#0` banner makes `C98` a
+verdict.
