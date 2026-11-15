@@ -22247,3 +22247,27 @@ Next: instrument wfile() to write its open() return into /vendor/upper/wfile.log
 as the mount is proven), fire once more, and fix whatever it reports. The WAN link staying at 1Gbps and
 the box being reachable by broker proves the transport; the remaining M2 gap is only which driver owns
 the PHY.
+
+## 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap
+
+The instrumented boot produced no `luofu-init: wfile` lines at all, and that is itself the answer: the
+init cannot write to /dev/kmsg either, so the logging path is gone with the write path. The evidence:
+
+    /overlay/upper/         etc/ (stock), lib/ (written 05:48 by the lab stage), sbin/
+                            -> no boot.log, no mod-load.log, no net-dump-final.txt
+    /overlay/upper/etc/rc.d -> only K50dropbear/S22dropbear from the stock
+    the init's vmods load prove /vendor is READABLE (all modules resident)
+
+So the same partition is writable from userspace (via /overlay) and read-only from the initramfs
+(/vendor), and earlier boots DID write through it (phase3cv's mod-load.log exists, dated 21:45), so this
+is strap-dependent, not a code regression: the init mounts /dev/mtdblock15 with fstype jffs2 and flags
+0. On this board the block device comes up read-only in some strap states (mtdblock opens read-only
+unless something has opened the MTD for writing first), which exactly matches "works sometimes".
+
+The fix is in the init's mount: mount jffs2 with the "rw" data option and check the result, and if that
+still yields a read-only superblock, remount rw before writing. The mount's errno is already tagged into
+C18, so one more fire names it even if the writes stay silent.
+
+Until then the system is safe but the lab boot runs the vendor's script in full (hence the vendor PHY
+winning the match): the network, the web and the broker channel all work, so the box is recoverable and
+VERIFIABLE at every point - only the M2 ownership of the PHY is pending.
