@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 00:06 - The MDIO clock is obtained and the transfers still time out; the gate index is next | `mem-entries.md:21512` |
 | 2026-11-14 | 3cb | 2026-11-14 00:09 - phase3cb died early again; the gate-rate evidence needs a surviving run | `mem-entries.md:21540` |
 | 2026-11-14 |  | 2026-11-14 00:39 - MDIO: the clock is 100 MHz, our writes land, the controller never starts | `mem-entries.md:21558` |
 | 2026-11-14 |  | 2026-11-14 00:40 - The vendor MDIO read, disassembled: our poll polarity was inverted | `mem-entries.md:21581` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |
 | 2026-11-15 |  | 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle | `mem-entries.md:22439` |
 | 2026-11-15 |  | 2026-11-15 18:30 - Bench recovered by TFTP; the calibration snapshot is real now, and 3df stays unmeasured | `mem-entries.md:22477` |
+| 2026-11-15 |  | 2026-11-15 18:45 - 3df debugged off the box: the wfile channel works, and it is the kmsg line nobody read | `mem-entries.md:22506` |
 
 ## All dated entries
 
@@ -605,3 +605,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |
 | 2026-11-15 |  | 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle | `mem-entries.md:22439` |
 | 2026-11-15 |  | 2026-11-15 18:30 - Bench recovered by TFTP; the calibration snapshot is real now, and 3df stays unmeasured | `mem-entries.md:22477` |
+| 2026-11-15 |  | 2026-11-15 18:45 - 3df debugged off the box: the wfile channel works, and it is the kmsg line nobody read | `mem-entries.md:22506` |

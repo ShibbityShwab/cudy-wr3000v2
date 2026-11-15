@@ -12,6 +12,7 @@ scratch and is not part of the live surface.
 | Task | File | Notes |
 | --- | --- | --- |
 | Fire cycle | `fire.sh` | `list`, `latest`, `guard`, `run <phase> --detach`, `status`, `verdict`, `broker`, `ssh` |
+| Off-device init run | `qemu-init-run.sh` | builds `build/linux-kbuild/qemu-src`, runs the tracked init as PID 1 under `qemu-system-arm`; the `wfile()` lines print on the console |
 | Generic SSH fire | `fire-ssh.sh` | tracked host driver: stage, fire, poll, read |
 | Device-side fire | `fire-device.sh` | write `kernelb`, verify, set `bootflag`, reboot |
 | Shadow guard | `check-init-shadow.sh` | must print PASS before any fire |

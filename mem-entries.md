@@ -22502,3 +22502,42 @@ rather than left to be trusted.
 3df verdict: still unmeasured. The slice is proven to carry the instrument and the fire
 lane is proven to write and verify it, but every boot into it leaves the box silent, with
 no console to say why (UART RX dead, J10 pin 3). Nothing has been read from a 3df boot.
+
+## 2026-11-15 18:45 - 3df debugged off the box: the wfile channel works, and it is the kmsg line nobody read
+
+The bench cannot give us a console (UART RX dead), so the 3df init was run under QEMU
+instead. Setup: `qemu-system-arm` 11.1.3, machine `virt`, cortex-a15; a kernel built from
+this tree in a separate copy (`build/linux-kbuild/qemu-src`, so the device tree is
+untouched) with `ARCH_LUOFU`, `ARCH_VEXPRESS` and `CONFIG_MTD_UBI` enabled; the tracked
+`init-vendorroot.c` compiled static and passed as `rdinit`.
+
+Result, in order: the kernel boots to userspace and prints our banner on a PL011 console;
+the FMC's own hooks run (`seed test wret=-1`, `overlay test j1=-19`); and the 3df init
+prints all seven `wfile()` calls, in source order:
+
+    /vendor/upper/etc/rc.d/S10boot E=2
+    ... all seven ... /vendor/upper/pstore-check.txt E=2
+
+so the instrument's kmsg channel works and was live. Every earlier fire judged silence
+from the C98 cell or from the pstore/RAM log ring, and the ring is scrubbed by the stock
+boot; the kmsg lines are the one readout that reaches `dmesg` whenever the boot reaches
+userspace. The `E=2` values themselves are a property of the emulated run (no
+`/dev/mtdblock0`, so the init's mount never happened) and are not a board measurement.
+
+Two build facts fell out that were not obvious:
+
+- `drivers/mtd/nand/luofu/luofu-fmc.c` does not compile without `CONFIG_MTD_UBI`
+  (`luofu_phase_cell`, `luofu_log_b` sit inside `#ifdef CONFIG_MTD_UBI` regions), and
+  `MTD_PSTORE` pulls `PSTORE`/`PSTORE_BLK` in. A config fragment missing any of those
+  fails to link or fails to compile. The device config happens to carry them.
+- `scripts/gcc-plugins` breaks when `DEBUG_LL` is enabled; the QEMU build disables
+  `CONFIG_GCC_PLUGINS` rather than debug the plugin.
+
+The emulator is not luofu silicon: no FMC, no `sysenv`, no bus timing. What it does give
+is a full console for every path the init and the FMC's init hooks own, for free, with no
+TFTP recovery. Evidence and the reproduce line:
+`build/linux-kbuild/waves/3df/emulation.md` (a copy also sits in `qemu-src/`).
+
+Next bench action, when the box is fired again: read the `wfile()` verdict from
+`dmesg | grep /vendor/upper`, not from C98 and not from pstore. It decides EROFS vs
+ENOENT in one read and costs no extra flash cycle.
