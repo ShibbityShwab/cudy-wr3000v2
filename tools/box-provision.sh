@@ -22,6 +22,7 @@ SSID=""
 WIFI_PASS=""
 SSH_KEY=""
 START_TELNETD=0
+STAGE=base
 DRY_RUN=0
 
 while [ $# -gt 0 ]; do
@@ -33,6 +34,7 @@ while [ $# -gt 0 ]; do
         --host) HOST=$2; shift 2 ;;
         --ssh-key) SSH_KEY=$2; shift 2 ;;
         --telnetd) START_TELNETD=1; shift ;;
+        --stage) STAGE=$2; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -79,6 +81,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
+if [ "$STAGE" = base ]; then
 if [ -n "$SSID" ] || [ -n "$WIFI_PASS" ]; then
     if [ -z "$SSID" ] || [ -z "$WIFI_PASS" ]; then
         echo "error: --ssid and --wifi-pass must be given together" >&2
@@ -107,5 +110,62 @@ if [ "$START_TELNETD" -eq 1 ]; then
     echo "[*] starting the root telnet listener on 23"
     root_cmd '/usr/sbin/telnetd -l /bin/sh; sleep 1; netstat -tln 2>/dev/null | grep -c ":23 "' 15
 fi
+fi
+
+MODS_DIR=${MODS_DIR:-/tmp/vmods}
+PATCHED=${PATCHED:-/tmp/vmods-patched}
+OBJCOPY=${OBJCOPY:-$HERE/build/linux-kbuild/toolchain/bin/arm-none-linux-gnueabihf-objcopy}
+SLICE=${SLICE:-$HERE/build/linux-kbuild/luofu-slice-phase3dc.bin}
+HTTP_PORT=${HTTP_PORT:-8000}
+HTTP_IP=${HTTP_IP:-192.168.10.88}
+
+serve_and_push() {
+    ( cd "$1" && python3 -m http.server "$HTTP_PORT" --bind "$HTTP_IP" >/dev/null 2>&1 ) &
+    SRV=$!
+    sleep 1
+}
+
+stop_serve() {
+    kill "$SRV" 2>/dev/null || true
+    wait "$SRV" 2>/dev/null || true
+}
+
+case "$STAGE" in
+base)
+    ;;
+lab)
+    if [ ! -d "$PATCHED" ] || [ -z "$(ls "$PATCHED"/*.ko 2>/dev/null)" ]; then
+        echo "[*] patching $MODS_DIR -> $PATCHED"
+        mkdir -p "$PATCHED"
+        cp "$MODS_DIR"/*.ko "$PATCHED"/
+        : > /tmp/empty.bin
+        for f in "$PATCHED"/*.ko; do
+            "$OBJCOPY" --add-section .plt=/tmp/empty.bin --add-section .init.plt=/tmp/empty.bin "$f" || exit 1
+        done
+    fi
+    echo "[*] packing and serving $(ls "$PATCHED"/*.ko | wc -l) modules"
+    ( cd "$PATCHED" && tar -czf "$HERE/tmp-vmods.tgz" ./*.ko )
+    serve_and_push "$HERE"
+    root_cmd "mkdir -p /overlay/upper/lib/hisilicon/ko; cd /tmp; wget -q -O vmods.tgz http://$HTTP_IP:$HTTP_PORT/tmp-vmods.tgz; tar -xzf vmods.tgz -C /overlay/upper/lib/hisilicon/ko; ls /overlay/upper/lib/hisilicon/ko/*.ko | wc -l" 60
+    stop_serve
+    ;;
+fire)
+    "$HERE/tools/check-init-shadow.sh" || exit 1
+    if [ ! -f "$SLICE" ]; then
+        echo "error: slice not found: $SLICE" >&2
+        exit 2
+    fi
+    cp "$SLICE" "$HERE/tmp-payload-slice.bin"
+    serve_and_push "$HERE"
+    echo "[*] writing the image to kernelb via the broker channel"
+    root_cmd "cd /tmp; wget -q -O slice.bin http://$HTTP_IP:$HTTP_PORT/tmp-payload-slice.bin; ls -l slice.bin | awk '{print \$5}'; mtd erase kernelb; mtd write slice.bin kernelb; ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag b; fw_printenv bootflag; sync; reboot" 120
+    stop_serve
+    echo "[*] image written; the box reboots into the lab kernel"
+    ;;
+*)
+    echo "error: --stage must be base, lab or fire" >&2
+    exit 2
+    ;;
+esac
 
 echo "[*] done"
