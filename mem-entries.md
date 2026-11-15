@@ -22580,3 +22580,38 @@ partition. That is the boundary; anything past it is the board's.
 
 Evidence: `build/linux-kbuild/waves/3df/emulation.md` (reproduce block included),
 `/tmp/realm-3df.log`, and the baseline kernel at `build/linux-kbuild/qemu-baseline`.
+
+## 2026-11-15 19:20 - Emulation closes the init-side question: it is correct, only the mount can fail
+
+Three emulated runs settle what the bench could not. (1) With a real jffs2 image
+(`-device loader` into guest RAM, exposed as `mtd:rootfs_data` by `phram`), the tracked
+3df init mounts it and all seven `wfile()` calls return `OK`; without the image the same
+run says `E=2` on all seven. On the console `OK` vs `E=2` vs any other errno separates a
+landed write from a missing path from a real error. (2) The audit's "prerequisite hunk 0"
+premise is wrong on this kernel: `mkdir("/dev")` returns `-EEXIST` even though the cpio has
+only `./init`, and the `devtmpfs` mount right after it returns 0. (3) The init's
+`/vendor` mount is a direct `SYS_mount`, not a `mount(8)` call, and the kernel matched
+the zero-length fstype by name, so a missing userspace binary is not the failure mode.
+
+So: the init is correct software. If the next 3df boot reaches userspace and prints
+`E=2`, the `/vendor` mount failed to produce `/vendor/upper/etc/rc.d` on luofu's FMC; if it
+prints `OK`, the shadow landed and the remaining question is the vendor `hi_kphy` binding.
+If the boot never reaches userspace at all, the emulator still cannot help: that path is
+kernel or hardware.
+
+Emulation's boundary, stated plainly: phram is SRAM-backed MTD, not the FMC; no NAND
+geometry, ECC or timing is exercised; mount here takes 8.6 s where the live FMC is far
+quicker; the FMC's own hooks report `j1=-2`/`-19` only because this host has no `rootfsb`
+or `lab` partition. Both non-fatal probes are expected in emulation.
+
+Four build facts, cheap to repeat and expensive to rediscover: `CONFIG_JFFS2_FS` is not in
+`hisi_defconfig` (every jffs2 mount is then `E=2`); `luofu-fmc.c` needs `CONFIG_MTD_UBI`,
+`MTD_PSTORE` needs `PSTORE`+`PSTORE_BLK`, and `ARCH_LUOFU` cannot be disabled because
+`init/main.c` calls `luofu_overlay_verdict`; `phram` maps zeroed RAM, so the image must go
+in with `-device loader` or jffs2 sees `E=5`; and a reconfigured `qemu-src` tree stopped
+reaching userspace on `virt` (SIGILL for a known-good init) while a fresh
+`qemu-baseline` copy with the same options ran everything.
+
+Evidence and the reproduce block: `build/linux-kbuild/waves/3df/emulation.md`. Logs:
+`/tmp/realm-3df.log` (all `OK`), `/tmp/mkdirtest.log` (`EEXIST` + mount 0). Commit
+`39d8732` carries the first version of this finding.
