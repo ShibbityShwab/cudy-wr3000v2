@@ -103,9 +103,20 @@ SLICE="$PWD/build/linux-kbuild/luofu-slice-phaseX.bin" \
 
 The broker lane serves the slice from the host, has the box `wget` it, verifies the
 trailer, size, and md5, writes `kernelb`, runs `mtd verify`, sets `bootflag=b`, and
-reboots. It also runs the guard internally. These verification steps are code-reviewed
-and dry-run checked, not device-verified; the first fire after this change validates
-them.
+reboots. It also runs the guard internally. The 3de fire (2026-11-15) device-verified
+the download, write, `mtd verify`, `bootflag=b`, and reboot. Two traps observed: the
+chain's immediate `mtd verify` can fail while the box's own verify returns 0
+(re-verify before declaring the write bad), and the image has no `/bin/fw_setenv`, so
+the `ln -sf /bin/fw_printenv /tmp/fw_setenv` symlink is required. The server log is
+`build/linux-kbuild/http-fire.log`; the script pre-kills any stale listener on the
+port.
+
+The host must allow TCP 8000 from the lab subnet, or the box's `wget` is blocked and the
+fire stops before the erase. On this host:
+
+```sh
+sudo ufw allow in on enp195s0f3u1 from 192.168.10.0/24 to any port 8000 proto tcp
+```
 
 The per-phase run scripts are bench-local; for a fresh clone, use the tracked generic
 `fire.sh ssh` driver. To refresh the patched vendor modules first:
@@ -136,6 +147,17 @@ ssh -i .omo-secrets/router_ed25519 \
 
 A verdict is one value with one last writer. If you do not know the writer, the value
 is not evidence. Never read `0x10161000`; a read-only `devmem` there panicked the box.
+
+If SSH is unavailable (the stock image has telnet only), read through the broker:
+
+```sh
+tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin \
+  --cmd 'for c in C04 C18 C1C C70 C88 C90 C94 C98 C9C; do printf "%s=" $c; devmem 0x10100$c 32; done'
+```
+
+`--cmd` runs one command as root through the MQTT channel and prints its last line.
+Use one-line commands; split multi-line readouts into separate calls, and run them
+serially. Two parallel `--cmd` calls can lose or truncate output on the broker.
 
 ## 6. Recover
 

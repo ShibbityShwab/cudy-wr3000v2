@@ -15,7 +15,7 @@ scratch and is not part of the live surface.
 | Generic SSH fire | `fire-ssh.sh` | tracked host driver: stage, fire, poll, read |
 | Device-side fire | `fire-device.sh` | write `kernelb`, verify, set `bootflag`, reboot |
 | Shadow guard | `check-init-shadow.sh` | must print PASS before any fire |
-| Broker provision | `box-provision.sh` | `--stage base`, `lab`, `fire`; no SSH required |
+| Broker provision | `box-provision.sh` | `--stage base`, `lab`, `fire`; `--cmd <command>` for a read-only broker command; no SSH required; the host must allow TCP 8000 from the lab subnet; `--cmd` calls are serial; the fire's immediate `mtd verify` may fail (re-verify); the image has no `/bin/fw_setenv` (use the `ln -sf /bin/fw_printenv /tmp/fw_setenv` symlink); the serve log is `build/linux-kbuild/http-fire.log` |
 | SSH transport | `rsh.sh`, `rscp.sh` | project key `.omo-secrets/router_ed25519` |
 | Snapshot sync | `sync-lab-src.sh` | copy the live kernel changes into `tools/lab-src` |
 | Snapshot check | `check-lab-src.sh` | manifest checks plus full-tree completeness; `--manifest-only` is the quick check |
