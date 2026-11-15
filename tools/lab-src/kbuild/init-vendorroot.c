@@ -282,6 +282,26 @@ static void wfile(const char *path, const char *s, long mode)
 {
     long fd = sc3(SYS_open, (long)path, 0x241 /* WRONLY|CREAT|TRUNC */, mode);
     long n = 0;
+    char line[96];
+    int k = 0;
+    const char *p = path;
+
+    line[k++] = '<';
+    line[k++] = '6';
+    line[k++] = '>';
+    while (*p && k < 80)
+        line[k++] = *p++;
+    line[k++] = ' ';
+    if (fd < 0) {
+        line[k++] = 'E';
+        line[k++] = '=';
+        k += utoa(line + k, -fd);
+    } else {
+        line[k++] = 'O';
+        line[k++] = 'K';
+    }
+    line[k++] = '\n';
+    append("/dev/kmsg", line, k);
 
     if (fd < 0)
         return;
@@ -419,7 +439,9 @@ void _start(void)
     tag();
 
     sc2(SYS_mkdir, (long)p_vend, 0755);
-    r = sc5(SYS_mount, (long)p_vmtd, (long)p_vend, (long)p_jf, 0, 0);
+    r = sc5(SYS_mount, (long)p_vmtd, (long)p_vend, (long)p_jf, 0, (long)"rw");
+    if (r < 0)
+        sc5(SYS_mount, (long)p_vmtd, (long)p_vend, (long)p_jf, 32 /* MS_REMOUNT */, (long)"rw");
     tg |= (((unsigned long)(-r)) & 0xfu) << 4;
     tag();
     if (r == 0) {

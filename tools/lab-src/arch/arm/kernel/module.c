@@ -33,6 +33,7 @@
 #define MODULES_VADDR	(((unsigned long)_exiprom + ~PMD_MASK) & PMD_MASK)
 #endif
 
+
 #ifdef CONFIG_MMU
 void *module_alloc(unsigned long size)
 {

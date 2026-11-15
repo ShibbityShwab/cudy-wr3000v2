@@ -19,3 +19,13 @@ config LUOFU_MDIO
 	  MDIO bus driver for the HiSilicon luofu SoC family. The vendor's
 	  module is hi_kmdio.ko; the register map in the driver came from its
 	  own hi_mdio_read/hi_mdio_write.
+
+config LUOFU_PHY
+	tristate "HiSilicon luofu Genius PHY"
+	depends on OF
+	depends on PHYLIB
+	help
+	  C22 PHY driver for the Hisilicon Genius PHYs behind the luofu
+	  internal switch (phy_id 0x20669a00, mask 0xffffff00). The vendor's
+	  module is hi_kphy.ko; it also downloads a firmware patch our driver
+	  does not yet use.

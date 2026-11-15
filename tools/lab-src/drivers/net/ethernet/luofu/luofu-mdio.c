@@ -97,53 +97,6 @@ struct luofu_mdio {
 };
 
 /*
- * Wait for a completion field. The vendor polls bits[3:0] of the status register
- * until they read NON-ZERO (see the layout comment above); "non-zero means done"
- * is the inverse of the usual busy-bit convention, so it is spelled out here
- * rather than hidden behind a helper name.
- */
-static int luofu_mdio_wait(struct luofu_mdio *m, u32 status_off)
-{
-	unsigned long timeout = jiffies + msecs_to_jiffies(100);
-
-	do {
-		if (readl(m->base + status_off) & LUOFU_MDIO_DONE)
-			return 0;
-		cpu_relax();
-	} while (time_before(jiffies, timeout));
-
-	return -ETIMEDOUT;
-}
-
-/* Vendor handshake, phase 1: the read-status low nibble must read ZERO before the frame goes out. */
-static int luofu_mdio_wait_zero(struct luofu_mdio *m, u32 status_off)
-{
-	unsigned long timeout = jiffies + msecs_to_jiffies(100);
-
-	do {
-		if ((readl(m->base + status_off) & 0x0f) == 0)
-			return 0;
-		cpu_relax();
-	} while (time_before(jiffies, timeout));
-
-	return -ETIMEDOUT;
-}
-
-/* Vendor handshake, phases 2 and 3: the write-status low nibble must go NON-ZERO, then be acknowledged. */
-static int luofu_mdio_wait_busy(struct luofu_mdio *m, u32 status_off)
-{
-	unsigned long timeout = jiffies + msecs_to_jiffies(100);
-
-	do {
-		if (readl(m->base + status_off) & 0x0f)
-			return 0;
-		cpu_relax();
-	} while (time_before(jiffies, timeout));
-
-	return -ETIMEDOUT;
-}
-
-/*
  * THE VENDOR FRAME LAYOUT (decoded from hi_mdio_read, 2026-11-14).
  *
  * Emulating the instruction sequence at 0x344..0x378 for every (phy, reg) gives
@@ -204,7 +157,7 @@ static int luofu_mdio_read(struct mii_bus *bus, int phy, int reg)
 	if (luofu_mdio_wait_clear32(m))
 		return -ETIMEDOUT;
 
-	writel(frame, m->base + LUOFU_MDIO_FRAME2);
+	writel(frame << 16, m->base + LUOFU_MDIO_FRAME2);
 
 	timeout = jiffies + msecs_to_jiffies(100);
 	do {
@@ -227,17 +180,28 @@ static int luofu_mdio_read(struct mii_bus *bus, int phy, int reg)
 static int luofu_mdio_write(struct mii_bus *bus, int phy, int reg, u16 val)
 {
 	struct luofu_mdio *m = bus->priv;
-	int ret;
+	u32 frame = luofu_mdio_frame(phy, reg);
+	u32 v;
+	unsigned long timeout;
 
-	writel(luofu_mdio_frame(phy, reg) | (u32)val, m->base + LUOFU_MDIO_FRAME);
+	if (luofu_mdio_wait_clear32(m))
+		return -ETIMEDOUT;
 
-	ret = luofu_mdio_wait(m, LUOFU_MDIO_WSTATUS);
-	if (ret) {
-		dev_err(m->dev, "MDIO bus hasn't done writing\n");
-		return ret;
-	}
+	writel((frame << 16) | val, m->base + LUOFU_MDIO_FRAME2);
 
-	return 0;
+	timeout = jiffies + msecs_to_jiffies(100);
+	do {
+		v = readl(m->base + LUOFU_MDIO_WSTAT2);
+		if ((v | (v >> 1)) & 1)
+			break;
+		cpu_relax();
+	} while (time_before(jiffies, timeout));
+	if (time_after_eq(jiffies, timeout))
+		return -ETIMEDOUT;
+
+	writel(v, m->base + LUOFU_MDIO_WSTAT2);
+
+	return luofu_mdio_wait_clear32(m);
 }
 
 /*
