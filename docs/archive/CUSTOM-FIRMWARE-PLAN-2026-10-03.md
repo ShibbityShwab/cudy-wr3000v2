@@ -1,3 +1,6 @@
+> **ARCHIVED 2026-11-15.** This file is history. Its state claims are not current.
+> The live status page is [`STATUS.md`](../../STATUS.md); the procedure is [`RUNBOOK.md`](../../RUNBOOK.md).
+
 # Custom-firmware plan: what "latest OpenWrt on the WR3000 v2.0" actually takes
 
 Written 2026-10-02 against the moved repo (`Documents/GitHub/cudy-wr3000v2`, `master` @ `9c8514b`,

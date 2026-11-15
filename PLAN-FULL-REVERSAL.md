@@ -1,7 +1,11 @@
 # PLAN - full reversal and custom firmware for the WR3000 v2 (luofu)
 
+> **Live plan.** The gate table and the current blocker are in [`STATUS.md`](STATUS.md).
+> The state table below is the 2026-11-13 snapshot; where it conflicts with STATUS.md,
+> STATUS.md wins.
+
 Status: active. Owner: the bench session. Started 2026-11-10.
-Supersedes nothing; extends `PLAN-OVERLAY-FINISH.md` (the overlay lane) with the whole reversal.
+Supersedes nothing; extends `docs/archive/PLAN-OVERLAY-FINISH-2026-11-10.md` (the overlay lane) with the whole reversal.
 
 ## Goal and definition of done
 
@@ -35,9 +39,9 @@ optional but the original ambition).
 | overlayfs assembly | GREEN with the vendor squashfs lower (bits 2 and 4 together) | `phase2c`: C94=0xC0DE9D07 |
 | squashfs lower | GREEN: UBI attach, ubiblock0_0, and the vendor squashfs all mount | `phase2b` (attach, record 118) and `phase2c` (0xC0DE9D07, C88=8,385 reads) |
 | UBI content | vendor attaches mtd14 and sees volume 0 `squashfs` | `ubiattach -m 14 -d 1`, `ubinfo` |
-| Ethernet | ONE defect from green (ARP resolves, ping 0/3) | `STATE.md:731` |
-| Wi-Fi | vendor-only modules, not in our image | `STATE.md:4032`, `luofu.fragment` |
-| Sustained uptime | unconfirmed on our kernel | `STATE.md:344`; the pet/procd wall |
+| Ethernet | ONE defect from green (ARP resolves, ping 0/3) | `docs/archive/STATE-2026-10-30.md:731` |
+| Wi-Fi | vendor-only modules, not in our image | `docs/archive/STATE-2026-10-30.md:4032`, `luofu.fragment` |
+| Sustained uptime | unconfirmed on our kernel | `docs/archive/STATE-2026-10-30.md:344`; the pet/procd wall |
 
 The vendor's mtd14 geometry, read from the vendor's sysfs: writesize 2048, oobsize 64,
 erasesize 131072, size 24379392. The UBI EC header at offset 0 says vid_hdr_offset 2048 and

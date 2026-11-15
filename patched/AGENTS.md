@@ -26,7 +26,7 @@ Sibling payload at repo root: `../rpc_inj.json` - a raw JSON-RPC `login` request
 Companion disassembler: `../tools/luadump.py` (Lua 5.1 bytecode -> readable ops).
 
 ## CONVENTIONS
-- Format is Lua 5.1 bytecode dumped verbatim; printable string constants and symbol names are the readable parts. Use `pyenv/Scripts/python.exe ../tools/luadump.py <file> -c` to disassemble.
+- Format is Lua 5.1 bytecode dumped verbatim; printable string constants and symbol names are the readable parts. Use `python3 ../tools/luadump.py <file> -c` to disassemble.
 - Annotations/restored fragments are appended after the bytecode blob; the trailing plain-text region is the added commentary.
 - Corresponding stock sources are read-only: same files also exist compiled inside the firmware images (`rootfs-2.4.15/`, `rootfs-2.5.24/`).
 - Line counts are small (7-51) because these are dumps, not readable modules; read the string constants, not the byte stream.

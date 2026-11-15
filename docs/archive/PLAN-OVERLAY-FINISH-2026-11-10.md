@@ -1,3 +1,6 @@
+> **ARCHIVED 2026-11-15.** This file is history. Its state claims are not current.
+> The live status page is [`STATUS.md`](../../STATUS.md); the procedure is [`RUNBOOK.md`](../../RUNBOOK.md).
+
 # PLAN - finish the WR3000 v2 overlay firmware
 
 > The full reversal plan is `PLAN-FULL-REVERSAL.md`. This file remains the overlay lane's detail.

@@ -1,528 +1,93 @@
 # STATUS - Cudy WR3000 v2.0
 
-Regenerated, never appended. Last edit 2026-11-14 (session outcome added in 0.5; the page below is the
-2026-11-12 snapshot).
-Current state: this file. The dated record is [`STATE.md`](STATE.md) and `mem-entries.md`; it is history
-and is not a starting point. The claim-by-claim audit behind this page is
-`build/audit/lane-e/DRIFT-MATRIX.md` (gitignored). The full reversal plan is
-[`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md).
-
-## 0.5 SESSION 2026-11-13/14 - what changed (read before the rest of this page)
-
-The sections below are the 2026-11-12 snapshot and their Phase C lines are stale. The session that ran
-2026-11-13 06:00 to 2026-11-14 06:00 established, with device evidence committed in `mem-entries.md`:
-
-- **Phase C CONFIRMED** with kernel-version breadcrumbs (#162..#191): the vendor's preinit,
-  `mount_root`, procd and the whole rc.d chain run on our kernel from the squashfs root.
-- **The reset was below the kernel.** No panic was ever captured (a fixed magic at the end of the FMC
-  panic notifier never appeared). Its cause was a userspace watchdog race: `/dev/watchdog` was opened
-  once, before the luofu-wdt driver registered. The initramfs init now forks a keeper at the very start
-  that re-opens every 5 s; the box holds the full 25-minute home timer.
-- **The measurement pipeline works.** The S95done shadow writes `/overlay/upper/net-dump-final.txt`
-  (flat appends, dump-start/dump-end markers) before the vendor's 384 KiB `mount_protect` write, and
-  survives the crash window.
-- **The GEMAC path.** The four MAC nodes had been DISABLED in every image since 2026-11-13 09:25
-  because the built DTB was stale (`make zImage` never rebuilds a DTB; `make dtbs` does). With a fresh
-  DTB they probe, take clocks and resets, and defer at `phylink_of_phy_connect` because the MDIO
-  controller never completes a transfer. The vendor's `hi_kmdio.ko` was pulled and disassembled; the
-  clock (100 MHz), handshake order, both frame words and the bus-op register map are all implemented.
-  The vendor's own `0x14000000` reads as instruction words, so the controller's access decode is still
-  open, and the PHYs sit behind the internal LSW whose init lives in `hi_lsw_dp.ko`/`hi_lsw_pfe.ko`
-  (~120 KB of driver).
-- **Wireless.** No vendor source exists. The route is our own `opensource/lab` line: all five modules
-  (`luofu-wifi`, `wifidrv1`, `hccaccept`, `wifiskel`, `wifidrv0`) build against our tree with vermagic
-  `5.10.201 SMP mod_unload ARMv7`, matching both our kernel and the vendor's.
-- **The tracked kernel snapshot** is `tools/lab-src` (the build tree itself is gitignored).
-
-Remaining: the Ethernet milestone needs the internal switch ported; the wireless stack needs its lab
-driver advanced beyond the read-only skeleton.
-
-Pins are not written here. Derive them: `git rev-parse --short HEAD` and
+**Updated:** 2026-11-15
+**Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
+**This is the only live status page.** Regenerate it; do not append to it.
 
-## 0. BENCH STATE - read this before trusting any "box healthy" line below
+## 1. Bench
 
-**RECOVERED AGAIN 2026-11-12.** `phase3w` (the vendor-init test) ran the vendor's own preinit on a
-config partition the lab had been erasing, and the box came back with only DNS. A power cycle did not
-help; a RESET hold brought the first-run wizard, and SSH was restored over HTTP: wizard
-(`sha256(pw+salt)`), login (double hash with the page token), then the systime sink to set root's
-password and start dropbear after removing its zero-byte host keys. Verified after recovery:
-OpenWrt 22.03.6 / 2.4.15, 2 wiphys, 6 interfaces, calibration `[SUCC]` both bands, 40 `hi_` modules,
-bootflag=a, boot_reg=0x10, ssh key login. Full recipe: `mem-entries.md` 2026-11-12 (RECOVERY).
-The lab overlay, the seed test and the NOR typing now live on the `upgrade` partition; the vendor's
-`rootfs_data` is left alone except for one targeted `rc.local` shadow written by the Phase C init.
+- Box: the last known state is the stock 2.4.15 image, recovered and provisioned.
+  Root telnet on 23, Wi-Fi `cudy-lab`, LAN `192.168.10.1`.
+- Access: SSH key `.omo-secrets/router_ed25519`. There is no `.sshwrap/` in this
+  checkout. The broker channel is `tools/box-provision.sh` with
+  `dumps/router-20261108/bdinfo.bin`.
+- Latest build (local-only): `build/linux-kbuild/luofu-slice-phase3de.bin`
+  (2026-11-15 11:49), assembled one minute after the init/cpio rebuild (11:48:55).
+  No fire log and no ledger entry for `phase3de` exists, so it is built but
+  unverified. Rebuild and compare before treating it as a receipt.
+- The latest SSH fire script (local-only) is `build/linux-kbuild/run-phase3dc.sh`;
+  3dd and 3de have slices but no run scripts. The broker lane is
+  `tools/box-provision.sh --stage fire` and now defaults to the newest
+  `luofu-slice-phase*.bin`; pass `SLICE=` to pin one. The SSH lane is bench-local:
+  a fresh clone has no run script. The dynamic default and the HTTP path changes
+  are code-verified and dry-run checked, not device-verified; the next fire tests
+  them.
 
-**As of 2026-11-01 the router is RECOVERED and HEALTHY on the vendor image.** It came back **on its own**
-(no RESET hold was needed) after a strand caused by three `luofu_verdict_cell()` marks on sysctrl offsets
-`C00`, `C10`, `C14` - cells the cell map lists as having **no writer**. That was read as "safe" and it is
-not: unowned means no driver writes it, which says nothing about what the address does in hardware.
-Record: `notes/facts/2026-11-01-safe-cells-stranded-the-box-unowned-is-not-safe`.
+## 2. Gates (2026-11-14)
 
-Verified over ssh after recovery:
-
-| measurement | value |
-| --- | --- |
-| `SEL` (`0x10100C08`) | **`0x00000010`** - vendor slot |
-| `/etc/openwrt_release` | `DISTRIB_RELEASE='22.03.6'` |
-| kernel | `5.10.201` |
-| wiphys | **2** (`phy0`, `phy1`) |
-| `wifi-iface` sections | 8 |
-| uptime at check | 820 s, no resets |
-| ssh / http / https | open |
-
-### The recovery left the box FACTORY-RESET, and the ssh failure was NOT a password problem
-
-After the strand the box served the **first-run wizard** (`/cgi-bin/luci/` posts to
-`/cgi-bin/luci/admin/wizard` with a per-page `salt`/`token`), and **root had no password at all** -
-`passwd` reported *"password for root is already unlocked"*, so dropbear refused every login. Two traps,
-both now measured:
-
-- `chpasswd` **does not exist** on this image; `sh: chpasswd: not found`.
-- The ssh host key change was **not** a factory-reset signature on its own - it was our kernel's key being
-  replaced by the vendor's when the box returned to the vendor slot.
-
-Working restore sequence: complete the wizard with the salted hash (`sha256(sha256(pw+salt)+token)`), then
-use the authenticated `admin/system/systime` session to run
-`(echo PW; echo PW) | passwd root; /etc/init.d/dropbear restart`. The systime field executes arbitrary
-shell and its effect is readable over HTTP (write to `/www/`), which makes it a full root command channel.
-`tools/web_login.sh` has the **wrong** salt hardcoded and targets the decoy wizard form - use the live
-page's `salt`/`token`.
-
-**Recovery door: armed and PROVEN.** `tftp/recovery.bin` - 20,975,775 B, md5
-`421114c8ea999c925b7aa79cc548af81`; TFTP on UDP `0.0.0.0:69` verified by a real RRQ returning DATA block 1
-starting `hboot1ta`; host `192.168.1.88` on `Ethernet`. Door procedure: **hold RESET ~15 s while powered**
-(the documented hold is 15, not 10). A plain power cycle re-boots the slot the selector points at.
-
-**Any statement below about the box being on the vendor image is still correct**, but the credential is new:
-the working root password is in `.omo-secrets/ssh-password.txt`.
-
-## 0.1 2026-11-08 findings
-
-- **CVE-2026-71960/71961:** a forged `cudydevice` JWT (HS256, fleet bdinfo `secret`) reaches the
-  broker with CONNACK rc=0. The satellite role can write `router/000000000000/+/+/+/+`; the admin's
-  own subscription receives a `router/command` payload whose `src_did` is the controller sentinel,
-  and `command.lua` runs the JSON `cmd` through `io.popen` as root. A benign `id` redirect returned
-  `uid=0(root) gid=0(root)`; no second node was used. The plugin's `acl_check` returns
-  `MOSQ_ERR_PLUGIN_DEFER`, so the ACL file is enforced; the earlier `admincudydevice-000000000000`
-  auth success did not grant topics. Evidence: `dumps/router-20261108/mqtt-command-chain-report.md`
-  and `evidence/`; the writeup is `gist-cudy-wr3000v2-mqtt-jwt.md`.
-- **Kernel UBI read path:** the committed source had `luofu_read_ecc_off = true`; ECC off with
-  `DMA_LEN=1` loses the last 14 bytes of each 2048-byte page, zeroing record 118's CRC
-  (`f1160000` instead of `f116c36b`). The dumped `kernelb` raw Image already has the ECC-on
-  plain-copy path. The one-line `false` fix is applied locally; the report is
-  `dumps/router-20261108/ubi-readpath-report.md`.
-- **Local Linux build lane (2026-11-08):** rebuilt from `luofu-kernel-config.yml` without WSL, on
-  vanilla 5.10.201 with Arm GNU 11.3.Rel1. All 78 required symbols resolve and no shrink-guard
-  symbol leaked back. **XZ is required:** the default gzip build was a 3,663,480 B zImage; the XZ
-  build is 2,652,520 B (uImage 2,666,464 B). `CONFIG_KERNEL_XZ=y` is now in `luofu.fragment`, and
-  a merge of `.config.base` + both fragments resolves it. The built `luofu_fmc_read_page` is the
-  ECC-on shape (no 1040/14 constants; one plain `memcpy` of `spec.page_size`). Evidence:
-  `build/linux-kbuild/linux-5.10.201/out/{MANIFEST.txt,readpage-shape.txt}`.
-- **Write path proven (2026-11-08):** removing the post-kick `wait_ready` made a single page
-  land. `upgrade` page 163 reads `4c 55 46 55` + `a5`; `C98=0xC0DEA00C` (erase/write/read/match);
-  `C88=0x04327400` (clean self-test read). The test kernel then restarted via `luofu_restart` with
-  `C18=0xC0DE52A1` (the UBI diag: layout volume found, fault inside the UBI scan). The next wall is
-  the UBI/overlay scan, not the write path.
-- **Slot-B fire (2026-11-08):** a bare uImage is not bootable in `kernelb`. Every uImage-only
-  fire failed over in 13-15 s with `C9C` and `C18` both zero. The known-good partition carries a
-  31,220 B base DTB plus 4,592 B and 4,920 B overlays immediately after the uImage; the full
-  slice (uImage + those three DTBs) gets the kernel running. The C94 ladder in `init/main.c`
-  then read `0xC0DE9B08`: all late initcalls, `prepare_namespace()`, `kernel_init_freeable()`,
-  `run_init_process()` and `kernel_execve` all ran and returned. The follow-up marker recorded
-  `C94=0xC0DE9B00`, so `kernel_execve` returned 0 and the init process started; the known-good
-  control's `C9C=0x015EB70F` agrees. A bounded pet timer in `mach-luofu/luofu.c` then kept the
-  hardware watchdog alive for 90 s and the box survived to ~98 s; the 36 s reset is the watchdog
-  (15 s timeout), and the wall moved to userspace: no SSH/Ethernet appeared during the extra
-  time, and the persistent overlay remains the known failure. A slice must be
-  re-flashed before every boot: the failover writes four zero bytes at the first byte after it,
-  and a reuse fails fast. The DTS watchdog node was restored; the DTB is 13,880 B and differs
-  only in property order. The UART reader sees only NULs; pin 4 is readable per the user, but no
-  console ASCII arrives, so the cells remain the reliable channel.
-
-## 1. The goal
-Our own, fully-current OpenWrt on this board: our kernel, our drivers, no vendor kernel. Set 2026-10-05.
-Where it stands: **the FMC write path is proven** (2026-11-03) - direct page program, the mtd write
-hook with the master mtd, multi-page/consecutive writes, and partial writes (the JFFS2 cleanmarker
-shape) all land and read back from the vendor. The persistent overlay does not mount yet; the
-remaining gate is `mtd_volume_identify`'s 4-byte read at offset 0 under our kernel (a raw read of a
-mounted partition returns `ff` on this board and is void). The write-path evidence is
-[`opensource/docs/phase53-write-path-proof.md`](opensource/docs/phase53-write-path-proof.md).
-
-### ★ THE BOOT ORACLE IS NOT TRUSTED YET - read this before interpreting any fire
-
-On 2026-11-01 five builds were fired and **one booted**. The one that booted is the current tree
-(baseline + the `if (0)` mark guard), reproducing as `zImage af7013cf` - verified twice, byte-identical.
-
-The four that went dark included two changes that **cannot plausibly make a boot less safe**:
-
-| slice | change | result |
+| gate | state | receipt |
 | --- | --- | --- |
-| `7e208208` | none (baseline + mark guard) | **returned**, `C9C = 0xDFFE00AF` |
-| `ea8fc3cd` | kick `op_ctrl \| 3u` (vendor's OR form) | dark |
-| `f5fb6714` | spec-derived `OP_CFG` (`0x2B0`) | dark |
-| `f93b24af` | panic path no longer takes an MTD mutex or programs flash | dark |
+| **G1** FMC reads real flash | GREEN | page-0 magic `UBI#`; level-7 MTD probe found the partition, the EC magic, `vid_hdr_offset = 0x800`, and `PEB0+0x800 = 'U'` |
+| **G2** program path | GREEN | a page written by our kernel read back byte-exact through the vendor driver |
+| **G3** our kernel + real rootfs + userspace | GREEN 2026-11-14 | vendor preinit, `mount_root`, procd and the full rc.d chain run on our kernel from the squashfs root; kernel-version breadcrumbs `#162` to `#199` |
+| **G4** Ethernet on our kernel | GREEN 2026-11-14 | vendor switch/MDIO/PHY/MAC modules load as patched modules; `eth2` up at 1 Gbps with the Hisilicon Genius PHY, `br-lan` 192.168.10.1, ping 3/3. Our own `luofu-mdio` and `luofu-gmac` also carry a 1 Gbps link (M2) |
+| **G5** Wi-Fi on our kernel | vendor-only | the lab `wifidrv`/`hccaccept` line builds and loads; no wiphy from our driver |
+| **G6** sustained uptime | GREEN 2026-11-14 | the reset was a userspace watchdog race, not a panic; the initramfs keeper holds the 25-minute timer |
 
-The last one sets a pointer to `NULL` and removes code. It shipped 416 B SMALLER, so the change reached
-the object. **A change that can only remove work also failed**, which means "it came back" is not a clean
-oracle on this bench.
+G4 is met by the vendor's modules. The clean-room drivers reach the same link, but the
+radio (G5) is still the vendor's.
 
-**`panic=5` IN THE CMDLINE: a dark box is a HANG, NOT A PANIC.** `CONFIG_CMDLINE` carries `panic=5`, so a
-panic reboots after five seconds. A box that stays dark is therefore hanging, and no panic-path mechanism
-can explain it - independent grounds on which the panic-notifier theory was wrong, on top of its own
-controlled fire.
+## 3. Current blocker
 
-**AND `ubi.mtd=rootfsb`: OUR KERNEL'S ROOTFS COMES FROM rootfsb (mtd14)** - the partition this project
-writes probe rootfs images into. The boot therefore depends on that partition's current contents, which is
-state we have been changing all session. Any boot comparison must record what rootfsb held at the time;
-a difference there is a confound as large as the driver.
+The initramfs `/vendor` mount can come up read-only on this strap. When it does, the
+init's `wfile()` shadow writes are silent: no `boot.log`, no `mod-load.log`, no
+`net-dump-final.txt`, and `/etc/rc.d/luofu` stays the vendor's original script. The
+vendor's own `hi_kphy` then wins the PHY match.
 
-**Rule before any further write-path experiment: fire the SAME booting slice twice and confirm it returns
-both times.** If it does not, no result from this lane that depends on "did it come back" is evidence
-about the code, and fixing the oracle comes first.
+Evidence: commits `e81b407` and `359ee59`; `mem-entries.md` 2026-11-15 03:30 and 04:10.
+The same partition is writable from userspace through `/overlay`, so this is a mount
+strap, not a code regression. The 2026-11-15 04:10 entry names the fix: mount jffs2 with
+the `rw` data option, check the result, and remount `rw` if needed. The mount errno is
+tagged into C18. The 3de slice was assembled after that change (init/cpio
+11:48:55, zImage/slice 11:49:01) and has not been fired. Rebuild and compare
+before treating it as a receipt.
 
-## 2. Gates
-One numbering, six rows. Each receipt is a file you can open.
+What is not the blocker: FMC read and write, UBI, squashfs, overlay assembly, Phase C,
+Ethernet, and the watchdog are green or have a working vendor path.
 
-| gate | status | receipt (evidence file) |
-| --- | --- | --- |
-| G1 FMC reads real flash | GREEN after the `false` fix; the committed HEAD had `true`, the local working tree is now `false` | `STATE.md:466` (`luofu_read_ecc_off = false` was the one-line fix); `STATE.md:2472` (`C88 = 0xE0021985`, a jffs2 dirent); the 2026-11-08 regression and local fix are in `dumps/router-20261108/ubi-readpath-report.md` |
-| G2 program path | **GREEN (2026-11-08):** single page `upgrade` 163 reads `LUFU`+0xa5; `C98=0xC0DEA00C`; `C88=0x04327400`; the post-kick `wait_ready` was the defect | `mem-entries.md` 2026-11-08; the test kernel's `C18=0xC0DE52A1` is the UBI diag |
-| G3 kernel + rootfs + userspace | **PHASE B CLOSED (2026-11-12):** `phase3s` and `phase3t` both returned C94=0xC0DE9D0F - jffs2 upper, vendor squashfs through `ubiblock0_0`, overlay assembled, and `persist.txt` written and fsynced through it. The vendor reads `/overlay/upper/persist.txt` = `LUFU-PERSIST` (13 B), and after `phase3u` (seed disabled, our kernel reboot) it is still there. Two write-path fixes: rootfs_data typed `MTD_NORFLASH` at probe so 5.10's jffs2 sets up its write buffer, and partial MTD writes (jffs2's 12-byte erase marker) handled as a driver read-modify-write. **PHASE C CONFIRMED (2026-11-13 07:06):** the vendor's own preinit, mount_root, procd and the whole rc.d chain ran to the end on OUR kernel, proven by kernel-version-tagged breadcrumbs: `/boot.log` = `S10boot 1763000383 #162 SMP Fri Nov 13 06:33:52 +07 2026`, then S18hyfibrd, S20network, S95done, and `/kernel-ran.log` = `1763000415 #162 SMP ... 2026`. The earlier C94-only evidence was ambiguous because the stock kernel also runs the shadow rc.local; this one names the kernel. The enabler: release the `/vendor` shadow mount with a PROPER umount before the chroot (a held or lazily detached mount blocks the vendor's `mount_root`, which is why earlier runs never reached S10boot). **Phase D is now measured:** on our kernel the userspace sees only `lo`; dmesg says all four GMAC nodes return `Failed to get clk index: 0, ret: -517` (EPROBE_DEFER), so netifd has no eth2 to configure, and radio0/radio1 find no PHY. The cause is that the DTS `crg` clock/reset controller (`hsan,crg`, 16 gate children, the vendor's `hi_crg`/`hi_clk` pair) has NO driver in this tree, so the provider never registers. A tolerant build that probes the MACs/MDIO anyway (builds #164/#165) crashes the box about six seconds after `/etc/init.d/done`, inside its 384 KiB `mount_protect` write, so probing unclocked hardware is not a shortcut. Phase D needs the crg provider written, and it now is: `arch/arm/mach-luofu/crg.c` registers 16 gate clocks and the reset controller for `hsan,crg`. First run with it (`phase3aw`, #166) shows the vendor boot chain reaching S95done on our kernel, then a reset about six seconds later, before `/etc/rc.local`. That post-done death hits every build whose MAC/MDIO probes proceed and also hits the same kernel with the gmac nodes AND the mdio node disabled (`phase3ax`/`phase3ay`), so the Ethernet bring-up is NOT the cause. The previous kernel's log ring is scrubbed by the vendor's boot, so the crash must be captured deliberately: `CONFIG_PSTORE=y` and a reserved `pstore` partition exist, but no ramoops/pstore backend is wired to it. | Next gate: wire a panic capture, then the post-done crash, then Ethernet and Wi-Fi | `mem-entries.md` 2026-11-13; `fire-phase3as.log`, `fire-phase3ar.log` (local); `/net-state.log` on the box and `/tmp/net-state.log` here |
-| G4 Ethernet on our kernel | **DRIVER RE-INTEGRATED AND BUILT (2026-11-12):** the current image had no ethernet driver (`# CONFIG_ETHERNET is not set`, sources absent from the build tree). `luofu-gmac.c` and `luofu-mdio.c` are staged in `drivers/net/ethernet/luofu/`, PHYLINK was given a prompt so it can be built in, and with `CONFIG_ETHERNET=y CONFIG_PHYLINK=y CONFIG_LUOFU_MDIO=y CONFIG_LUOFU_GMAC=y` the full `zImage` links with both drivers. No fire has run with them yet. The 2026-10-30 measurement stands as the target: ARP resolves, frames move, host ping 0/3, cable on eth2 | `STATE.md:731`; `drivers/net/ethernet/luofu/` (build tree); `mem-entries.md` 2026-11-12 (PHASE D PREP) |
-| G5 Wi-Fi on our kernel | VENDOR-ONLY. Separate deep lane: our own cfg80211 driver binds and creates a netdev, and the firmware dialogue/ring ownership/load are proven, but the data path is gated on the vendor chip layer's TX credit | `STATE.md:732`; `opensource/docs/PORT-STATUS.md` |
-| G6 sustained uptime | the kernel pet timer keeps the box alive for ~1050 s (600 beats, delayed); the vendor returns ~12.5 min after a fire. A real `/dev/watchdog` driver is now integrated in the tree (`luofu-wdt`, four reversal defects fixed, `CONFIG_LUOFU_WATCHDOG` not yet enabled) so procd can own the watchdog | `arch/arm/mach-luofu/luofu.c` pet timer; `drivers/watchdog/luofu-wdt.c`; `STATE.md:583-595` |
+## 4. Next actions
 
-## 3. The one wall, and the write-path situation
-The wall moved again on 2026-11-10 and its cause was found on 2026-11-12. The C94 readout is
-trustworthy (Step 0: `0xC0DE9D00`), and the full three-mount overlay assembly works on hardware:
-`phase2c` returned C94=0xC0DE9D07 with the seeded jffs2 read-write, the vendor squashfs mounted
-through `ubiblock0_0`, and overlayfs assembled at `/mnt/new`. Two fixes closed the UBI wall: the read
-path forces the vendor's ECC type 1 (repairing vtbl record 118), and the ubiblock node is created with
-`new_encode_dev(dt)`.
+1. Fire the 3de slice through the broker or a fresh SSH run script. Read C18 (mount
+   errno) and C94 (verdict), then check `/vendor/upper` for `boot.log` and
+   `mod-load.log`. `tools/check-init-shadow.sh` must print PASS first.
+2. If the mount is still read-only, instrument the mount flags and errno, and try the
+   `rootfs_data` path. Do not re-run 3dc; its result is already in the ledger.
+3. Keep the Wi-Fi lane (G5) separate. The vendor modules own the radio on our kernel.
 
-The remaining Phase B defect was every write on the jffs2 returning -EINVAL: `phase3b` through
-`phase3k` walked it from overlayfs's read-only superblock down to the exact mkdir. The cause is in
-jffs2 itself: in 5.10 `fs/jffs2/os-linux.h` hardcodes `jffs2_cleanmarker_oob(c)` to 0, so
-`jffs2_nand_flash_setup()` is never called and the write buffer is set up only by
-`jffs2_nor_wbuf_flash_setup()`, which requires `MTD_NORFLASH` and no `MTD_BIT_WRITEABLE`. With the
-partition typed `MTD_NANDFLASH`, jffs2 issued direct unaligned node writes (a 0x44-byte dirent at
-0x1d8) and `luofu_mtd_write()` correctly refused them with -EINVAL. The mount only reads, which is
-why a dead write path looked green. `phase3l` types the rootfs_data partition as `MTD_NORFLASH` at
-probe (the master keeps MTD_NANDFLASH for UBI), which switches on jffs2's write buffer and makes
-every flush a whole write-size page.
+## 5. How to run
 
-The wall is now DOWN. `phase3s` returned C94=0xC0DE9D0F (all mounts plus the write test), and the
-vendor reads the file the overlay wrote: `/overlay/upper/persist.txt` = `LUFU-PERSIST` (13 B), also
-visible as `/persist.txt` through the vendor's own overlay. The erase-complete marker is a 12-byte
-partial MTD write, which the driver now handles as a read-modify-write of the page; that is the
-second fix, and it is why the partition's free blocks are usable at all.
+```sh
+tools/check-init-shadow.sh
+SLICE="$PWD/build/linux-kbuild/luofu-slice-phase3de.bin" \
+  tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage fire
+# 3de has no run script; the SSH lane is bench-local and only works for a phase
+# that has a run script on this checkout:
+tools/fire.sh run <phase> --detach
+tools/fire.sh verdict
+```
 
-The earlier scan-time history below is retained because it explains the partition layout and the
-watchdog window. The old "ASSERTED-BUT-UNLOGGED" caveats that follow refer to the 2026-11-03/04
-write tests and are superseded by the fires above.
+The full procedure, including recovery, is in [`RUNBOOK.md`](RUNBOOK.md).
 
-The write path is ASSERTED-BUT-UNLOGGED in both directions.
-- The claim "the current source writes" has no fire log: a search for `p163_nonff` across `build/`
-  returns nothing. The number `p163_nonff = 2048 / p164_nonff = 0` does exist, but only in a session
-  **transcript** from 2026-11-03 (three occurrences), never in a reproducible artefact under `build/`.
-  So the measurement was really taken; it simply cannot be replayed from the repo. One boot that
-  appends the `dd ... | wc -c` output to a fire log closes this permanently.
-- The claim "the current source writes nothing" has no fire log either. The log for the single fire of slice
-  md5 `6b7b28c09253b1572b575289f2145233` that returned reads `rootfs_data` block 0 as `ff ff ff ff`
-  (`build/tmp/fire_rN_20261103.log:57`), i.e. page 163 was not programmed. Every other fire in that set
-  ended `NO RETURN within 1500s` or aborted (`ABORT_unreachable_before_any_write`) with empty measurement
-  sections.
-- `build/tmp/fire_baseline_20261104.log` is the same fire from the same slice and says the same: `NO
-  RETURN within 1500s`, block 0 `ff` (`:37`). Its mtd16 hexdump at the end is a pre-fire snapshot, which
-  the file's own `OUT_PRE=[]` line at `:19` indicates; do not read it as a post-write page.
-- `STATE.md:2188` item 3 claims "the FMC write path works through `luofu_mtd_write`", citing a jffs2
-  volume on mtd16 written by our kernel. That is the source of the "works" assertion. It was not
-  re-measured after the source loss, and no log backs it. Treat it as unverified.
+## 6. Evidence
 
-### What the two rWP fires actually proved (2026-11-01)
-Slice `eef70d6afa520f99c5d16bc232b9c6bf` carried three changes: probe clears WP instead of setting it,
-`write_page` polls `OP_CTRL` bit 0, and no GET-FEATURE after the kick. With the cells primed, the boot
-was attributable: `C18=0xC0DE5245` and `C70=0x00001F40` are ours, so the kernel ran. But
-`C9C = 0x001EB70A` is one step **below** `0x1EB70F` = `run_init_process()` returned 0, i.e. **userspace
-never started**. The rootfs `dd` that is supposed to program page 163 therefore never ran, and
-`p163_nonff = 0` is a statement about userspace, not about the driver.
+[`EVIDENCE-INDEX.md`](EVIDENCE-INDEX.md) maps each gate and blocker to its artifact.
+[`CURRENT-TRUTHS.md`](CURRENT-TRUTHS.md) is the curated summary;
+[`mem-entries-INDEX.md`](mem-entries-INDEX.md) is the ledger index. The ledger is
+append-only; the latest dated entry wins over any earlier claim.
 
-**Rule: a write test whose trigger lives in userspace cannot run on a kernel that never reaches
-userspace. Read the boot signature before reading the measurement.**
+## 7. History
 
-This also removes the only mechanism the record offers for rM's asserted `p163_nonff = 2048`: that was a
-userspace `dd` too. It does not prove rM never wrote, but it means the number cannot have been produced
-the way it is described.
-
-### The kernel-side write test, and where it stalls (2026-11-01, three boots)
-The boot-path write at line ~6878 was retargeted from `log` page 12 to **`upgrade` page 163** and
-enabled, with the existing `LUFU` sentinel pattern. Slices `79cfa129`, `072815b3`, `2494e4ce` all read
-`p163_nonff = 0`.
-
-Two attribution cells were added and **neither landed**:
-- `C8C = 0x4b450000 | row` was to be written immediately BEFORE the call ("entered");
-- `C94 = 0x4b000000 | ret<<8 | row` immediately AFTER it ("returned"), with `0xdead0000` for
-  `get_mtd_device_nm("upgrade") == NULL`.
-
-Both read back `0x55555555`, the primed value. So the block either is not reached or the cell channel is
-dead there, and the two cannot currently be told apart.
-
-**CORRECTION to an earlier reading in this session:** `C18 = 0xC0DE5245` is NOT this kernel's log tick.
-The tick writes `C1C` through `luofu_crumb_base` (`luofu-fmc.c:5369-5370`, `0xc0de5000 | ticks`), and
-`luofu_log_timer` is armed from three other sites as well (`5582`, `6238`, `7591`). `C18` is therefore
-not evidence that the probe reached line 6833, and no claim here rests on it any more.
-
-**The next instrument must prove itself first.** Write a distinctive value from a site that provably
-executes (the `C1C` tick path is the recorded one), confirm it lands, and only then move the write test.
-Without that, every `p163 = 0` is ambiguous between "never attempted" and "attempted and failed".
-
-### ★ THE PROBE NEVER PASSES `luofu_fmc_reset_die()` - and that is the real blocker (2026-11-01)
-A cell ladder, one deposit per fire, on primed cells:
-
-| deposit site | cell | landed? |
-| --- | --- | --- |
-| after the MTD registration chain (6533) | `C8C` | **YES** (`0xC0DE5AA3`, partition resolved, row `0xC5A3`) |
-| after `luofu_fmc_reset_die()` returns 0 (6558) | `C94` | no |
-| after the NAND ID check passes (6590) | `C88` | no |
-| at DMA setup (6670) | `C8C` | no |
-| the kernel-side write test (after 6710) | `C94` | no |
-
-`fmc->dma_buf` is allocated at **6710** and `page_buf` at **6747** - both after the reset step. So the
-MTD device registers (which is why `/proc/mtd` looks fine) but **every read and write falls through
-`if (!fmc->dma_buf) return -ENOMEM`**, and `mount_root` hangs on an MTD that exists but cannot transfer
-a byte. That is `C9C = 0x001EB70A`.
-
-**Consequence: the three write-path fixes were never exercised.** They are not disproved; the program
-path was unreachable.
-
-**RESULT once the path was made reachable (2026-11-01):** allocating `dma_buf`/`page_buf` at the
-proven-reachable site and running the write test there gives `C94 = 0xC0DE0022` — **`luofu_fmc_write_page()`
-returns 0** — with `C88 = 0xFE327400` (`nz = 0xFE`, the driver's own read-back sees ~2032 non-`ff` bytes)
-while the vendor reads `upgrade` page 163 as `ff ff ff ff`. That is the circular oracle in one cell: the
-read-back refills from the same DMA buffer the write filled, and the die never changed.
-
-Variants that all reproduced ret 0 / page `ff`: probe WP clear, per-program WP clear (rM item 2), no
-`WREN` (item 6), `OP_CTRL` completion poll (item 3), no post-kick GET-FEATURE, `OP_CFG = 0x9D0` (the
-value with a positive 2026-10-18 fire behind it), and `OP_CTRL |= 0x006B0000` (the vendor's live
-`0x006B3203` upper field). **Seven variants, one result.** None of the five ranked binary-diff
-differences, nor the two values with recorded live provenance, makes a program land.
-
-`0x9D0` deserves a note because it was the best-evidenced value in the record: on 2026-10-18 it altered
-the vendor's own planted bytes in mtd9 PEB0. It changed nothing here; the source had been switched to
-`0x9A0` on a capture whose own table lists `0x9A0` as the program's *transient start value*.
-
-**Withdrawn reading:** `C88 = 0xFE327400` is NOT the write's read-back count. `C88` is foreign-held by an
-ASCII-packing writer that increments it every boot (see `reference/cudy-wr3000v2/sysctrl-cell-map`), so
-the "circular oracle measured in one cell" claim has no support. The read-back IS still circular by code
-inspection (it reads `fmc->dma_buf`, the buffer the write filled) - that was established earlier and does
-not rest on this cell.
-
-`OP_CFG = 0x9A0` is deliberate, not a bug: this driver's `FMC_OPCFG_*` macros are in a different layout
-from the hardware (macros put cs at bit 11; hardware puts cs at 0-3), so the computed pack decodes to
-`cs = 0`, and `0x9A0` is the vendor's own shape (`cs=0, if_type=2, addr_cyc=3, dummy=1`). Note the
-unresolved contradiction: the flash spec says `wr_if_type=3` / `wr_addr_cyc=5`.
-
-**Two of the three candidates are now eliminated by measurement (2026-11-01):**
-
-| candidate | test | verdict |
-| --- | --- | --- |
-| the row is not the page the vendor reads | DTS: `upgrade` at `0x6280000`, row `0xC500`, `+163 = 0xC5A3`, byte `0x62D1800` == `upgrade + 163*2048` | **ELIMINATED** |
-| the die is block-protected by its own CONFIG register | `luofu_fmc_get_feature(CONFIG)` deposited on a holding cell: **cfg byte `0x00`**, call returned 0 | **ELIMINATED** (`BP0-BP3` clear) |
-| the DMA source is unreachable | `fmc->dma_addr` deposited: **`0x84040000`** | **STANDS** |
-
-### ★ THE DMA-WINDOW THEORY IS WITHDRAWN (same day, before it became a premise)
-`fmc->dma_addr` is **`0x84040000`**. The vendor's live `SADDR_D0/D1/OOB` are quoted in
-`reference/cudy-wr3000v2/fmc-dma-destination-arming.md` as **`0x820e0000` / `0x820e1000` / `0x820e2000`** —
-the **same DRAM region**, 32 MB vs 64 MB into the same bank, which is what two independent coherent
-allocations look like. That same note's front matter also carries `0xA0000000` from a different sampling,
-contradicting its own body.
-
-So the "different DMA window" reading compared our value against one of two vintages in a record that
-disagrees with itself. **The DMA window is UNVERIFIED, not proved**, and no claim here rests on it.
-
-What still stands from this round: the row arithmetic is exact (candidate 1 eliminated) and the die's
-CONFIG register reads `0x00` with `BP0-BP3` clear (candidate 3 eliminated). The silent no-op therefore has
-no established cause.
-
-**Later the same day, two more things were ruled out by measurement, and one of them by breaking the boot:**
-
-| change | result |
-| --- | --- |
-| `luofu_jffs2_mark(fmc)` guarded at `luofu_fmc_probe` (slice `7e208208`) | **returns** - `C9C = 0xDFFE00AF`, log tick runs. The probe was dead at this call. |
-| the same, plus kick changed to the vendor's OR form `op_ctrl \| 3u` (slice `ea8fc3cd`) | **NO RETURN within 300 s**, box dark -> the OR form is a REGRESSION and is reverted |
-| "the completion wait is wrong" (unused `FMC_INT_DMA_DONE_BITS 0x38`) | **retracted** - the earlier variants already polled `!(OP_CTRL & BUSY)` on `0x68`, i.e. the vendor's own shape |
-
-`hi_spi_nand_hw_write` really does compute `(old | 3)`, but our driver is not in the vendor's state at that
-line, so preserving bits 2-7 lets a set START/DIR bit through. **Rule earned: matching the vendor
-instruction-for-instruction is not matching its state.** Detail: `BACKLOG.md` BL-2,
-`notes/facts/2026-11-01-wkick-the-or-form-breaks-the-boot`.
-
-**Starting point for the next attempt** (all measured): the probe reaches line 6603 (`FMC: READ ID 8c 2c …`
-is in the record), the die ID matches, `CONFIG` is `0x00`, the row arithmetic is exact, the kernel-side
-transfer completes with `ret 0`, and the die does not change. The one instrument the prior-art review names
-that no fire has used is `CMD_DATABUF_N` (`0x400 + 4*N`) - command data in registers, **bypassing DMA** -
-which separates "the SPI protocol is wrong" from "the DMA path is wrong". Fixing the contradicting vendor sample is the next doc-level task: re-derive
-`SADDR_D0/D1/OOB` from ONE live capture and record which vintages exist and why.
-
-**RESOLVED (same day): it is not `reset_die` - it is the probe-time `jffs2_mark` call.** Deposits placed
-right after the MTD registration chain land; every deposit placed after **line 6562,
-`luofu_jffs2_mark(fmc)` in `luofu_fmc_probe`**, does not. No lock is held there and MMIO reads demonstrably
-work, so that one call is what separates a live instrument from a dead one. The record had already called it
-the boot-killer once and removed it; it was re-added.
-
-**Measured, with the call disabled:**
-
-| build | `C9C` | `C1C` | `C18` |
-| --- | --- | --- | --- |
-| mark active (baseline) | `0x001EB70A`, frozen for hours | `0x00001823` | `0xC0DE5245` (stale) |
-| mark disabled at 6562 | **`0xDFFE00AF`** | **`0xC0DE5000`** (the log tick's own payload) | **`0xC0DE5280`** |
-
-The probe now runs past the mark, so `dma_buf`/`page_buf` can be allocated and the write path becomes
-reachable for the first time. **Caveat kept deliberately:** the first attempt disabled the *wrong* call site
-(`str.replace` hit the `luofu_fmc_ubi_probe` copy at line 3900) and produced a byte-identical zImage, which
-the stale-image guard caught. Match a call by its enclosing function, never by its text.
-
-`p163_nonff` is still 0 **in that build** because it carried no write test - it was the clean baseline plus
-the one disabled call.
-
-**Follow-up fire (same day, write test at its proper site after `page_buf`):** the boot state is identical to
-the no-mark build (`C9C = 0xDFFE00AF`, `C1C = 0xC0DE5000`, `C18 = 0xC0DE5280`), but the test's own deposits do
-**not** land (`C94 = 0xC0DE6F07`, `C8C = 0x80604000` - other writers) and the page is still `ff`. So the probe
-advances past the mark but does **not** yet reach the buffer-allocation site. The next rung is a deposit
-between line 6562 and `page_buf` to find where it stops now.
-
-### The leading defect in the write path
-The program command and the kick are both present. `luofu_fmc_write_page` reads `OP_CTRL`, writes
-`(op_ctrl & ~0xff) | 3` and `(op_ctrl & ~0xff00) | (wr_cmd << 8)`, and stores it. What it also does,
-and the vendor does not:
-
-| line | statement | vendor parity |
-| --- | --- | --- |
-| 1695 | `writel(1, FMC_DMA_LEN)` | vendor never writes this register |
-| 1760 | `writel(1, FMC_DATA_NUM)` | vendor never writes this register |
-| 1775-1776 | `FMC_INT_EN = 1`, `FMC_INT_CLR = 1` | vendor never touches either |
-| 1835 | `op_cfg = 0x9A0u` | discards the geometry computed at 1806-1809 |
-| 1871 | polls `FMC_INT_STATUS & 1` | not the vendor's completion bit |
-| **1885** | **`luofu_fmc_wait_ready(fmc)` after the kick** | **the vendor issues nothing after the kick** |
-
-`luofu_fmc_wait_ready()` (1490-1514) loops on `luofu_fmc_get_feature_raw()`, so line 1885 sends
-`FMC_CMD=0x0f`, `FMC_ADDRL=0xc0`, `FMC_OP_CFG=cs|0x70`, `FMC_DATA_NUM=1`, `FMC_OP=0xc5` into the chip
-immediately after the program kick. The vendor's last instruction in its program path is
-`pop {r4,r5,r6,pc}` at `0x5e0`.
-
-This is a candidate, not a proven cause: it is a race, so a fast part may complete the program before
-the feature read lands, which would explain why the same defect yields a write on one boot and nothing
-on the next. The decisive experiment is one boot with the 1885 call removed. The patch is written and
-ranked in `build/audit/lane-a/MINIMAL_PATCH.md`, and the reconstructed function is
-`build/audit/lane-a/luofu_fmc_write_page.recovered.c`.
-
-No commit is vendor-clean: of the 163 commits touching the driver, 47 contain this function and **all
-47** carry the post-kick `wait_ready`. So this defect is not a regression from one bad commit; it has
-been in every recorded version.
-
-What the code says, without a measurement: the submodule HEAD contains zero definitions of
-`luofu_exec_note` / `luofu_mount_note` while `fs/exec.c` and `fs/namespace.c` in the kernel tree call
-both, so HEAD alone does not link. The working tree only links because of an uncommitted 43-line block
-that makes both functions inert (`git -C opensource diff --numstat -- lab/luofu-kernel/nand/luofu/luofu-fmc.c`
--> `43 0`).
-
-The current source builds on this Linux host with Arm GNU 11.3.Rel1, from a vanilla 5.10.201 tree
-plus `kernel-tree.patch`, the three instrumented head files, `mach-luofu`, the DTS and the NAND
-driver, configured with `multi_v7_defconfig` + `luofu.fragment` + `luofu-shrink.fragment`. All 78
-required symbols resolve and no shrink-guard symbol leaked back. Measured 2026-11-08: zImage
-3,663,480 B (sha256 `b3ad4b40211daa393e24181f2729e12163603bd89818cc32eae18a199114a3b7`), DTB
-13,516 B (`6247d30675345b001bea474b95287756523ac0390d1e90b0cc517c4e4e78a64d`), uImage
-3,677,060 B (`d2d85e24d9dbc0e1bdddeae58d2ce8b4c48f144f2cc1c4e9cf781b93b0d538a0`), 4,973,692 B
-left of the 8,650,752 B kernelb partition. The uImage data is `zImage + DTB`, the same layout the
-flashed B-slot image uses; its data CRC verifies.
-
-The built `luofu_fmc_read_page` is the ECC-on plain-copy shape, checked in the linked `vmlinux`:
-`luofu_fmc_ecc_type_get` returns `saved` in r0 and that same value is passed to
-`luofu_fmc_ecc_type_set` (no `mov r1, #0`); the 1040/14 de-interleave constants are absent; the
-single copy is `memcpy(data, fmc->dma_buf, fmc->spec.page_size)`. Evidence:
-`build/linux-kbuild/linux-5.10.201/out/readpage-shape.txt` and `out/MANIFEST.txt`.
-
-## 4. Next three experiments
-1. **Issue the write from the KERNEL, not from userspace.** Our kernel stops at `C9C = 0x001EB70A`,
-   before `run_init_process()`, so nothing in preinit runs and no userspace test can reach the driver
-   (§3). Add a kernel-side trigger and read the page back from the vendor afterwards. rM had exactly
-   that: `luofu_proc_work` (`filp_open` + `kernel_read` + `mtd_write`). The current driver contains
-   **zero** occurrences of `luofu_proc_work`, `filp_open`, `kernel_read` or `call_usermodehelper`, so
-   a kernel-side writer has to be added. Start from
-   `build/audit/lane-d/luofu-fmc.recovered-write-path.c`, program one known page of `upgrade`, and
-   verify with `dd if=/dev/mtd16 bs=2048 skip=163 count=1 | tr -d '\377' | wc -c` from the vendor.
-2. If the page still does not program, remove the three vendor-absent register writes in a single further
-   fire - `FMC_DMA_LEN` at 1695, `FMC_DATA_NUM` at 1760, `FMC_INT_EN`/`FMC_INT_CLR` at 1775-1776. These
-   are vendor-parity changes with no measurement behind them yet, which is why they are second.
-3. If the page programs but the overlay still does not mount, the fault is in `volume_identify`'s path and
-   not the program path: re-read `rootfs_data` block 0 through the block-device layer fstools uses and
-   log its answer.
-
-## 5. Box state
-- Vendor image on the box (`REL=2.4.15`, `SEL=0x10`) as of the last successful preflight,
-  `build/tmp/fire_baseline_20261104.log`.
-- Only `rootfsb` (mtd14) was ever written by us (`STATE.md:6698`, the objective line: "Box healthy on
-  vendor, only rootfsb (mtd14) written").
-- **After the 2026-11-08 recovery:** vendor 2.4.15, `bootflag=a`, `boot_reg=0x10`, root SSH
-  restored with the `.omo-secrets` key. The web wizard accepted the lab admin password; the
-  systime command channel ran as root. The recovery image left 0-byte dropbear host keys;
-  `dropbearkey` regenerated them and a manual `dropbear` listens on :22, with an `/etc/rc.local`
-  line for the next boot. Wi-Fi up. The write-path registration was reverted to the read-only
-  shape; the next experiment is a single-page write test on `upgrade`, not a writable MTD.
-- `wiphy 0` on a factory-reset image is the `factory` flag, not a fault: `/usr/local/factory/sysinfo`
-  ships `option factory '1'`, which makes `wifi_init.sh` exit silently (`docs/wifi-factory-gate.md`, §Summary).
-
-## 6. Canonical assets
-| asset | md5 | state |
-| --- | --- | --- |
-| `luofu-uImage-rM-slice` | `6b7b28c09253b1572b575289f2145233` | the only slice ever cited with a write measurement behind it, and that measurement is not logged. Preserved at `build/audit/backup-2026-11-01T11-31-21-521Z/luofu-uImage-rM-slice`. |
-| `rootfs-rQ.sqfs` | `0669c8d4dbaf0f789daa3f9e9ff56e6e` | content-based test rootfs. Preserved in the same backup directory. |
-| `stock/rootfs-live.sqfs` | `75a7530c6d2eb694bd5105be1c482fee` | authoritative vendor rootfs, 14,864,384 B. Same size as rQ, different md5: compare md5, never size. |
-
-**2026-11-08 recovery:** the full live flash dump is at `dumps/router-20261108/full/` (17 MTD
-partitions, 129 MB, `MANIFEST.sha256` verified). It restores the canonical assets above that were
-lost with the old drive, and it adds the flashed custom kernel from the B slot: `mtd12-kernelb.bin`
-uImage md5 `339c498cf6908350c3099be9d4ce3565`, zImage md5 `9c2b86eb269ce802dfe1918a37900a43`,
-decompressed `Linux version 5.10.201 (luofu-lane@local) #1 SMP 2026-11-03T21:51:20+07:00`, appended
-DTB md5 `6564d93ef8f1138feafce2c4249a54c4` (13,880 B). The `build/audit/lane-b/out` path and the
-backup directory above are absent in this Linux checkout; `build/` now contains only
-`build/uart-logs`. The dump is the only surviving copy of that local lane build. The running
-vendor slots match the official 2.4.15 image: `kernela` uImage md5 `0264de73aaf6dcbc0f7f502ad3d0f7bf`
-and both rootfs UBI images reassemble to the official squashfs md5
-`6121f6b4fcefc6235f7e194f116f8220`.
-
-Everything else in `build/tmp/` is an experiment. `build/` is gitignored, so these exist on this machine
-only; the backup directory is the copy to keep.
-
-## 7. Open hygiene
-- The submodule is clean at `a0091e7` (single root commit); the 19-file working-tree diff from the
-  2026-11-01 audit is no longer present. The only local change after this review is the one-line
-  `luofu_read_ecc_off = false` fix in `lab/luofu-kernel/nand/luofu/luofu-fmc.c` (uncommitted,
-  uncompiled). The `build/audit/...` backup paths are absent in this checkout.
-- The parent repo has 13 untracked paths (`git status --porcelain`), including `docs/`,
-  `EVIDENCE-INDEX.md`, `SESSION-HANDOFF.md`.
-- `nul` at the repo root is a 46-byte junk file containing a stray bash error. It is referenced by
-  nothing; delete it when convenient.
-- The kernel log ring is disabled for cause (`LUOFU_LOG_BASE = 0x80602000` was never reserved,
-  `STATE.md:502-506`). Do not re-enable it without a `memblock_reserve`.
-- `luofu-wifi` builds as a module but is not in the kernel fragment, so our image has no Wi-Fi driver
-  (`STATE.md:4036`).
-
-## 8. What is NOT true
-- "The current source writes mtd16." No reproducible fire log records `p163_nonff`; the only occurrences
-  are in a 2026-11-03 session transcript, not in `build/` (§3).
-- "The write path was proven byte-exact." The self-test that produced that claim is circular - it
-  compared a buffer against a read of the same buffer, and the vendor read `05 00 01 22` where we wrote
-  `A5 A4 A7 A6` (`STATE.md:121-128`).
-- "Wi-Fi reads 0 wiphys because of a vendor slot fallback." It is the `factory` flag (§5).
-- "The FMC read path is broken." The ECC-on path reads correctly after the `false` fix
-  (`STATE.md:466`); the committed source had `true`, which loses the last 14 bytes of each page and
-  corrupts volume-table record 118; the local working tree now has the `false` fix. See
-  `dumps/router-20261108/ubi-readpath-report.md`.
-- "The ~70 s reset was memory corruption." The record's own correction names the watchdog chain
-  (`STATE.md:284-290`): init hands the fd to procd, procd never reaches its event loop, the timeout expires.
-  A separate unreserved log ring (`STATE.md:502-506`) corrupted RAM and killed the boot earlier. The
-  watchdog fix is not fire-confirmed (`STATE.md:344`).
-- "All 58 vendor drivers are reversed and working." They are ported to source; only compilation was
-  checked (`docs/driver-port-inventory.md:3-5`).
-- "G3 is NOT YET." Userspace and `rcS` run (`STATE.md:2188`).
+[`docs/archive/README.md`](docs/archive/README.md). The most relevant retired pages are
+`STATE-2026-10-30.md`, `STATUS-2026-11-12.md`, `START-HERE-2026-11-15.md`, and
+`PROGRESS-2026-10-15.md`.

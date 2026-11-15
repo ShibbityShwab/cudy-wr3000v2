@@ -1,122 +1,117 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-10-02
-**Commit:** 9c8514b
-**Branch:** master
+**Updated:** 2026-11-15
+**Status authority:** `STATUS.md`
+**Procedure:** `RUNBOOK.md`
 
 ## OVERVIEW
-Offensive-research notebook for a **Cudy WR3000 v2.0** router (HiSilicon "luofu", OpenWrt 22.03.6, kernel 5.10.201): web-UI RCE writeup, firmware unpacking/crypto tooling, and a live device experiment pipeline for snarfing a Wi-Fi chip out of the stock firmware. Not a buildable product - a tool + evidence repo. The published half lives in the `opensource/` submodule.
 
-**Unit identity (2026-11-08):** the enclosure may say WR3000 v1, but the PCB is the HiSilicon
-luofu v2-class design (Hi5671YV200 + Hi5622v100), not the MediaTek MT7981 v1. The v1 FCC filing
-and board photos do not apply. The UART console cannot stop U-Boot: keyed autoboot with no stop
-key in the default environment; the reset button is Linux userspace. Read
-`HARDWARE-IDENTITY.md` before UART or firmware work.
+Offensive-research notebook for a Cudy WR3000 v2.0 router, HiSilicon luofu v2-class
+board: Hi5671YV200 SoC, Hi5622v100 Wi-Fi, 128 MB NAND and 128 MB DDR3, stock OpenWrt
+22.03.6 on kernel 5.10.201. The goal is our own OpenWrt on this board: our kernel, our
+drivers, no vendor kernel. This is a tool and evidence repo, not a buildable product.
+The published half is the `opensource/` submodule.
 
-## STRUCTURE
-```
-cudy-wr3000v2/
-├── tools/        # experiment harness (.sh), crypto/RE CLIs (.py), js probes; the working surface
-├── patched/      # de-crypted stock LuCI bytecode (LuaQ) - injection sinks, NOT source
-├── opensource/   # git SUBMODULE -> cudy-wr3000v2-open-firmware (docs/lab/build, GH Actions)
-├── wordlists/    # Git LFS pointers only (14 bytes each) - not real wordlists
-├── HARDWARE-IDENTITY.md START-HERE.md PLAN-UART.md mem-entries.md gist-*.md   # handoff docs; read these first
-├── tmp_manifest.txt rpc_inj.json                          # generated artifact / raw payload
-└── {build,dumps,firmware,stock,rootfs-*,decomp,pages,pyenv,jtools,tftp,ulw}/  # IGNORED
-```
+The enclosure may say WR3000 v1. The PCB is the luofu v2 design, not the MediaTek
+MT7981 v1. Read `HARDWARE-IDENTITY.md` before any UART or firmware work.
+
+## READ THIS FIRST
+
+1. `STATUS.md` - the only live status page.
+2. `CURRENT-TRUTHS.md` - the curated summary; the ledger is the long form.
+3. `RUNBOOK.md` - the current build, fire, readout, and recovery loop.
+4. `LESSONS.md` - the durable rules that have cost real fires.
+5. `HARDWARE-IDENTITY.md` - unit identity and the measured UART limits.
+6. `EVIDENCE-INDEX.md` - claim, artifact, and how to regenerate it.
+7. `PLAN-FULL-REVERSAL.md` - the active plan.
+8. `mem-entries.md` - append-only history. Use `mem-entries-INDEX.md`, not a linear read.
+
+`docs/archive/` is history. Do not act on its state claims.
+
+## ENVIRONMENT (THIS CHECKOUT)
+
+- Linux workstation. Repo: `/home/shibbityshwab/Documents/GitHub/cudy-wr3000v2`.
+- Device: `root@192.168.10.1`. Key: `.omo-secrets/router_ed25519`. There is no
+  `.sshwrap/` and no `pyenv/` here. Use the key directly, or `tools/rsh.sh` and
+  `tools/rscp.sh`.
+- Python: use `.provision-venv/bin/python` for the dependency tools (see
+  `tools/requirements.txt`). Stock `python3` is 3.14 and lacks pycryptodome,
+  PyJWT, paho-mqtt, and passlib.
+- Kernel working tree: `build/linux-kbuild/linux-5.10.201` (gitignored; this is the
+  source of truth).
+- Tracked snapshot: `tools/lab-src` (a mirror; `tools/check-lab-src.sh` checks the
+  manifest and completeness, `--manifest-only` is the quick check).
+- Toolchain: `build/linux-kbuild/toolchain/bin/arm-none-linux-gnueabihf-`.
+- Slice: `zImage` + `luofu-r116.dtb` + `mkimage` + the fixed 40,732-byte trailer. The
+  pattern is `build/linux-kbuild/next-persist.sh`.
+- Fire entrypoint: `tools/fire.sh`. The per-phase scripts under
+  `build/linux-kbuild/` are gitignored.
 
 ## WHERE TO LOOK
+
 | Task | Location | Notes |
-|------|----------|-------|
-| Hardware identity / UART limits | `HARDWARE-IDENTITY.md` | v1 label vs luofu v2 PCB; TTL cannot stop U-Boot; reset is userspace |
-| Run a module experiment | `tools/exp.sh` | arms device watchdog first; prints `EXP RESULT: PASS\|FAIL` |
-| N hypotheses, one boot | `tools/batch.sh` | list format `<label>\|<params>`; report in evidence dir |
-| Survive agent death | `tools/run-exp-detached.sh` | older path; the `sr-carrier-detached.sh` wrapper is likely stale |
-| Undo experiment | `tools/restore-now.sh` | unhides vendor mods, rm loaders; then reboot |
-| Calibration safety | `tools/wifi-cal-snapshot.sh` / `wifi-cal-restore.sh` | snapshot BEFORE experiments; restore is dry-run by default |
-| bdinfo secret | `tools/decrypt_bdinfo.py` | DES-CBC; yields fleet `secret` + `deviceid` |
-| MQTT/JWT takeover | `tools/forge_jwt.py` -> `tools/mqtt_takeover.py` | passive by default; `--cmd` publishes |
-| Unpack firmware | `tools/extract_firmware.py` | hboot1tag -> uImage -> UBI -> squashfs |
-| Read Lua bytecode | `tools/luadump.py` | Lua 5.1 disassembler; used on `patched/*.lua` |
-| Injection payload | `rpc_inj.json` | `login` params carry `x'; echo PWN1 > ...` |
-| Build the .ko | `opensource/.github/workflows/build-load-test-module.yml` | no local ARM toolchain |
-| Research narrative | `opensource/docs/phase*/` | phase19-22 = PCIe/HCC bring-up |
+| --- | --- | --- |
+| Current state | `STATUS.md` | the only live status page |
+| Build, fire, recover | `RUNBOOK.md`, `tools/fire.sh` | exact commands |
+| Unit identity / UART | `HARDWARE-IDENTITY.md` | v1 label vs luofu v2 PCB |
+| Durable rules | `LESSONS.md` | read before a device action |
+| Evidence | `EVIDENCE-INDEX.md`, `mem-entries-INDEX.md` | claim to artifact |
+| Kernel source (live) | `build/linux-kbuild/linux-5.10.201` | gitignored working tree |
+| Kernel source (tracked) | `tools/lab-src` | mirror, drift-checked |
+| Lab drivers | `opensource/lab/luofu-*` | published modules |
+| Vendor stack on our kernel | `opensource/docs/VENDOR-STACK-ON-MAINLINE.md` | working recipe |
+| Upstream roadmap | `opensource/docs/ROADMAP-OPENWRT.md` | plan after the hybrid |
+| Web RCE / broker | `tools/forge_jwt.py`, `tools/mqtt_takeover.py`, `tools/box-provision.sh` | LAN only |
+| Firmware unpack | `tools/extract_firmware.py` | hboot1tag to squashfs |
+| Lua bytecode | `patched/`, `tools/luadump.py` | data, not source |
+| History | `docs/archive/README.md` | do not act on it |
 
-## CODE MAP
-No LSP applies (shell + standalone python + Lua bytecode). Centrality by reference:
+## CURRENT WORK
 
-| Symbol / file | Type | Location | Refs | Role |
-|---------------|------|----------|------|------|
-| `exp_run` / `exp_arm_recovery` | shell fns | tools/exp.sh:517 / :219 | 4 | device cycle engine; sourced by batch.sh |
-| `parity` + DES string-to-key | python fn | 6 copies (decrypt_bdinfo.py:31/41 keeper) | 6 | bdinfo crypto |
-| `forge` | python fn | tools/forge_jwt.py:34 | 1 | only cross-file .py import (mqtt_takeover.py:25) |
-| movw/movt resolver | python fn | 4 copies (dis_bootreg2.py:9) | 4 | ARM ref resolution |
-| `rpc_auth` / `action_backup` | luci handler | patched/rpc.lua, patched/backup.lua | - | injection surface |
+- G1 through G4 and G6 are green as of 2026-11-14; G5 is vendor-only. The gate table
+  and the receipts are in `STATUS.md`.
+- Current blocker: the initramfs `/vendor` mount can come up read-only on this strap,
+  so the init's shadow writes are silent. The 2026-11-15 04:10 ledger entry names the
+  fix: mount jffs2 with the `rw` option, check the result, and remount `rw` if needed.
+  The `phase3de` slice was assembled at 11:49 from the tree with that change, but it
+  has no fire log or ledger entry yet.
+- The vendor's own driver stack runs on our kernel as patched modules. The recipe is
+  `opensource/docs/VENDOR-STACK-ON-MAINLINE.md`.
+- The old Wi-Fi reversal lane (`tools/exp.sh`, `tools/batch.sh`, `.sshwrap`) is not the
+  current cycle. Do not use it for kernel work.
+
+## HARD RULES
+
+- Never flash a WR3000 v1 (MediaTek) image.
+- Never replace `/etc/rc.d/luofu` wholesale; `hi_kpinctrl` is load-bearing.
+  `tools/check-init-shadow.sh` must print PASS before any fire.
+- Never write CA `0x400392f0`. Never read the RC misc window `0x10161000`. Never
+  `rmmod` the vendor modules.
+- Never run a device cycle in the foreground. Use `tools/fire.sh run <phase> --detach`
+  or the broker lane.
+- Snapshot calibration before any experiment; never restore without a verified
+  `MANIFEST.sha256`.
+- Arm the device watchdog before hiding vendor modules.
+- Never commit credentials. Tracked text carries placeholders; live values come from
+  `.omo-secrets/`.
+- Leave the router healthy: 2 wiphys, 6 interfaces, calibration `[SUCC]` on both bands,
+  and no `.omo-off` leftovers.
+
+## CALIBRATION AND RECOVERY
+
+- Before any experiment: `tools/wifi-cal-snapshot.sh` writes
+  `build/linux-kbuild/cal-snapshots/<TS>/` with `MANIFEST.sha256`.
+- `tools/wifi-cal-restore.sh <snap>` is a dry run; `--apply` only after the manifest
+  check. Never restore without a verified manifest.
+- `tools/restore-now.sh` unhides `.omo-off` files and removes the loader plus four
+  hardcoded modules; other staged modules can survive. Check the module directory.
+- Long runs go detached. Arm the device watchdog before hiding vendor modules.
 
 ## CONVENTIONS
-- Tracked text carries **placeholders only**: `<ROUTER-SSH-PASSWORD>`, `<ROUTER-WEB-PASSWORD>`, `<DEVICE-SECRET>`. Live values come from gitignored `.omo-secrets/` or the environment at runtime.
-- `tools/*.sh` call the device through `.sshwrap/rsh.sh` and `.sshwrap/rscp.sh` - never raw ssh.
-- Long device runs go DETACHED and the device-side watchdog is armed BEFORE vendor modules are hidden.
-- Experiment evidence lands in `build/register-dumps/exp/<UTC-timestamp>/` (or `.../detached/`), never in the repo root.
-- `--dry-run` is expected on harness scripts and prints the exact ssh/scp shape without touching anything.
-- Scratch variants keep a `…2/…3/…4` suffix; the highest number is the most developed.
 
-## ANTI-PATTERNS (THIS PROJECT)
-- Never flash a WR3000 v1 (MediaTek MT7981) image to this unit: the label may say v1, but the PCB is the HiSilicon luofu v2-class design. Use the WR3000V2 images; see `HARDWARE-IDENTITY.md`.
-- Never assume the UART console can stop U-Boot: the loader is keyed autoboot with no stop key in the default environment; Enter and Ctrl+C fail, and the reset button is Linux userspace. See `HARDWARE-IDENTITY.md`.
-- Never write CA `0x400392f0`. Never read the RC misc window `0x10161000` (a read-only `devmem` there PANICKED the box). Measure through the endpoints' BAR0/BAR2 only. Never `rmmod` the vendor modules.
-- Never commit a real credential: no keys, passwords, or per-unit values in tracked text (they were scrubbed before the first commit).
-- Never run the device cycle in the foreground - a dead agent strands the router in takeover config with Wi-Fi down.
-- Never end a turn after a device fire, build, or verdict while the todo list has open work: read the result and start the next action in the same turn. While a fire is in flight, do the kernel/source work that does not need the device. The runtime's todo backstop allows only two nudges, then stops the run as `todo_guard`/`cap` and the session sits stalled (observed 2026-11-11).
-- Never restore calibration without first verifying `MANIFEST.sha256` against a snapshot.
-- Never `rm -rf` or hand-edit `.omo-secrets/`, `.sshwrap/`.
-- Leave the router healthy: 2 wiphys, 6 interfaces, calibration `[SUCC]` on both bands, no `.omo-off` leftovers.
-
-## UNIQUE STYLES
-- The whole research log is a **timestamped markdown ledger**: `mem-entries.md` (phases + hazards), `opensource/docs/phaseNN/*.md` (per-experiment reports), `START-HERE.md` (operational handoff). Update the ledger, not the code comments, with findings.
-- Discoveries are described as register-level observations with the evidence path (e.g. `docs/phase19/release-attempts.md`), never as conclusions alone.
-- `patched/*.lua` are annotated **bytecode dumps**; treat their content as data, not source.
-
-## COMMANDS
-```bash
-bash tools/exp.sh --dry-run <module.ko> [params]      # verify the cycle without touching the device
-bash tools/exp.sh <module.ko> [params]                # full cycle -> EXP RESULT: PASS|FAIL
-bash tools/batch.sh tools/batch-hypotheses.example    # N hypotheses in one boot
-bash tools/wifi-cal-snapshot.sh                       # BEFORE any experiment
-pyenv/Scripts/python.exe tools/decrypt_bdinfo.py dumps/bdinfo.bin
-pyenv/Scripts/python.exe tools/extract_firmware.py <image.bin> --out rootfs-2.4.15
-pyenv/Scripts/python.exe tools/luadump.py patched/system.lua -c | grep -n 'date -s'
-
-tools\local-build.bat luofu-fmc                        # LOCAL ARM module build (WSL2 + arm-linux-gnueabihf)
-tools\local-build.bat luofu-clk                        #   ... luofu-clk/pinctrl/pcie/wifi too
-tools\local-build.bat kernel                           # LOCAL full image: zImage + dtb + uImage
-```
-
-## BUILD LOCALLY, NOT IN CI
-Everything builds on THIS machine - do NOT push to GitHub Actions to check whether something compiles.
-A local ARM cross-toolchain is installed in WSL2:
-- WSL distro `Ubuntu` (root), with `gcc-arm-linux-gnueabihf` (CI parity), `make/bc/bison/flex`,
-  `build-essential`, `u-boot-tools` (mkimage), `device-tree-compiler`, and a prepared vanilla
-  5.10.201 tree at `/opt/kbuild/linux-5.10.201`.
-- One command from the repo root:
-  - `tools\local-build.bat <module>` -> builds a lab module `.ko` locally (luofu-fmc/clk/pinctrl/pcie/wifi).
-  - `tools\local-build.bat kernel`  -> builds the full image: `zImage` + `luofu-r116.dtb` +
-    `luofu-uImage` into `build/luofu-kernel-image/` with `MANIFEST.sha256`.
-- Measured 2026-10-11: zImage 3,657,736 B; luofu-r116.dtb 10,803 B; luofu-uImage 3,657,800 B;
-  **kernelb budget PASS** (8,650,752 B partition, ~4.99 MB margin).
-- The same lane catches real errors CI would: it found the duplicate-`init_module` in `luofu-fmc.c`
-  (three `module_init`-expanding macros) in seconds.
-- **GitHub Actions is now redundant for this project's builds.** It was only ever used because no
-  local ARM toolchain existed; that is no longer true. Push only to publish, never to check.
-
-WSL commands from Windows: `wsl -d Ubuntu -u root -- bash -lc '<cmd>'`. Note: `$VAR` in a `wsl -- bash -c`
-string is eaten by cmd.exe; write the script to a file and run it by `/mnt/c/...` path instead.
-
-## NOTES
-- There is no build step and no test suite for the repo itself; `tools/tftp_test.py` is the only test file.
-- Build the lab modules LOCALLY (`tools\local-build.bat <module>`); see BUILD LOCALLY above.
-- `tools/tftp_server.py` is an unauthenticated UDP server that writes uploads into `tftp/inbox` - local lab only.
-- `tmp_manifest.txt` is a generated sha256 manifest of the device's `/lib/modules/5.10.201/*.ko`; do not hand-edit.
-- `wordlists/*.txt` are 14-byte Git LFS pointers; the real lists are not resolvable from a plain checkout.
-- Python tooling targets the repo-local venv (`pyenv/`) where capstone, pycryptodome, pyelftools, PyJWT, paho-mqtt and passlib are already installed.
-- Everything under `build/ dumps/ firmware/ stock/ rootfs-*/ decomp/ pages/ jtools/ ulw/ tftp/` is gitignored local state - it may be large or absent, and code that assumes it will fail on a fresh clone.
+- The ledger is append-only. Add a dated entry to `mem-entries.md`; the latest dated
+  entry wins over any earlier claim.
+- Evidence goes under `build/` (gitignored). If a claim matters, add it to
+  `EVIDENCE-INDEX.md` with a regeneration command.
+- Scratch tools live in `tools/archive/`. Do not resurrect them into the live surface.
+- `docs/archive/` is history, not instructions.
