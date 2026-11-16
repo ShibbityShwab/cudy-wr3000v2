@@ -12,8 +12,10 @@ Curated summary. The ledger is the long form; the latest dated entry wins.
   prompt is unreachable, and this loader accepts only FIP packages. The vendor TFTP recovery
   (`recovery.bin`, RESET held through power-on) is the unlock and also repairs the degraded stock
   partitions. See `build/linux-kbuild/waves/3dk/recovery-3dk.md`.
-- 3dk (built, not fired) prints one `<6>load <mod> fd=.. ret=..` kmsg line per vendor module, so a
+- 3dl (built, NOT fired) prints one `<6>load <mod> fd=.. ret=..` kmsg line per vendor module, so a
   single console capture carries the loader verdict: `build/linux-kbuild/waves/3dk/build.md`.
+- The 3dk fire is not a kernel result: it verified `kernelb` and the handover reset under the
+  hardware watchdog before any kernel output, so the slice never ran (18:25 ledger entry).
 - The console reads only with the swapped UART pins; captures write to an absolute path.
 - The latest dated entry wins over any earlier claim. The ledger is append-only.
 - The old Wi-Fi reversal wall (phase 48) is history, not the current blocker.

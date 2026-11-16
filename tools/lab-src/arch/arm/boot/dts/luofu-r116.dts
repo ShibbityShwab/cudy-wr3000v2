@@ -853,17 +853,19 @@
 	 * for reference only -- it MUST NEVER be read at runtime (panics the
 	 * box); measure through the endpoint BAR0/BAR2 instead. iatu_rc/iatu_ep
 	 * are the vendor inbound/outbound window tables (phase18/inbound-map.md). */
+	/* 2026-11-16: the 3di/3dj pcie-gpios experiment is reverted here. It was never shown to
+	 * boot: the 3dk fire reset under the 30 s watchdog after U-Boot's handover with no kernel
+	 * output, but that fire wrote `kernelb` and the slice never ran, so the reset says nothing
+	 * about this driver. Re-add it only in its own slice with its own read, and expect the
+	 * ShuangTa quirk panic while the pinctrl block exposes no `gpio-timing-quirk` line. */
 	pcie0: pcie@10160000 {
-		compatible = "hsan,pcie", "hisilicon,luofu-pcie";
+		compatible = "hisilicon,luofu-pcie";
 		device_type = "pci";
 		#address-cells = <3>;
 		#size-cells = <2>;
 		linux,pci-domain = <0>;	/* pinned:1219 */
 		channel = <0>;
 		hwver = <0x10>;		/* 0x10 = RC mode */
-		pcie-gpios = "gpio-timing-quirk", "gpio-free-after-use", "gpio-delay", "reset-duration-ms";
-		gpio-delay = "2";
-		reset-duration-ms = "100";
 		capability = <1>;	/* overlay sets 3 */
 		reg = <0x10160000 0x1000>,	/* dbi,  pinned:1205 */
 		      <0x10161000 0x3000>,	/* misc (NEVER read) */
@@ -902,16 +904,13 @@
 	 * "hsan,pcie" + "hsan,acp-pcie1" (:1236): resets 0x10..0x13, radm/linkdown
 	 * SPI 63/70, ACP gate bit 26, mem/io +0x18000000. */
 	pcie1: pcie@10164000 {
-		compatible = "hsan,pcie", "hisilicon,luofu-pcie";
+		compatible = "hisilicon,luofu-pcie";
 		device_type = "pci";
 		#address-cells = <3>;
 		#size-cells = <2>;
 		linux,pci-domain = <1>;	/* pinned:1243 */
 		channel = <1>;
 		hwver = <0x10>;
-		pcie-gpios = "gpio-timing-quirk", "gpio-free-after-use", "gpio-delay", "reset-duration-ms";
-		gpio-delay = "2";
-		reset-duration-ms = "100";
 		capability = <1>;
 		reg = <0x10164000 0x1000>,	/* dbi,  pinned:1236 */
 		      <0x10165000 0x3000>,	/* misc (NEVER read) */

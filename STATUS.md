@@ -7,12 +7,12 @@
 
 ## 1. Bench
 
-- Box: **in a boot loop, and the loop is the whole blocker.** The 17:30 reset exposed it: U-Boot's
-  `bootflag` fallback faults on our slot-A image (`data abort` inside U-Boot, after the header,
-  `r5=0x834d3bae`), falls to slot B, the stock 4.1 MB kernel starts and panics at 10.8 s on the
-  ShuangTa PCIe quirk, and the watchdog resets it. The countdown path that loads slot A correctly
-  (`alias console=`, `Uncompressing Linux...`) is only reached when `bootreg` is 0, and the fallback
-  sets it to non-zero. Evidence: `build/uart-logs/20261116T103014Z-recover-3dk.log`.
+- Box: **in a boot loop, and the loop is the whole blocker.** The recovery took, SSH worked
+  (`uptime 1230 s`, 40 `hi_` modules, 2 wiphys' worth of vaps forwarding), and then a fire left it
+  looping again. Current cycle: the `kernelb` handover resets under the hardware watchdog (30 s)
+  without kernel output, U-Boot falls to the stock slot, the 4.1 MB stock kernel starts and panics
+  at 10.8 s on the ShuangTa PCIe quirk. Evidence:
+  `build/uart-logs/20261116T111510Z-fire-3dk.log`.
 - **The U-Boot prompt is unreachable by serial** (2026-11-08 floods, with and without
   `bootstopkey`; the router-side RX pad never receives, `HARDWARE-IDENTITY.md`), and this loader
   accepts only a FIP package (`bootfip` is `bootcmd`, and `fipupdate_eth` writes both slots with one
@@ -26,12 +26,13 @@
 - Access: SSH key `.omo-secrets/router_ed25519`. There is no `.sshwrap/` in this
   checkout. The broker channel is `tools/box-provision.sh` with
   `dumps/router-20261108/bdinfo.bin`.
-- Latest build (local-only): `build/linux-kbuild/luofu-slice-phase3dk.bin`
-  (3,005,972 bytes, md5 `15d24e455c9ea17ca90e7c9adbfff040`), the 3dj kernel and DTB with an
-  init that prints one `load <mod> fd=.. ret=..` kmsg line per vendor module. Rebuild with
-  `build/linux-kbuild/build-3dk.sh`. Before it: 3di (15:12), 3dh (14:36, the boot whose
-  capture shows `eth2` at 1Gbps) and 3dg (13:50), all fired today without a ledger entry
-  until the 15:45 entry.
+- Latest build (local-only): `build/linux-kbuild/luofu-slice-phase3dl.bin`
+  (3,005,396 bytes, md5 `f7b2eb41a074df9fd6017e6179a446b0`): the 3dh device tree
+  (`336ba39e...`) with the console-logging init (`6464a08d...`). Rebuild with
+  `build/linux-kbuild/build-3dl.sh`, which refuses to run unless the DTB is the 3dh blob.
+  Built and NOT fired: 3dk (3,005,972, the same init on the 3di/3dj PCIe DTB) was fired and
+the fire wrote `kernelb` while the bootable slot is the AB one, so nothing about our kernel was
+learned from it. See the 18:25 ledger entry.
 - Module staging: the vendor modules must carry zero-size `.plt`/`.init.plt`
   (`tools/box-provision.sh --stage lab` pushes the patched set to the overlay upper). The
   3df boot at 05:32 loaded the unpatched set and every module was refused.
@@ -62,6 +63,10 @@ stack and brought `eth2` up at 1Gbps); what blocks the bench now is delivery.
 - U-Boot's `bootflag` fallback (`boot from kernela failed, change to kernelb`) prints the image
   header and then faults **inside U-Boot** (`data abort`, `r5=0x834d3bae`). It does this for a
   2.78 MB (3dg) and a 2.96 MB (3di) kernel alike, so size is not the variable.
+- `tools/fire-device.sh` writes `kernelb`, but the slot U-Boot boots cleanly is the AB one:
+  the 3dk fire verified `kernelb` and the console then reset on the handover with the hardware
+  watchdog, never running the slice. Every kernel that started in that capture was the stock
+  4.1 MB image. **A fire has to target the slot the countdown path uses.**
 - The countdown path loads the same kind of image correctly (`alias console=...`,
   `Uncompressing Linux...`) but is only reached when `bootreg` is 0, and the fallback sets it.
 - The serial prompt cannot be reached (`HARDWARE-IDENTITY.md`, 2026-11-08), and this loader takes
@@ -93,10 +98,13 @@ captures must write to an absolute path.
 
 ## 4. Next actions
 
-1. **Vendor recovery** (`recovery.bin` over TFTP, RESET held through power-on). It is the unlock and
-   it also repairs the degraded stock partitions (JFFS2 refuses to erase, the squashfs lower returns
-   ECC errors). Host lane is armed and self-tested.
-2. Then fire 3dk over SSH and read `load hi_*` lines from the capture.
+1. **Write 3dl to the slot U-Boot boots** (`/dev/mtd11` `kernela`, not `kernelb`), then read
+   `load hi_*` from the console. That is the single-variable test: 3dh's kernel and DTB, the
+   console-logging init as the only delta.
+2. The vendor recovery (`recovery.bin` over TFTP, RESET held through power-on) is the way back to a
+   booting userspace whenever a fire leaves the box unreachable. It also repaired the degraded
+   stock partitions once, though the NAND still returns ECC errors on `rootfs_data` and on the
+   squashfs lower at page `0x00900000`.
 3. **PCIe quirk / pinctrl node** is the next driver-level item: `hi_pcie` panics unless the pinctrl
    block exposes the named lines (`build/linux-kbuild/waves/3df/pcie-quirk.md`). 3di/3dj were
    property edits and are inert.

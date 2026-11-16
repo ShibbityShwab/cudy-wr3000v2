@@ -22763,3 +22763,35 @@ Left armed: the console capture (`timeout 600`) and the TFTP server; their PIDs 
 The durable rule for the next session: a slice can only be written while a booting userspace
 exists, and a slice that does not boot costs a Cudy recovery, so every fire needs a recovery plan
 before it is started. Procedure: `build/linux-kbuild/waves/3dk/recovery-3dk.md`.
+
+## 2026-11-16 18:25 - 3dk fired and read: the fire wrote a slot U-Boot does not boot for us, so the slice was never run
+
+The vendor recovery worked and SSH came back (see the 17:35 entry). The 3dk fire then ran on
+the recovered box and gave an answer that is not the one it was meant to give.
+
+What was measured. `ERASE_OK`, `WRITE_OK`, `VERIFY_OK`, `bootflag=b`, `boot_reg=21`,
+then `Reading 8650752 byte(s)`, `alias console=...` (the working handover path), and then
+`enter esbc main` with `Hard Hardware watchdog reset` before any kernel output. The
+`/home/shibbityshwab/Documents/GitHub/cudy-wr3000v2/build/uart-logs/20261116T111510Z-fire-3dk.log`
+holds 22 polls of `up=0 hi=0` across the whole cycle. Every kernel that compressed in that
+capture was **4,294,096 bytes**, the stock image; our 2,965,176-byte slice was read and handed
+over but never started. So `tools/fire-device.sh` wrote `kernelb` while the path that boots
+cleanly is the AB one, and the slice was never executed.
+
+The correction that matters: I first read this as "the PCIe DTS change stops the kernel booting"
+and told the user so. Nothing in the capture supports it: the reset came from the 30 s hardware
+watchdog after U-Boot's handover, before any kernel code could report. The tree's
+`pcie-gpios`/`hsan,pcie` experiment was nonetheless reverted from `luofu-r116.dts`, and the
+rebuilt DTB now matches the 3dh blob byte-for-byte (`336ba39ef4d6959e0a52da5b70bb69bd`), so the
+tree is single-variable again; that is a cleanup, not a proof.
+
+Built and not fired: **3dl**, `build/linux-kbuild/build-3dl.sh`, slice
+`luofu-slice-phase3dl.bin` 3,005,396 bytes md5 `f7b2eb41a074df9fd6017e6179a446b0` (rebuilt after the DTS comment fix; the first build was 3,005,068 / `fb817b6c...`), the 3dh
+device tree with the 3dk console-logging init. It is the slice that answers the loader question
+once it is written to the slot U-Boot boots.
+
+State left behind: the box is in the A/B loop (our `kernelb` handover resets, stock kernel
+panics on the ShuangTa quirk), unreachable on the LAN, SSH down. The console capture and the
+TFTP server are still armed. Next session: reset hold, `recovery.bin` over TFTP, and write 3dl
+to the AB slot (`/dev/mtd11` `kernela`) rather than `kernelb`, then read `load hi_*` from the
+capture.
