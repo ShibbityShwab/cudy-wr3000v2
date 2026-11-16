@@ -7,12 +7,22 @@
 
 ## 1. Bench
 
-- Box: **unreachable since 15:39** (host clock). 3di's fire reached the write/verify/vendor
-  return and then died with `Connection reset by 192.168.10.1 port 22`; since then no ping,
-  the MQTT broker raises `OSError 113 No route to host`, and the host's USB Ethernet keeps
-  carrier with no peer. The console adapter is present (`/dev/ttyUSB0`) and reads only with
-  the swapped pins, so a boot can be captured, but every fire needs the RESET + TFTP
-  recovery in `RUNBOOK.md` section 6 (`tftp/recovery.bin`, `tools/tftp_server.py`).
+- Box: **in a boot loop, and the loop is the whole blocker.** The 17:30 reset exposed it: U-Boot's
+  `bootflag` fallback faults on our slot-A image (`data abort` inside U-Boot, after the header,
+  `r5=0x834d3bae`), falls to slot B, the stock 4.1 MB kernel starts and panics at 10.8 s on the
+  ShuangTa PCIe quirk, and the watchdog resets it. The countdown path that loads slot A correctly
+  (`alias console=`, `Uncompressing Linux...`) is only reached when `bootreg` is 0, and the fallback
+  sets it to non-zero. Evidence: `build/uart-logs/20261116T103014Z-recover-3dk.log`.
+- **The U-Boot prompt is unreachable by serial** (2026-11-08 floods, with and without
+  `bootstopkey`; the router-side RX pad never receives, `HARDWARE-IDENTITY.md`), and this loader
+  accepts only a FIP package (`bootfip` is `bootcmd`, and `fipupdate_eth` writes both slots with one
+  image). So the only way back is the vendor recovery, not a slice.
+- Recovery: RESET held through power-on, `recovery.bin` (md5 `421114c8ea999c925b7aa79cc548af81`) over
+  TFTP from `192.168.1.88`. Host lane self-tested on UDP 69 and ufw allows it. Procedure:
+  `build/linux-kbuild/waves/3dk/recovery-3dk.md`; vendor steps
+  (https://www.cudy.com/en-gb/blogs/faq/how-to-recovery-the-cudy-router-from-openwrt-firmware-to-cudy-official-firmware).
+  The stock partitions are also degraded (JFFS2 refuses to erase, the squashfs lower returns ECC
+  errors), which the recovery fixes in the same pass.
 - Access: SSH key `.omo-secrets/router_ed25519`. There is no `.sshwrap/` in this
   checkout. The broker channel is `tools/box-provision.sh` with
   `dumps/router-20261108/bdinfo.bin`.
@@ -45,11 +55,22 @@ radio (G5) is still the vendor's.
 
 ## 3. Current blocker
 
-**The PLT gate is bypassed on this board; the open item is which boot reaches the LAN.**
+**The vendor bootloader cannot boot our slot A and cannot be prompted, so nothing of ours can be
+fired until the bootloader is replaced.** The PLT question is settled (3dh loaded the whole vendor
+stack and brought `eth2` up at 1Gbps); what blocks the bench now is delivery.
 
-The 3df block below described the 05:32 boot and is kept as history. On the same kernel two
-later boots tell a different story: the **3dh** capture
-(`build/uart-logs/20261116T075623Z-3dh-fire.log`) shows the vendor stack loaded and running:
+- U-Boot's `bootflag` fallback (`boot from kernela failed, change to kernelb`) prints the image
+  header and then faults **inside U-Boot** (`data abort`, `r5=0x834d3bae`). It does this for a
+  2.78 MB (3dg) and a 2.96 MB (3di) kernel alike, so size is not the variable.
+- The countdown path loads the same kind of image correctly (`alias console=...`,
+  `Uncompressing Linux...`) but is only reached when `bootreg` is 0, and the fallback sets it.
+- The serial prompt cannot be reached (`HARDWARE-IDENTITY.md`, 2026-11-08), and this loader takes
+  only FIP packages (`bootfip` is `bootcmd`; `fipupdate_eth` writes both slots with one image).
+
+Evidence: `build/uart-logs/20261116T103014Z-recover-3dk.log`; the mechanism, the recovery steps and
+the way back to the kernel lane are in `build/linux-kbuild/waves/3dk/recovery-3dk.md`.
+
+The 3dh capture below is what the kernel lane looks like once the box can boot again:
 
 ```
 swa_netdevice_event 215:event:36, name:eth2
@@ -57,31 +78,28 @@ swa_netdevice_event 215:event:36, name:eth2
 Hi-GEMAC 14480000.gemac eth2
 ```
 
-Those modules carried zero-size `.plt`/`.init.plt` sections (`tools/box-provision.sh
---stage lab`), so the loader accepts them and the near-region `module_alloc` never needs a
-PLT. The same capture shows procd restarting the network stack (destroy + `Starting TDR` on
-eth2), and the box was unreachable after each of today's fires (3dg `VENDOR_DID_NOT_RETURN`,
-3dh SSH dropped, 3di SSH reset). So the live question is why the stack comes down after it
-loads, not whether it loads.
+Those modules carried zero-size `.plt`/`.init.plt` sections (`tools/box-provision.sh --stage lab`),
+so the loader accepts them and the near-region `module_alloc` never needs a PLT. The same capture
+shows procd restarting the network stack (destroy + `Starting TDR` on eth2), which is the open
+kernel-side question of why the stack comes down after it loads.
 
-The init's own module-load verdict is now on the console: **3dk** emits `<6>load <mod>
-fd=.. ret=..` per module (`build/linux-kbuild/waves/3dk/build.md`, slice
-`luofu-slice-phase3dk.bin` md5 `15d24e455c9ea17ca90e7c9adbfff040`). The 3df slice's module
-failure at 05:32 was the unpatched module set, not the loader.
+The init's own module-load verdict is on the console: **3dk** emits `<6>load <mod> fd=.. ret=..`
+per module (`build/linux-kbuild/waves/3dk/build.md`, slice `luofu-slice-phase3dk.bin` md5
+`15d24e455c9ea17ca90e7c9adbfff040`). The 3df slice's module failures at 05:32 were the unpatched
+module set, not the loader.
 
-The console itself works only with the swapped UART pins (`HARDWARE-IDENTITY.md`,
-2026-11-16 update), and captures must write to an absolute path.
+The console works only with the swapped UART pins (`HARDWARE-IDENTITY.md`, 2026-11-16 update), and
+captures must write to an absolute path.
 
 ## 4. Next actions
 
-1. **3dk read: `load hi_*` lines from a console capture.** `ret=0` on `hi_kpinctrl` and the
-   chain confirms the loader path end to end; a negative value names the errno. Then read the
-   same capture for what drops eth2 (devlink/eth restart, `hi_swa` destroy, watchdog).
-2. Recovery first: the box is unreachable, so a fire needs RESET + TFTP (`RUNBOOK.md` section
-   6, `tftp/recovery.bin`, `tools/tftp_server.py`), proven twice today.
-3. **PCIe quirk / pinctrl node** is the next driver-level item if a 3dk boot shows the stack
-   loading: `hi_pcie` panics unless the pinctrl block exposes the named lines
-   (`build/linux-kbuild/waves/3df/pcie-quirk.md`). 3di/3dj were property edits and are inert.
+1. **Vendor recovery** (`recovery.bin` over TFTP, RESET held through power-on). It is the unlock and
+   it also repairs the degraded stock partitions (JFFS2 refuses to erase, the squashfs lower returns
+   ECC errors). Host lane is armed and self-tested.
+2. Then fire 3dk over SSH and read `load hi_*` lines from the capture.
+3. **PCIe quirk / pinctrl node** is the next driver-level item: `hi_pcie` panics unless the pinctrl
+   block exposes the named lines (`build/linux-kbuild/waves/3df/pcie-quirk.md`). 3di/3dj were
+   property edits and are inert.
 4. Keep the Wi-Fi lane (G5) separate. The vendor modules own the radio on our kernel.
 
 ### What the 05:32 boot said (history)
@@ -97,17 +115,16 @@ set carried no `.plt` sections. The patched set fixes that, and 3dh's capture sh
 result.
 
 ## 4. Reading the console
-
-Capture to an ABSOLUTE path from a root shell:
 `sudo stty -F /dev/ttyUSB0 115200 cs8 -cstopb -parenb -crtscts raw -echo;
 sudo sh -c 'exec 3<>/dev/ttyUSB0; timeout N cat <&3 > /abs/log'`. The adapter only reads
 with the swapped pins.
 
-## 5. How to run
+The full procedure, including recovery and the 3dk fire, is in
+`build/linux-kbuild/waves/3dk/recovery-3dk.md` and [`RUNBOOK.md`](RUNBOOK.md).
+`build-3dk.sh` rebuilds the 3dk slice; `tools/fire.sh ssh --slice ... --label 3dk --detach`
+fires it once the vendor slot is up.
 
-The full procedure, including recovery, is in [`RUNBOOK.md`](RUNBOOK.md). `build-3dk.sh`
-rebuilds the 3dk slice; `tools/fire.sh ssh --slice ... --label 3dk --detach` fires it when
-the vendor slot is up, otherwise `tools/box-provision.sh --stage fire` after a TFTP recovery.
+## 5. How to run
 
 ## 6. Evidence
 

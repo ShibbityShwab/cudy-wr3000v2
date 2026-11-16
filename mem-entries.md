@@ -22725,3 +22725,41 @@ means the loader accepted the stack and the work moves to the PCIe/pinctrl node.
 
 Evidence: `build/linux-kbuild/waves/3dk/build.md`, `build-3dk.sh`,
 `build/uart-logs/20261116T075623Z-3dh-fire.log`.
+
+## 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted
+
+The reset hold did not buy a recovery, it exposed the floor. The capture
+`build/uart-logs/20261116T103014Z-recover-3dk.log` holds the cycle: U-Boot tries A
+(`bootflag a bootreg 11`), the FIP fallback prints the image header and dies with a `data abort`
+inside U-Boot (`r5=0x834d3bae`), it falls to B (`bootflag b bootreg 10`), the stock 4.1 MB kernel
+starts, reaches `Run /init`, and panics at 10.8 s on the ShuangTa PCIe quirk in `jffs2_gcd_mtd15`.
+The watchdog resets it into the next pass. The fault is not size: 3dg's 2.78 MB kernel reached the
+same four header lines and aborted the same way, and 3dh's 2.96 MB kernel booted whenever it was
+reached by the countdown path, which prints `alias console=...` and `Uncompressing Linux...`.
+The countdown path is only reached when `bootreg` is 0 (POR sets `bootreg init, set 10`; the 05:23
+recovery capture shows `bootreg 0` on that boot); the fallback path is entered whenever a slot is
+flagged failed, and it corrupts the flags on its way through.
+
+Two options were checked and closed. The serial prompt is unreachable: the 2026-11-08 floods with
+and without `bootstopkey` both booted Linux, and `HARDWARE-IDENTITY.md` records that the router-side
+RX pad never receives. A manual slot-A load from a network boot is also closed: `bootfip` is
+`bootcmd` and the vendor env writes both slots with one image
+(`fipupdate_eth=...mtd erase kernela;mtd write kernela...;mtd erase kernelb;mtd write kernelb...`
+in `dumps/router-20261108/enva.bin`), so this loader accepts only a FIP package even when it is
+handed one.
+
+So the bench step is the vendor recovery: RESET held through power-on, `recovery.bin` over TFTP from
+192.168.1.88, which is Cudy's own WR3000 v2 procedure
+(https://www.cudy.com/en-gb/blogs/faq/how-to-recovery-the-cudy-router-from-openwrt-firmware-to-cudy-official-firmware).
+The host lane passes a self-test: the server on UDP 69 answered a local RRQ for `recovery.bin`
+(`421114c8ea999c925b7aa79cc548af81`, 20,975,775 bytes), `enp195s0f3u1` carries `192.168.1.88/24`,
+and ufw allows `69/udp on enp195s0f3u1`. The stock-slot filesystem is also degraded (JFFS2 refuses
+to erase blocks, the read-only squashfs returns ECC errors), so the recovery is wanted for its own
+sake, not only as an unlock.
+
+Left armed: the console capture (`timeout 600`) and the TFTP server; their PIDs and logs are in
+`/tmp/arm-3dk.env` and `/tmp/arm-3dk-tftp.env`.
+
+The durable rule for the next session: a slice can only be written while a booting userspace
+exists, and a slice that does not boot costs a Cudy recovery, so every fire needs a recovery plan
+before it is started. Procedure: `build/linux-kbuild/waves/3dk/recovery-3dk.md`.

@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 02:23 - The frame fix did not help, and 0xff92 is the timeout code, not data | `mem-entries.md:21649` |
 | 2026-11-14 |  | 2026-11-14 02:56 - The two frame words differ: the second is the command phase | `mem-entries.md:21667` |
 | 2026-11-14 |  | 2026-11-14 03:23 - Two-phase frames still time out; the vendor passes a FLAGS-encoded command | `mem-entries.md:21681` |
 | 2026-11-14 |  | 2026-11-14 03:57 - The register map came from a DEAD code path; the real one is 0x20/0x2c/0x30/0x38 | `mem-entries.md:21702` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran | `mem-entries.md:22619` |
 | 2026-11-16 |  | 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount | `mem-entries.md:22647` |
 | 2026-11-16 |  | 2026-11-16 15:45 - Picked up the PLT thread: STATUS is stale, the stack loads, and the init now reports every load on the console | `mem-entries.md:22687` |
+| 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
 
 ## All dated entries
 
@@ -611,3 +611,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran | `mem-entries.md:22619` |
 | 2026-11-16 |  | 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount | `mem-entries.md:22647` |
 | 2026-11-16 |  | 2026-11-16 15:45 - Picked up the PLT thread: STATUS is stale, the stack loads, and the init now reports every load on the console | `mem-entries.md:22687` |
+| 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
