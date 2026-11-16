@@ -22795,3 +22795,39 @@ panics on the ShuangTa quirk), unreachable on the LAN, SSH down. The console cap
 TFTP server are still armed. Next session: reset hold, `recovery.bin` over TFTP, and write 3dl
 to the AB slot (`/dev/mtd11` `kernela`) rather than `kernelb`, then read `load hi_*` from the
 capture.
+
+## 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address
+
+The box is back on the vendor image: OpenWrt 22.03.6 revision 2.4.15, stock kernel
+`5.10.201 #0 SMP Sat Nov 25 18:18:57 2023`, 40 `hi_` modules, 2 wiphys
+(`/sys/class/ieee80211/phy0`, `phy1`), the wireless calibration loaded on both bands
+(`hwifi_rf_cali_file_load_2g succ`, `..._5g succ`, and the cali result written to the device on
+both), `192.168.10.1` answering 2/2 pings, and SSH working on the project key.
+
+The flash itself: `hi_upgrade 0x832808a4 0x1380279`, `upgrade soft version: 22.03.06`,
+`Flashing kernel...` with the kernel slot erase at `0x0083ffff`, `Flashing rootfs...` writing
+15,728,640 bytes with erases at `0x0173ffff` and `0x015fffff` - both kernel slots and both rootfs
+partitions. Console: `build/uart-logs/20261116T115756Z-recover-stock.log`.
+
+Two host-side faults cost attempts and are worth recording:
+
+1. **The recovery trigger is the RESET button counter, not a plain hold.** The loader prints
+   `RESET button is pressed for: 0 second(s)`, `1 second(s)`, `2 second(s)`, `Resetting...`, and only
+   then does the countdown end in `recovery button press` followed by `Using pie@0x10a70000 device`,
+   `TFTP from server 192.168.1.88; our IP address is 192.168.1.1`, `Filename 'recovery.bin'.`,
+   `Load address: 0x83200000`. The counter only appears on a true power-on reset, never on the
+   watchdog resets the box does itself. Evidence:
+   `build/uart-logs/20261116T052326Z-recovery-boot.log` and `...2055749Z-plt-recovery.log`.
+2. **NetworkManager strips the bench port's IPv4 addresses.** `enp195s0f3u1` sits in
+   `connecting (getting IP configuration)`, retries DHCP against a board that is not serving it, and
+   removes any address added by hand minutes later. With no address, the board's ARP for
+   `192.168.1.88` is unanswered and the console shows `ARP Retry count exceeded; starting again`.
+   The fix that held: `nmcli device set enp195s0f3u1 managed no`, then `ip addr add`. The port is
+   still unmanaged now.
+
+Correction to the earlier reading: I twice called an `RRQ` in the server log the board's request when
+it was my own loopback self-test (`RRQ give up at block 1` is that test reading one block and
+leaving). Only `RRQ ...` followed by `RRQ sent 20975775 bytes` from the board proves a transfer.
+
+SSH after the flash needs the project key installed again (the recovered overlay is empty) and
+dropbear started with `-R` after deleting the zero-byte host keys.

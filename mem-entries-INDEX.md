@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 03:23 - Two-phase frames still time out; the vendor passes a FLAGS-encoded command | `mem-entries.md:21681` |
 | 2026-11-14 |  | 2026-11-14 03:57 - The register map came from a DEAD code path; the real one is 0x20/0x2c/0x30/0x38 | `mem-entries.md:21702` |
 | 2026-11-14 |  | 2026-11-14 04:24 - All four MDIO hypotheses tested; the remaining suspect is the switch in front of it | `mem-entries.md:21725` |
 | 2026-11-14 |  | 2026-11-14 04:25 - The vendor's own 0x14000000 region reads as instruction words | `mem-entries.md:21749` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 15:45 - Picked up the PLT thread: STATUS is stale, the stack loads, and the init now reports every load on the console | `mem-entries.md:22687` |
 | 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
 | 2026-11-16 |  | 2026-11-16 18:25 - 3dk fired and read: the fire wrote a slot U-Boot does not boot for us, so the slice was never run | `mem-entries.md:22767` |
+| 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
 
 ## All dated entries
 
@@ -613,3 +613,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 15:45 - Picked up the PLT thread: STATUS is stale, the stack loads, and the init now reports every load on the console | `mem-entries.md:22687` |
 | 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
 | 2026-11-16 |  | 2026-11-16 18:25 - 3dk fired and read: the fire wrote a slot U-Boot does not boot for us, so the slice was never run | `mem-entries.md:22767` |
+| 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
