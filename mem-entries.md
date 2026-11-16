@@ -22643,3 +22643,43 @@ MANIFEST-verified.
 
 The 3df verdict is still unmeasured, and it now costs one power cycle rather than another
 flash write.
+
+## 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount
+
+Fire 7 (05:32) is the first 3df boot with a working console. U-Boot printed `bootflag b
+bootreg 21` and `Reading 8650752 byte(s)`, so the B slot was read because the handover was
+set. Our kernel ran, reached userspace (`procd: - init -`, `mount_root: switching to jffs2
+overlay`) and the 3df init wrote its verdict to kmsg:
+
+    /vendor/upper/etc/rc.d/S10boot OK
+    /vendor/upper/etc/init.d/luofu OK
+    /vendor/upper/etc/rc.d/luofu OK
+    /vendor/upper/etc/rc.d/S18hyfibrd OK
+    /vendor/upper/etc/rc.d/S20network OK
+    /vendor/upper/etc/rc.d/S95done OK
+    /vendor/upper/pstore-check.txt OK
+
+All seven `wfile()` calls returned 0. The kernel-side hooks in the same boot agree:
+`seed test row=61184 brow=61184 wret=0 res=c0def000` and `overlay test j1=0 j2=0 j3=0
+m1=0 m2=0 m3=0 d=0 wr=0 res=c0de9d0f` (the success tag with all four status bits, including
+write-through + fsync).
+
+So the silent-shadow-writes blocker is retired: the `/vendor` mount is not read-only on this
+strap, and the earlier silence was the stock userspace winning the boot. That also matches
+what emulation predicted on 2026-11-15 (`E=2` with the mount absent, so `OK` when present).
+
+What the same console now names instead: every vendor module fails the loader's PLT gate,
+`hi_kpinctrl` included (`module PLT section(s) missing`, `insmod: failed to insert
+/lib/hisilicon/ko/hi_kpinctrl.ko`), plus `hi_swa`, `hi_kmsgcenter`, `hi_netif`, `hi_xt_fwd`,
+`gpio-generic`, `gpio-dwapb`, `leds-gpio`, `pstore_*`, `nf_nat_*`. Without `hi_kpinctrl`
+the pins, MDIO and Ethernet never come up, which is why the box is unreachable on the LAN
+in this boot. This is the archived PLT module-loader defect, now visible live and the clear
+next target.
+
+Method: the console works because the UART pins were swapped on the adapter (HARDWARE-IDENTITY.md,
+2026-11-16 update). Capture must write to an ABSOLUTE path; a relative path inside
+`sudo sh -c` silently produces zero-byte files.
+
+Evidence: `build/linux-kbuild/waves/3df/fire7.md`;
+`build/uart-logs/20261116T052813Z-fire7-3df.log` (112,178 bytes);
+`build/linux-kbuild/fire-phase3df-broker-7.log` behaviour as logged in `/tmp/fire7.txt`.

@@ -76,7 +76,15 @@ Measured:
   fault is the router-side pin 3 path (header joint, trace, R33, or a damaged SoC RX pad), not
   the key, the pinmux (register `0x1490010C` bit 7 is set), or the adapter.
 
-Conclusion: the UART is output-only on this unit. The Linux console gate is satisfied and
+2026-11-16 update: the pins were swapped on the adapter and the console now READS. Five
+markers written to `/dev/ttyS0` from the box (`echo SWAPTEST$i > /dev/ttyS0`) arrived on the
+host at 115200 8N1 (224 bytes, `build/uart-logs/`), so the router's TX reaches the adapter's
+RXD with the cables in the swapped position. Before the swap, six write loops and a raw
+`stty` on both ends produced zero bytes. Treat the working wiring as the swapped pair, and
+re-check it with a marker before any capture rather than trusting pin numbers.
+
+Conclusion (2026-11-08, before the swap): the UART was output-only on this unit in the
+original wiring. The Linux console gate is satisfied and
 `askfirst` is waiting, but it cannot be activated without RX; the U-Boot prompt is unreachable
 for the same reason. The working console is SSH root over the LAN: Dropbear is enabled with the
 project's ed25519 key at `.omo-secrets/router_ed25519`, `PasswordAuth=off`, and

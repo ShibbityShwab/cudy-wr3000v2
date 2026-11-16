@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 01:08 - The handshake order was necessary but not sufficient; the frame word is next | `mem-entries.md:21606` |
 | 2026-11-14 |  | 2026-11-14 01:56 - The vendor frame decoded: 0x8000 \| (reg << 8) \| phy | `mem-entries.md:21632` |
 | 2026-11-14 |  | 2026-11-14 02:23 - The frame fix did not help, and 0xff92 is the timeout code, not data | `mem-entries.md:21649` |
 | 2026-11-14 |  | 2026-11-14 02:56 - The two frame words differ: the second is the command phase | `mem-entries.md:21667` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 19:05 - Emulation closes the init-side question: the shadow writes work when /vendor mounts | `mem-entries.md:22545` |
 | 2026-11-15 |  | 2026-11-15 19:20 - Emulation closes the init-side question: it is correct, only the mount can fail | `mem-entries.md:22584` |
 | 2026-11-16 |  | 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran | `mem-entries.md:22619` |
+| 2026-11-16 |  | 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount | `mem-entries.md:22647` |
 
 ## All dated entries
 
@@ -609,3 +609,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-15 |  | 2026-11-15 19:05 - Emulation closes the init-side question: the shadow writes work when /vendor mounts | `mem-entries.md:22545` |
 | 2026-11-15 |  | 2026-11-15 19:20 - Emulation closes the init-side question: it is correct, only the mount can fail | `mem-entries.md:22584` |
 | 2026-11-16 |  | 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran | `mem-entries.md:22619` |
+| 2026-11-16 |  | 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount | `mem-entries.md:22647` |
