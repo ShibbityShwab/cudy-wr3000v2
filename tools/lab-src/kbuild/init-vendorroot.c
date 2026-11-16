@@ -146,6 +146,23 @@ static void load_vendor_modules(void)
             sc2(SYS_close, fd, 0);
         }
 
+        /*
+         * BOTH CHANNELS, ON PURPOSE (3dk, 2026-11-16).
+         *
+         * The file lands only when /vendor is writable, and the console capture is the
+         * only readout that exists on a boot with no network. 3dh's capture proves the
+         * stack loads and `eth2` comes up at 1Gbps, yet its mod-load.log was never read
+         * back; a kmsg line per module makes the same verdict readable off the UART alone.
+         */
+        k = 0;
+        line[k++] = '<';
+        line[k++] = '6';
+        line[k++] = '>';
+        line[k++] = 'l';
+        line[k++] = 'o';
+        line[k++] = 'a';
+        line[k++] = 'd';
+        line[k++] = ' ';
         s = vmods[i];
         while (*s)
             line[k++] = *s++;
@@ -161,7 +178,8 @@ static void load_vendor_modules(void)
         line[k++] = '=';
         k += utoa(line + k, ret);
         line[k++] = '\n';
-        append("/vendor/upper/mod-load.log", line, k);
+        append("/dev/kmsg", line, k);
+        append("/vendor/upper/mod-load.log", line + 3, k - 3);
     }
 }
 static const char p_sdev[]  = "/dev";
