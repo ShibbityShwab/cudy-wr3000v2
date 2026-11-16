@@ -1,81 +1,73 @@
-# tools/ - current harness, transport, and CLIs
+# tools/ - live harness, transport, and CLIs
 
 ## OVERVIEW
 
-The live surface is small. `fire.sh` is the device-cycle entry point,
-`check-init-shadow.sh` is the fire guard, `box-provision.sh` is the broker lane, and
-`rsh.sh`/`rscp.sh` are the SSH transport. Everything in `archive/` is historical
-scratch and is not part of the live surface.
+The live surface is small and fire-related. `fire.sh` is the only fire entry point and it runs
+`fire-preflight.sh` before anything is staged. `bench-link.sh`, `recovery-card.sh`,
+`uart-capture.sh`, `session-brief.sh`, `check-repo.sh` and `bench-teardown.sh` are the
+session/bench guardrails. `box-provision.sh` is the broker lane and `rsh.sh`/`rscp.sh` the
+SSH transport. `archive/` is retired scratch, including the old Wi-Fi lane; do not use it.
+
+Read `../BENCH-FACTS.md` and `../STATUS.md` before touching a device.
 
 ## WHERE TO LOOK
 
 | Task | File | Notes |
 | --- | --- | --- |
-| Fire cycle | `fire.sh` | `list`, `latest`, `guard`, `run <phase> --detach`, `status`, `verdict`, `broker`, `ssh` |
-| Off-device init run | `qemu-init-run.sh` | builds `build/linux-kbuild/qemu-src`, runs the tracked init as PID 1 under `qemu-system-arm`; the `wfile()` lines print on the console |
-| Generic SSH fire | `fire-ssh.sh` | tracked host driver: stage, fire, poll, read |
-| Device-side fire | `fire-device.sh` | write `kernelb`, verify, set `bootflag`, reboot |
-| Shadow guard | `check-init-shadow.sh` | must print PASS before any fire |
-| Broker provision | `box-provision.sh` | `--stage base`, `lab`, `fire`; `--cmd <command>` for a read-only broker command; no SSH required; the host must allow TCP 8000 from the lab subnet; `--cmd` calls are serial; the fire's immediate `mtd verify` may fail (re-verify); the image has no `/bin/fw_setenv` (use the `ln -sf /bin/fw_printenv /tmp/fw_setenv` symlink); the serve log is `build/linux-kbuild/http-fire.log` |
+| Session start | `session-brief.sh` | read-only one-screen git/doc/bench state + warnings |
+| Repo consistency | `check-repo.sh` | static drift/retired-claim/vendor-binary/publish checks |
+| Bench link | `bench-link.sh` | check; `--apply` unmanages NM and adds the two addresses |
+| Read-only console | `uart-capture.sh` | `start/stop/check`; opens the tty READ-ONLY; never sends bytes |
+| Recovery door | `recovery-card.sh` | checks + prints the physical RESET/TFTP card; `--arm`, `--stop` |
+| Fire gate | `fire-preflight.sh` | fail-closed checks; `--slice --slot a|b --attended` |
+| Fire cycle | `fire.sh` | `ssh`, `run`, `broker` are preflight-gated; `list/latest/status/verdict` |
+| Generic SSH fire | `fire-ssh.sh` | trailer fail-closed, slot env forwarded, boot_id-verified return |
+| Device-side fire | `fire-device.sh` | runs ON THE BOX; validates MTD/device pair and handover before erasing |
+| Shadow guard | `check-init-shadow.sh` | source-level PASS/FAIL; not an artifact proof |
+| Broker provision | `box-provision.sh` | `--stage base|lab|fire`; `--cmd` for one read-only command; serves only `build/linux-kbuild/http-root/`; host firewall must allow TCP 8000 |
 | SSH transport | `rsh.sh`, `rscp.sh` | project key `.omo-secrets/router_ed25519` |
-| Snapshot sync | `sync-lab-src.sh` | copy the live kernel changes into `tools/lab-src` |
-| Snapshot check | `check-lab-src.sh` | manifest checks plus full-tree completeness; `--manifest-only` is the quick check |
-| Snapshot completeness | `check-lab-src-complete.sh` | diff the live tree against the vanilla tree; needs `VANILLA_TREE` or the tarball |
-| Evidence completeness | `pack-evidence.sh` | inventories an evidence dir into `PACKED.txt` |
-| Evidence skeleton (old lane) | `finish-evidence.sh` | old Wi-Fi lane helper; `pack-evidence.sh` is the generic one |
-| Firmware patch scratch | `patch_fw_scratch.py` | variant builder for scratch images |
-| Legacy module cycle | `exp.sh`, `batch.sh` | old Wi-Fi lane; not for kernel work |
-| Legacy detached | `run-exp-detached.sh` | old Wi-Fi module lane; not for kernel work |
-| Un-hide vendor modules | `restore-now.sh` | `mv *.omo-off` back, remove loaders, sync; caller reboots. Removes four hardcoded `.ko` names; other staged modules survive |
-| Restore stock files | `restore-vendor.sh` | copies missing files from `/rom`; never overwrites |
-| Calibration snapshot | `wifi-cal-snapshot.sh` | read-only; writes `build/linux-kbuild/cal-snapshots/<TS>/`; run before any experiment |
-| Calibration restore | `wifi-cal-restore.sh <snap> [--apply]` | dry-run by default |
-| Web login | `web_login.sh` | salted SHA256 via node |
-| systime RCE probe | `rce_probe.sh` | default payload `'; touch /tmp/omo-rce-test; #` |
-| systime RCE flow | `web_rce_test.js` | wizard login, CSRF, POST payload |
-| Absolute-URL proxy | `proxy.js` | listens `127.0.0.1:8899` |
-| bdinfo secret | `decrypt_bdinfo.py` | DES-CBC; yields `secret`, `deviceid` |
-| Forge broker JWT | `forge_jwt.py` | `--deviceid --secret` or `--demo` |
-| MQTT takeover | `mqtt_takeover.py` | passive by default; `--cmd` publishes |
-| Unpack firmware | `extract_firmware.py` | hboot1tag, uImage, UBI, squashfs |
-| Explore an image | `scan_image.py` | logs UBI volumes and DES blob hits |
-| Lua 5.1 bytecode | `luadump.py` | `python3 luadump.py <file.luac> -c` |
-| Crack shadow hashes | `crack.py` | md5crypt and sha512crypt; needs passlib (in `requirements.txt`) |
-| TFTP serve/test | `tftp_server.py`, `tftp_test.py` | unauthenticated; LAN only |
-| Fake bdinfo fixture | `mk_fake_bdinfo.py` | round-trip fixture for `decrypt_bdinfo.py` |
-| Ledger index | `gen-ledger-index.py` | regenerate `mem-entries-INDEX.md` |
-| Vendor fixtures | `vendor-mods/` | two vendor `.ko` files for the `.plt` recipe |
-| Historical scratch | `archive/` | not live; do not use for current work |
+| Teardown | `bench-teardown.sh` | find/kill stale fire-log writers and broker HTTP servers; `--all` also stops TFTP/capture |
+| Snapshot sync / check | `sync-lab-src.sh`, `check-lab-src.sh`, `check-lab-src-complete.sh` | tracked kernel mirror vs live tree |
+| Evidence packing | `pack-evidence.sh` | inventory a directory into `PACKED.txt` |
+| Off-device init run | `qemu-init-run.sh` | runs the tracked init as PID 1 under qemu-system-arm |
+| Calibration | `wifi-cal-snapshot.sh`, `wifi-cal-restore.sh <snap> [--apply]` | snapshot marks incomplete payload sets; restore refuses them; dry-run by default |
+| Restore helpers | `restore-now.sh`, `restore-vendor.sh` | run ON THE BOX; copy them over and run with `sh` |
+| bdinfo/broker crypto | `decrypt_bdinfo.py`, `forge_jwt.py`, `mqtt_takeover.py` | use `.provision-venv/bin/python`; LAN only |
+| Firmware / Lua / RE | `extract_firmware.py`, `scan_image.py`, `luadump.py`, `crack.py`, `ghidra/`, `vendor-mods/` | `vendor-mods/*.ko` are untracked local fixtures, never published |
+| TFTP | `tftp_server.py`, `tftp_test.py` | RRQ only by default; `--allow-wrq` is opt-in; blksize path untested against this U-Boot |
+| Ledger index | `gen-ledger-index.py` | `python3 tools/gen-ledger-index.py` |
+| Archived | `archive/` | old Wi-Fi module lane and scratch; not live; do not run |
 
 ## CONVENTIONS
 
-- `.sh` headers: `# <name> - <purpose>` plus a usage block. This is required; the
-  comment hook flags it, and it is intentional.
+- `.sh` headers: `# <name> - <purpose>` plus a usage block (the comment hook expects it).
 - Harnesses use `set -uo pipefail`; `set -e` only where no recovery is needed.
-- Device I/O goes through `rsh.sh`/`rscp.sh`, or a script's own `ssh` with the project
-  key. There is no `.sshwrap/` in a plain checkout; `exp.sh` and `finish-evidence.sh`
-  fall back to the tracked wrappers.
-- Python: use `.provision-venv/bin/python` for `decrypt_bdinfo.py`, `forge_jwt.py`,
-  `mqtt_takeover.py`, `mk_fake_bdinfo.py`, `crack.py`, and `scan_image.py`. Stock
-  `python3` is 3.14 and lacks pycryptodome, PyJWT, paho-mqtt, and passlib. On a fresh
-  clone run `tools/setup-python.sh`; it creates `.provision-venv` and installs
-  `tools/requirements.txt`.
-- Credentials are placeholders. Live values come from `.omo-secrets/`.
-- Scratch goes in `archive/`; do not add a new variant to the live surface.
+- Device I/O goes through `rsh.sh`/`rscp.sh` (or the script's own ssh with the project key).
+  No `.sshwrap/` exists in this checkout.
+- Python dependency tools use `.provision-venv/bin/python` (`tools/requirements.txt`;
+  `tools/setup-python.sh` creates it). Stock `python3` is 3.14 and lacks the packages.
+- Evidence under `build/linux-kbuild/waves/<phase>/` and `build/uart-logs/`; `/tmp` is not
+  evidence. Never commit credentials; live values come from `.omo-secrets/`.
+- New live tools need: header, usage, read-only default where possible, a row here, and a
+  mention in `check-repo.sh` if they are part of the gate.
 
 ## ANTI-PATTERNS
 
-- Never run a device cycle in the foreground. `fire.sh run <phase> --detach`, or the
-  broker lane. Arm the device watchdog before hiding vendor modules.
-- `check-lab-src.sh --manifest-only` is not a completeness check; use the default
-  full check before trusting the snapshot.
-- `restore-now.sh` removes four hardcoded modules; check for other staged `.ko`
-  files.
-- Never replace `/etc/rc.d/luofu` wholesale. Run `check-init-shadow.sh`.
-- Never write CA `0x400392f0`; never read `0x10161000`; never `rmmod` vendor modules.
-- `exp.sh` and `batch.sh` are the old Wi-Fi module lane, not the kernel cycle. The
-  fallback wrappers keep them runnable, but do not use them for kernel work.
-- `tftp_server.py` is unauthenticated and writes uploads under `tftp/inbox`; LAN only.
-- No flash writes in this set except `box-provision.sh --stage fire` and the tracked
-  `fire-device.sh` used by `fire.sh ssh`. Both write `kernelb`; recovery is the TFTP
-  path in `RUNBOOK.md`. Do not run `fire-device.sh` on the host.
+- **Never transmit on the UART.** No `echo`/`printf` to `/dev/ttyUSB0`, no `screen`/
+  `minicom`/`picocom`, no read-write tty open (the `3<>` form), no typed keys or U-Boot
+  abort-key floods. Use
+  `uart-capture.sh`; the host->router line is dead (burnt resistor).
+- Never fire without `fire-preflight.sh` PASS, a READY recovery door, a running read-only
+  capture, and a human at the bench.
+- Never run `fire-device.sh` on the host; it runs on the box. Never set `MTD` without the
+  matching `MTD_DEV`; the script validates and refuses.
+- Never restart a per-phase script through an old documented command: per-phase scripts are
+  gitignored history; use `fire.sh`.
+- Never serve the repo root over HTTP (the broker used to); only
+  `build/linux-kbuild/http-root/` is served.
+- Never replace `/etc/rc.d/luofu` wholesale; run `check-init-shadow.sh`.
+- Never write CA `0x400392f0`, read `0x10161000`, or `rmmod` vendor modules.
+- Never commit vendor binaries/objects or credentials. `tools/vendor-mods/*.ko` are local
+  fixtures; the `opensource/` half must not carry vendor `.o/.ko`.
+- Archived tools (`exp.sh`, `batch.sh`, `run-exp-detached.sh`, `finish-evidence.sh`,
+  `rce_probe.sh`, old HTML pages) are not the live lane.

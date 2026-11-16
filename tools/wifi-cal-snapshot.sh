@@ -60,10 +60,22 @@ run "for p in /sys/module/hi5622v100_wifi/parameters/*; do echo \"== \$p\"; cat 
 
 run "uci show wireless 2>/dev/null | head -60; echo ===; cat /etc/hi_wifi/hi_wifi_default_2g.conf 2>/dev/null | head -30" > "$OUT/wireless-config.txt"
 
-for f in /lib/firmware/hi_wifi/cfg_hi5622v100_hisi.ini /lib/firmware/hi_wifi/cfg_device_hisi.ini /lib/firmware/hi_wifi/FIRMWARE.bin /etc/hi_wifi/hi_wifi_default_2g.conf /etc/hi_wifi/hi_wifi_default_5g.conf; do
+MISSING=0
+for f in /usr/local/factory/wifi.cal /usr/local/factory/hi5622v100.cal /usr/local/factory/wifi_cali_data.kv /usr/local/factory/wifi_cali_data_2g.kv /lib/firmware/hi_wifi/cfg_hi5622v100_hisi.ini /lib/firmware/hi_wifi/cfg_device_hisi.ini /lib/firmware/hi_wifi/FIRMWARE.bin /etc/hi_wifi/hi_wifi_default_2g.conf /etc/hi_wifi/hi_wifi_default_5g.conf; do
 	base=$(basename "$f")
-	scp -O "${SSH_OPTS[@]}" "$HOST:$f" "$OUT/$base" >/dev/null 2>&1 && echo "pulled $base" || echo "missing $base"
+	if scp -O "${SSH_OPTS[@]}" "$HOST:$f" "$OUT/$base" >/dev/null 2>&1; then
+		echo "pulled $base"
+	else
+		echo "missing $base"
+		MISSING=$((MISSING + 1))
+	fi
 done
+if [ "$MISSING" -gt 0 ]; then
+	# A partial snapshot with a valid manifest is worse than none: the restore path would
+	# trust MANIFEST and silently put nothing back. Record the gap and let restore refuse.
+	printf 'incomplete: %s payload file(s) missing\n' "$MISSING" > "$OUT/FACTORY_CAL_STATUS"
+	echo "WARN: snapshot is INCOMPLETE ($MISSING payload file(s) missing; see FACTORY_CAL_STATUS)" >&2
+fi
 
 ( cd "$OUT" && sha256sum * > MANIFEST.sha256 )
 echo "---- manifest ----"

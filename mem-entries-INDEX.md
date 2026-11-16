@@ -8,8 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 03:57 - The register map came from a DEAD code path; the real one is 0x20/0x2c/0x30/0x38 | `mem-entries.md:21702` |
-| 2026-11-14 |  | 2026-11-14 04:24 - All four MDIO hypotheses tested; the remaining suspect is the switch in front of it | `mem-entries.md:21725` |
 | 2026-11-14 |  | 2026-11-14 04:25 - The vendor's own 0x14000000 region reads as instruction words | `mem-entries.md:21749` |
 | 2026-11-14 |  | 2026-11-14 05:57 - Both remaining routes scoped: bit-bang closed, the switch port is the only path | `mem-entries.md:21772` |
 | 2026-11-14 |  | 2026-11-14 12:22 - Why the vendor's modules could not load: our kernel placed them FAR | `mem-entries.md:21788` |
@@ -48,6 +46,8 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
 | 2026-11-16 |  | 2026-11-16 18:25 - 3dk fired and read: the fire wrote a slot U-Boot does not boot for us, so the slice was never run | `mem-entries.md:22767` |
 | 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
+| 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
+| 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
 
 ## All dated entries
 
@@ -614,3 +614,5 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
 | 2026-11-16 |  | 2026-11-16 18:25 - 3dk fired and read: the fire wrote a slot U-Boot does not boot for us, so the slice was never run | `mem-entries.md:22767` |
 | 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
+| 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
+| 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |

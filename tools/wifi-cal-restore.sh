@@ -23,6 +23,11 @@ fi
 
 echo "== verifying snapshot integrity =="
 ( cd "$SNAP" && sha256sum -c MANIFEST.sha256 ) || { echo "MANIFEST CHECK FAILED - aborting"; exit 1; }
+if [ -f "$SNAP/FACTORY_CAL_STATUS" ]; then
+	echo "error: this snapshot is marked INCOMPLETE; restoring it would silently skip payload files." >&2
+	echo "       Take a complete snapshot (tools/wifi-cal-snapshot.sh) before applying." >&2
+	exit 1
+fi
 
 echo
 echo "== restore plan =="

@@ -4,12 +4,25 @@ import socket
 import struct
 import sys
 
+# RFC2348 blksize option: U-Boot's TFTP client asks for 1428-byte blocks on this board,
+# so honouring it cuts a 20 MB recovery from ~41000 round trips to ~1500. Without the
+# option we fall back to 512 as the RFC requires.
 BLKSZ = 512
+MAX_BLKSZ = 1468
 
 
 def parse_req(data):
     parts = data[2:].split(b"\x00")
-    return parts[0].decode(errors="replace"), (parts[1].decode(errors="replace") if len(parts) > 1 else "octet")
+    name = parts[0].decode(errors="replace")
+    mode = parts[1].decode(errors="replace") if len(parts) > 1 else "octet"
+    opts = {}
+    rest = parts[2:]
+    for i in range(0, len(rest) - 1, 2):
+        k = rest[i].decode(errors="replace").lower()
+        v = rest[i + 1].decode(errors="replace")
+        if k:
+            opts[k] = v
+    return name, mode, opts
 
 
 def safe_name(name):
@@ -28,7 +41,7 @@ def send_error(addr, code, msg):
 
 
 def handle_rrq(data, addr, base):
-    name, _ = parse_req(data)
+    name, _mode, opts = parse_req(data)
     path = os.path.join(base, safe_name(name))
     if not os.path.isfile(path):
         print("RRQ miss " + name, flush=True)
@@ -37,13 +50,33 @@ def handle_rrq(data, addr, base):
     print("RRQ " + name + " -> " + path, flush=True)
     tsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     tsock.bind(("0.0.0.0", 0))
-    tsock.settimeout(3)
+    tsock.settimeout(6)
+    blksz = BLKSZ
     try:
+        want = opts.get("blksize")
+        if want and want.isdigit():
+            blksz = max(8, min(int(want), MAX_BLKSZ))
         blob = open(path, "rb").read()
+        if blksz != BLKSZ:
+            oack = struct.pack(">H", 6) + b"blksize\x00" + str(blksz).encode() + b"\x00"
+            acked = False
+            for _ in range(8):
+                tsock.sendto(oack, addr)
+                try:
+                    ack, _a = tsock.recvfrom(1024)
+                except socket.timeout:
+                    continue
+                if len(ack) >= 4 and struct.unpack(">HH", ack[:4]) == (4, 0):
+                    acked = True
+                    break
+            if not acked:
+                print("RRQ give up on OACK", flush=True)
+                return
+            print("RRQ blksize " + str(blksz), flush=True)
         blk = 1
         off = 0
         while True:
-            chunk = blob[off:off + BLKSZ]
+            chunk = blob[off:off + blksz]
             pkt = struct.pack(">HH", 3, blk) + chunk
             acked = False
             for _ in range(4):
@@ -59,7 +92,7 @@ def handle_rrq(data, addr, base):
                 print("RRQ give up at block " + str(blk), flush=True)
                 return
             off += len(chunk)
-            if len(chunk) < BLKSZ:
+            if len(chunk) < blksz:
                 print("RRQ sent " + str(len(blob)) + " bytes", flush=True)
                 return
             blk = (blk + 1) & 0xFFFF
@@ -68,7 +101,7 @@ def handle_rrq(data, addr, base):
 
 
 def handle_wrq(data, addr, inbox):
-    name, _ = parse_req(data)
+    name, _mode, _opts = parse_req(data)
     path = os.path.join(inbox, safe_name(name).replace("/", "_"))
     print("WRQ " + name + " -> " + path, flush=True)
     tsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -110,7 +143,10 @@ def main():
     base = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tftp"))
     inbox = os.path.join(base, "inbox")
     os.makedirs(inbox, exist_ok=True)
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 6969
+    # Recovery only needs RRQ. Writes are root-owned file drops over an unauthenticated
+    # UDP service, so WRQ is off unless the operator explicitly asks for it.
+    allow_wrq = "--allow-wrq" in sys.argv[1:]
+    port = next((int(a) for a in sys.argv[1:] if a.isdigit()), 6969)
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind(("0.0.0.0", port))
     print("tftp server on 0.0.0.0:" + str(port) + " serving " + base, flush=True)
@@ -126,7 +162,11 @@ def main():
             if op == 1:
                 handle_rrq(data, addr, base)
             elif op == 2:
-                handle_wrq(data, addr, inbox)
+                if allow_wrq:
+                    handle_wrq(data, addr, inbox)
+                else:
+                    print("WRQ denied (start with --allow-wrq to permit uploads)", flush=True)
+                    send_error(addr, 2, "WRQ disabled")
         except Exception as e:
             print("transfer error: " + repr(e), flush=True)
 

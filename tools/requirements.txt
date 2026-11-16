@@ -2,3 +2,4 @@ pycryptodome
 PyJWT
 paho-mqtt
 passlib
+capstone

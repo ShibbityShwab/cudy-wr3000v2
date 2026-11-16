@@ -22831,3 +22831,93 @@ leaving). Only `RRQ ...` followed by `RRQ sent 20975775 bytes` from the board pr
 
 SSH after the flash needs the project key installed again (the recovered overlay is empty) and
 dropbear started with `-R` after deleting the zero-byte host keys.
+
+## 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded
+
+Scope: a read-only audit of the bench and repository before handing the project to a new
+harness/agent. Three read-only sub-audits (docs truth, tool safety, upstream/GPL) ran in
+parallel. Nothing was flashed, nothing was written to the device, no UART byte was transmitted,
+and no module was loaded/removed. The only local actions were process cleanup (a stale broker
+HTTP server and a stale fire-log writer, see below) and repo edits.
+
+Bench re-verified read-only at 23:52 +07:
+- vendor stock, OpenWrt 22.03.6 rev 2.4.15, kernel 5.10.201; 2 wiphys; 40 hi_ modules;
+  calibration succ on both bands; SSH key works; bootflag=b, boot_reg=0x11; 0 .omo-off;
+  overlay upper has no staged .ko (empty after the 19:05 recovery).
+- host enp195s0f3u1: 1 Gbps, NetworkManager-unmanaged, 192.168.1.88/24 + 192.168.10.44/24.
+- tftp/recovery.bin md5 421114c8.../20,975,775 B; TFTP on UDP 69 was still listening from 17:30.
+- guards PASS: check-init-shadow; check-lab-src --manifest-only (36 files).
+- slice luofu-slice-phase3dl.bin 3,005,396 B md5 f7b2eb41... matches STATUS; not fired.
+Leftovers found and cleaned: a broker HTTP server from 2026-11-15 15:29 had been serving the
+repository root (including .omo-secrets) on the LAN; a tee writer from the 3df broker lane had
+been running since 2026-11-15. Both killed with the new tools/bench-teardown.sh --apply. The
+TFTP server was left armed as the recovery door.
+
+Evidence correction (this is why the old fire-validity rule must change):
+- The 3dk capture shows U-Boot reading OUR uImage 37 times: Image Name Linux-5.10.201,
+  Data Size 2965176, Load Address 80608000. The 3dh capture shows Data Size 2964240.
+  Stock is 4,294,096.
+- Our slice is an uncompressed uImage and does NOT print "Uncompressing Linux"; only the stock
+  image does. Every "Uncompressing Linux" in the captures is therefore the stock fallback boot.
+  The ShuangTa PCIe panic in the 17:35 entry belongs to that stock fallback boot, not to ours.
+- No kernel console output follows our uImage load and the 3dk init's "load hi_*" lines were
+  never observed (grep count 0). The delivery lane stays unresolved. The 18:25 claim that
+  writing 3dl to kernela is "the path that boots cleanly" and the 17:35 recovery-3dk claim that
+  no image can load are both unproven and contradict each other; STATUS section 3 now says so.
+- No measured slot-A handover value exists. tools/fire-device.sh now refuses slot A without an
+  explicit measured BOOT_REG, and validates MTD name/device before erasing (the old independent
+  MTD/MTD_DEV knobs could erase kernelb while writing kernela).
+- NAND is degraded (ECC errors and JFFS2 read/erase failures throughout the captures); flash
+  writes are wear-limited and every fire must be planned and attended.
+
+Repo/workflow changes (root repo):
+- Added BENCH-FACTS.md: immutable physical invariants - UART READ-ONLY (burnt host->router line;
+  no transmit ever), eth2 <-> enp195s0f3u1 USB-Ethernet bench link, physical RESET-counter/TFTP
+  recovery, mtd11/12 slot map, forbidden list.
+- Added read-only/guard tools: tools/session-brief.sh (one-screen live context), tools/bench-link.sh
+  (check/apply the host lane), tools/uart-capture.sh (READ-ONLY console capture, absolute log),
+  tools/recovery-card.sh (arm/check the physical recovery door), tools/fire-preflight.sh
+  (fail-closed fire gate), tools/bench-teardown.sh (leftover cleanup), tools/check-repo.sh
+  (docs/tools/publish drift check).
+- Fire lane: fire.sh now runs preflight for ssh/run/broker fire and requires --attended; slot env
+  is forwarded explicitly; fire-ssh fails closed on a missing trailer and only declares the box
+  back when boot_id changed; box-provision derives HTTP_IP (the old 192.168.10.88 is not a local
+  address), serves only build/linux-kbuild/http-root/, fails closed on a missing trailer, and
+  explains its /tmp/vmods precondition. tftp_server.py now denies WRQ by default (RRQ only).
+- Calibration snapshot records FACTORY_CAL_STATUS and restore refuses an incomplete snapshot.
+- The old Wi-Fi device-mutating lane (exp.sh, batch.sh, run-exp-detached.sh, finish-evidence.sh,
+  rce_probe.sh) moved to tools/archive/. tools/vendor-mods/*.ko untracked (vendor GPL object
+  code; local fixtures only) and ignored.
+- Docs rewritten/corrected: AGENTS.md (no volatile state; session protocol; hard physical rules),
+  STATUS.md (verified bench, gate table with the M2 caveat, delivery-lane blocker and safe next
+  action, read-only console section), CURRENT-TRUTHS.md, RUNBOOK.md (preflight, slot pairs,
+  corrected recovery: no /bin/fw_setenv, RESET-counter TFTP, real evidence paths), LESSONS.md
+  (rules 17-23), HARDWARE-IDENTITY.md (UART read-only; the repair/pin-flood advice withdrawn),
+  EVIDENCE-INDEX.md (UART/blocker/3dk/upstream corrections + publish boundary), README.md,
+  tools/AGENTS.md, PLAN header, archive index.
+- Published half (opensource, commit fbd4a72): untracked 10 vendor TR6560 .o files (history purge
+  still required), added docs/PUBLISH-READINESS.md, corrected GPL-REQUEST status (sent
+  2026-10-01, no reply held, no copy in repo), marked ROADMAP aspirational and fixed its MT76 and
+  bench-state errors, marked M2 NOT MET, recorded the FIP/trailer/slot constraints, and stated
+  the MIT-docs / GPL-2.0-lab-code license split. No upstream target/DTS/image recipe/driver
+  series exists; Wi-Fi + LAN switch + unanswered GPL source remain the gating blockers.
+
+State left behind: box healthy on vendor stock; TFTP recovery door armed; no fire running; no
+capture running; no pending write. Next action is STATUS.md section 4 item 1: resolve the
+delivery mechanism on paper (3dh vs 3dk captures) and write the plan into STATUS before any fire.
+Audit receipts: tools/session-brief.sh output, tools/check-repo.sh, this entry; subagent reports
+summarised above (read-only, no artifact paths of their own).
+
+## 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent
+
+During the audit, `enp195s0f3u1` flipped from unmanaged to `connected` and NetworkManager
+stripped `192.168.1.88/24`, leaving only the vendor-LAN address - exactly the trap recorded in
+the 2026-11-16 19:05 entry. It was caught by `tools/session-brief.sh`, not by memory.
+
+Fix: `tools/bench-link.sh --apply` now also writes
+`/etc/NetworkManager/conf.d/99-bench-unmanaged.conf`
+(`unmanaged-devices=interface-name:enp195s0f3u1`) so the state survives NM restarts, then
+re-applies the runtime unmanage, both addresses, and the ufw ports. Post-fix state:
+unmanaged, `192.168.1.88/24` + `192.168.10.44/24`, carrier 1 Gbps, ufw rules present.
+Rule: re-run `tools/bench-link.sh` at the start of every device session; a runtime-only
+`managed no` is not durable.

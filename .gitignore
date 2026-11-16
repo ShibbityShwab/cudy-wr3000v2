@@ -50,3 +50,11 @@ tools/lab-src/**/modules.order
 # omo workspace state (per-session; init-deep snapshot + scaffolding)
 .omo/
 .provision-venv/
+
+# Bench/session leftovers and generated code
+.senpi/
+__pycache__/
+*.pyc
+
+# Vendor binaries: local fixtures only, never tracked or published (GPL object code)
+tools/vendor-mods/*.ko

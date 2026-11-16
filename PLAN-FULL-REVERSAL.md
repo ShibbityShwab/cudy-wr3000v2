@@ -1,8 +1,10 @@
 # PLAN - full reversal and custom firmware for the WR3000 v2 (luofu)
 
-> **Live plan.** The gate table and the current blocker are in [`STATUS.md`](STATUS.md).
-> The state table below is the 2026-11-13 snapshot; where it conflicts with STATUS.md,
-> STATUS.md wins.
+> **Live plan for the bench reversal only.** The gate table and the current blocker are in
+> [`STATUS.md`](STATUS.md); the state table below is the 2026-11-13 snapshot and is
+> superseded wherever it conflicts. Upstream submission is a separate plan:
+> [`opensource/docs/ROADMAP-OPENWRT.md`](opensource/docs/ROADMAP-OPENWRT.md) - not on track,
+> see the README's two-track statement.
 
 Status: active. Owner: the bench session. Started 2026-11-10.
 Supersedes nothing; extends `docs/archive/PLAN-OVERLAY-FINISH-2026-11-10.md` (the overlay lane) with the whole reversal.
@@ -27,7 +29,7 @@ replace the userspace too. A reversal is DONE when all of the following hold on 
 The vendor userspace on our kernel is milestone M5; our own OpenWrt rootfs is M6 (post-reversal,
 optional but the original ambition).
 
-## Current state (verified evidence)
+## Snapshot 2026-11-13 (superseded - STATUS.md wins)
 
 | area | state | evidence |
 | --- | --- | --- |
@@ -39,9 +41,9 @@ optional but the original ambition).
 | overlayfs assembly | GREEN with the vendor squashfs lower (bits 2 and 4 together) | `phase2c`: C94=0xC0DE9D07 |
 | squashfs lower | GREEN: UBI attach, ubiblock0_0, and the vendor squashfs all mount | `phase2b` (attach, record 118) and `phase2c` (0xC0DE9D07, C88=8,385 reads) |
 | UBI content | vendor attaches mtd14 and sees volume 0 `squashfs` | `ubiattach -m 14 -d 1`, `ubinfo` |
-| Ethernet | ONE defect from green (ARP resolves, ping 0/3) | `docs/archive/STATE-2026-10-30.md:731` |
-| Wi-Fi | vendor-only modules, not in our image | `docs/archive/STATE-2026-10-30.md:4032`, `luofu.fragment` |
-| Sustained uptime | unconfirmed on our kernel | `docs/archive/STATE-2026-10-30.md:344`; the pet/procd wall |
+| Ethernet | superseded: G4 is green via vendor modules (2026-11-14) | `STATUS.md` (the old archive line citations are dead) |
+| Wi-Fi | superseded: G5 vendor-only, no wiphy from our driver | `STATUS.md` (the old archive line citations are dead) |
+| Sustained uptime | superseded: G6 green 2026-11-14 | `STATUS.md` (the old archive line citations are dead) |
 
 The vendor's mtd14 geometry, read from the vendor's sysfs: writesize 2048, oobsize 64,
 erasesize 131072, size 24379392. The UBI EC header at offset 0 says vid_hdr_offset 2048 and
@@ -62,7 +64,7 @@ data_offset 4096; the VID header at 2048 reads `UBI!` and the volume table recor
 - Builds are local. `make ARCH=arm CROSS_COMPILE=... zImage` in
   `build/linux-kbuild/linux-5.10.201`; the slice is uImage plus the fixed 40,732-byte trailer.
 
-## Phase A - UBI attach (immediate blocker)
+## Phase A - UBI attach (done; kept as record)
 
 Objective: `ubi_attach_mtd_dev("rootfsb")` returns a UBI number, `ubiblock0_0` exists, and squashfs
 mounts at `/mnt/lower`, producing `0xC0DE9D07`.

@@ -5,14 +5,16 @@
 #   tools/fire.sh list
 #   tools/fire.sh latest
 #   tools/fire.sh guard
-#   tools/fire.sh run <phase> --detach [--dry-run]
+#   tools/fire.sh run <phase> --detach --attended [--slot a|b] [--dry-run] [--no-console]
 #   tools/fire.sh status <phase>
 #   tools/fire.sh verdict
-#   tools/fire.sh broker [--slice <path>] [--lab] [--dry-run]
-#   tools/fire.sh ssh --slice <path> [--device-script <path>] [--label <name>] --detach
+#   tools/fire.sh broker [--slice <path>] [--lab] [--attended] [--dry-run] [--no-console]
+#   tools/fire.sh ssh --slice <path> [--device-script <path>] [--label <name>]
+#                    --detach --attended [--slot a|b] [--no-console]
 #
 # The per-phase scripts stay in build/linux-kbuild and are gitignored. This
 # dispatcher is the stable entry point and the only one that may run detached.
+# Every flash-writing dispatch runs tools/fire-preflight.sh first and refuses on failure.
 
 set -uo pipefail
 
@@ -46,29 +48,40 @@ cmd_guard() {
 }
 
 cmd_run() {
-    local phase="" detach=0 dry=0
+    local phase="" detach=0 dry=0 attended=0 noconsole=0 slot=b
     while [ $# -gt 0 ]; do
         case "$1" in
             --detach) detach=1 ;;
             --dry-run) dry=1 ;;
+            --attended) attended=1 ;;
+            --slot) slot=$2; shift ;;
+            --no-console) noconsole=1 ;;
             -*) echo "unknown option: $1" >&2; exit 2 ;;
             *) phase=$1 ;;
         esac
         shift
     done
-    [ -n "$phase" ] || { echo "usage: fire.sh run <phase> --detach [--dry-run]" >&2; exit 2; }
+    [ -n "$phase" ] || { echo "usage: fire.sh run <phase> --detach --attended [--slot a|b] [--dry-run]" >&2; exit 2; }
     local script
     script=$(phase_script "$phase")
     [ -f "$script" ] || { echo "no such phase script: $script" >&2; exit 2; }
     local tag=${phase#phase}
     local log="$KB/fire-phase${tag}.out.log"
     local pidfile="$KB/fire-phase${tag}.pid"
+    local slice
+    slice=$(cmd_latest)
     if [ "$dry" -eq 1 ]; then
         echo "would run: bash $script"
         echo "log: $log"
+        echo "preflight slice: ${slice:-<none>} slot=$slot"
         return 0
     fi
     cmd_guard || exit 1
+    [ -n "$slice" ] || { echo "error: no luofu-slice-phase*.bin to preflight" >&2; exit 2; }
+    local pfargs=(--slice "$slice" --slot "$slot" --label "phase${tag}")
+    [ "$attended" -eq 1 ] && pfargs+=(--attended)
+    [ "$noconsole" -eq 1 ] && pfargs+=(--no-console)
+    "$ROOT/tools/fire-preflight.sh" "${pfargs[@]}" || exit 1
     if [ "$detach" -ne 1 ]; then
         echo "refusing to run in the foreground; pass --detach" >&2
         exit 2
@@ -83,6 +96,7 @@ cmd_run() {
 
 cmd_ssh() {
     local slice="" script="$ROOT/tools/fire-device.sh" label="manual" detach=0 dry=0
+    local attended=0 noconsole=0 slot=b
     while [ $# -gt 0 ]; do
         case "$1" in
             --slice) slice=$2; shift ;;
@@ -90,12 +104,15 @@ cmd_ssh() {
             --label) label=$2; shift ;;
             --detach) detach=1 ;;
             --dry-run) dry=1 ;;
+            --attended) attended=1 ;;
+            --slot) slot=$2; shift ;;
+            --no-console) noconsole=1 ;;
             -*) echo "unknown option: $1" >&2; exit 2 ;;
             *) echo "unexpected argument: $1" >&2; exit 2 ;;
         esac
         shift
     done
-    [ -n "$slice" ] || { echo "usage: fire.sh ssh --slice <path> [--device-script <path>] [--label <name>] --detach" >&2; exit 2; }
+    [ -n "$slice" ] || { echo "usage: fire.sh ssh --slice <path> [--device-script <path>] [--label <name>] --detach --attended [--slot a|b]" >&2; exit 2; }
     [ -f "$slice" ] || { echo "no such slice: $slice" >&2; exit 2; }
     [ -f "$script" ] || { echo "no such device script: $script" >&2; exit 2; }
     local log="$KB/fire-$label.out.log"
@@ -103,15 +120,27 @@ cmd_ssh() {
     if [ "$dry" -eq 1 ]; then
         echo "would run: bash $ROOT/tools/fire-ssh.sh --slice $slice --device-script $script --label $label"
         echo "log: $log"
+        echo "preflight slot=$slot attended=$attended"
         return 0
     fi
     cmd_guard || exit 1
+    local pfargs=(--slice "$slice" --slot "$slot" --label "$label")
+    [ "$attended" -eq 1 ] && pfargs+=(--attended)
+    [ "$noconsole" -eq 1 ] && pfargs+=(--no-console)
+    "$ROOT/tools/fire-preflight.sh" "${pfargs[@]}" || exit 1
+    local fire_env=()
+    if [ "$slot" = "a" ]; then
+        [ -n "${BOOT_REG:-}" ] || { echo "error: slot A needs a measured BOOT_REG=<value> (none is established in the repo; see STATUS.md)" >&2; exit 2; }
+        fire_env=(MTD=kernela MTD_DEV=/dev/mtd11 BOOTFLAG=a BOOT_REG="$BOOT_REG")
+    else
+        fire_env=(MTD=kernelb MTD_DEV=/dev/mtd12 BOOTFLAG=b BOOT_REG=0x21)
+    fi
     if [ "$detach" -ne 1 ]; then
         echo "refusing to run in the foreground; pass --detach" >&2
         exit 2
     fi
     : > "$log"
-    setsid bash "$ROOT/tools/fire-ssh.sh" --slice "$slice" --device-script "$script" --label "$label" >>"$log" 2>&1 </dev/null &
+    setsid env "${fire_env[@]}" bash "$ROOT/tools/fire-ssh.sh" --slice "$slice" --device-script "$script" --label "$label" >>"$log" 2>&1 </dev/null &
     echo $! > "$pidfile"
     echo "detached pid $(cat "$pidfile")"
     echo "log $log"
@@ -147,12 +176,14 @@ cmd_verdict() {
 }
 
 cmd_broker() {
-    local slice="" stage=fire dry=0
+    local slice="" stage=fire dry=0 attended=0 noconsole=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --slice) slice=$2; shift ;;
             --lab) stage=lab ;;
             --dry-run) dry=1 ;;
+            --attended) attended=1 ;;
+            --no-console) noconsole=1 ;;
             *) echo "unknown option: $1" >&2; exit 2 ;;
         esac
         shift
@@ -165,6 +196,15 @@ cmd_broker() {
         local chosen=${SLICE:-$(cmd_latest)}
         echo "SLICE=${chosen:-<none>} $ROOT/tools/box-provision.sh ${args[*]}"
         return 0
+    fi
+    if [ "$stage" = "fire" ]; then
+        local chosen pfargs
+        chosen=${SLICE:-$(cmd_latest)}
+        [ -n "$chosen" ] || { echo "error: no slice for preflight; pass --slice" >&2; exit 2; }
+        pfargs=(--slice "$chosen" --slot b --label broker)
+        [ "$attended" -eq 1 ] && pfargs+=(--attended)
+        [ "$noconsole" -eq 1 ] && pfargs+=(--no-console)
+        "$ROOT/tools/fire-preflight.sh" "${pfargs[@]}" || exit 1
     fi
     "$ROOT/tools/box-provision.sh" "${args[@]}"
 }

@@ -1,19 +1,28 @@
 # RUNBOOK - build, fire, read, recover
 
-This is the current kernel lane on the bench box. The old Wi-Fi module lane
-(`tools/exp.sh`, `tools/batch.sh`) is history; it was built around a `.sshwrap/`
-directory that is not in this checkout. A tracked fallback now exists, but the lane is
-still historical and is not the kernel cycle.
+The kernel lane on the bench box. The old Wi-Fi module lane moved to `tools/archive/`; it
+is history and must not be used for kernel work.
 
-## 0. Preconditions
+**Before anything:** `BENCH-FACTS.md` (physical invariants), `STATUS.md` section 4 (the
+only source of a delivery plan), `LESSONS.md`. If `STATUS.md` does not name a delivery
+plan, there is no fire; only preparation and reading.
 
-- Box reachable at `192.168.10.1`; SSH key `.omo-secrets/router_ed25519`.
-- Kernel tree at `build/linux-kbuild/linux-5.10.201` (gitignored, the source of truth).
-- Toolchain at `build/linux-kbuild/toolchain/bin/arm-none-linux-gnueabihf-`.
-- For the broker lane: `dumps/router-20261108/bdinfo.bin` and
-  `tools/box-provision.sh`.
-- On a fresh clone, run `tools/setup-python.sh` once for the Python dependencies.
-- The guard must pass before any fire: `tools/check-init-shadow.sh`.
+## 0. Preconditions and gate
+
+- Bench link PASS: `tools/bench-link.sh` (adapter unmanaged, both addresses, carrier up).
+- Recovery door READY: `tools/recovery-card.sh` (recovery.bin md5, host 192.168.1.88,
+  TFTP on UDP 69) and a human who can power-cycle the box and hold RESET.
+- Read-only UART capture armed: `tools/uart-capture.sh start --label <label>`.
+- Box reachable: `tools/session-brief.sh` (vendor stock must show 2 wiphys, calibration
+  `[SUCC]`, no `.omo-off`).
+- Fire gate: `tools/fire-preflight.sh --slice <slice> --slot a|b --attended` must PASS.
+  `tools/fire.sh` runs it automatically and refuses on failure.
+- Kernel tree `build/linux-kbuild/linux-5.10.201` (gitignored, source of truth), toolchain
+  `build/linux-kbuild/toolchain/bin/arm-none-linux-gnueabihf-`, Python via
+  `.provision-venv/bin/python`.
+- The shadow guard must pass before any fire: `tools/check-init-shadow.sh`. It is a
+  **source-level** guard (the shadow must keep `hi_kpinctrl` and the switch); it is not an
+  artifact proof.
 
 ## 1. Build
 
@@ -25,10 +34,12 @@ make ARCH=arm CROSS_COMPILE="$KB/toolchain/bin/arm-none-linux-gnueabihf-" \
   -j16 zImage dtbs < /dev/null
 ```
 
-`make zImage` does not rebuild the DTB. Run `dtbs` explicitly; a stale DTB was a real
-defect in this project.
+`make zImage` does not rebuild the DTB. Run `dtbs` explicitly; a stale DTB was a real defect.
 
 ## 2. Assemble the slice
+
+The current pattern is `build/linux-kbuild/build-3dl.sh` (3dh DTB + 3dk init). The generic
+shape is:
 
 ```sh
 cat arch/arm/boot/zImage arch/arm/boot/dts/luofu-r116.dtb > "$KB/phase-payload.bin"
@@ -36,94 +47,89 @@ mkimage -A arm -O linux -T kernel -C none \
   -a 0x80608000 -e 0x80608000 -n Linux-5.10.201 \
   -d "$KB/phase-payload.bin" "$KB/phase-uImage.bin"
 cat "$KB/phase-uImage.bin" "$KB/slice-trailer-40732.bin" > "$KB/luofu-slice-phaseX.bin"
-tail -c 40732 "$KB/luofu-slice-phaseX.bin" > /tmp/slice-trailer.check
-cmp /tmp/slice-trailer.check "$KB/slice-trailer-40732.bin"
+tail -c 40732 "$KB/luofu-slice-phaseX.bin" | cmp - "$KB/slice-trailer-40732.bin"
 ```
 
-The 40,732-byte trailer is fixed. Do not rebuild it from an arbitrary slice.
+The 40,732-byte trailer is fixed FIP/DTBO evidence (`slice-trailer-40732.bin`, sha256
+`336b07920e915fac30c3b90d57925b880d430ac7ed94a81963d52af10c102953`). It is local evidence,
+not published (vendor-derived). **Never rebuild it from an arbitrary slice**; if it is
+missing, rebuild and validate from a known stock image, and fail closed rather than writing an
+unvalidated slice.
 
 ## 3. Guard
 
 ```sh
-tools/check-init-shadow.sh
+tools/check-init-shadow.sh    # must print PASS
 ```
 
-It must print `PASS`. It checks that the filtered shadow keeps `hi_kpinctrl`, the
-switch, and the other load-bearing modules, and drops only `hi_kphy`, `hi_kmdio`, and
-`hi_kmac`. A wholesale replacement of `/etc/rc.d/luofu` took the box off the network
-once. Do not repeat it.
-
 ## 3a. Calibration
-
-Before any experiment:
 
 ```sh
 tools/wifi-cal-snapshot.sh
 ```
 
-It writes `build/linux-kbuild/cal-snapshots/<TS>/` with `MANIFEST.sha256`. Restore is
-a dry run by default:
+It writes `build/linux-kbuild/cal-snapshots/<TS>/` with `MANIFEST.sha256`. A snapshot that
+could not pull every payload file is marked `FACTORY_CAL_STATUS` = incomplete; the restore
+script refuses it. Restore is a dry run by default:
 
 ```sh
 tools/wifi-cal-restore.sh build/linux-kbuild/cal-snapshots/<TS>
 ```
 
-`--apply` is allowed only after the manifest check passes. The restore script performs
-that check itself; never bypass it.
+`--apply` is allowed only after the script's own manifest check passes. Never bypass it.
 
 ## 4. Fire
 
-### SSH lane
+Only after `STATUS.md` section 4 names the delivery plan and preflight PASSes. Device cycles
+are always detached, attended, and one variable.
+
+### SSH lane (slot decision explicit)
 
 ```sh
-tools/fire.sh run <phase> --detach
-tools/fire.sh status <phase>
-```
-
-`run` executes the existing `build/linux-kbuild/run-phase<phase>.sh` detached and
-writes a log. Those per-phase scripts are gitignored; the dispatcher is the stable
-entry point.
-
-For a fresh clone, the tracked generic driver is:
-
-```sh
-tools/fire.sh ssh --slice "$PWD/build/linux-kbuild/luofu-slice-phaseX.bin" --label phaseX --detach
+tools/fire.sh ssh --slice "$PWD/build/linux-kbuild/luofu-slice-phaseX.bin" \
+  --label phaseX --slot b --attended --detach
 tools/fire.sh status phaseX
 ```
 
-It stages `tools/fire-device.sh`, verifies the remote md5, fires, polls the vendor
-slot, and prints the verdict cells and the overlay listing.
+- Slot B: `MTD=kernelb`, `/dev/mtd12`, `bootflag=b`, `boot_reg=0x21` (the only manual
+  handover value established on this board).
+- Slot A: requires a measured `BOOT_REG=<value>` from a written plan. `fire.sh` refuses
+  without it, and `fire-device.sh` refuses before erasing. Never invent the value.
+- `fire-device.sh` validates the MTD name/device pair before `flash_eraseall` (the old
+  one-variable trap erased `kernelb` while writing `kernela`). It prints the target and the
+  pre/post `bootflag`/`boot_reg`.
+- `fire-ssh.sh` verifies the trailer, forwards the slot env, and only declares the box back
+  when `boot_id` changes and uptime is fresh (uptime alone can pass without a reboot).
 
 ### Broker lane (no SSH)
 
 ```sh
 SLICE="$PWD/build/linux-kbuild/luofu-slice-phaseX.bin" \
-  tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage fire
+  tools/fire.sh broker --attended
 ```
 
-The broker lane serves the slice from the host, has the box `wget` it, verifies the
-trailer, size, and md5, writes `kernelb`, runs `mtd verify`, sets `bootflag=b`, and
-reboots. It also runs the guard internally. The 3de fire (2026-11-15) device-verified
-the download, write, `mtd verify`, `bootflag=b`, and reboot. Two traps observed: the
-chain's immediate `mtd verify` can fail while the box's own verify returns 0
-(re-verify before declaring the write bad), and the image has no `/bin/fw_setenv`, so
-the `ln -sf /bin/fw_printenv /tmp/fw_setenv` symlink is required. The server log is
-`build/linux-kbuild/http-fire.log`; the script pre-kills any stale listener on the
-port.
+This runs preflight, then `tools/box-provision.sh --stage fire`. The broker lane writes
+`kernelb` only, verifies size/md5/trailer, `mtd erase/write/verify`, `bootflag=b`,
+`boot_reg=0x21`, and reboots. It serves only `build/linux-kbuild/http-root/` (not the repo
+root) on the auto-detected host address (usually 192.168.10.44:8000); the host firewall must
+allow TCP 8000 from 192.168.10.0/24. Two old traps: the chain's immediate `mtd verify` can
+fail while the box's own verify returns 0 (re-verify); the image has no `/bin/fw_setenv`
+(use the `ln -sf /bin/fw_printenv /tmp/fw_setenv` symlink).
 
-The host must allow TCP 8000 from the lab subnet, or the box's `wget` is blocked and the
-fire stops before the erase. On this host:
+### Per-phase lane
 
-```sh
-sudo ufw allow in on enp195s0f3u1 from 192.168.10.0/24 to any port 8000 proto tcp
-```
+`tools/fire.sh run <phase> --detach --attended` is the historical per-phase dispatcher. It
+now runs preflight too. Do not add new per-phase scripts without a written plan.
 
-The per-phase run scripts are bench-local; for a fresh clone, use the tracked generic
-`fire.sh ssh` driver. To refresh the patched vendor modules first:
+### Validity (read this before interpreting a capture)
 
-```sh
-tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage lab
-```
+- Ours is an **uncompressed uImage**: U-Boot prints `Image Name: Linux-5.10.201` and our
+  `Data Size` (2,964,240 for 3dh, 2,965,176 for 3dk) and **then kernel output**.
+- Stock is `Data Size: 4,294,096` and prints `Uncompressing Linux`; that is the fallback
+  boot, not us. A stock fallback can also panic (ShuangTa PCIe) - do not attribute that
+  panic to our kernel.
+- If the box does not return, the recovery plan is already armed (section 6). Do not repeat
+  the fire.
 
 ## 5. Read the verdict
 
@@ -131,67 +137,82 @@ tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage lab
 tools/fire.sh verdict
 ```
 
-or directly, read-only:
+or read cells directly (read-only):
 
 ```sh
-ssh -i .omo-secrets/router_ed25519 \
-  -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@192.168.10.1 \
+ssh -i .omo-secrets/router_ed25519 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@192.168.10.1 \
   'for c in C04 C18 C1C C70 C88 C90 C94 C98 C9C; do printf "%s=" $c; devmem 0x10100$c 32; done'
 ```
 
-- `C18` carries the restart path and the init mount tag/errno.
-- `C94` is the main verdict cell.
-- `C88` is the read count.
-- `C9C` is the exec marker.
-
-A verdict is one value with one last writer. If you do not know the writer, the value
-is not evidence. Never read `0x10161000`; a read-only `devmem` there panicked the box.
-
-If SSH is unavailable (the stock image has telnet only), read through the broker:
-
-```sh
-tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin \
-  --cmd 'for c in C04 C18 C1C C70 C88 C90 C94 C98 C9C; do printf "%s=" $c; devmem 0x10100$c 32; done'
-```
-
-`--cmd` runs one command as root through the MQTT channel and prints its last line.
-Use one-line commands; split multi-line readouts into separate calls, and run them
-serially. Two parallel `--cmd` calls can lose or truncate output on the broker.
+- `C18` carries the restart path and the init mount tag/errno; `C94` is the main verdict;
+  `C88` is the read count; `C9C` is the exec marker.
+- A verdict is one value with one last writer. If you do not know the writer, it is not evidence.
+- Never read `0x10161000` (a read-only `devmem` there panicked the box).
+- No SSH (stock image may lack dropbear): use the broker `--cmd` lane, one line per call, serial.
 
 ## 6. Recover
 
-- Vendor slot, reachable: `fw_setenv bootflag a` and reboot.
-- Vendor slot, broker only: `tools/box-provision.sh --bdinfo ... --stage base`.
-- Unreachable: hold RESET during power and TFTP-boot `recovery.bin` from
-  `192.168.1.88`. Serve it with `sudo python3 tools/tftp_server.py 69` (port 69 is
-  privileged); the official image is `tftp/recovery.bin`. The stock LAN comes up at
-  `192.168.10.1`.
-- On the device, `tools/restore-now.sh` unhides `.omo-off` files and removes the
-  loader plus four hardcoded modules. Other staged `.ko` files can survive; check the
-  module directory. `tools/restore-vendor.sh` restores missing stock files from `/rom`
-  and never overwrites.
+**Rule: every fire has a recovery plan before it starts.** Recovery of an unreachable box is
+physical; the agent prepares and the human acts.
 
-After recovery, verify: 2 wiphys, 6 interfaces, calibration `[SUCC]` on both bands, and
-no `.omo-off` leftovers.
+### Reachable box, wrong slot/handover
 
-## 7. Log
-
-Evidence goes under `build/linux-kbuild/evidence/` (the old `build/register-dumps`
-path is historical and not writable on this checkout). Append a dated entry to
-`mem-entries.md` with the phase, the result, and the evidence path. If the claim
-matters beyond the session, add it to `EVIDENCE-INDEX.md` with a regeneration command.
-Refresh the index with:
+Do not use a plain `fw_setenv` (the stock rootfs has `/bin/fw_printenv` only). Restore the
+pair and reboot:
 
 ```sh
-python3 tools/gen-ledger-index.py
+# on the box, as root
+ln -sf /bin/fw_printenv /tmp/fw_setenv
+/tmp/fw_setenv bootflag a
+echo 0x10 > /sys/devices/platform/sysenv/boot_reg
+sync
+reboot
 ```
+
+Verify after reboot: `fw_printenv bootflag` and `cat /sys/devices/platform/sysenv/boot_reg`.
+If that does not restore a boot, go to the TFTP recovery.
+
+### Unreachable box: physical RESET + TFTP recovery
+
+```sh
+tools/bench-link.sh --apply          # unmanaged adapter + 192.168.1.88/24 + 192.168.10.44/24
+tools/recovery-card.sh --arm         # recovery.bin md5 check + TFTP on UDP 69
+tools/uart-capture.sh start --label recover   # read-only console
+```
+
+Then the human: power the router OFF, hold RESET, power ON still holding. The console prints
+`RESET button is pressed for: 0/1/2 second(s)`, `Resetting...`, then
+`recovery button press`; the loader TFTPs `recovery.bin` from `192.168.1.88`. Correct
+server log: `RRQ recovery.bin` then `RRQ sent 20975775 bytes`. A release before the counter
+reaches 2 s boots normally.
+
+After the flash the stock LAN returns at `192.168.10.1`. The overlay is empty: reinstall the
+project key and start dropbear with `-R` after deleting the zero-byte host keys. Then verify
+2 wiphys, calibration `[SUCC]` both bands, and no `.omo-off` leftovers.
+
+### Restore helpers (device-side)
+
+`tools/restore-now.sh` unhides `.omo-off` files and removes the loader plus four hardcoded
+modules; other staged `.ko` can survive, so check the module directory. `tools/restore-vendor.sh`
+copies missing stock files from `/rom` and never overwrites. Both run **on the box**; copy them
+there and run with `sh`.
+
+## 7. Log, close, and commit
+
+Evidence goes under `build/linux-kbuild/waves/<phase>/` (phase writeups) and
+`build/uart-logs/` (console captures); `/tmp` is not evidence. Update `STATUS.md` (state,
+blocker, next action) and append a dated entry to `mem-entries.md`; regenerate
+`mem-entries-INDEX.md` with `python3 tools/gen-ledger-index.py`. Then run
+`tools/check-repo.sh`, restart `tools/bench-teardown.sh --apply` cleanup decision, and
+commit. A session that changes a live doc without an entry is incomplete.
 
 ## Safety
 
-- Never run a device cycle in the foreground.
-- Arm the device watchdog before hiding vendor modules.
-- Never `rmmod` the vendor modules.
-- Never write CA `0x400392f0`; never read the RC misc window `0x10161000`.
+- Never run a device cycle in the foreground; never fire unattended.
+- Never write a flash slot without a written plan, preflight PASS, and a READY recovery door.
+- Never transmit on the UART.
+- Never write CA `0x400392f0`; never read the RC misc window `0x10161000`; never `rmmod`
+  the vendor modules.
 - Never flash a WR3000 v1 image.
-- Never commit credentials; tracked text carries placeholders.
+- Never commit credentials or vendor binaries; tracked text carries placeholders only.

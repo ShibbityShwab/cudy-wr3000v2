@@ -1,4 +1,6 @@
 #!/bin/sh
+# restore-vendor.sh - copy missing stock files back from /rom; never overwrites.
+# Runs ON THE ROUTER (the /rom path only exists there).
 n=0
 for f in $(find /rom/usr/lib/lua/luci /rom/www /rom/sbin -type f 2>/dev/null); do
 	t=${f#/rom}
