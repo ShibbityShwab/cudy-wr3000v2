@@ -1,42 +1,33 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-15
+**Updated:** 2026-11-16
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it.
 
 ## 1. Bench
 
-- Box: **unreachable since 16:05** (host clock). Last contact 16:04: the stock vendor
-  userspace with `bootflag=b` and `boot_reg=21`, `kernelb` holding the 3df slice verified
-  byte-exact (`mtd verify` rc 0, 2,766,628 bytes, md5 `9e4015cadd2aa507a1763615b6ac914e`).
-  A broker `sync; reboot` was issued at 16:03 to hand control to that slice. Since then the
-  box answers no ARP, the host's USB Ethernet keeps carrier with zero received packets,
-  and the broker, telnet and SSH ports stay closed. There is no console: the UART RX path
-  is dead (J10 pin 3). Recovery is the TFTP path in `RUNBOOK.md` section 6 and needs a
-  physical power cycle with RESET held; `tftp/recovery.bin` and `tools/tftp_server.py`
-  are present on the host.
+- Box: **unreachable since 15:39** (host clock). 3di's fire reached the write/verify/vendor
+  return and then died with `Connection reset by 192.168.10.1 port 22`; since then no ping,
+  the MQTT broker raises `OSError 113 No route to host`, and the host's USB Ethernet keeps
+  carrier with no peer. The console adapter is present (`/dev/ttyUSB0`) and reads only with
+  the swapped pins, so a boot can be captured, but every fire needs the RESET + TFTP
+  recovery in `RUNBOOK.md` section 6 (`tftp/recovery.bin`, `tools/tftp_server.py`).
 - Access: SSH key `.omo-secrets/router_ed25519`. There is no `.sshwrap/` in this
   checkout. The broker channel is `tools/box-provision.sh` with
   `dumps/router-20261108/bdinfo.bin`.
-- Latest build (local-only): `build/linux-kbuild/luofu-slice-phase3df.bin`
-  (2026-11-15 14:33, 2,766,628 bytes, md5 `9e4015cadd2aa507a1763615b6ac914e`). It
-  carries the `wfile()` instrumentation, and that instrument is in the image: the XZ
-  kernel stream decompresses to an initramfs whose single `init` is byte-identical to
-  the tracked source's current compile. Two broker fires wrote and verified `kernelb`
-  (15:29 and 15:52) and the box booted the stock kernel (`#0 SMP Nov 25 2023`) both
-  times; the 16:03 reboot after setting `boot_reg` is the first one that could hand
-  control to the slice. Fire 6 (19:29) wrote and verified the slice again and set
-  `bootflag=b` and `boot_reg=21`, but its own reboot did not run and the box stayed on
-  the stock kernel at uptime 46,050 s. A power cycle is what boots the slice now. See
-  `build/linux-kbuild/waves/3df/fire6.md` and section 3.
-- The latest SSH fire script (local-only) is `build/linux-kbuild/run-phase3dc.sh`;
-  3dd, 3de and 3df have slices but no run scripts. The broker lane is
-  `tools/box-provision.sh --stage fire` and now defaults to the newest
-  `luofu-slice-phase*.bin`; pass `SLICE=` to pin one. The per-phase run scripts are
-  bench-local; the tracked generic `fire.sh ssh` driver covers a fresh clone. The
-  dynamic default and the HTTP path changes are code-verified and dry-run checked,
-  not device-verified; the next fire tests them.
+- Latest build (local-only): `build/linux-kbuild/luofu-slice-phase3dk.bin`
+  (3,005,972 bytes, md5 `15d24e455c9ea17ca90e7c9adbfff040`), the 3dj kernel and DTB with an
+  init that prints one `load <mod> fd=.. ret=..` kmsg line per vendor module. Rebuild with
+  `build/linux-kbuild/build-3dk.sh`. Before it: 3di (15:12), 3dh (14:36, the boot whose
+  capture shows `eth2` at 1Gbps) and 3dg (13:50), all fired today without a ledger entry
+  until the 15:45 entry.
+- Module staging: the vendor modules must carry zero-size `.plt`/`.init.plt`
+  (`tools/box-provision.sh --stage lab` pushes the patched set to the overlay upper). The
+  3df boot at 05:32 loaded the unpatched set and every module was refused.
+- The broker lane is `tools/box-provision.sh --stage fire` and defaults to the newest
+  `luofu-slice-phase*.bin`; pass `SLICE=` to pin one. The tracked generic `fire.sh ssh`
+  driver covers a fresh clone.
 
 ## 2. Gates (2026-11-14)
 
@@ -54,17 +45,46 @@ radio (G5) is still the vendor's.
 
 ## 3. Current blocker
 
-**3df is GREEN: the shadow writes land.** Fire 7 (2026-11-16 05:32) is the first 3df boot
-captured on a working console. U-Boot printed `bootflag b bootreg 21` and
-`Reading 8650752 byte(s)`, so the B slot was read because the handover was set. Our kernel
-reached userspace and the 3df init printed all seven verdict lines, every one `OK`:
+**The PLT gate is bypassed on this board; the open item is which boot reaches the LAN.**
+
+The 3df block below described the 05:32 boot and is kept as history. On the same kernel two
+later boots tell a different story: the **3dh** capture
+(`build/uart-logs/20261116T075623Z-3dh-fire.log`) shows the vendor stack loaded and running:
 
 ```
-/vendor/upper/etc/rc.d/S10boot OK          /vendor/upper/etc/rc.d/S18hyfibrd OK
-/vendor/upper/etc/init.d/luofu OK          /vendor/upper/etc/rc.d/S20network OK
-/vendor/upper/etc/rc.d/luofu OK            /vendor/upper/etc/rc.d/S95done OK
-/vendor/upper/pstore-check.txt OK
+swa_netdevice_event 215:event:36, name:eth2
+[DFX]ETH [3]eth2 phyid:4 1Gbps Full 0x0:1140 0x4:05e1
+Hi-GEMAC 14480000.gemac eth2
 ```
+
+Those modules carried zero-size `.plt`/`.init.plt` sections (`tools/box-provision.sh
+--stage lab`), so the loader accepts them and the near-region `module_alloc` never needs a
+PLT. The same capture shows procd restarting the network stack (destroy + `Starting TDR` on
+eth2), and the box was unreachable after each of today's fires (3dg `VENDOR_DID_NOT_RETURN`,
+3dh SSH dropped, 3di SSH reset). So the live question is why the stack comes down after it
+loads, not whether it loads.
+
+The init's own module-load verdict is now on the console: **3dk** emits `<6>load <mod>
+fd=.. ret=..` per module (`build/linux-kbuild/waves/3dk/build.md`, slice
+`luofu-slice-phase3dk.bin` md5 `15d24e455c9ea17ca90e7c9adbfff040`). The 3df slice's module
+failure at 05:32 was the unpatched module set, not the loader.
+
+The console itself works only with the swapped UART pins (`HARDWARE-IDENTITY.md`,
+2026-11-16 update), and captures must write to an absolute path.
+
+## 4. Next actions
+
+1. **3dk read: `load hi_*` lines from a console capture.** `ret=0` on `hi_kpinctrl` and the
+   chain confirms the loader path end to end; a negative value names the errno. Then read the
+   same capture for what drops eth2 (devlink/eth restart, `hi_swa` destroy, watchdog).
+2. Recovery first: the box is unreachable, so a fire needs RESET + TFTP (`RUNBOOK.md` section
+   6, `tftp/recovery.bin`, `tools/tftp_server.py`), proven twice today.
+3. **PCIe quirk / pinctrl node** is the next driver-level item if a 3dk boot shows the stack
+   loading: `hi_pcie` panics unless the pinctrl block exposes the named lines
+   (`build/linux-kbuild/waves/3df/pcie-quirk.md`). 3di/3dj were property edits and are inert.
+4. Keep the Wi-Fi lane (G5) separate. The vendor modules own the radio on our kernel.
+
+### What the 05:32 boot said (history)
 
 The kernel hooks agree in the same boot: `seed test ... wret=0 res=c0def000` and
 `overlay test j1=0 j2=0 j3=0 wr=0 res=c0de9d0f`, the success tag with all four status bits.
@@ -72,41 +92,22 @@ So the `/vendor` mount is not read-only on this strap and the earlier silence wa
 userspace winning the boot. Receipt: `build/linux-kbuild/waves/3df/fire7.md` and
 `build/uart-logs/20261116T052813Z-fire7-3df.log`.
 
-The blocker is now the **module loader's PLT gate**. Every vendor module fails with
-`module PLT section(s) missing`, `hi_kpinctrl` included, so the pins, MDIO and Ethernet
-never come up and the boot is unreachable on the LAN even though procd starts. The
-console makes each attempt readable now, which is what was missing for the whole file.
+That boot refused every vendor module (`module PLT section(s) missing`) because its module
+set carried no `.plt` sections. The patched set fixes that, and 3dh's capture shows the
+result.
 
-The console itself works only with the swapped UART pins (`HARDWARE-IDENTITY.md`,
-2026-11-16 update), and captures must write to an absolute path.
+## 4. Reading the console
 
-## 4. Next actions
-
-1. **PLT module gate.** Userland modules die with `module PLT section(s) missing`
-   (`hi_kpinctrl`, `hi_swa`, `hi_kmsgcenter`, `hi_netif`, `gpio-generic`, `gpio-dwapb`,
-   `leds-gpio`, `nf_nat_*`). The loader tolerates a missing PLT only under specific build
-   conditions; the archived loader notes name the frob tolerance and the `get_module_plt`
-   guard. Each attempt is now readable on the console, so bisect against a capture.
-2. Read the console for every fire. Capture to an ABSOLUTE path from a root shell:
-   `sudo stty -F /dev/ttyUSB0 115200 cs8 -cstopb -parenb -crtscts raw -echo;
-   sudo sh -c 'exec 3<>/dev/ttyUSB0; timeout N cat <&3 > /abs/log'`.
-   The adapter only reads with the swapped pins.
-3. The box currently runs our kernel without networking (`hi_kpinctrl` never loads), so
-   recovery is RESET + TFTP (`tftp/recovery.bin`, `tools/tftp_server.py`), proven twice.
-4. Keep the Wi-Fi lane (G5) separate. The vendor modules own the radio on our kernel.
+Capture to an ABSOLUTE path from a root shell:
+`sudo stty -F /dev/ttyUSB0 115200 cs8 -cstopb -parenb -crtscts raw -echo;
+sudo sh -c 'exec 3<>/dev/ttyUSB0; timeout N cat <&3 > /abs/log'`. The adapter only reads
+with the swapped pins.
 
 ## 5. How to run
 
-```sh
-tools/check-init-shadow.sh
-SLICE="$PWD/build/linux-kbuild/luofu-slice-phase3df.bin" \
-  tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage fire
-# 3df has no run script; the tracked generic SSH driver is available when SSH is:
-tools/fire.sh ssh --slice "$PWD/build/linux-kbuild/luofu-slice-phase3df.bin" --label 3df --detach
-tools/fire.sh verdict
-```
-
-The full procedure, including recovery, is in [`RUNBOOK.md`](RUNBOOK.md).
+The full procedure, including recovery, is in [`RUNBOOK.md`](RUNBOOK.md). `build-3dk.sh`
+rebuilds the 3dk slice; `tools/fire.sh ssh --slice ... --label 3dk --detach` fires it when
+the vendor slot is up, otherwise `tools/box-provision.sh --stage fire` after a TFTP recovery.
 
 ## 6. Evidence
 

@@ -22683,3 +22683,45 @@ Method: the console works because the UART pins were swapped on the adapter (HAR
 Evidence: `build/linux-kbuild/waves/3df/fire7.md`;
 `build/uart-logs/20261116T052813Z-fire7-3df.log` (112,178 bytes);
 `build/linux-kbuild/fire-phase3df-broker-7.log` behaviour as logged in `/tmp/fire7.txt`.
+
+## 2026-11-16 15:45 - Picked up the PLT thread: STATUS is stale, the stack loads, and the init now reports every load on the console
+
+What the board says, read from captures already on the host rather than a new fire.
+`STATUS.md` section 3 ("every vendor module fails with `module PLT section(s) missing`")
+describes 3df (2026-11-16 05:32). The 3dh capture
+`build/uart-logs/20261116T075623Z-3dh-fire.log` shows the vendor stack loaded and running:
+`swa_netdevice_event ... name:eth2`, `[DFX]ETH [3]eth2 phyid:4 1Gbps Full`,
+`Hi-GEMAC 14480000.gemac eth2`. The PLT gate was bypassed by the patched modules
+(`tools/box-provision.sh --stage lab`, zero-size `.plt`/`.init.plt`) on the same kernel the
+3df boot refused. 3dh also shows procd restarting the network stack (`swa_netdevice_event ...
+event:9 is destroy` and `Starting TDR` on eth2), and the box was unreachable afterwards, which
+fits a userspace restart rather than a driver failure.
+
+Four fires ran today with no ledger entry: `fire-plt8` (14:19, slice 3df),
+`fire-dg2` (14:55, 3dg, ERASE/WRITE/VERIFY OK then `VENDOR_DID_NOT_RETURN`),
+`fire-dh1` (14:56, 3dh, `VENDOR_BACK` + `eth2 1Gbps` in the capture, SSH dropped mid
+verdict read), `fire-di1` (15:39, 3di, same poll signature, SSH reset). What 3dg and 3di
+changed is not documented: 3di is the PCIe DTB attempt in `waves/3df/pcie-quirk.md` ("inert"),
+and 3dg is only called "the same node" there.
+
+3dk: one source change, `load_vendor_modules()` now writes a kmsg line per module
+(`<6>load hi_kpinctrl fd=5 ret=0`) next to the `mod-load.log` line it already wrote. The
+file lands in the overlay upper and was never read back; the console is the channel that
+exists on a boot without network. Built and verified: guard PASS, zImage unchanged, and the
+init extracted from the built kernel is the compiled one (md5 `6464a08d...`), slice
+`luofu-slice-phase3dk.bin` (3,005,972 bytes, md5 `15d24e45...`).
+
+Off-box attempt, recorded as a dead end: `qemu-src` rebuilt with `CONFIG_MODULES=y` dies at
+`timer_probe: no matching timers found` before the console, with a minimal init and no modules
+loaded; `qemu-baseline` reaches userspace with the same init. The `.config` is restored and
+the zImage rebuilt without modules. Side fact worth keeping: the `R_ARM_CALL` PLT path
+compares a PC-relative offset against +/-32MB while `get_module_plt` uses the absolute
+target, so the two tests agree only near the edge of the window.
+
+State left behind: the box is unreachable (no ping, broker `OSError 113`, USB Ethernet has
+carrier with no peer), so a fire needs the RESET + TFTP recovery in `RUNBOOK.md` section 6.
+A 3dk boot is read through `load hi_*` lines in a UART capture; `ret=0` on `hi_kpinctrl`
+means the loader accepted the stack and the work moves to the PCIe/pinctrl node.
+
+Evidence: `build/linux-kbuild/waves/3dk/build.md`, `build-3dk.sh`,
+`build/uart-logs/20261116T075623Z-3dh-fire.log`.
