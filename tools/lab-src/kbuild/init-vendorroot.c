@@ -37,9 +37,10 @@ static inline long sc6(long n, long a, long b, long c, long d, long e, long f)
 #define SYS_sync     36
 #define SYS_write    4
 #define SYS_open     5
+#define SYS_chmod    15
+#define SYS_mount    21
 #define SYS_close    6
 #define SYS_chdir    12
-#define SYS_mount    21
 #define SYS_finit_module 379
 #define SYS_umount2  52
 #define SYS_execve   11
@@ -65,6 +66,16 @@ static const char p_home[]  = "HOME=/";
 static const char p_term[]  = "TERM=linux";
 static const char p_ubi[]   = "/dev/ubiblock0_0";
 static const char p_mtd13[] = "/dev/mtdblock13";
+/* NON-PERSISTENT TEST MASKS (2026-11-17): a no-op script in the initramfs (RAM, vanishes on
+ * reboot) is bind-mounted over the vendor kmodloader/NFT script for THIS boot only. Stock
+ * fallback boots see the untouched overlay. */
+static const char p_noop[]  = "/omo-noop";
+static const char p_kmod[]  = "/vendor/sbin/kmodloader";
+static const char p_nft[]   = "/vendor/etc/rc.d/S99nft-qos";
+static const char sh_noop[] =
+    "#!/bin/sh\n"
+    "# OMO non-persistent mask: stock module loading/NFT is skipped on the lab kernel only.\n"
+    "exit 0\n";
 
 /*
  * THE VENDOR STACK, LOADED IN THE VENDOR'S OWN ORDER (2026-11-14).
@@ -106,6 +117,20 @@ static void append(const char *path, const char *s, long n)
         sc3(SYS_write, fd, (long)s, n);
         sc2(SYS_close, fd, 0);
     }
+}
+
+static void wfile(const char *path, const char *s, long mode);
+
+static void bind_mask(const char *target)
+{
+    sc5(SYS_mount, (long)p_noop, (long)target, 0, 4096 /* MS_BIND */, 0);
+}
+
+static void write_test_masks(void)
+{
+    wfile((char *)p_noop, sh_noop, 0755);
+    bind_mask(p_kmod);
+    bind_mask(p_nft);
 }
 
 static int utoa(char *b, long v)
@@ -596,6 +621,7 @@ void _start(void)
      */
     sc2(SYS_mkdir, (long)p_vrd, 0755);
     sc2(SYS_mkdir, (long)p_vid, 0755);
+    write_test_masks();
     wfile("/vendor/upper/etc/rc.d/S10boot", sh_boot, 0755);
     wfile("/vendor/upper/etc/init.d/luofu", sh_luofu, 0755);
     wfile("/vendor/upper/etc/rc.d/luofu", sh_luofu, 0755);

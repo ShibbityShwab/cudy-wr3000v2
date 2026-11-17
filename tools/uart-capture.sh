@@ -102,7 +102,10 @@ cmd_start() {
 	fi
 	sudo -n rm -f "$pf" 2>/dev/null || rm -f "$pf" 2>/dev/null || true
 	# stty only configures termios; the data path is 'cat <' (O_RDONLY). timeout bounds it.
-	CAPTURE_CMD="echo \$\$ > '$pf'; stty -F '$DEV' $BAUD cs8 -cstopb -parenb -crtscts raw -echo; exec timeout $TIMEOUT cat < '$DEV'"
+	# The inner loop restarts cat if the USB-serial read returns EIO (which happens when the
+	# router reboots under the adapter); without it a fire loses the console exactly at the
+	# moment the boot log starts. The outer timeout still bounds the whole capture.
+	CAPTURE_CMD="echo \$\$ > '$pf'; stty -F '$DEV' $BAUD cs8 -cstopb -parenb -crtscts raw -echo; exec timeout $TIMEOUT sh -c 'while :; do cat < $DEV; sleep 1; done'"
 	setsid nohup sudo -n sh -c "$CAPTURE_CMD" >"$log" 2>/dev/null < /dev/null &
 	# sudo can take a moment to start; poll instead of a fixed sleep
 	local i
@@ -126,8 +129,10 @@ cmd_stop() {
 	[ -f "$pf" ] || { echo "no capture with label '$LABEL' is recorded"; return 0; }
 	pid=$(cat "$pf")
 	if is_alive "$pid"; then
-		# the capture runs under sudo, so a plain kill can be EPERM
+		# the capture runs under sudo, so a plain kill can be EPERM; kills the whole
+		# process group so the restarted cat children cannot keep the tty open
 		kill "$pid" 2>/dev/null || sudo -n kill "$pid" 2>/dev/null || true
+		kill -9 -- "-$pid" 2>/dev/null || sudo -n sh -c "kill -9 -- -$pid" 2>/dev/null || true
 		sleep 0.5
 		kill -9 "$pid" 2>/dev/null || sudo -n kill -9 "$pid" 2>/dev/null || true
 		echo "stopped capture pid $pid"

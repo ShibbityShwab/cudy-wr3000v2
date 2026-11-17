@@ -23138,3 +23138,40 @@ masked, to isolate LAN from wifi, or (b) the rootif requirement satisfied. Do no
 without a new written single-variable change.
 
 LEDGER
+
+## 2026-11-17 18:55 - v13: WEXT net_device ABI fix, non-persistent init masks, and the U-Boot bootfip data-abort that blocks the vendor-DT lane
+
+RE verdict (subagent + manual): "failed to add rootif" is NOT netlink. The vendor userland writes
+/proc/hsan/net/swa/wan_port (hsan_appm:130, hotplug/wandetect, sbin/wandetect); swa_dfx_update_wanif
+-> hi_swa_add_rootif -> hi_cfe_add_rootif (hi_kcfe_pub), which calls hi_net_get_port(dev,&ports,2)
+and fails 0x90000000 when the netdev is not present in hi_kpie's g_api_priv table. That table is
+only filled by hi_net_dev_probe(dev,&desc8) (exported by hi_kpie); stock hi_kmac calls it at probe
+with desc = {port, vport, ...} from DT (port 8..12). hi_cfe then writes a CFE hook into dev+0x21c
+and assumes the vendor net_device layout (netdev_ops +0x128, flags +0x138, priv_flags +0x13c) -
+which is ours shifted by +8: the vendor kernel has CONFIG_WIRELESS_EXT=y (2 extra pointers before
+netdev_ops).
+
+v13 changes: exposed CONFIG_WIRELESS_EXT under COMPILE_TEST (net/wireless/Kconfig), rebuilt and
+verified wireless_send_event exported - net_device layout now matches the vendor modules. Test-only
+masks moved into the initramfs as non-persistent bind mounts (kmodloader, S99nft-qos), so a stock
+fallback sees an untouched overlay; overlay now carries staged modules only.
+
+v13 fire result: U-Boot read our uImage (Data Size 2,817,549) and then took a DATA ABORT inside
+bootfip ("data abort pc [<87ab2ab4>] ... Resetting CPU", then "boot from kernelb failed, change to
+kernela", env saved, stock booted). The abort is caused by our DTS changes for the vendor-MAC lane
+(hsan,himac/hsan,mdio compatibles + port props): U-Boot's own DT fixups run on those nodes and
+crash on the simplified node shape. Stock fallback came up healthy - the non-persistent mask design
+works and the box is safe/unattended again.
+
+Conclusion for the next lane: U-Boot-bootable payload DTB and vendor-driver node requirements are in
+conflict. Preferred next fire (v14): revert DTS to the last U-Boot-safe version, keep WEXT + all
+kernel fixes, keep the lab gmac/mdio/phy, and add a non-persistent initramfs bind-mount of patched
+hsan_appm/wandetect files that redirect the /proc/hsan/net/swa/wan_port writes to /dev/null (skip
+only the WAN rootif). That tests whether LAN comes up with the Linux bridge path while the switch
+rootif bookkeeping is bypassed; stock fallback stays byte-identical because the masks die on reboot.
+
+State: box on stock A (#0 SMP Sat Nov 25), SSH restored, bootflag=a, kernelb still the v13 slice.
+Slices: v13 md5 adf6e18c... (zImage 3f634a92, init d1c36d9c, WEXT symbol verified).
+Tools changed: uart-capture.sh now restarts cat on EIO and kills the whole capture process group.
+
+LEDGER
