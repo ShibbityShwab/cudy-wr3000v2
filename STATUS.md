@@ -47,20 +47,32 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Current blocker: vendor userspace hangs ~33 s into boot (HSLINK/wifi interface)
+## 3. Checkpoint: the full vendor module stack now loads on our kernel; remaining blocker is the vendor bridge/hyfi hook contract
 
-All 19 vendor modules load ret=0 on our kernel and the PAN mismatch is fixed. v10 (lab MDIO/PHY +
-vendor hi_kmac netdevs via hsan,himac+port DT) boots and starts the vendor userspace, but every run
-goes silent at ~33 s right after the VAP cleanup / interface teardown stage, before br-lan comes up.
-Earlier v10 output showed Hi-GEMAC eth0..eth3 and HSLINK interface destroys, no rootif success.
+The bench is paused with the box on clean stock (bootflag=a, both slots stock, SSH restored, UART
+capture stopped). The lab-kernel line reached its best state yet in v14-v16:
 
-This is now a vendor userspace <-> kernel interface problem (HSLINK rootif / wifi app calls into
-hi_swa/hi_basic), not a module-loading or symbol problem. The box is hung on the v10 image and needs
-the physical RESET + TFTP recovery.
+- The whole vendor module set loads, including hyfi_bridging, hi_netif, hi_kmsgcenter and hi_kipc
+  (all ret=0), and br-lan/HSLINK activity begins on our kernel.
+- Kernel gaps fixed along the way: CONFIG_BRIDGE, CONFIG_BRIDGE_NETFILTER, CONFIG_TRACEPOINTS,
+  consume_skb + br_fdb_find_rcu exports, the WEXT net_device ABI (vendor modules expect the
+  CONFIG_WIRELESS_EXT field shift), U-Boot-safe DTS, and a persistent WAN-rootif bypass in
+  hsan_appm/wandetect/hotplug that keeps stock fallback LAN functional.
+- v16 loads hyfi_bridging, starts br-lan, then oopses in hyfi_netlink_receive+0x40 [hyfi_bridging]
+  and panics; the file booted back into the same slot. The four br_* symbols we exported as no-op
+  stubs (br_get_dst_hook, br_multicast_handle_hook, br_notify_hook, br_port_dev_get_hook) clearly
+  need real semantics, not stubs.
 
-Console capture was also fixed for future runs: the USB-serial read gets EIO at box reboot, so a
-self-restarting capture loop now runs in a persistent terminal session
-(build/uart-logs/live-3dq10c.log).
+## 4. Next action
+
+1. Offline (in progress): reverse hyfi_bridging's init/netlink path and the vendor bridge hooks;
+   determine the real contract (tables/callbacks/net_device fields), then implement or patch.
+   No bench fires until that report gives a single concrete change.
+2. Then one single-variable fire: same kernel line + hook implementation. Expected: br-lan forms
+   and the LAN/wifi userspace reaches its normal state. Stock fallback is safe (transient masks,
+   clean overlay handling).
+3. Upstream track remains untouched: OpenWrt target/DTS/image recipe and GPL-source request are the
+   next non-bench deliverables.
 
 ## 4. Next action
 
