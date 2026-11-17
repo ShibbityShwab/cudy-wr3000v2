@@ -66,7 +66,11 @@ capture_pids() {
 		[ -f "$pf" ] || continue
 		pid=$(cat "$pf" 2>/dev/null) || continue
 		case "$pid" in ''|*[!0-9]*) continue ;; esac
-		if kill -0 "$pid" 2>/dev/null; then out="$out $pid"; else rm -f "$pf" 2>/dev/null || true; fi
+		if kill -0 "$pid" 2>/dev/null || sudo -n kill -0 "$pid" 2>/dev/null; then
+			out="$out $pid"
+		else
+			sudo -n rm -f "$pf" 2>/dev/null || rm -f "$pf" 2>/dev/null || true
+		fi
 	done
 	for pid in $(matching_pids 'timeout [0-9]+ cat'); do out="$out $pid"; done
 	printf '%s\n' "$out"

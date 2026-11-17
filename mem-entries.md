@@ -22977,3 +22977,53 @@ Process corrections recorded: (a) identify a running kernel by our own banners/i
 by the stock "Uncompressing" line or a panic the stock fallback also throws; (b) a handover
 without failure strings followed by a reset is a pre-console crash; (c) the kernel .config is a
 fire-class variable and must be recorded with every slice.
+
+## 2026-11-17 08:45 - ROOT CAUSE FOUND AND FIXED: the 3dh kernel died in luofu_early's ioremap; 3dn boots to userspace, then wedges in a new userspace-stage problem
+
+Diagnostic fire 3dm (3dl kernel + explicit earlycon in the built-in cmdline) gave the first readable
+early boot. U-Boot read our uImage (Data Size 2964952), earlycon came up at 0x1010f000, and the
+kernel panicked at 0.0 s:
+
+    Unable to handle kernel NULL pointer dereference at virtual address 00000010
+    PC is at kmem_cache_alloc_trace+0xb4/0xd8     r5 = 0x00000000
+    ioremap <- luofu_early+0x34 <- setup_arch <- start_kernel
+
+Root cause: luofu_early() (the mach .init_early hook, called from setup_arch before mm_init) called
+ioremap(). With the 3dh-era .config (CONFIG_SLAB=y + CONFIG_TRACING=y) kmalloc() compiles to
+kmem_cache_alloc_trace(kmalloc_caches[..]) and the kmalloc caches do not exist yet, so the cache
+pointer is NULL and the vm-area allocation NULL-derefs. The 3df/3dg builds had no CONFIG_TRACING,
+which is why they booted; this is the exact 3dh regression, not a slot/delivery problem.
+
+The panic rebooted (panic=5) into the stock fallback, which now booted healthy and stayed up.
+Recovery detour: the guarded S99 hook from the first fire was renamed S99omo-recover.disabled but
+procd matches S[0-9][0-9]*, so it kept restoring kernelb and rebooting (~6 cycles, each doing an mtd
+write of the stock image). Moved it out of rc.d via the broker lane; kernelb md5 verified back to
+stock 0ca1fde627aae581ef4e86441e968363; SSH restored by starting dropbear through the broker.
+
+Fix: move the sysctrl crumb + bootreg flip out of luofu_early() into luofu_early_crumb()
+(early_initcall, after mm_init, still before userspace). luofu_early() now only calls
+luofu_uart_early(). Patched both the live tree and tools/lab-src (check-lab-src PASS) and built
+3dn = 3dl config + earlycon + fix: luofu-slice-phase3dn.bin 3,005,332 B md5
+984b0ac9f14a862e658b947665ff9a32, zImage 0e786a1da703d4c225a4e4aaec9ef26e, init 6464a08d (3dk
+console-logging), DTB 336ba39e, trailer verified.
+
+3dn fired unattended with a guarded recovery hook armed. IT BOOTED OUR KERNEL ON HARDWARE:
+U-Boot Data Size 2964536, earlycon, luofu-fmc probe (FMC read path green in the same boot), 18
+luofu partitions, Run /init at 14.45 s, the seven /vendor/upper ... OK lines, and procd at 19.54 s.
+This is the first boot of the 3dh-era kernel class and it validates the fix.
+
+New problem, same boot: after procd init (~19.5 s) there are no further userspace messages, and at
+108 s/171 s the kernel reports rcu_sched stalls ("rcu_sched kthread starved ... cpu=0", 8407/14712
+jiffies). CPU0 is stuck in something while the console and RCU stall reporting still work and the
+lab watchdog pet timer keeps the hardware watchdog fed, so the box does not reset. The guarded S99
+recovery never ran (procd stalled before rc.d), so the box is currently hung on our 3dn kernel:
+no network, no ping, needs the physical RESET + TFTP recovery. Evidence:
+build/uart-logs/20261117T012608Z-uart-3dn.log (149,236 B; last line t=171.818), fire-3dn.out.log.
+
+State/next: box hung; recovery card is armed (TFTP 69 serving recovery.bin md5 421114c8...). After
+recovery: (1) re-establish broker/SSH (stock overlay is wiped by the recovery), (2) diagnose the
+post-procd wedge (RCU stall with CPU0 stuck; compare against 3df which had no TRACING/SLAB; suspects
+are the TRACING/TASKS_RCU config block or the lab pet/watchdog interplay), (3) for unattended test
+builds, make hangs self-resetting (stop petting the watchdog in a diagnostic build so a hang becomes
+a 30 s reset -> failover -> stock), then re-fire.
+LEDGER

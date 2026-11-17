@@ -267,7 +267,27 @@ static void luofu_restart(enum reboot_mode mode, const char *cmd)
 
 static int __init luofu_early_crumb(void)
 {
+	void __iomem *sysctrl;
+	u32 val;
+
 	luofu_crumb(0xc0de0010);
+
+	/* Deferred from luofu_early(): see the comment there. This runs after
+	 * mm_init(), so a normal ioremap() is safe. */
+	sysctrl = ioremap(LUOFU_SYSCTRL_BASE, 0x1000);
+	if (!sysctrl)
+		return 0;
+
+	writel(LUOFU_CRUMB_EARLY, sysctrl + LUOFU_CRUMB_OFFSET);
+	(void)readl(sysctrl + LUOFU_CRUMB_OFFSET);
+
+	val = readl(sysctrl + LUOFU_BOOTREG_OFFSET);
+	if ((val & 0xff) == 0x10 || (val & 0xff) == 0x11) {
+		writel(val ^ 1u, sysctrl + LUOFU_BOOTREG_OFFSET);
+		(void)readl(sysctrl + LUOFU_BOOTREG_OFFSET);
+	}
+
+	iounmap(sysctrl);
 	return 0;
 }
 early_initcall(luofu_early_crumb);
@@ -727,24 +747,20 @@ static void __init luofu_uart_early(void)
 
 static void __init luofu_early(void)
 {
-	void __iomem *sysctrl = ioremap(LUOFU_SYSCTRL_BASE, 0x1000);
-	u32 val;
-
+	/*
+	 * NO ioremap HERE (fixed 2026-11-17).
+	 *
+	 * .init_early runs from setup_arch(), before mm_init() creates the kmalloc
+	 * caches. With CONFIG_SLAB + CONFIG_TRACING, kmalloc() compiles to
+	 * kmem_cache_alloc_trace(kmalloc_caches[..], ...); the cache pointer is still
+	 * NULL this early, and ioremap()'s get_vm_area allocation therefore
+	 * NULL-derefs at virtual address 0x10. The 2026-11-17 earlycon diagnostic
+	 * fire caught exactly that (luofu_early+0x34 -> ioremap ->
+	 * kmem_cache_alloc_trace+0xb4, r5=0). The sysctrl crumb + bootreg flip are
+	 * deferred to luofu_early_crumb(), an early_initcall that runs after
+	 * mm_init() and is still well before userspace or any test payload.
+	 */
 	luofu_uart_early();
-
-	if (!sysctrl)
-		return;
-
-	writel(LUOFU_CRUMB_EARLY, sysctrl + LUOFU_CRUMB_OFFSET);
-	(void)readl(sysctrl + LUOFU_CRUMB_OFFSET);
-
-	val = readl(sysctrl + LUOFU_BOOTREG_OFFSET);
-	if ((val & 0xff) == 0x10 || (val & 0xff) == 0x11) {
-		writel(val ^ 1u, sysctrl + LUOFU_BOOTREG_OFFSET);
-		(void)readl(sysctrl + LUOFU_BOOTREG_OFFSET);
-	}
-
-	iounmap(sysctrl);
 }
 
 static void __init luofu_init_machine(void)

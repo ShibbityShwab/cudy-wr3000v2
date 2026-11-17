@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-17 08:10 +07
+**Updated:** 2026-11-17 08:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -47,51 +47,37 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Current blocker: the 3dh-class kernel does not start (this is not a slot/delivery problem)
+## 3. Current blocker: our kernel now boots, but userspace wedges after procd init
 
-Corrected 2026-11-17 from the captures already on the host plus an offline payload analysis. No
-new fire was run to establish this.
+The 3dh regression is FIXED and validated on hardware. The crash was a NULL deref in
+`luofu_early()`: the mach `.init_early` hook called `ioremap()` from `setup_arch` before `mm_init()`
+created the kmalloc caches; with the new `CONFIG_SLAB`+`CONFIG_TRACING` config, `kmalloc` goes through
+`kmem_cache_alloc_trace(kmalloc_caches[..])` and the NULL cache pointer faulted. `3df`/`3dg` booted
+because they had no `CONFIG_TRACING`. The ioremap/crumb/bootreg-flip work now happens in
+`luofu_early_crumb()` (early_initcall, after `mm_init`), and the fixed slice `3dn` (md5
+`984b0ac9...`) booted our kernel: earlycon, `luofu-fmc` probe, 18 partitions, `Run /init` at 14.45 s,
+the seven `/vendor/upper ... OK` shadow lines, and `procd: - init -` at 19.5 s.
 
-**3df and 3dg ran our kernel on hardware.** Their captures contain our kernel's own banners and
-our init's own output: `luofu-fmc 10a20000.spi-nand`, `luofu-gmac` and the `luofu: seed test` /
-`overlay test` lines. 3df (fire 7, 05:28) reached userspace and the shadow writes landed
-(`build/linux-kbuild/waves/3df/fire7.md`); 3dg (14:31 capture) ran our kernel with the vendor
-modules refusing on 130+ unknown symbols.
+The new blocker, measured in that same boot: after procd init there is no further userspace output and
+at 108 s / 171 s the kernel reports `rcu_sched` stalls with CPU0 stuck (the lab watchdog pet timer keeps
+the hardware watchdog fed, so the box does not reset). `procd` stalled before rc.d, so even the guarded
+auto-recovery hook never ran. The box is currently hung on the `3dn` kernel and needs the physical
+RESET + TFTP recovery (running card below). This is a userspace-stage bug, not the early-boot one.
 
-**3dh, 3di and 3dk never started, in any captured attempt.** U-Boot reads our uImage every time
-(`Image Name: Linux-5.10.201`, `Data Size` 2,964,240 / 2,964,334 / 2,965,176, load/ep
-`0x80608000`), then the box resets with no kernel output and no U-Boot failure string. Every
-`Uncompressing Linux` in those captures is the stock 4,294,096-byte fallback image, which then
-panics 10-15 s later on the fallback DTBO path.
+## 4. Next action
 
-The variables that are **not** the cause:
-- Boot path: the successful 3df attempts and the failing 3dh attempts used the same
-  `bootflag=b`, `boot_reg=0x21`. Countdown vs fallback is not the variable.
-- DTB and trailer: every slice has the same `luofu-r116.dtb` (md5 `336ba39e...`) and the same
-  fixed 40,732-byte FIP/DTBO trailer.
-- Corrupt image: the 3dh payload decompresses offline to a valid 9,810,020-byte Image (3df:
-  8,135,904 bytes), and its xz stream is complete (no `Uncompressing Linux` is expected from
-  our build; the decompressor's `putstr` is compiled out of this config).
-- Delivery lane / slot: U-Boot loads the image from the slot it was told to read.
-
-**The variable is the kernel build.** The kernel C source is identical between the 3df-era commit
-and the 3dh-era commit; the only delta is the kernel `.config` captured in commit `cca5be5`:
-`CONFIG_COMPILE_TEST=y` (with its broad side effects), `CONFIG_SLAB=y` instead of SLUB,
-`CONFIG_TRACING`/`CONFIG_FTRACE`/`FRAME_POINTER`/`UNWINDER_FRAME_POINTER`, and the cache
-allocator/frame-pointer changes those imply. The first kernel built with that set (3dh) never
-boots. The failure is a silent early-boot crash **before the kernel registers its console at
-~2.6 s** - the U-Boot cmdline has a bare `earlycon` with no address and the earlycon lookup
-fails, so 0.0-2.6 s output is lost, not absent.
-
-Consequences for the record:
-- The 2026-11-16 15:45 claim that 3dh loaded the vendor stack on our kernel is a **stock-boot
-  misattribution** (the stock image loads the same vendor modules); the ShuangTa PCIe panic in
-  the 17:35 entry belongs to the stock fallback boot. The ledger correction is appended below
-  this STATUS update.
-- The 18:25 "write 3dl to `kernela`" next step cannot work: 3dl is built from the same 3dk
-  kernel class and would fail to start in any slot. Do not fire it.
-- The last kernel known to run on this hardware is the 3df/3dg class. A booting kernel must be
-  recovered before the PCIe/pinctrl and vendor-stack work can continue.
+1. **Recover the box** with the physical RESET + TFTP card (`tools/recovery-card.sh`); the TFTP server
+   is armed with `recovery.bin` (md5 `421114c8...`). After recovery the overlay is wiped: restart
+   dropbear through the broker lane and reinstall the project key.
+2. Diagnose the post-procd RCU stall. Compare with the healthy `3df` boot (no TRACING/SLAB); suspects
+   are the TRACING/TASKS_RCU config block and the lab pet/watchdog interplay. Instrument one variable
+   at a time; use the earlycon slice as the base.
+3. For unattended test builds, make a hang self-resetting: stop petting the hardware watchdog in
+   diagnostic builds so a hang becomes a 30 s reset -> U-Boot failover -> healthy stock, instead of a
+   box that must be touched.
+4. Only then re-fire for the vendor-stack goal (stage the patched modules first so a booting kernel
+   brings its network up).
+5. Keep the recovery door armed and never fire without a written single-variable plan.
 
 ## 4. Next action
 

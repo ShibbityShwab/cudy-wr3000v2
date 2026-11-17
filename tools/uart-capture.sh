@@ -31,6 +31,13 @@ usage() {
 
 pidfile() { printf '%s/uart-%s.pid' "$LOG_DIR" "$LABEL"; }
 
+# The capture runs as root under sudo; a plain kill -0 returns EPERM for a live process.
+is_alive() {
+	local p=${1:-}
+	case "$p" in ''|*[!0-9]*) return 1 ;; esac
+	kill -0 "$p" 2>/dev/null || sudo -n kill -0 "$p" 2>/dev/null
+}
+
 parse_common() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -52,7 +59,12 @@ cmd_check() {
 	else
 		echo "  MISSING: $DEV (is the FT232R plugged in?)"
 	fi
-	local found=0 line
+	local found=0 line pf pid
+	for pf in "$LOG_DIR"/uart-*.pid; do
+		[ -f "$pf" ] || continue
+		pid=$(cat "$pf" 2>/dev/null) || continue
+		if is_alive "$pid"; then echo "  recorded: pid $pid ($pf)"; found=1; fi
+	done
 	while IFS= read -r line; do
 		echo "  running: $line"
 		found=1
@@ -79,15 +91,26 @@ cmd_start() {
 	local pf log
 	pf=$(pidfile)
 	log="$LOG_DIR/$(date -u +%Y%m%dT%H%M%SZ)-uart-$LABEL.log"
-	if [ -f "$pf" ] && kill -0 "$(cat "$pf")" 2>/dev/null; then
+	if ! touch "$log" 2>/dev/null; then
+		# build/uart-logs can be root-owned (it holds root-created captures)
+		sudo -n touch "$log" || { echo "error: cannot create capture log $log" >&2; exit 1; }
+		sudo -n chown "$(id -u):$(id -g)" "$log" 2>/dev/null || true
+	fi
+	if [ -f "$pf" ] && is_alive "$(cat "$pf" 2>/dev/null)"; then
 		echo "error: a capture with label '$LABEL' is already running (pid $(cat "$pf"))" >&2
 		exit 1
 	fi
+	sudo -n rm -f "$pf" 2>/dev/null || rm -f "$pf" 2>/dev/null || true
 	# stty only configures termios; the data path is 'cat <' (O_RDONLY). timeout bounds it.
 	CAPTURE_CMD="echo \$\$ > '$pf'; stty -F '$DEV' $BAUD cs8 -cstopb -parenb -crtscts raw -echo; exec timeout $TIMEOUT cat < '$DEV'"
 	setsid nohup sudo -n sh -c "$CAPTURE_CMD" >"$log" 2>/dev/null < /dev/null &
-	sleep 1
-	if [ ! -f "$pf" ] || ! kill -0 "$(cat "$pf")" 2>/dev/null; then
+	# sudo can take a moment to start; poll instead of a fixed sleep
+	local i
+	for i in $(seq 1 25); do
+		[ -f "$pf" ] && is_alive "$(cat "$pf" 2>/dev/null)" && break
+		sleep 0.2
+	done
+	if [ ! -f "$pf" ] || ! is_alive "$(cat "$pf" 2>/dev/null)"; then
 		echo "error: capture failed to start; inspect $log" >&2
 		[ -s "$log" ] && tail -5 "$log" >&2
 		exit 1
@@ -102,15 +125,16 @@ cmd_stop() {
 	pf=$(pidfile)
 	[ -f "$pf" ] || { echo "no capture with label '$LABEL' is recorded"; return 0; }
 	pid=$(cat "$pf")
-	if kill -0 "$pid" 2>/dev/null; then
-		kill "$pid" 2>/dev/null || true
+	if is_alive "$pid"; then
+		# the capture runs under sudo, so a plain kill can be EPERM
+		kill "$pid" 2>/dev/null || sudo -n kill "$pid" 2>/dev/null || true
 		sleep 0.5
-		kill -9 "$pid" 2>/dev/null || true
+		kill -9 "$pid" 2>/dev/null || sudo -n kill -9 "$pid" 2>/dev/null || true
 		echo "stopped capture pid $pid"
 	else
 		echo "capture pid $pid is not running"
 	fi
-	rm -f "$pf"
+	sudo -n rm -f "$pf" 2>/dev/null || rm -f "$pf" 2>/dev/null || true
 }
 
 cmd=${1:-check}

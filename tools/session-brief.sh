@@ -91,12 +91,17 @@ capture_pids() {
 		[ -f "$pf" ] || continue
 		pid=$(cat "$pf" 2>/dev/null) || continue
 		case "$pid" in ''|*[!0-9]*) continue ;; esac
-		if kill -0 "$pid" 2>/dev/null; then out="$out $pid"; else rm -f "$pf" 2>/dev/null || true; fi
+		if kill -0 "$pid" 2>/dev/null || sudo -n kill -0 "$pid" 2>/dev/null; then
+			out="$out $pid"
+		else
+			sudo -n rm -f "$pf" 2>/dev/null || rm -f "$pf" 2>/dev/null || true
+		fi
 	done
 	for pid in $(matching_pids 'timeout [0-9]+ cat'); do out="$out $pid"; done
-	printf '%s\n' "$out"
+	out=${out# }
+	[ -n "$out" ] && printf '%s\n' "$out"
 }
-if [ -n "$(capture_pids | head -1)" ]; then CAPTURE='running'; else CAPTURE='not running'; fi
+if [ -n "$(capture_pids | awk '{print $1; exit}')" ]; then CAPTURE='running'; else CAPTURE='not running'; fi
 ACTIVE_FIRE=$(matching_pids 'bash .*fire-ssh[.]sh|bash .*fire-device[.]sh|bash .*run-phase[0-9a-z]+[.]sh')
 STALE_WRITERS=$(matching_pids 'tee -a .*/fire-')
 if [ -n "$ACTIVE_FIRE" ]; then warn "a fire driver is still running (pid(s): $(echo $ACTIVE_FIRE)); do not start another"; fi

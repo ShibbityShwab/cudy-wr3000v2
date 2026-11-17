@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 05:57 - Both remaining routes scoped: bit-bang closed, the switch port is the only path | `mem-entries.md:21772` |
 | 2026-11-14 |  | 2026-11-14 12:22 - Why the vendor's modules could not load: our kernel placed them FAR | `mem-entries.md:21788` |
 | 2026-11-14 |  | 2026-11-14 13:44 - Near-only allocation did not stop the PLT errors, and its print never appeared | `mem-entries.md:21804` |
 | 2026-11-14 |  | 2026-11-14 14:27 - The module loader refused every module that had no .plt, before checking whether one was needed | `mem-entries.md:21833` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
 | 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
 | 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
+| 2026-11-17 |  | 2026-11-17 08:45 - ROOT CAUSE FOUND AND FIXED: the 3dh kernel died in luofu_early's ioremap; 3dn boots to userspace, then wedges in a new userspace-stage problem | `mem-entries.md:22981` |
 
 ## All dated entries
 
@@ -617,3 +617,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
 | 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
 | 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
+| 2026-11-17 |  | 2026-11-17 08:45 - ROOT CAUSE FOUND AND FIXED: the 3dh kernel died in luofu_early's ioremap; 3dn boots to userspace, then wedges in a new userspace-stage problem | `mem-entries.md:22981` |
