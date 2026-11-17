@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-17 08:50 +07
+**Updated:** 2026-11-18 06:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -47,21 +47,24 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Checkpoint: the full vendor module stack now loads on our kernel; remaining blocker is the vendor bridge/hyfi hook contract
+## 3. Bench line ceiling reached: v17 boots the vendor userspace and creates br-lan, but the vendor HYFI/bridge userspace contract is a multi-step port
 
-The bench is paused with the box on clean stock (bootflag=a, both slots stock, SSH restored, UART
-capture stopped). The lab-kernel line reached its best state yet in v14-v16:
+v17 (no hyfi-bridging preload, ABI-correct bridge hook pointer variables, bridge/netfilter/WEXT/
+tracepoints config, WAN-rootif bypass) fired cleanly: no U-Boot abort, all 19 modules ret=0,
+S20network OK, eth2 up, br-lan created. Then HSLINK repeatedly created and destroyed br-lan
+(t=34-35 s) and userspace went silent (~54 s), no network. The RE established why: hyfi_bridging
+needs the vendor sk_buff ABI (+0x74/+0x78) and vendor bridge patches (hook call sites,
+net_bridge cache) that our tree does not contain - a multi-step port, not a single fire.
 
-- The whole vendor module set loads, including hyfi_bridging, hi_netif, hi_kmsgcenter and hi_kipc
-  (all ret=0), and br-lan/HSLINK activity begins on our kernel.
-- Kernel gaps fixed along the way: CONFIG_BRIDGE, CONFIG_BRIDGE_NETFILTER, CONFIG_TRACEPOINTS,
-  consume_skb + br_fdb_find_rcu exports, the WEXT net_device ABI (vendor modules expect the
-  CONFIG_WIRELESS_EXT field shift), U-Boot-safe DTS, and a persistent WAN-rootif bypass in
-  hsan_appm/wandetect/hotplug that keeps stock fallback LAN functional.
-- v16 loads hyfi_bridging, starts br-lan, then oopses in hyfi_netlink_receive+0x40 [hyfi_bridging]
-  and panics; the file booted back into the same slot. The four br_* symbols we exported as no-op
-  stubs (br_get_dst_hook, br_multicast_handle_hook, br_notify_hook, br_port_dev_get_hook) clearly
-  need real semantics, not stubs.
+The box currently needs the physical RESET+TFTP recovery. Bench fires are stopped.
+
+## 4. Next action
+
+1. Recover the box (RESET-hold TFTP; server armed) and leave it on clean stock.
+2. Non-bench deliverables: OpenWrt target/DTS/image recipe and the GPL source request; evidence
+   consolidation (EVIDENCE-INDEX, captures, slices) for the reversal report.
+3. Optional separate project: the vendor sk_buff + bridge/HYFI port, with a kbuild offsetof probe
+   and staged single-variable fires; do not resume bench fires before that design exists.
 
 ## 4. Next action
 

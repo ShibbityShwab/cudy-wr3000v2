@@ -23241,3 +23241,26 @@ init 74033a38). This is the "known-good stack without hyfi" test; the vendor use
 hyfi's absence in the 2026-11-14 stack.
 
 LEDGER
+
+## 2026-11-18 06:50 - v17 fire: no crash with hyfi removed, but br-lan is created/destroyed in HSLINK cycles and userspace goes silent; bench network needs the multi-step vendor bridge port
+
+v17 (no hyfi-bridging preload; four br_* symbols now writable exported pointer variables; bridge +
+bridge-netfilter + tracepoints + WEXT ABI in place; patched hsan_appm/wandetect/hotplug redirect
+the WAN rootif write; 59 patched modules staged):
+- U-Boot booted our slice normally (no abort), all 19 modules ret=0, S20network OK, lab gmac eth2
+  up 1Gbps.
+- No oops/panic (the hyfi crash is gone), but br-lan is created and immediately destroyed in a
+  repeating HSLINK loop (swa events + [HSLINK]dev(br-lan) is destroy at t=34-35 s) and the console
+  goes silent at ~54 s. No network, box unreachable.
+- The remaining gap is vendor-bridge/HYFI userspace integration: per the RE, hyfi needs vendor
+  sk_buff ABI (+0x74/+0x78) and vendor bridge patches (hook pointer call sites, net_bridge cache
+  at netdev_priv+0x10) that our tree does not have. That is a multi-step port, not a single fire.
+
+Decision: stop bench fires. The bench kernel line has documented its ceiling: it boots the vendor
+userspace, loads the full module set, brings eth2 up and creates br-lan, but the vendor HYFI/bridge
+userspace contract is a bigger RE/port than further recovery cycles justify right now. The box
+currently needs the physical RESET+TFTP recovery (silent on our kernel). Next non-bench work:
+upstream target/DTS/image recipe + GPL source request, and the sk_buff/bridge port as a separate
+project if desired.
+
+LEDGER
