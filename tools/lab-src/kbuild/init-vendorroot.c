@@ -84,6 +84,13 @@ static const char *const vmods[] = {
      */
     "ksecurec",
     "hi_basic", "hi_kpinctrl", "hi_sysctrl", "hi_acp", "hi_kpie",
+    /*
+     * VENDOR MAC, LAB MDIO/PHY (2026-11-17): HSLINK rootif rejects plain lab-gmac netdevs.
+     * The vendor mdio driver's probe crashes on our DT, but the lab mdio+phy work - so keep the
+     * lab bus/PHY and let hi_kmac (vendor Hi-GEMAC) own the netdevs, matching stock behaviour.
+     * hi_kmac imports hi_net_dev_* from hi_kpie, hence the order.
+     */
+    "hi_kmac",
     "hi_lsw_pub", "hi_lsw_dp", "hi_lsw_pfe",
     "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",
     "hi_kcfe_lrn_mc", "hi_kcfe_mc_list", "hi_kcfe_lrn_vxlan", "hi_kcara", "hi_khslink",

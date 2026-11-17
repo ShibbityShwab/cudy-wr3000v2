@@ -47,20 +47,29 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Current blocker: HSLINK rootif rejects the lab gmac netdevs (box hung on v8)
+## 3. Current blocker: vendor userspace hangs ~33 s into boot (HSLINK/wifi interface)
 
-Every vendor module the init preloads now loads (ret=0), including hi_kpie, hi_swa, hi_lsw_pfe
-and the full hi_kcfe_lrn chain. The CONFIG_CPU_SW_DOMAIN_PAN mismatch that made hi_basic's proc
-writes oops is fixed in v8 (PAN off, panic_on_oops=1), and eth2 comes up 1Gbps on our lab driver.
+All 19 vendor modules load ret=0 on our kernel and the PAN mismatch is fixed. v10 (lab MDIO/PHY +
+vendor hi_kmac netdevs via hsan,himac+port DT) boots and starts the vendor userspace, but every run
+goes silent at ~33 s right after the VAP cleanup / interface teardown stage, before br-lan comes up.
+Earlier v10 output showed Hi-GEMAC eth0..eth3 and HSLINK interface destroys, no rootif success.
 
-The remaining LAN blocker is in the vendor userspace/switch layer: hi_swa.ko logs
-"failed to add rootif eth3" and the vendor app tears every interface down and retries, so br-lan
-never comes up. Stock boots never log that line. The rootif path expects the vendor gmac driver's
-netdevs (hi_kmac/hi_kphy/hi_kmdio - all three now have zero unresolved symbols), while our lab gmac
-exposes plain ethernet netdevs.
+This is now a vendor userspace <-> kernel interface problem (HSLINK rootif / wifi app calls into
+hi_swa/hi_basic), not a module-loading or symbol problem. The box is hung on the v10 image and needs
+the physical RESET + TFTP recovery.
 
-The box is hung on v8 and needs the physical RESET+TFTP recovery. The watchdog enable (pet limit,
-stock-A selector at 155 s) is not a reliable reset yet; do not claim self-recovery.
+Console capture was also fixed for future runs: the USB-serial read gets EIO at box reboot, so a
+self-restarting capture loop now runs in a persistent terminal session
+(build/uart-logs/live-3dq10c.log).
+
+## 4. Next action
+
+1. Recover the box (RESET-hold TFTP). Do not refire until a new single-variable change is written.
+2. Offline: reverse the hi_swa rootif check (the "failed to add rootif" path) and the wifi/HSLINK
+   app sequence around the ~33 s hang; decide whether the lab gmac can satisfy rootif directly.
+3. Next fire options: (a) lab gmac kept + vendor wifi app masked, to isolate LAN bring-up from the
+   wifi userspace; or (b) rootif requirement implemented. One variable per fire, with the
+   persistent capture running.
 
 ## 4. Next action
 

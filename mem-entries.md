@@ -23110,3 +23110,31 @@ State: box hung on v8 (needs physical RESET+TFTP); kernel v8 slice md5 1010b35eb
 S99nft-qos masked, rc.local watchdog keepalive, dropbear enabled.
 
 LEDGER
+
+## 2026-11-17 18:00 - v9/v10: vendor MAC lane (hsan,himac + port) still ends in a userspace-stage hang at ~33 s; the blocker is the vendor HSLINK/wifi userspace interface, not symbol loading
+
+v9 (vendor mac+mdio+phy, lab gmac disabled): hi_kphy loads, but hi_kmdio's probe crashes on our DT
+(reset_control lookup in hi_mdio_probe) and hi_kmac then fails -2. No netdevs appeared.
+
+v10 (hybrid: lab MDIO/PHY kept, lab GMAC disabled, DTS gmac nodes carry "hsan,himac" + vendor
+port indices, hi_kmac preloaded after hi_kpie): the image wrote/verified and booted several times.
+The visible boot tail (after the capture's reboot gap) shows vendor-flash ECC chatter and the vendor
+userspace VAP/radio init, i.e. vendor code is running - but every run goes silent at ~33 s right
+after the VAP cleanup / interface teardown stage, and no LAN answers. Earlier v10 run at ~290 s
+showed Hi-GEMAC eth0..eth3 events and HSLINK destroys, then no br-lan.
+
+Conclusion: the remaining blocker is the vendor userspace <-> kernel interface, specifically the
+HSLINK rootif/interface management and the wifi init sequence calling into hi_swa/hi_basic; it is
+not a missing-symbol or load-Gate problem any more (all 19 modules load ret=0, PAN matched).
+
+Also: console capture kept dying exactly at reboot because the USB-serial read hits EIO when the box
+resets. A self-restarting capture loop now runs in a persistent terminal session
+(build/uart-logs/live-3dq10c.log); it survives, but the first seconds after each reset can still be
+missed while the tty re-opens.
+
+State: box hung on v10 (needs physical RESET+TFTP). Next: offline reverse of hi_swa's rootif check
+and the wifi app's ~33 s hang; then a fire with either (a) the lab gmac kept but the vendor wifi app
+masked, to isolate LAN from wifi, or (b) the rootif requirement satisfied. Do not burn more fires
+without a new written single-variable change.
+
+LEDGER
