@@ -1012,33 +1012,19 @@ EXPORT_SYMBOL(ppp_get_relate_dev);
 
 
 /*
- * VENDOR BRIDGE-HOOK STUBS (2026-11-17). hyfi_bridging.ko imports four hook-registration helpers
- * that only exist in the vendor's patched bridge code. Stubbing them keeps the module loadable;
- * the bridge still works through the normal Linux bridge path, the vendor's packet-steering hooks
- * are simply not installed.
+ * VENDOR BRIDGE-HOOK VARIABLES (2026-11-17). These four symbols are exported *pointer variables*
+ * in the vendor's patched bridge, not functions: the vendor modules only store callbacks into
+ * them (verified by the RE: no calls, no reads). Our previous function stubs were ABI-wrong and a
+ * store would have overwritten their first instruction word. Provide writable, zeroed, exported
+ * pointers instead. (The vendor bridge call sites that would consume them are not in our tree.)
  */
-unsigned long br_get_dst_hook(unsigned long a, unsigned long b, unsigned long c, unsigned long d)
-{
-	return 0;
-}
+void *br_get_dst_hook;
 EXPORT_SYMBOL(br_get_dst_hook);
-
-unsigned long br_multicast_handle_hook(unsigned long a, unsigned long b, unsigned long c, unsigned long d)
-{
-	return 0;
-}
+void *br_multicast_handle_hook;
 EXPORT_SYMBOL(br_multicast_handle_hook);
-
-unsigned long br_notify_hook(unsigned long a, unsigned long b, unsigned long c, unsigned long d)
-{
-	return 0;
-}
+void *br_notify_hook;
 EXPORT_SYMBOL(br_notify_hook);
-
-unsigned long br_port_dev_get_hook(unsigned long a, unsigned long b, unsigned long c, unsigned long d)
-{
-	return 0;
-}
+void *br_port_dev_get_hook;
 EXPORT_SYMBOL(br_port_dev_get_hook);
 
 static const char *const luofu_dt_compat[] __initconst = {

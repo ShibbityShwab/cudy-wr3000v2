@@ -23213,3 +23213,31 @@ physical RESET+TFTP recovery; after that the recommendation is to pause bench fi
 bridge-hook RE offline rather than burn recoveries.
 
 LEDGER
+
+## 2026-11-17 20:40 - RE verdict: hyfi_bridging crash is a vendor sk_buff ABI mismatch, not the bridge hooks; v17 drops hyfi preload and fixes the hook variable ABI
+
+Subagent RE (disassembly of hyfi-bridging.ko/khslink etc.):
+- hyfi_netlink_receive (input callback of a vendor-private netlink protocol, id 30/26) does
+  skb_clone(); r6 = [clone+0x118]; then stores into [r6+0x40]. That offset is vendor
+  skb->data (0x118); in our kernel struct sk_buff is 0xb0 with data at 0xa0. So it reads out of
+  bounds and faults. Measured vendor delta: len 0xc8 vs 0x54, data_len 0xcc vs 0x58, headers
+  0x106/0x108/0x10a vs 0x8e/0x90/0x92, tail/end/head 0x10c/0x110/0x114 vs 0x94/0x98/0x9c,
+  data 0x118 vs 0xa0 = +0x74 for len/data_len and +0x78 from headers on (4-byte vendor field
+  between data_len and the bitfields). Anchors: hi_hslink_tx_urarp (skb_reserve), hyfi_bridge_get_dst
+  (EtherType from head+mac_header), mc_find_acl_rule (len-data_len).
+- The four br_* symbols are exported *pointer variables* in the vendor bridge, not functions:
+  hyfi only stores callbacks into them (bridge_get_dst / port_dev_get / br_notify / mc_process).
+  Our previous function stubs were ABI-wrong (a store would overwrite the stub's first
+  instruction). Also the vendor bridge patches that would consume those pointers are not in our
+  tree, so "real" hook semantics cannot be reconstructed offline.
+- net_device side now matches (WEXT layout: priv_flags 0x13c, netdev_ops 0x128, sizeof 0x540);
+  the remaining hyfi needs (net_bridge cache at netdev_priv+0x10, vendor skb private bytes) come
+  from vendor-only bridge patches, i.e. a full vendor-bridge port, not a quick fix.
+
+v17 (this build): remove hyfi-bridging from the preload list (it must not run on the vendor sk_buff
+ABI), and replace the four exported function stubs with writable zeroed exported pointer variables.
+No sk_buff ABI change. Slice 2,906,100 B md5 8342ccb9c0167766529277719330f43c (zImage a08ffc66,
+init 74033a38). This is the "known-good stack without hyfi" test; the vendor userspace tolerated
+hyfi's absence in the 2026-11-14 stack.
+
+LEDGER

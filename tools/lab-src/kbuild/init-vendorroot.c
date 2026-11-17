@@ -104,9 +104,12 @@ static const char *const vmods[] = {
     "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",
     "hi_kcfe_lrn_mc", "hi_kcfe_mc_list", "hi_kcfe_lrn_vxlan", "hi_kcara", "hi_khslink",
     "hi_swa",
-    /* v15: hyfi_bridging is the vendor bridge/hyfi glue the userspace expects; stock loads it
-     * through kmodloader (which is masked on our kernel), so preload the patched copy. */
-    "hyfi-bridging",
+    /*
+     * NO hyfi-bridging PRELOAD (2026-11-17). RE verdict: hyfi_bridging is built against the
+     * vendor's sk_buff ABI (data at 0x118 vs our 0xa0, +0x74/+0x78 struct delta), so its first
+     * netlink receive reads skb->data out of bounds and oopses. It must not run until a sk_buff
+     * ABI port is attempted; the vendor userspace tolerates its absence in the known-good stack.
+     */
     0
 };
 

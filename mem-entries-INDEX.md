@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 17:03 - Layout control boots: image size is not the hazard; the frob edit is implicated | `mem-entries.md:21902` |
 | 2026-11-14 |  | 2026-11-14 17:30 - The frob-only slice fails again (4/4 with the edit, 3/3 without) | `mem-entries.md:21924` |
 | 2026-11-14 |  | 2026-11-14 17:35 - The symbol maps are IDENTICAL between a booting and a failing build | `mem-entries.md:21946` |
 | 2026-11-14 |  | 2026-11-14 18:17 - Console-free probe: the init stamps the crash partition before anything else | `mem-entries.md:21964` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 18:00 - v9/v10: vendor MAC lane (hsan,himac + port) still ends in a userspace-stage hang at ~33 s; the blocker is the vendor HSLINK/wifi userspace interface, not symbol loading | `mem-entries.md:23114` |
 | 2026-11-17 |  | 2026-11-17 18:55 - v13: WEXT net_device ABI fix, non-persistent init masks, and the U-Boot bootfip data-abort that blocks the vendor-DT lane | `mem-entries.md:23142` |
 | 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |
+| 2026-11-17 |  | 2026-11-17 20:40 - RE verdict: hyfi_bridging crash is a vendor sk_buff ABI mismatch, not the bridge hooks; v17 drops hyfi preload and fixes the hook variable ABI | `mem-entries.md:23217` |
 
 ## All dated entries
 
@@ -623,3 +623,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 18:00 - v9/v10: vendor MAC lane (hsan,himac + port) still ends in a userspace-stage hang at ~33 s; the blocker is the vendor HSLINK/wifi userspace interface, not symbol loading | `mem-entries.md:23114` |
 | 2026-11-17 |  | 2026-11-17 18:55 - v13: WEXT net_device ABI fix, non-persistent init masks, and the U-Boot bootfip data-abort that blocks the vendor-DT lane | `mem-entries.md:23142` |
 | 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |
+| 2026-11-17 |  | 2026-11-17 20:40 - RE verdict: hyfi_bridging crash is a vendor sk_buff ABI mismatch, not the bridge hooks; v17 drops hyfi preload and fixes the hook variable ABI | `mem-entries.md:23217` |
