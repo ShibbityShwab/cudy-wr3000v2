@@ -1,12 +1,12 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-17 00:05 +07
+**Updated:** 2026-11-17 08:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
 invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
-## 1. Bench (verified read-only 2026-11-16 23:52 +07)
+## 1. Bench (re-verified read-only 2026-11-17 07:35 +07)
 
 - **Box: vendor stock, healthy.** OpenWrt 22.03.6 revision 2.4.15, stock kernel
   `5.10.201 #0 SMP Sat Nov 25 18:18:57 2023`, 2 wiphys (`phy0`/`phy1`), 40 `hi_` modules,
@@ -15,8 +15,10 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
   leftovers, overlay upper empty of staged modules (a recovery emptied it).
 - **Host bench link:** `enp195s0f3u1` UP at 1 Gbps, NetworkManager-unmanaged, carrying
   `192.168.1.88/24` and `192.168.10.44/24`. Verified with `tools/bench-link.sh` (PASS).
-  The stale broker HTTP server that had been serving the repo root on :8000 since
-  2026-11-15 was stopped during this audit (`tools/bench-teardown.sh --apply`).
+  NetworkManager re-managed the adapter overnight despite the drop-in; `bench-link.sh --apply`
+  now also reloads NetworkManager so the drop-in takes effect immediately. The stale broker HTTP
+  server that had been serving the repo root on :8000 since 2026-11-15 was stopped on 11-17
+  (`tools/bench-teardown.sh --apply`).
 - **Recovery door: READY host-side, physical trigger.** A TFTP server from the previous session
   is still listening on UDP 69 and `tftp/recovery.bin` matches md5
   `421114c8ea999c925b7aa79cc548af81`; treat it as armed only after
@@ -45,54 +47,81 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Current blocker: the delivery lane is unresolved
+## 3. Current blocker: the 3dh-class kernel does not start (this is not a slot/delivery problem)
 
-What is measured (read from captures on this host, no new fire):
+Corrected 2026-11-17 from the captures already on the host plus an offline payload analysis. No
+new fire was run to establish this.
 
-- U-Boot **does read our uImage**. The 3dk capture
-  (`build/uart-logs/20261116T111510Z-fire-3dk.log`) prints
-  `Image Name: Linux-5.10.201`, `Data Size: 2965176`, `Load Address: 80608000` 37 times;
-  the 3dh capture prints `Data Size: 2964240`. Stock is `4,294,096` and prints
-  `Uncompressing Linux`.
-- **No kernel console output follows our uImage load.** The `3dk` init's
-  `<6>load hi_* fd=.. ret=..` lines were never observed (`grep -c 'load hi_'` = 0); every
-  cycle that reaches `Uncompressing Linux` is the stock fallback boot. The ShuangTa PCIe
-  panic in the 17:35 entry belongs to that stock fallback boot, not to our kernel.
-- **Correct validity rule:** our slice is an uncompressed uImage and does not print
-  `Uncompressing Linux`; only the stock image does. A reading is ours only when U-Boot
-  prints **our** `Data Size`/`Image Name` and kernel output follows. `LESSONS.md` rule 20.
-- The last fire (3dk, 18:15 local) wrote `kernelb` with `bootflag=b`, `boot_reg=0x21`;
-  it is a non-result for the kernel question and cost one recovery cycle (19:05 entry).
+**3df and 3dg ran our kernel on hardware.** Their captures contain our kernel's own banners and
+our init's own output: `luofu-fmc 10a20000.spi-nand`, `luofu-gmac` and the `luofu: seed test` /
+`overlay test` lines. 3df (fire 7, 05:28) reached userspace and the shadow writes landed
+(`build/linux-kbuild/waves/3df/fire7.md`); 3dg (14:31 capture) ran our kernel with the vendor
+modules refusing on 130+ unknown symbols.
 
-What is **not** established, and is the open question:
+**3dh, 3di and 3dk never started, in any captured attempt.** U-Boot reads our uImage every time
+(`Image Name: Linux-5.10.201`, `Data Size` 2,964,240 / 2,964,334 / 2,965,176, load/ep
+`0x80608000`), then the box resets with no kernel output and no U-Boot failure string. Every
+`Uncompressing Linux` in those captures is the stock 4,294,096-byte fallback image, which then
+panics 10-15 s later on the fallback DTBO path.
 
-- The 18:25 ledger entry says the next step is to write 3dl to `/dev/mtd11` (`kernela`),
-  claiming "the path that boots cleanly is the AB one". `build/linux-kbuild/waves/3dk/
-  recovery-3dk.md` (17:35) says no image of ours can be loaded until the bootloader is
-  replaced. Both cannot be true. Neither is proven by a receipt.
-- There is no measured slot-A manual handover value. `tools/fire-device.sh` now refuses a
-  slot-A fire unless `BOOT_REG` is supplied from a written plan; do not invent one.
-- The NAND is degraded (ECC errors, JFFS2 read/erase failures in the captures). Flash writes
-  are wear-limited; every fire must be written down before it is run.
+The variables that are **not** the cause:
+- Boot path: the successful 3df attempts and the failing 3dh attempts used the same
+  `bootflag=b`, `boot_reg=0x21`. Countdown vs fallback is not the variable.
+- DTB and trailer: every slice has the same `luofu-r116.dtb` (md5 `336ba39e...`) and the same
+  fixed 40,732-byte FIP/DTBO trailer.
+- Corrupt image: the 3dh payload decompresses offline to a valid 9,810,020-byte Image (3df:
+  8,135,904 bytes), and its xz stream is complete (no `Uncompressing Linux` is expected from
+  our build; the decompressor's `putstr` is compiled out of this config).
+- Delivery lane / slot: U-Boot loads the image from the slot it was told to read.
+
+**The variable is the kernel build.** The kernel C source is identical between the 3df-era commit
+and the 3dh-era commit; the only delta is the kernel `.config` captured in commit `cca5be5`:
+`CONFIG_COMPILE_TEST=y` (with its broad side effects), `CONFIG_SLAB=y` instead of SLUB,
+`CONFIG_TRACING`/`CONFIG_FTRACE`/`FRAME_POINTER`/`UNWINDER_FRAME_POINTER`, and the cache
+allocator/frame-pointer changes those imply. The first kernel built with that set (3dh) never
+boots. The failure is a silent early-boot crash **before the kernel registers its console at
+~2.6 s** - the U-Boot cmdline has a bare `earlycon` with no address and the earlycon lookup
+fails, so 0.0-2.6 s output is lost, not absent.
+
+Consequences for the record:
+- The 2026-11-16 15:45 claim that 3dh loaded the vendor stack on our kernel is a **stock-boot
+  misattribution** (the stock image loads the same vendor modules); the ShuangTa PCIe panic in
+  the 17:35 entry belongs to the stock fallback boot. The ledger correction is appended below
+  this STATUS update.
+- The 18:25 "write 3dl to `kernela`" next step cannot work: 3dl is built from the same 3dk
+  kernel class and would fail to start in any slot. Do not fire it.
+- The last kernel known to run on this hardware is the 3df/3dg class. A booting kernel must be
+  recovered before the PCIe/pinctrl and vendor-stack work can continue.
 
 ## 4. Next action
 
-1. **Resolve the delivery mechanism on paper, no fire.** Compare the 3dh
-   (`20261116T075623Z-3dh-fire.log`) and 3dk (`20261116T111510Z-fire-3dk.log`) cycles and
-   write into this section: target slot, `bootflag`, `boot_reg`, the exact expected marker
-   (our uImage `Data Size` + kernel line), which path reaches the slice (countdown vs
-   fallback), and what is single-variable about the next test. If it requires a cold power-on
-   reset, say so explicitly. Until that is written here, do not fire.
-2. Re-stage the patched vendor modules only if the next test needs the vendor stack:
-   `SLICE=... tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage lab`.
-   This needs the module set at `/tmp/vmods` or `PATCHED=` (pull it read-only from the box;
-   see the script's error text).
-3. Then one fire, attended, with `tools/fire-preflight.sh` PASS, a read-only UART capture
-   running, the recovery card READY, and a human able to power-cycle the box.
-4. **Upstream track (separate, not blocked by the bench):** no OpenWrt target/DTS/image
-   recipe/driver series exists; the Wi-Fi + LAN-switch + GPL source questions are the gating
-   programme, and the published half still needs its vendor-object cleanup and GPL status
-   reconciliation. See `opensource/docs/ROADMAP-OPENWRT.md` and `EVIDENCE-INDEX.md`.
+1. **Diagnostic slice is built and ready (host-side).** `3dm` = the 3dl kernel plus one
+   behavioural delta, an explicit earlycon in the built-in cmdline:
+   `build/linux-kbuild/luofu-slice-phase3dm.bin`, 3,005,748 bytes, md5
+   `ba5fd5b2fd9146157cf5d03c4a7b69dc` (zImage `95ce2f31...`, init `6464a08d...` = the 3dk
+   console-logging init, DTB `336ba39e...`, trailer verified). Build script:
+   `build/linux-kbuild/build-3dm.sh`; it restores the 3dl `.config` afterwards and
+   `check-lab-src` PASSes. This is a diagnostic artifact, not a release candidate.
+2. **One attended fire of `3dm`** (human at the bench; physical RESET/TFTP is the way back):
+   - preconditions: `tools/bench-link.sh` PASS, `tools/recovery-card.sh` READY, a read-only
+     capture armed, and `fire-preflight.sh` PASS (it enforces all of these + `--attended`);
+   - optional resilience: stage the patched vendor modules first (`--stage lab`) so a booting
+     kernel brings its network up and the box can be restored over SSH instead of TFTP;
+   - command: `tools/fire.sh ssh --slice "$PWD/build/linux-kbuild/luofu-slice-phase3dm.bin"
+     --slot b --label 3dm --attended --detach`, then read
+     `build/uart-logs/<ts>-uart-3dm.log`.
+   Outcomes: (a) earlycon output appears -> the crash point is named and the fix is local;
+   (b) still dark -> the crash is before earlycon setup (decompressor/very early stub), and the
+   next diagnostic is a DEBUG_LL build plus the 3df-era `.config` as the positive control.
+   Do not repeat the fire without a new variable.
+3. Only after a kernel boots: bring up the vendor stack (the real reason `SLAB`/`GENERIC_PINCONF`
+   were wanted), then the 3dk per-module kmsg logging, then the PCIe/pinctrl node. The
+   slot/delivery question (B vs A) is not the blocker and becomes relevant only after a kernel
+   starts.
+4. Re-stage the patched modules only when the test needs the vendor stack:
+   `SLICE=... tools/box-provision.sh --bdinfo dumps/router-20261108/bdinfo.bin --stage lab`
+   (needs `/tmp/vmods` or `PATCHED=`; pull the stock set read-only from the box).
+5. Keep the stock-health checks; no fire unattended, and no fire without a written plan.
 
 ## 5. Reading the console (read-only)
 

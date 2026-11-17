@@ -22921,3 +22921,59 @@ re-applies the runtime unmanage, both addresses, and the ufw ports. Post-fix sta
 unmanaged, `192.168.1.88/24` + `192.168.10.44/24`, carrier 1 Gbps, ufw rules present.
 Rule: re-run `tools/bench-link.sh` at the start of every device session; a runtime-only
 `managed no` is not durable.
+
+## 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels
+
+Read-only reconstruction of every stored capture plus an offline payload analysis. No device
+action, no fire, no UART write.
+
+What the captures prove (fingerprints are our own kernel's, not the stock image's):
+- 3df ran our kernel and our initramfs init: the 3df capture has "Linux version 5.10.201 ...
+  #227", luofu-fmc 10a20000.spi-nand, luofu-gmac, "Run /init as init process", the seven
+  /vendor/upper ... OK lines and the kernel-side luofu: seed test / overlay test lines
+  (wret=0, res=c0de9d0f). It also booted once via a true POR (recover-3dg2 capture).
+- 3dg (build #228) also ran our kernel and init (3dg2 capture).
+- 3dh, 3di and 3dk never ran: 15/2/37 uImage loads respectively, zero luofu-fmc banners, zero
+  luofu: init lines, zero "<6>load hi_" lines; after "serialnr->..." the next console line is
+  the next boot's "enter esbc main" (the WDT/panic reset), then stock fallback boots print
+  "Uncompressing Linux" (stock 4,294,096 B) and panic on the fallback DTBO path.
+- The 15:45 claim "3dh's capture shows the vendor stack loaded and eth2 at 1Gbps" is a
+  stock-boot misattribution (the stock image loads the same modules). The 17:35 ShuangTa
+  panic is the stock fallback boot, not ours. waves/3df/fire3dh.md is not supported by its own
+  cited capture.
+- The 18:25 "write 3dl to kernela" next step is void: 3dl is built from the same 3dk kernel
+  class (zImage md5 28ebad29, 3dh-class config) and cannot start in any slot.
+
+What the slice comparison shows:
+- Boot path is identical for green and dark attempts: bootflag=b, boot_reg=0x21,
+  "Reading 8650752", same uImage header, then alias console / serialnr. The A/B failover and
+  POR preludes also read the same uImage. Path is not the variable.
+- DTB (md5 336ba39e) and the 40,732-byte trailer are identical across 3df/3dg/3dh/3dl.
+- Kernel C source is identical between the 3df and 3dh commits; the only delta at the failure
+  edge is the kernel .config captured in cca5be5. 3dg already booted WITH COMPILE_TEST=y,
+  SLAB, GENERIC_PINCONF; the 3dh rebuild added the TRACING/FTRACE stack,
+  FRAME_POINTER/UNWINDER_FRAME_POINTER, TASKS_RCUs, MODULES_TREE_LOOKUP and BINARY_PRINTF
+  (41 sorted diff lines from .config.old -> .config). The first kernel built with that set
+  (3dh) never prints a line.
+- Offline payload check: the 3dh zImage's xz stream is complete and decompresses to a
+  9,810,020-byte Image (3df: 8,135,904). The image is not corrupt, and stock boots at 4.29 MB,
+  so size is not the mechanism. The failure is a pre-console kernel crash; this config's
+  console registers only at ~2.6 s and the bootloader cmdline's bare earlycon does not
+  resolve, so 0.0-2.6 s output is lost (explaining the silence).
+- The xz payload offset shifts from 0x6164 (3df) to 0x660c (3dh); the decompressor head code is
+  byte-identical, so the failure is downstream of it.
+
+Diagnostic artifact built (host-side only, not fired):
+- build/linux-kbuild/build-3dm.sh, slice luofu-slice-phase3dm.bin 3,005,748 B md5
+  ba5fd5b2fd9146157cf5d03c4a7b69dc; single behavioural delta from 3dl: the built-in
+  CONFIG_CMDLINE gains "earlycon=uart,mmio32,0x1010f000 ignore_loglevel" (CONFIG_CMDLINE_EXTEND
+  already y). zImage 95ce2f31..., init 6464a08d (3dk console-logging init), DTB 336ba39e,
+  trailer verified. The build restores the 3dl .config afterwards; check-lab-src PASS.
+- Expected outcomes: earlycon output appears -> the crash point is named; still dark -> the
+  crash is before earlycon setup (decompressor/very early stub), and the next diagnostic is
+  DEBUG_LL plus the 3df-era config as the positive control.
+
+Process corrections recorded: (a) identify a running kernel by our own banners/init output, never
+by the stock "Uncompressing" line or a panic the stock fallback also throws; (b) a handover
+without failure strings followed by a reset is a pre-console crash; (c) the kernel .config is a
+fire-class variable and must be recorded with every slice.

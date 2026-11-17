@@ -91,7 +91,11 @@ echo "applying..."
 # across NM restarts as well.
 NM_CONF=/etc/NetworkManager/conf.d/99-bench-unmanaged.conf
 printf '[keyfile]\nunmanaged-devices=interface-name:%s\n' "$IFACE" | sudo -n tee "$NM_CONF" >/dev/null || exit 1
-echo "  wrote $NM_CONF (persistent; effective from the next NetworkManager start)"
+echo "  wrote $NM_CONF"
+# Apply the drop-in now. Without the reload, NM keeps managing the port until its next
+# restart and re-applies its profile later (observed overnight 2026-11-16->17).
+sudo -n nmcli general reload >/dev/null 2>&1 || sudo -n systemctl reload NetworkManager >/dev/null 2>&1 || true
+sleep 1
 sudo -n nmcli device set "$IFACE" managed no || exit 1
 sudo -n ip addr replace "$TFTP_SERVER_IP/24" dev "$IFACE" || exit 1
 sudo -n ip addr replace "$LAN_HOST_IP/24" dev "$IFACE" || exit 1

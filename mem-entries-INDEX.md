@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 04:25 - The vendor's own 0x14000000 region reads as instruction words | `mem-entries.md:21749` |
 | 2026-11-14 |  | 2026-11-14 05:57 - Both remaining routes scoped: bit-bang closed, the switch port is the only path | `mem-entries.md:21772` |
 | 2026-11-14 |  | 2026-11-14 12:22 - Why the vendor's modules could not load: our kernel placed them FAR | `mem-entries.md:21788` |
 | 2026-11-14 |  | 2026-11-14 13:44 - Near-only allocation did not stop the PLT errors, and its print never appeared | `mem-entries.md:21804` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
 | 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
 | 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
+| 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
 
 ## All dated entries
 
@@ -616,3 +616,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
 | 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
 | 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
+| 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |

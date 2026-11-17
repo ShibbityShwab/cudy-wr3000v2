@@ -20,14 +20,16 @@ ledger is the long form and the newest dated entry wins. Physical invariants: `B
 - **Gates G1-G4/G6** are green on the bench (2026-11-14). G4 is met by the vendor's modules;
   the bound PHY driver is `hi_kphy`, so M2 ("no vendor network modules") is not met.
   G5 (Wi-Fi) is vendor-only.
-- **The delivery lane is unresolved.** U-Boot reads our uImage (`Data Size` 2,964,240 /
-  2,965,176, `Image Name: Linux-5.10.201`) but no kernel output follows; every
-  `Uncompressing Linux` in the captures is the stock 4,294,096-byte fallback image.
-  `luofu-slice-phase3dl.bin` is built (md5 `f7b2eb41...`) and NOT fired. Do not fire until
-  `STATUS.md` section 4 names the delivery plan.
+- **The 3dh-class kernel never starts.** 3df and 3dg did run on hardware (our own
+  `luofu-fmc`/`luofu:` markers and init output are in their captures). 3dh/3di/3dk are read by
+  U-Boot and then reset silently before the kernel console registers; the kernel source and DTB
+  are unchanged, so the variable is the 3dh-era kernel `.config` (COMPILE_TEST / SLAB /
+  TRACING group). `luofu-slice-phase3dl.bin` is a 3dh-class kernel and is NOT fireable.
+  Do not fire until `STATUS.md` section 4's diagnostic plan has run.
 - **Validity markers:** ours is an uncompressed uImage and does not print
   `Uncompressing Linux`; stock does. A fire is valid only when our uImage identity and our
-  kernel output are in the capture (`LESSONS.md` 20).
+  kernel output are in the capture (`LESSONS.md` 20). U-Boot printing our uImage header is
+  not proof the kernel started (`LESSONS.md` 24).
 - **The NAND is degraded** (ECC errors, JFFS2 read/erase failures). Flash writes are
   wear-limited; no undirected fire cycles.
 - **Upstream is a separate, unfinished track:** no OpenWrt target, DTS, image recipe or

@@ -86,3 +86,22 @@ conclusion. Read before a device action.
 23. **A stale "current work" paragraph is worse than no paragraph (2026-11-16).** Two days of
     work chased a retired blocker because `AGENTS.md` restated status. Auto-loaded instruction
     files hold rules and pointers only; `STATUS.md` is the single live state page.
+
+24. **U-Boot printing our uImage header is not proof our kernel ran (2026-11-17).** The 3dh
+    capture reads as "the loader rejected our image" or "the vendor stack loaded", but the kernel
+    never executed. Identify a kernel by its own markers - our `luofu-fmc`/`luofu-gmac`
+    banners, our init's `luofu: seed test` lines, our driver probes - never by the stock
+    fallback's `Uncompressing Linux` or by a panic that the stock fallback also produces. The
+    3dh "vendor stack loaded" claim was a stock boot misattribution.
+
+25. **No kernel output after the handoff means a pre-console crash, not a quiet success
+    (2026-11-17).** This kernel registers its console at ~2.6 s and the fired cmdline's bare
+    `earlycon` does not resolve, so everything before 2.6 s is lost. A silent reset is a crash in
+    that window. Diagnose with a `CONFIG_CMDLINE_EXTEND` earlycon build (and DEBUG_LL if needed)
+    before reading anything into the silence.
+
+26. **The kernel `.config` is part of the artifact (2026-11-17).** 3df and 3dg booted; 3dh, built
+    from identical kernel C source, the same DTB and the same trailer, does not. The only delta
+    was the `.config` group captured in `cca5be5` (COMPILE_TEST, SLAB, TRACING/FTRACE,
+    FRAME_POINTER/UNWINDER). Record the config with every slice and treat a config change as a
+    fire-class variable, not a build detail.

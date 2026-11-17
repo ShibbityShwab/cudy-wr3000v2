@@ -75,15 +75,23 @@ physically. Do not guess and do not act on memory.
 - `/proc/mtd`: `mtd11 kernela` and `mtd12 kernelb` (8,650,752 B each), `mtd13/14
   rootfsa/rootfsb`, `mtd15 rootfs_data`, `mtd16 upgrade`.
 - U-Boot: `bootcmd=mtd read kernel${bootflag} ${loadaddr}; bootfip ${loadaddr}`.
-  `bootfip` accepts a full slice (`uImage + the fixed 40,732-byte trailer`), and a failed boot
-  leaves a status word that makes `bootfip` reject that slot until it is erased and rewritten.
-- `bootflag` env selects the slot (`a`=kernela, `b`=kernelb). `boot_reg` sysfs is the
-  boot status/handover word (`0x10`=hardware failover to slot A, `0x11`=slot B booted,
-  `0x21`=manual slot-B request). Read both; never infer a slot from memory.
-- **The delivery lane is not proven as of 2026-11-16.** Both 3dh and 3dk had their uImage read by
-  U-Boot (`Data Size` 2,964,240 and 2,965,176, `Image Name: Linux-5.10.201`) but no kernel
-  console output followed. Do not fire until `STATUS.md` names a delivery plan that passes
-  `LESSONS.md` rule 1 and `tools/fire-preflight.sh`.
+  `bootfip` accepts a full slice (`uImage + the fixed 40,732-byte trailer`).
+- Selector facts measured (2026-11-17 capture audit): the sysctrl cell `0x10100C08` reads 0 on a
+  true POR and U-Boot then prints `bootreg init, set 10` (A pair) or `set 11` (B pair); a manual
+  slot-B fire writes `0x21`; `0x10` is the A pair and `0x11` the B pair. A manual slot-A
+  handover value (`0x20`?) is **not established**. The env `bootflag` appears in the loader
+  console, but the fires' `fw_setenv` is a symlink to `/bin/fw_printenv` and an earlier plain
+  `fw_setenv` was a no-op, so treat the cell/console pair as the measured state, not the env edit.
+- A failed handover is followed by a failover read of the other slot; the captures show the same
+  slot content re-read on later boots. The older "bootfip rejects the slot until reflashed" claim
+  is not supported by the 2026-11-16 captures.
+- **The last kernels that ran on hardware are 3df and 3dg (2026-11-16).** The 3dh-class
+  kernels (3dh, 3di, 3dk, 3dl) do not start: U-Boot reads their uImage
+  (`Data Size` 2,964,240 / 2,965,176, `Image Name: Linux-5.10.201`) and then the box resets
+  silently before the kernel console registers. The variable is the kernel `.config` captured
+  in commit `cca5be5` (COMPILE_TEST / SLAB / TRACING group), not the slot or the trailer; the
+  kernel source and DTB are unchanged from the booting 3df/3dg builds. Do not fire a 3dh-class
+  slice. See `STATUS.md` section 3 and `LESSONS.md` rules 24-26.
 - **Fire-validity marker (corrected 2026-11-16):** our slice is an uncompressed uImage and does
   **not** print `Uncompressing Linux`; only the stock 4,294,096-byte image prints that. A valid
   reading of our slice is U-Boot printing **our** `Data Size` / `Image Name` followed by our kernel
