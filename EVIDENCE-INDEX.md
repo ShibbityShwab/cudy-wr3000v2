@@ -43,3 +43,21 @@ The root repo is private research material and must not be published until clean
 
 Rule: if a claim has only a local artifact, do not present it as a fresh-clone receipt. Either
 commit a small reproducible artifact or write the regeneration command into this table.
+
+## Bench kernel line, 2026-11-17/18 (v6-v17): reversal evidence
+
+- Slices (root repo, gitignored artifacts): build/linux-kbuild/luofu-slice-phase3dq.bin
+  v6/7/8 booted to userspace; v13/v14 WEXT+bridge experiments; v17 final = md5
+  8342ccb9c0167766529277719330f43c (zImage a08ffc66, init 74033a38, DTB 336ba39e).
+- Console captures (root repo, gitignored): build/uart-logs/20261117T031025Z-uart-3dq.log
+  (first vendor-module chain), 20261117T100902Z-uart-3dq8.log (PAN + WEXT era),
+  20261117T115050Z-uart-3dq13.log (bridge configs, v14-v16), 20261117T233458Z-uart-v17.log
+  (final: br-lan create/destroy loop, no crash).
+- Durable findings: 3dh kernel crash root cause (luofu_early ioremap before mm_init);
+  post-procd RCU stall = TRACING block; vendor module dependency graph (ksecurec -> hi_basic ->
+  hi_kpie -> lsw/kcfe/khslink/swa); WEXT net_device ABI (+8 field shift); vendor sk_buff ABI
+  (+0x74/+0x78, skb->data 0x118 vs 0xa0); rootif = /proc/hsan/net/swa/wan_port -> hi_cfe_add_rootif
+  -> hi_net_get_port (needs hi_net_dev_probe registration by hi_kmac); br_* are exported pointer
+  variables in the vendor bridge, not functions.
+- RE reports: subagent sessions held the disassembly results; the committed ledger entries
+  2026-11-17 18:00/18:55, 2026-11-17 20:40 and 2026-11-18 06:50 summarize them.
