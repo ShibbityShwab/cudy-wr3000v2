@@ -77,6 +77,12 @@ static const char p_mtd13[] = "/dev/mtdblock13";
  * where they live until the pivot makes it /lib/hisilicon/ko.
  */
 static const char *const vmods[] = {
+    /*
+     * ksecurec FIRST (2026-11-17): hi_basic imports memcpy_s/strcpy_s/vsnprintf_s and the rest
+     * of the SafeC family, all exported by ksecurec.ko. Without it every later module dies on
+     * unknown symbols, which is exactly what the 3dq boot showed.
+     */
+    "ksecurec",
     "hi_basic", "hi_kpinctrl", "hi_sysctrl", "hi_acp", "hi_kpie",
     "hi_lsw_pub", "hi_lsw_dp", "hi_lsw_pfe",
     "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",

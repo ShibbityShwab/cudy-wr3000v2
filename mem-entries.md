@@ -23027,3 +23027,49 @@ are the TRACING/TASKS_RCU config block or the lab pet/watchdog interplay), (3) f
 builds, make hangs self-resetting (stop petting the watchdog in a diagnostic build so a hang becomes
 a 30 s reset -> failover -> stock), then re-fire.
 LEDGER
+
+## 2026-11-17 10:15 - 3dq: our kernel boots the vendor stack far enough to bring eth2 up at 1 Gbps; module dependency ordering is the next fix
+
+Config result (3dp, no TRACING): the post-procd rcu_sched stall was a TRACING-block effect, not a
+generic kernel problem. 3dp ran rc.d, the VAP cleanup and the PLT rejection list to 61 s with no
+stall; its only "wedge" was the guarded hook calling reboot after the restore, which hit the
+platform restart handler's park path. Lesson: our kernel's software restart after mtd I/O is not
+reliable, so unattended fallback must never depend on restoring a slot and rebooting from inside
+our kernel.
+
+3dq (3df-era config + early-boot fix + symbol shims + staged patched vendor modules):
+U-Boot read our uImage (Data Size 2,793,136), earlycon up, FMC probe, 18 partitions, Run /init at
+10.9 s, procd at 17.6 s. Our lab gmac driver bound both instances and eth2 came up:
+"Link is Up - 1Gbps/Full - flow control rx/tx". S20network ran. The vendor module chain then
+failed on symbols the vendor kernel provides but this tree does not export, in dependency order:
+
+  ksecurec FIRST: hi_basic imports memcpy_s/memset_s/strcpy_s/vsnprintf_s/sprintf_s/strtok_s/
+    vsprintf_s/strcat_s/strncpy_s/sscanf_s - all exported by ksecurec.ko. Without ksecurec,
+    hi_basic fails, and hi_basic is itself the provider of hi_dfx_print/hi_dfx_register/
+    hi_dfx_unregister/hi_dfx_unregister_cmd for hi_kpie and hi_lsw_pub.
+  hi_pie_*: hi_lsw_dp imports hi_pie_get_gro_ch_start/hi_pie_get_gro_ch_num from hi_kpie.ko;
+    hi_kpie needs mem_section/napi_enable/__netdev_alloc_skb_ip_align (vendor memory model), so
+    the datapath was blocked behind an optional PCIe module.
+
+Kernel changes (live tree + synced tracked mirror): export kmem_cache_alloc_trace and
+kmalloc_order_trace out-of-line when !CONFIG_TRACING; export stubs hi_br_fdb_check_addr,
+hi_fdb_item_isaccel_hook_reg, ppp_get_relate_dev, hi_pie_get_gro_ch_start/num; init preloads
+ksecurec first. Config 3dq: 3df-era base + COMPILE_TEST/SLAB/GENERIC_PINCONF + NETFILTER +
+NF_CONNTRACK + NETFILTER_XTABLES + VLAN_8021Q + earlycon + luofu_pet_beats=200. Built
+luofu-slice-phase3dq.bin v2 2,858,124 B md5 77606ead0f6d931cd6d6bbd3c1ebedde (init md5
+0366bb8e, zImage f4da30dc, DTB 336ba39e); every needed symbol verified exported.
+
+Safety discovery: after the hook restored kernelb and called reboot, the platform restart handler
+parked ("restart magic did not take"), petting stopped but the watchdog did not fire, so the box
+stayed on our kernel. Unattended recovery must therefore either run entirely on the stock side or
+set the next-boot selector before any risky reboot: the next overlay adds an early rc.d script
+that sets bootflag=a (stock A pair) before the later rc.d stages, so even a power cycle after a
+userspace hang lands on stock.
+
+State: the box is currently hung on old 3dq (bootflag=b, cell 0x21); needs the physical RESET +
+TFTP recovery. After recovery: restore SSH via broker, re-stage the patched modules, add the early
+bootflag=a fallback script, arm the guarded hook and fire 3dq v2. Expected next reading: ksecurec
+then the hi_* chain loads; if eth2/br-lan comes up, SSH will answer on our kernel and this becomes
+the first vendor-userspace boot on our own kernel.
+
+LEDGER

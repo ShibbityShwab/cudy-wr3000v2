@@ -47,22 +47,32 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Current blocker: our kernel now boots, but userspace wedges after procd init
+## 3. Current blocker: box hung on old 3dq; the next fire tests the fixed module chain
 
-The 3dh regression is FIXED and validated on hardware. The crash was a NULL deref in
-`luofu_early()`: the mach `.init_early` hook called `ioremap()` from `setup_arch` before `mm_init()`
-created the kmalloc caches; with the new `CONFIG_SLAB`+`CONFIG_TRACING` config, `kmalloc` goes through
-`kmem_cache_alloc_trace(kmalloc_caches[..])` and the NULL cache pointer faulted. `3df`/`3dg` booted
-because they had no `CONFIG_TRACING`. The ioremap/crumb/bootreg-flip work now happens in
-`luofu_early_crumb()` (early_initcall, after `mm_init`), and the fixed slice `3dn` (md5
-`984b0ac9...`) booted our kernel: earlycon, `luofu-fmc` probe, 18 partitions, `Run /init` at 14.45 s,
-the seven `/vendor/upper ... OK` shadow lines, and `procd: - init -` at 19.5 s.
+The 3dh TRACING regression is fixed and validated. 3dp proved the no-TRACING config runs
+userspace cleanly (rc.d, VAP cleanup, module PLT list to 61 s, no RCU stall). 3dq then booted our
+kernel with the vendor stack far enough that our gmac driver brought eth2 up at 1 Gbps and
+S20network ran; the vendor module chain stopped on vendor-kernel helpers in dependency order
+(ksecurec SafeC exports; hi_basic's hi_dfx_* exports; hi_pie_* from the optional hi_kpie). Kernel
+v2 now exports every needed symbol and preloads ksecurec, but the box is hung on old 3dq
+(bootflag=b, cell 0x21) and needs the physical RESET + TFTP recovery before it can be fired again.
 
-The new blocker, measured in that same boot: after procd init there is no further userspace output and
-at 108 s / 171 s the kernel reports `rcu_sched` stalls with CPU0 stuck (the lab watchdog pet timer keeps
-the hardware watchdog fed, so the box does not reset). `procd` stalled before rc.d, so even the guarded
-auto-recovery hook never ran. The box is currently hung on the `3dn` kernel and needs the physical
-RESET + TFTP recovery (running card below). This is a userspace-stage bug, not the early-boot one.
+The platform restart handler parks after mtd I/O ("restart magic did not take"), and the watchdog
+does not fire while it parks, so unattended recovery must not rely on restoring a slot and
+rebooting from inside our kernel. The next overlay adds an early rc.d script that sets bootflag=a
+(stock A pair) before the later rc.d stages, so a power cycle after a later hang lands on stock.
+
+## 4. Next action
+
+1. Recover the box: power off, hold RESET, power on holding, hold through the counter -> TFTP
+   recovery (server is armed, recovery.bin md5 421114c8...). Then restore SSH via the broker and
+   re-stage the patched modules (the recovery wipes the overlay).
+2. Install the early bootflag=a fallback rc.d script, arm the guarded hook, and fire 3dq v2
+   (slice md5 77606ead...). Expected: ksecurec then the hi_* chain load; if eth2/br-lan answers,
+   SSH on our kernel confirms the first vendor-userspace boot on our own kernel.
+3. If the chain still breaks, the next dependency order is derived from the module kmsg lines; do
+   not fire without a new single-variable writing.
+4. Then the upstream track (target/DTS/image recipe) and the ledger/commit backlog.
 
 ## 4. Next action
 

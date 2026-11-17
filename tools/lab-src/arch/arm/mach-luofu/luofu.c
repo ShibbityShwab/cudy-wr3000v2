@@ -52,6 +52,7 @@
  */
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/kernel.h>		/* kstrtouint for the pet-beat cmdline cap */
 #include <linux/printk.h>
 #include <linux/reboot.h>
 #include <linux/device.h>
@@ -821,6 +822,11 @@ extern u32 luofu_overlay_verdict;
 static void __iomem *luofu_wdt_crg;
 static struct timer_list luofu_wdt_pet_timer;
 static unsigned int luofu_wdt_pet_count;
+/* Bounded pet for diagnostic builds: luofu_pet_beats=N on the cmdline caps the beats.
+ * Default 600 (~50 min) preserves the historical behaviour; a diagnostic fire can set
+ * a small value so a userspace hang stops being petted and the hardware watchdog
+ * resets into the vendor slot instead of needing hands. */
+static unsigned int luofu_wdt_pet_beats = 600;
 static void __iomem *luofu_pet_cell;
 
 static void luofu_stop_pet(void)
@@ -843,7 +849,7 @@ static void luofu_wdt_pet(struct timer_list *t)
 	 * enough for the slow ~800 s overlay scan plus the mount. Then stop
 	 * and let the hardware reset back to the vendor slot.
 	 */
-	if (++luofu_wdt_pet_count < 600) {
+	if (++luofu_wdt_pet_count < luofu_wdt_pet_beats) {
 		mod_timer(&luofu_wdt_pet_timer, jiffies + msecs_to_jiffies(5000));
 	} else {
 		pr_info("luofu: pet limit reached, watchdog will reset\n");
@@ -875,6 +881,16 @@ static void luofu_wdt_pet(struct timer_list *t)
 	 */
 }
 
+static int __init luofu_pet_beats_setup(char *str)
+{
+	unsigned int v;
+
+	if (str && !kstrtouint(str, 0, &v) && v > 0)
+		luofu_wdt_pet_beats = v;
+	return 1;
+}
+__setup("luofu_pet_beats=", luofu_pet_beats_setup);
+
 static int __init luofu_wdt_pet_init(void)
 {
 	luofu_wdt_crg = ioremap(LUOFU_CRG_BASE, 0x1000);
@@ -887,6 +903,50 @@ static int __init luofu_wdt_pet_init(void)
 	return 0;
 }
 late_initcall(luofu_wdt_pet_init);
+
+/*
+ * VENDOR-KERNEL SYMBOL STUBS (2026-11-17).
+ *
+ * The vendor modules (license=GPL, no source) import a few symbols that exist only in the
+ * vendor's patched 5.10 tree, not in this one. The modules refuse to load without them. These
+ * stubs keep the bring-up moving by disabling the corresponding acceleration/PPP hooks; replace
+ * with real implementations only when a module is seen to need the result.
+ */
+unsigned long hi_br_fdb_check_addr(unsigned long a, unsigned long b, unsigned long c)
+{
+	return 0;
+}
+EXPORT_SYMBOL(hi_br_fdb_check_addr);
+
+unsigned long hi_fdb_item_isaccel_hook_reg(unsigned long a, unsigned long b)
+{
+	return 0;
+}
+EXPORT_SYMBOL(hi_fdb_item_isaccel_hook_reg);
+
+void *ppp_get_relate_dev(void *a)
+{
+	return NULL;
+}
+EXPORT_SYMBOL(ppp_get_relate_dev);
+
+/*
+ * hi_lsw_dp imports these from hi_kpie (PCIe endpoint module). hi_kpie itself cannot load on this
+ * kernel (it also wants mem_section/napi_enable from the vendor's memory model), so provide the
+ * two GRO-channel helpers as no-ops: the switch datapath must load for the LAN test, and these
+ * only gate the PCIe/Wi-Fi GRO path (2026-11-17).
+ */
+unsigned long hi_pie_get_gro_ch_start(void)
+{
+	return 0;
+}
+EXPORT_SYMBOL(hi_pie_get_gro_ch_start);
+
+unsigned long hi_pie_get_gro_ch_num(void)
+{
+	return 0;
+}
+EXPORT_SYMBOL(hi_pie_get_gro_ch_num);
 
 static const char *const luofu_dt_compat[] __initconst = {
 	"hisilicon,luofu-r116",

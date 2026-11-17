@@ -32,3 +32,6 @@ fs/jffs2/scan.c
 fs/jffs2/super.c
 fs/jffs2/wbuf.c
 init/main.c
+include/linux/slab.h
+mm/slab.c
+mm/slab_common.c
