@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 13:44 - Near-only allocation did not stop the PLT errors, and its print never appeared | `mem-entries.md:21804` |
 | 2026-11-14 |  | 2026-11-14 14:27 - The module loader refused every module that had no .plt, before checking whether one was needed | `mem-entries.md:21833` |
 | 2026-11-14 |  | 2026-11-14 15:50 - A/B: the PLT-tolerance change breaks the boot; the control boots | `mem-entries.md:21855` |
 | 2026-11-14 |  | 2026-11-14 16:31 - Bisect step 1 also fails: the loader edit is not the mechanism, the kernel's layout is | `mem-entries.md:21877` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
 | 2026-11-17 |  | 2026-11-17 08:45 - ROOT CAUSE FOUND AND FIXED: the 3dh kernel died in luofu_early's ioremap; 3dn boots to userspace, then wedges in a new userspace-stage problem | `mem-entries.md:22981` |
 | 2026-11-17 |  | 2026-11-17 10:15 - 3dq: our kernel boots the vendor stack far enough to bring eth2 up at 1 Gbps; module dependency ordering is the next fix | `mem-entries.md:23031` |
+| 2026-11-17 |  | 2026-11-17 17:45 - v6/v7/v8: EVERY vendor module now loads and eth2 comes up on our kernel; the LAN blocker moved to HSLINK rootif (vendor gmac driver mismatch) | `mem-entries.md:23077` |
 
 ## All dated entries
 
@@ -619,3 +619,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
 | 2026-11-17 |  | 2026-11-17 08:45 - ROOT CAUSE FOUND AND FIXED: the 3dh kernel died in luofu_early's ioremap; 3dn boots to userspace, then wedges in a new userspace-stage problem | `mem-entries.md:22981` |
 | 2026-11-17 |  | 2026-11-17 10:15 - 3dq: our kernel boots the vendor stack far enough to bring eth2 up at 1 Gbps; module dependency ordering is the next fix | `mem-entries.md:23031` |
+| 2026-11-17 |  | 2026-11-17 17:45 - v6/v7/v8: EVERY vendor module now loads and eth2 comes up on our kernel; the LAN blocker moved to HSLINK rootif (vendor gmac driver mismatch) | `mem-entries.md:23077` |

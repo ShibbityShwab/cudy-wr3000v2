@@ -47,20 +47,31 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 These are bench-reversal gates. They are **not** upstream artifacts; see section 5.
 
-## 3. Current blocker: box hung on old 3dq; the next fire tests the fixed module chain
+## 3. Current blocker: HSLINK rootif rejects the lab gmac netdevs (box hung on v8)
 
-The 3dh TRACING regression is fixed and validated. 3dp proved the no-TRACING config runs
-userspace cleanly (rc.d, VAP cleanup, module PLT list to 61 s, no RCU stall). 3dq then booted our
-kernel with the vendor stack far enough that our gmac driver brought eth2 up at 1 Gbps and
-S20network ran; the vendor module chain stopped on vendor-kernel helpers in dependency order
-(ksecurec SafeC exports; hi_basic's hi_dfx_* exports; hi_pie_* from the optional hi_kpie). Kernel
-v2 now exports every needed symbol and preloads ksecurec, but the box is hung on old 3dq
-(bootflag=b, cell 0x21) and needs the physical RESET + TFTP recovery before it can be fired again.
+Every vendor module the init preloads now loads (ret=0), including hi_kpie, hi_swa, hi_lsw_pfe
+and the full hi_kcfe_lrn chain. The CONFIG_CPU_SW_DOMAIN_PAN mismatch that made hi_basic's proc
+writes oops is fixed in v8 (PAN off, panic_on_oops=1), and eth2 comes up 1Gbps on our lab driver.
 
-The platform restart handler parks after mtd I/O ("restart magic did not take"), and the watchdog
-does not fire while it parks, so unattended recovery must not rely on restoring a slot and
-rebooting from inside our kernel. The next overlay adds an early rc.d script that sets bootflag=a
-(stock A pair) before the later rc.d stages, so a power cycle after a later hang lands on stock.
+The remaining LAN blocker is in the vendor userspace/switch layer: hi_swa.ko logs
+"failed to add rootif eth3" and the vendor app tears every interface down and retries, so br-lan
+never comes up. Stock boots never log that line. The rootif path expects the vendor gmac driver's
+netdevs (hi_kmac/hi_kphy/hi_kmdio - all three now have zero unresolved symbols), while our lab gmac
+exposes plain ethernet netdevs.
+
+The box is hung on v8 and needs the physical RESET+TFTP recovery. The watchdog enable (pet limit,
+stock-A selector at 155 s) is not a reliable reset yet; do not claim self-recovery.
+
+## 4. Next action
+
+1. Recover the box (RESET-hold TFTP; server armed). Re-stage the 58 patched modules and the overlay
+   (kmodloader no-op, S99nft-qos mask, rc.local keepalive), then continue.
+2. v9 lane: give the netdevs to the vendor driver - add hsan,himac / hsan,mdio compatibles to the
+   gmac/mdio DT nodes, disable CONFIG_LUOFU_GMAC/MDIO/PHY, preload hi_kmdio -> hi_kphy -> hi_kmac,
+   and check whether HSLINK rootif accepts them. If the vendor gmac driver cannot probe from our
+   DT, reverse the rootif check in hi_swa.ko and make the lab gmac satisfy it.
+3. Write the v6/v7/v8 results into EVIDENCE-INDEX with the capture logs; keep the watchdog claim
+   honest (selector works, reset does not yet).
 
 ## 4. Next action
 

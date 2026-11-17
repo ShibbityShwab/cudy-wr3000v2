@@ -149,10 +149,27 @@ static void luofu_crumb_live(u32 value)
 }
 
 static void luofu_stop_pet(void);
+static void __noreturn luofu_wdt_force_reset(void);
 
 static void luofu_restart(enum reboot_mode mode, const char *cmd)
 {
 	void __iomem *crg = ioremap(LUOFU_CRG_BASE, 0x1000);
+
+	/*
+	 * SELECT STOCK A BEFORE ANY RESET (2026-11-17). A reset that leaves the boot_reg cell at B
+	 * makes U-Boot boot the test slice again, which is how failed fires became loops. The cell is
+	 * the selector; 0x10 is stock A. Restart context is process context (same as the crg ioremap
+	 * above), so this is safe here (the timer-context ioremap was the v4 BUG).
+	 */
+	{
+		void __iomem *sc = ioremap(LUOFU_SYSCTRL_BASE, 0x1000);
+
+		if (sc) {
+			writel(0x10, sc + LUOFU_BOOTREG_OFFSET);
+			(void)readl(sc + LUOFU_BOOTREG_OFFSET);
+			iounmap(sc);
+		}
+	}
 
 	/*
 	 * ★ DID THE BOX REACH THIS FUNCTION AT ALL? (2026-10-27 04:15Z)
@@ -242,10 +259,9 @@ static void luofu_restart(enum reboot_mode mode, const char *cmd)
 		 * reads the slot selector the fallback arm has already flipped - i.e. it lands on the other
 		 * pair. Values are the vendor DT's: enable-val0/1 at set-offset "P".
 		 */
-		writel(HSAN_WDT_ARM0, crg + HSAN_WDT_SET_OFFSET);
-		writel(HSAN_WDT_ARM1, crg + HSAN_WDT_SET_OFFSET + 4);
-		(void)readl(crg + HSAN_WDT_SET_OFFSET + 4);
+		/* 1 s hardware expiry; the enable pair lives at en-offset, not here. */
 		iounmap(crg);
+		luofu_wdt_force_reset();
 	}
 
 	pr_emerg("luofu: restart magic did not take - parking; the watchdog is armed and will do it\n");
@@ -821,6 +837,55 @@ extern u32 luofu_overlay_verdict;
 
 static void __iomem *luofu_wdt_crg;
 static struct timer_list luofu_wdt_pet_timer;
+
+/*
+ * REAL WATCHDOG ENABLE (2026-11-17).
+ *
+ * The pet timer alone never made a hung box reset: U-Boot services its own watchdog and disarms
+ * it before jumping to the kernel, so the clr writes below had no timer behind them. The vendor
+ * driver (hi_wdg.ko, decompiled in drivers/watchdog/luofu-wdt.c) enables with:
+ *   - timeout word at set-offset 0x50, hwver-2 field bits[10:18] = (seconds - 1)
+ *   - enable word at en-offset 0x64, written val1 first, val0 second
+ * The park path below used to write the ARM values to set-offset 0x50, i.e. into the timeout
+ * word, which is why "the watchdog is armed and will do it" was never true.
+ */
+static void luofu_wdt_hw_enable(u32 seconds)
+{
+	void __iomem *crg = luofu_wdt_crg;
+	bool borrowed = false;
+	u32 v;
+
+	if (!crg) {
+		crg = ioremap(LUOFU_CRG_BASE, 0x1000);
+		borrowed = true;
+	}
+	if (!crg)
+		return;
+
+	/* hwver 2 (this board's DT): clear mask 0xfff803ff, field at bit 10, value secs-1. */
+	v = readl(crg + HSAN_WDT_SET_OFFSET);
+	v = (v & 0xfff803ffu) | (((seconds - 1) & 0x1ffu) << 10);
+	writel(v, crg + HSAN_WDT_SET_OFFSET);
+
+	/* The vendor writes val1 then val0 on enable. */
+	writel(HSAN_WDT_ARM1, crg + HSAN_WDT_EN_OFFSET);
+	writel(HSAN_WDT_ARM0, crg + HSAN_WDT_EN_OFFSET);
+	(void)readl(crg + HSAN_WDT_EN_OFFSET);
+	if (borrowed)
+		iounmap(crg);
+}
+
+/*
+ * Park with a 1 s watchdog instead of a bogus timeout word: the next hardware expiry resets the
+ * SoC, U-Boot sees a watchdog reset and fails over to the stock pair.
+ */
+static void __noreturn luofu_wdt_force_reset(void)
+{
+	luofu_stop_pet();
+	luofu_wdt_hw_enable(1);
+	for (;;)
+		cpu_relax();
+}
 static unsigned int luofu_wdt_pet_count;
 /* Bounded pet for diagnostic builds: luofu_pet_beats=N on the cmdline caps the beats.
  * Default 600 (~50 min) preserves the historical behaviour; a diagnostic fire can set
@@ -852,7 +917,20 @@ static void luofu_wdt_pet(struct timer_list *t)
 	if (++luofu_wdt_pet_count < luofu_wdt_pet_beats) {
 		mod_timer(&luofu_wdt_pet_timer, jiffies + msecs_to_jiffies(5000));
 	} else {
-		pr_info("luofu: pet limit reached, watchdog will reset\n");
+		/*
+		 * FAIL OVER TO STOCK A (2026-11-17). A watchdog reset with the cell still at B makes
+		 * U-Boot boot the test slice again - the 3dq v3 fire proved it (four identical boots).
+		 * U-Boot selects by the boot_reg cell, and 0x10 is the stock-A value, so write it here,
+		 * on the last beat, before the hardware expiry.
+		 *
+		 * THIS RUNS IN TIMER CONTEXT: ioremap() here BUGs (it may sleep) - the v4 fire died in
+		 * exactly that BUG at t=155 s. luofu_pet_cell is the mapping made in pet_init; use it.
+		 */
+		if (luofu_pet_cell) {
+			writel(0x10, luofu_pet_cell + LUOFU_BOOTREG_OFFSET);
+			(void)readl(luofu_pet_cell + LUOFU_BOOTREG_OFFSET);
+		}
+		pr_info("luofu: pet limit reached; selected stock A, watchdog will reset\n");
 	}
 	/*
 	 * ★ THE VERDICT OUTRANKS THE DEBUG COUNTER (2026-11-10).
@@ -897,9 +975,11 @@ static int __init luofu_wdt_pet_init(void)
 	luofu_pet_cell = ioremap(LUOFU_SYSCTRL_BASE, 0x1000);
 	if (!luofu_wdt_crg)
 		return 0;
+	/* Start the hardware timer we are about to pet; U-Boot left it stopped. */
+	luofu_wdt_hw_enable(30);
 	timer_setup(&luofu_wdt_pet_timer, luofu_wdt_pet, 0);
 	mod_timer(&luofu_wdt_pet_timer, jiffies + msecs_to_jiffies(1000));
-	pr_info("luofu: watchdog pet timer armed, 5 s period\n");
+	pr_info("luofu: watchdog enabled (30 s) + pet timer armed, 5 s period\n");
 	return 0;
 }
 late_initcall(luofu_wdt_pet_init);
@@ -930,23 +1010,6 @@ void *ppp_get_relate_dev(void *a)
 }
 EXPORT_SYMBOL(ppp_get_relate_dev);
 
-/*
- * hi_lsw_dp imports these from hi_kpie (PCIe endpoint module). hi_kpie itself cannot load on this
- * kernel (it also wants mem_section/napi_enable from the vendor's memory model), so provide the
- * two GRO-channel helpers as no-ops: the switch datapath must load for the LAN test, and these
- * only gate the PCIe/Wi-Fi GRO path (2026-11-17).
- */
-unsigned long hi_pie_get_gro_ch_start(void)
-{
-	return 0;
-}
-EXPORT_SYMBOL(hi_pie_get_gro_ch_start);
-
-unsigned long hi_pie_get_gro_ch_num(void)
-{
-	return 0;
-}
-EXPORT_SYMBOL(hi_pie_get_gro_ch_num);
 
 static const char *const luofu_dt_compat[] __initconst = {
 	"hisilicon,luofu-r116",

@@ -23073,3 +23073,40 @@ then the hi_* chain loads; if eth2/br-lan comes up, SSH will answer on our kerne
 the first vendor-userspace boot on our own kernel.
 
 LEDGER
+
+## 2026-11-17 17:45 - v6/v7/v8: EVERY vendor module now loads and eth2 comes up on our kernel; the LAN blocker moved to HSLINK rootif (vendor gmac driver mismatch)
+
+v6/v7 result (after exporting mem_section/napi_enable/__netdev_alloc_skb_ip_align, removing the
+colliding hi_pie stubs, preloading ksecurec and masking kmodloader): all 19 init-preloaded vendor
+modules load ret=0:
+  ksecurec, hi_basic, hi_kpinctrl, hi_sysctrl, hi_acp, hi_kpie, hi_lsw_pub, hi_lsw_dp,
+  hi_lsw_pfe, hi_kcfe_pub, hi_kcfe_lrn, hi_kcfe_lrn_l3, hi_kcfe_lrn_l4, hi_kcfe_lrn_mc,
+  hi_kcfe_mc_list, hi_kcfe_lrn_vxlan, hi_kcara, hi_khslink, hi_swa.
+Our lab gmac driver registers eth0..eth3 (four gmii ports on the internal LSW) and eth2 (14480000)
+comes up 1Gbps/Full. The boot reaches procd and vendor rc.d.
+
+v7/v8 fault hunt: vendor userspace writing hi_basic's hi_dfx proc entry oopsed in
+arm_copy_from_user (page domain fault) because our build had CONFIG_CPU_SW_DOMAIN_PAN=y while the
+vendor kernel does not. v8 turns PAN off (and sets CONFIG_PANIC_ON_OOPS + panic_on_oops=1): the
+oops is GONE.
+
+v8 remaining blocker: the vendor HSLINK layer logs "failed to add rootif eth3" (the string lives in
+hi_swa.ko) and its app tears every interface down and retries; stock boots never log that line and
+bring br-lan up. Our lab gmac netdevs are plain ethernet, while hi_swa's rootif path clearly
+expects the vendor gmac driver's netdev (hi_kmac, OF aliases hsan,himac / hsan,mac; PHY hi_kphy;
+MDIO hi_kmdio - all three have zero unresolved symbols now). Next lane is therefore to let the
+vendor PHY/MDIO/MAC modules own the netdevs: add the vendor compatible strings to the gmac/mdio DT
+nodes, disable CONFIG_LUOFU_GMAC/MDIO/PHY, preload hi_kmdio -> hi_kphy -> hi_kmac, and see whether
+Hi-GEMAC-based eth0..eth3 satisfy HSLINK. Fallback if that fails: reverse the rootif check in
+hi_swa.ko and teach the lab gmac the minimum it wants.
+
+Hardware watchdog status: the enable is at least partly working (pet-limit beats fire and the v8
+boot selected stock A in bootreg at t=155 s), but the WDT expiry did not reset the box - it went
+silent after the pet-limit message, so the failover still needs physical recovery. Do not claim
+self-recovery yet.
+
+State: box hung on v8 (needs physical RESET+TFTP); kernel v8 slice md5 1010b35ebd27e33a90cf0c34a3fe3079
+(zImage 8ffa5fec). Overlay setup to reproduce a run: 58 patched modules, /sbin/kmodloader no-op,
+S99nft-qos masked, rc.local watchdog keepalive, dropbear enabled.
+
+LEDGER

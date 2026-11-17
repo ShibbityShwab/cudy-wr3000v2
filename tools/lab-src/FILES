@@ -35,3 +35,7 @@ init/main.c
 include/linux/slab.h
 mm/slab.c
 mm/slab_common.c
+include/linux/netdevice.h
+include/linux/skbuff.h
+net/core/dev.c
+net/core/skbuff.c
