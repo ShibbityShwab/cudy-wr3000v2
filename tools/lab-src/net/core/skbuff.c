@@ -842,6 +842,17 @@ void skb_tx_error(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(skb_tx_error);
 
+#ifndef CONFIG_TRACEPOINTS
+/* Same body as the tracepoints variant, minus trace_consume_skb (2026-11-17). */
+void consume_skb(struct sk_buff *skb)
+{
+	if (!skb_unref(skb))
+		return;
+	__kfree_skb(skb);
+}
+EXPORT_SYMBOL(consume_skb);
+#endif
+
 #ifdef CONFIG_TRACEPOINTS
 /**
  *	consume_skb - free an skbuff

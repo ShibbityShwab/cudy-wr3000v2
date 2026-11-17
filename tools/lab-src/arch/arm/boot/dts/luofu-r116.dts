@@ -653,7 +653,7 @@
 	 * lsw_woe "hsan,lsw_woe", pie@0x10a70000 "hsan,pie" (:1440). gemac0 is
 	 * RGMII, gemac1..4 are GMII into the internal LSW. */
 	gmac0: ethernet@14300000 {
-		compatible = "hsan,himac", "hisilicon,luofu-gmac";
+		compatible = "hisilicon,luofu-gmac";
 		reg = <0x14300000 0x10000>;	/* pinned:885 */
 		phy-mode = "rgmii";		/* pinned:892 */
 		/* phy-handle IS REQUIRED: without it phylink_of_phy_connect() finds no PHY and
@@ -679,10 +679,9 @@
 	};
 
 	gmac1: ethernet@14380000 {
-		compatible = "hsan,himac", "hisilicon,luofu-gmac";
+		compatible = "hisilicon,luofu-gmac";
 		reg = <0x14380000 0x10000>;	/* pinned:900 */
 		phy-mode = "gmii";		/* port 9 */
-		port = <9>;		/* vendor DT port index, used by hi_kmac */
 		phy-handle = <&phy2>;	/* vendor: 14380000.gemac eth0 -> mdio0:02 */
 		clocks = <&crg LUOFU_CLK_GMAC1>;
 		resets = <&crg 0x30 0xf>,
@@ -708,10 +707,9 @@
 	};
 
 	gmac2: ethernet@14400000 {
-		compatible = "hsan,himac", "hisilicon,luofu-gmac";
+		compatible = "hisilicon,luofu-gmac";
 		reg = <0x14400000 0x10000>;	/* pinned:907 */
 		phy-mode = "gmii";		/* port 10 */
-		port = <10>;		/* vendor DT port index, used by hi_kmac */
 		phy-handle = <&phy3>;	/* vendor: 14400000.gemac eth1 -> mdio0:03 */
 		clocks = <&crg LUOFU_CLK_GMAC2>;
 		resets = <&crg 0x30 0x11>,
@@ -721,10 +719,9 @@
 	};
 
 	gmac3: ethernet@14480000 {
-		compatible = "hsan,himac", "hisilicon,luofu-gmac";
+		compatible = "hisilicon,luofu-gmac";
 		reg = <0x14480000 0x10000>;	/* pinned:914 */
 		phy-mode = "gmii";		/* port 11 */
-		port = <11>;		/* vendor DT port index, used by hi_kmac */
 		phy-handle = <&phy4>;	/* ★ vendor: 14480000.gemac eth2 -> mdio0:04 - THIS IS THE WIRED PORT (Link is Up 1Gbps/Full) */
 		clocks = <&crg LUOFU_CLK_GMAC3>;
 		resets = <&crg 0x30 0x13>,
@@ -734,10 +731,9 @@
 	};
 
 	gmac4: ethernet@14500000 {
-		compatible = "hsan,himac", "hisilicon,luofu-gmac";
+		compatible = "hisilicon,luofu-gmac";
 		reg = <0x14500000 0x10000>;	/* pinned:921 */
 		phy-mode = "gmii";		/* port 12 */
-		port = <12>;		/* vendor DT port index, used by hi_kmac */
 		phy-handle = <&phy5>;	/* vendor: 14500000.gemac eth3 -> mdio0:05 */
 		clocks = <&crg LUOFU_CLK_GMAC4>;
 		resets = <&crg 0x30 0x15>,
@@ -747,7 +743,7 @@
 	};
 
 	mdio0: mdio@14000000 {
-		compatible = "hsan,mdio", "hisilicon,luofu-mdio";
+		compatible = "hisilicon,luofu-mdio";
 		reg = <0x14000000 0x1000>;	/* pinned:1124 */
 		#address-cells = <1>;
 		#size-cells = <0>;

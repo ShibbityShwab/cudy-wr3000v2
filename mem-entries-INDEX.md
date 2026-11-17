@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 16:31 - Bisect step 1 also fails: the loader edit is not the mechanism, the kernel's layout is | `mem-entries.md:21877` |
 | 2026-11-14 |  | 2026-11-14 17:03 - Layout control boots: image size is not the hazard; the frob edit is implicated | `mem-entries.md:21902` |
 | 2026-11-14 |  | 2026-11-14 17:30 - The frob-only slice fails again (4/4 with the edit, 3/3 without) | `mem-entries.md:21924` |
 | 2026-11-14 |  | 2026-11-14 17:35 - The symbol maps are IDENTICAL between a booting and a failing build | `mem-entries.md:21946` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 17:45 - v6/v7/v8: EVERY vendor module now loads and eth2 comes up on our kernel; the LAN blocker moved to HSLINK rootif (vendor gmac driver mismatch) | `mem-entries.md:23077` |
 | 2026-11-17 |  | 2026-11-17 18:00 - v9/v10: vendor MAC lane (hsan,himac + port) still ends in a userspace-stage hang at ~33 s; the blocker is the vendor HSLINK/wifi userspace interface, not symbol loading | `mem-entries.md:23114` |
 | 2026-11-17 |  | 2026-11-17 18:55 - v13: WEXT net_device ABI fix, non-persistent init masks, and the U-Boot bootfip data-abort that blocks the vendor-DT lane | `mem-entries.md:23142` |
+| 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |
 
 ## All dated entries
 
@@ -622,3 +622,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 17:45 - v6/v7/v8: EVERY vendor module now loads and eth2 comes up on our kernel; the LAN blocker moved to HSLINK rootif (vendor gmac driver mismatch) | `mem-entries.md:23077` |
 | 2026-11-17 |  | 2026-11-17 18:00 - v9/v10: vendor MAC lane (hsan,himac + port) still ends in a userspace-stage hang at ~33 s; the blocker is the vendor HSLINK/wifi userspace interface, not symbol loading | `mem-entries.md:23114` |
 | 2026-11-17 |  | 2026-11-17 18:55 - v13: WEXT net_device ABI fix, non-persistent init masks, and the U-Boot bootfip data-abort that blocks the vendor-DT lane | `mem-entries.md:23142` |
+| 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |

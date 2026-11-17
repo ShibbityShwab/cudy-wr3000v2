@@ -39,3 +39,5 @@ include/linux/netdevice.h
 include/linux/skbuff.h
 net/core/dev.c
 net/core/skbuff.c
+net/bridge/br_fdb.c
+net/wireless/Kconfig

@@ -1068,10 +1068,9 @@ void skb_tx_error(struct sk_buff *skb);
 #ifdef CONFIG_TRACEPOINTS
 void consume_skb(struct sk_buff *skb);
 #else
-static inline void consume_skb(struct sk_buff *skb)
-{
-	return kfree_skb(skb);
-}
+/* Out-of-line and exported: the vendor hyfi_bridging.ko imports consume_skb as a symbol, but the
+ * function body only exists under CONFIG_TRACEPOINTS. 2026-11-17. */
+void consume_skb(struct sk_buff *skb);
 #endif
 
 void __consume_stateless_skb(struct sk_buff *skb);

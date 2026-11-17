@@ -23175,3 +23175,41 @@ Slices: v13 md5 adf6e18c... (zImage 3f634a92, init d1c36d9c, WEXT symbol verifie
 Tools changed: uart-capture.sh now restarts cat on EIO and kills the whole capture process group.
 
 LEDGER
+
+## 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations)
+
+v14 (lab gmac + revert to U-Boot-safe DTS + transient WAN-rootif skip): our kernel booted
+(U-Boot no longer aborts), all 19 modules ret=0. The transient initramfs bind-mount of patched
+hsan_appm/wandetect/hotplug failed because /vendor/etc is not the merged overlay at that point
+(pre-pivot only /vendor/upper exists), so it was replaced with persistent overlay copies of the
+three scripts that redirect the /proc/hsan/net/swa/wan_port writes to /dev/null. Stock boots with
+those copies still come up on LAN, so they are acceptable for the bench.
+
+v15 (CONFIG_BRIDGE + CONFIG_TRACEPOINTS + br_fdb_find_rcu/br_forward exports + consume_skb
+out-of-line + vendor br_* hook stubs, hyfi-bridging preloaded): our kernel booted; the
+/tmp/vmods staging had to be refreshed because box-provision reuses a cached PATCHED dir and skips
+non-hi_* filenames; after a clean re-patch all 59 modules (including patched hyfi-bridging.ko) were
+staged and the overlay count verified at 59. hyfi-bridging then failed to load with -22 because its
+init registers bridge-netfilter hooks and CONFIG_BRIDGE_NETFILTER was missing (nf_hook_entry_head
+WARNING, -22).
+
+v16 (adds CONFIG_BRIDGE_NETFILTER): hyfi_bridging LOADS (module list includes hyfi_bridging, hi_netif,
+hi_kmsgcenter, hi_kipc) and br-lan/HSLINK activity begins: swa_netdevice_event on br-lan, HSLINK
+dev(br-lan) destroy cycles. At t=35 s it oopses in hyfi_netlink_receive+0x40 [hyfi_bridging]
+(netlink_unicast path), then panics (panic_on_oops=1) and reboots into the same slot (bootreg 11),
+so the box is currently looping/hung on our kernel.
+
+Interpretation: the load layer is solved; the remaining blocker is the vendor bridge/hyfi contract.
+hyfi_bridging needs the four br_* hooks (br_get_dst_hook, br_multicast_handle_hook, br_notify_hook,
+br_port_dev_get_hook) to actually install whatever tables/callbacks the vendor's patched bridge
+expects - no-op stubs are not enough and its netlink path dereferences what they were supposed to
+set up. The next step is a real RE of those four functions in the vendor's bridge code / hyfi
+protocol before another fire. Everything else (bridge core, netfilter bridge hooks, WEXT net_device
+ABI, module load order, rootif bypass, transient masks, hardened UART capture, stock-safe overlay)
+is in place.
+
+Slices: v16 md5 641d8b3678202564bae59071391aa3fd (zImage 0f057910, dtb 336ba39e). Box needs the
+physical RESET+TFTP recovery; after that the recommendation is to pause bench fires and do the
+bridge-hook RE offline rather than burn recoveries.
+
+LEDGER

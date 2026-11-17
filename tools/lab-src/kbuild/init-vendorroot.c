@@ -72,6 +72,9 @@ static const char p_mtd13[] = "/dev/mtdblock13";
 static const char p_noop[]  = "/omo-noop";
 static const char p_kmod[]  = "/vendor/sbin/kmodloader";
 static const char p_nft[]   = "/vendor/etc/rc.d/S99nft-qos";
+static const char p_hsap[]  = "/vendor/etc/init.d/hsan_appm";
+static const char p_wand[]  = "/vendor/sbin/wandetect";
+static const char p_hot[]   = "/vendor/etc/hotplug.d/wandetect/08-wan-detect";
 static const char sh_noop[] =
     "#!/bin/sh\n"
     "# OMO non-persistent mask: stock module loading/NFT is skipped on the lab kernel only.\n"
@@ -95,17 +98,15 @@ static const char *const vmods[] = {
      */
     "ksecurec",
     "hi_basic", "hi_kpinctrl", "hi_sysctrl", "hi_acp", "hi_kpie",
-    /*
-     * VENDOR MAC, LAB MDIO/PHY (2026-11-17): HSLINK rootif rejects plain lab-gmac netdevs.
-     * The vendor mdio driver's probe crashes on our DT, but the lab mdio+phy work - so keep the
-     * lab bus/PHY and let hi_kmac (vendor Hi-GEMAC) own the netdevs, matching stock behaviour.
-     * hi_kmac imports hi_net_dev_* from hi_kpie, hence the order.
-     */
-    "hi_kmac",
+    /* v14: lab gmac/mdio/phy are back (U-Boot-safe DTS); the WAN rootif write is skipped by a
+     * non-persistent initramfs bind-mount, so no vendor MAC driver is needed. */
     "hi_lsw_pub", "hi_lsw_dp", "hi_lsw_pfe",
     "hi_kcfe_pub", "hi_kcfe_lrn", "hi_kcfe_lrn_l3", "hi_kcfe_lrn_l4",
     "hi_kcfe_lrn_mc", "hi_kcfe_mc_list", "hi_kcfe_lrn_vxlan", "hi_kcara", "hi_khslink",
     "hi_swa",
+    /* v15: hyfi_bridging is the vendor bridge/hyfi glue the userspace expects; stock loads it
+     * through kmodloader (which is masked on our kernel), so preload the patched copy. */
+    "hyfi-bridging",
     0
 };
 
@@ -121,16 +122,20 @@ static void append(const char *path, const char *s, long n)
 
 static void wfile(const char *path, const char *s, long mode);
 
-static void bind_mask(const char *target)
+static void bind_mask(const char *src, const char *target)
 {
-    sc5(SYS_mount, (long)p_noop, (long)target, 0, 4096 /* MS_BIND */, 0);
+    sc5(SYS_mount, (long)src, (long)target, 0, 4096 /* MS_BIND */, 0);
 }
 
 static void write_test_masks(void)
 {
     wfile((char *)p_noop, sh_noop, 0755);
-    bind_mask(p_kmod);
-    bind_mask(p_nft);
+    bind_mask(p_noop, p_kmod);
+    bind_mask(p_noop, p_nft);
+    /* WAN-rootif skip for the lab boot only (patched copies live in this initramfs) */
+    bind_mask("/omo-hsan_appm", p_hsap);
+    bind_mask("/omo-wandetect", p_wand);
+    bind_mask("/omo-wan-detect", p_hot);
 }
 
 static int utoa(char *b, long v)
