@@ -255,6 +255,19 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   CRG-bit semantics, SCU pre-state, TWD/GIC and secure-world traps are the attended gates. For the
   UP-first submission the DTS enable-method hunk is dropped (driver inert/fail-safe without it).
 
+- **Factory-MAC provisioning implemented (2026-11-18, host-only).** The target image now reads
+  the factory MAC from the encrypted `bdinfo` partition at **`0xde00`** via OpenWrt's
+  `mtd_get_mac_binary bdinfo 0xde00` (fallback: label-based `/dev/mtdN` read), validates it
+  (rejects non-MAC/all-zero/all-ff/multicast/locally-administered/`00:00:00`/WAN-wrap), derives
+  LAN = base and WAN = base+1 with OpenWrt `macaddr_add` semantics, applies via `board.d`
+  `ucidef_set_interface_macaddr`, and falls back to a logged locally-administered random pair when
+  bdinfo is missing/corrupt (never writes factory data, never mixes in U-Boot `ethaddr`). Mocked
+  harness: **103/103** assertions (both read paths, label-not-index, exact offset with decoys, all
+  rejections, derivation, random fallback); isolated clone `make world -j16` RC=0 with the scripts
+  installed byte-identically in the image (sha256 `54652e56...`, `check-container` PASS). Interfaces
+  remain placeholders until the switch port map exists, so MACs currently reach `board.json` only;
+  nothing booted.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

@@ -24284,3 +24284,41 @@ series extended to 18; root STATUS/EVIDENCE/ledger updated. No hardware action; 
 fires stopped; publication NOT READY.
 
 LEDGER
+
+## 2026-11-18 18:55 - Factory-MAC provisioning from bdinfo 0xde00 implemented and image-validated (mock 103/103)
+
+Deliverables in target-skeleton:
+- base-files/lib/functions/luofu-mac.sh (0644): read -> validate -> derive -> random fallback.
+  Primary read = OpenWrt mtd_get_mac_binary bdinfo 0xde00 (the vendor 2.5.24 99_fixwan:41 path);
+  fallback = direct /dev/mtdN read for the partition found by label in /proc/mtd (never a hardcoded
+  index) with a size bound. LAN = factory base MAC (2.4.15 canonical "bdinfo mac" and 2.5.24
+  plaintext copy are the same six bytes); WAN = LAN+1 with OpenWrt/vendor macaddr_add semantics (OUI
+  preserved, low 24 bits +1 mod 2^24). Rejects non-MAC/all-zero/all-ff/multicast/locally-administered/
+  00:00:00 OUI/WAN-wrap (last two conservative project policy [I]), logging the reason. Fallback =
+  logged locally-administered random pair (WAN still LAN+1); no /dev/urandom -> error, MACs unset.
+  Never writes bdinfo, never reads/mixes env ethaddr.
+- base-files/etc/board.d/02_network (0755): sources the helper, records LAN/WAN via
+  ucidef_set_interface_macaddr (standard board.json -> config_generate -> netifd device macaddr);
+  also fixes a stale /lib/functions/board.sh source (this release keeps helpers in
+  uci-defaults.sh/system.sh). Interface map deliberately untouched (blocked on the LSW driver), so
+  the MACs are recorded but no netdev is assigned yet.
+- tools/test-mac-provisioning.sh (0755): host mocked harness - 103/103 assertions PASS, twice,
+  covering both read paths, label-not-index, exact 0xde00 with decoys at 0x0000/0xdd00/0xde06,
+  normalization, every rejection, both macaddr_add implementations agreeing, random fallback
+  bits/failure, apply order/values, and sha256-unchanged factory bytes.
+- port notes docs/port-notes/mac/SUMMARY.md; shared docs updated via integration patch
+  (TARGET-DESIGN open Q5, MISC-SOC-BLOCKS 1.4/1.5, target-skeleton README, SKELETON-SMOKE session).
+
+Validation: sh -n clean on helper/board.d/repo+installed copies; isolated clone (from opensource HEAD
+5989404, series 001-018 plus this lane) make defconfig RC=0 and make world -j16 RC=0 (~10 min);
+image openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin 6,185,262 B sha
+54652e56241e26eba0e95bc7fa663950c6e69ddb834dba77beb5b1afbeea2cac; luofu-image.py check-container
+PASS; built squashfs contains /lib/functions/luofu-mac.sh (0644) and /etc/board.d/02_network (0755)
+byte-identical (md5) to the repo. Patch applied to a pristine HEAD snapshot and byte-compared.
+
+Not proven [U]/[I]: nothing booted and no MAC read on hardware; preinit /dev/mtdN availability is
+argued from CONFIG_DEVTMPFS_MOUNT + MTD core, not measured; interfaces stay placeholder [X] until the
+switch port map exists; random fallback changes identity after factory reset; the LAA/00:00:00/
+wrap rejections are conservative policy. No hardware action; box stock; publication NOT READY.
+
+LEDGER
