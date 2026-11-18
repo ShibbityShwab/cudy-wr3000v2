@@ -23576,3 +23576,66 @@ Next: driver + dt-binding series; wire the generated slice into the image recipe
 attended boot of the generated slice when bench work resumes; GPL follow-up send (human).
 
 LEDGER
+
+## 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS
+
+Delivered in opensource/target-skeleton (integration commit follows):
+- patches-6.18/004-arm-clk-reset-luofu-crg.patch (sha256 bb92a7cb...): new
+  drivers/clk/hisilicon/crg-luofu.c, include/dt-bindings/clock/hisilicon,luofu-crg.h,
+  Documentation/devicetree/bindings/clock/hisilicon,luofu-crg.yaml, clk Kconfig/Makefile;
+  16 gate clocks + 2-cell reset controller (offset,bit), CONFIG_LUOFU_CRG=y.
+- patches-6.18/005-arm-watchdog-luofu-wdt.patch (sha256 b8a780f5...):
+  drivers/watchdog/luofu-wdt.c, .../watchdog/hisilicon,luofu-wdt.yaml, watchdog
+  Kconfig/Makefile; 6.18 watchdog API (devm_watchdog_register_device, .start/.stop/.ping/
+  .set_timeout), CONFIG_LUOFU_WDT=y.
+- config-6.18 +18 lines: LUOFU_CRG/LUOFU_WDT =y plus MFD_SYSCON/REGMAP/REGMAP_MMIO selects
+  with [N] provenance markers; canonical re-derivation symbol-identical (286 symbols,
+  KCONFIG_UNCHANGED). DTS rewritten to the bindings: CRG node is
+  "hisilicon,luofu-crg","syscon","simple-mfd" with #clock-cells=1/#reset-cells=2 and only the
+  watchdog child; no gate children, no vendor props, no duplicate unit address.
+
+Design decisions:
+- Shared 0x14880000 page: one syscon+simple-mfd node, one regmap; CRG driver and watchdog child
+  both call syscon_node_to_regmap(), so neither maps or request_mem_region()s the page (0 call
+  sites verified). This removes the lab bug where CRG claimed the page and the watchdog probe
+  returned -EBUSY. Rejected: two nodes with overlapping reg + bare ioremap.
+- Clock gates are a driver-side table indexed by dt-binding IDs (0..15 kept as ABI), not 16 fake
+  child nodes without reg. Includes a missing-entry probe check.
+- Reset cells kept 2-cell (CRG offset, bit), range-checked to 0x2c/0x30/0x34 so a specifier
+  cannot write watchdog/softrst/mux/PLL words; rcdev.of_reset_n_cells=2 fixes the lab
+  devm_reset_control_array_get() -EINVAL root cause.
+- Watchdog: vendor value pairs/order preserved exactly (enable val1->val0 @0x64, stop val0->val1,
+  ping reset0->reset1 @0x70, hwver-2 (secs-1) bits[18:10] @0x50 mask 0xfff803ff); probe performs
+  zero register accesses; no restart handler (vendor sysctrl/bootreg reset path not understood -
+  documented TODO; no IRQ claimed).
+
+Verified in /home/shibbityshwab/openwrt-lab (openwrt main 27663a0, linux-6.18.60,
+OpenWrt GCC 14.4.0): pristine patch -p1 --dry-run RC=0 (9 files); make target/linux/prepare
+RC=0; make target/linux/compile V=s -j16 RC=0 (1190 s), zImage 3,222,416 B sha256 50cd07a1...,
+kernel .config has CONFIG_LUOFU_CRG/WDT/MFD_SYSCON/REGMAP/RESET_CONTROLLER/WATCHDOG_CORE=y,
+both built-in (probe symbols in System.map), 0 warnings/errors from the new files (only 38
+pre-existing unrelated modpost MODULE_DESCRIPTION warnings), head contract unchanged
+(-DTEXT_OFFSET=0x00608000, _text=stext=0xc0608000).
+DTS compiled with the patched kernel dtc: RC=0, zero warnings, 8,944 B sha256 86396521...;
+node checks ok; the existing tools/build-kernel-slice.sh still completes end-to-end (trailer
+9,238 B, slice 3,231,718 B sha 0c28771d..., gate 0x314ec0, load/ep 0x80608000) - structurally
+validated only, never booted, not flashable in the bench lane yet.
+dt_binding_check PASS RC=0 (SCHEMA/CHKDT/DTEX/DTC and example DTBs for both bindings;
+dt-doc-validate and dt-validate RC=0; board-DTB CRG subtree validates). dtschema 2026.9 in a
+throwaway venv; yamllint unavailable -> only that lint skipped.
+Static sanity: no request_mem_region/ioremap/platform_get_resource in either driver; probes have
+no regmap accesses; checkpatch --no-tree -f 0 errors/0 warnings; no lab/bench/private breadcrumbs.
+Local evidence: build/linux-kbuild/waves/upstream-6.18-drivers-20261118/ (index 00-README.md,
+configs, logs, hashes, DTB/DTS checks). Gitignored; not published.
+
+Docs updated: SKELETON-SMOKE dated fifth-session section; TARGET-DESIGN preamble/acceptance and
+section 7 CRG+watchdog rows; TARGET-SKELETON stale claims; target-skeleton README; the slice
+script's "no driver series" text; root STATUS/EVIDENCE/README/ledger.
+
+Not proven: hardware behaviour (clock-gate offsets for the 0x20 group are provisional, reset
+polarity unverified, per-gate parents/PLLs/muxes not modelled, watchdog running state/IRQ/status
+unknown); no restart handler; no bench/boot. Remaining: FMC/NAND, MDIO/PHY/GEMAC, pinctrl,
+thermal, PCIe, internal switch drivers+bindings, machine restart, image chain/rootfs/sysupgrade,
+dtbs_check for the remaining nodes, one attended boot. Publication NOT READY.
+
+LEDGER

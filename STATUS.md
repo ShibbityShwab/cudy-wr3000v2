@@ -101,6 +101,19 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   40,732-byte vendor trailer, so adopting this lane needs one attended boot plus preflight/recipe
   updates. Details: `opensource/docs/SKELETON-SMOKE.md` (2026-11-18 slice section).
 
+- **First drivers ported to 6.18 with bindings (2026-11-18, host-only).** `patches-6.18/004`
+  adds the CRG clock+reset controller (`drivers/clk/hisilicon/crg-luofu.c`, 16 gate clocks,
+  2-cell reset controller, `include/dt-bindings/clock/hisilicon,luofu-crg.h`, YAML binding) and
+  `005` adds the watchdog (`drivers/watchdog/luofu-wdt.c`, 6.18 watchdog API, syscon regmap child,
+  YAML binding). The shared `0x14880000` page is modelled as one `syscon`+`simple-mfd` node, so
+  neither driver maps/claims the MMIO region; no restart handler yet (vendor restart path still
+  documented as TODO). Verified in the clone: pristine patch dry-run + OpenWrt prepare RC=0,
+  **full `make target/linux/compile` RC=0** (zImage sha256 `50cd07a1...`), both drivers built-in
+  with zero warnings from the new files, `dt_binding_check` PASS, DTS compiles with zero warnings
+  (8,944 B DTB), clock-ID cross-check 16/16, no lab/bench breadcrumbs. Not hardware-tested; gate
+  offsets for one group and reset polarity remain provisional. Details:
+  `opensource/docs/SKELETON-SMOKE.md` (driver section).
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
@@ -109,15 +122,14 @@ submission-ready.
 
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
-2. **Fix `TEXT_OFFSET` and complete the kernel/image build** (host-side): write the clean
-   early-boot assembly patch for `TEXT_OFFSET=0x00608000` (four sites in
-   `arch/arm/kernel/head.S`/`arch/arm/boot/compressed/head.S`; alternative: pick an encodable
-   offset and update the load-address assertions), then wire the custom image chain
-   (`luofu-uimage` -> `fip-slice assemble` with the now-decoded trailer generator ->
-   `fip-manifest` -> UBI -> sysupgrade), resolve the board compatible mismatch
-   (`cudy,wr3000-v2` vs `hisilicon,luofu-r116`), the watchdog/CRG same-page unit-address
-   collision, and `platform.sh`/install. Then `dtbs_check`/build. The first generated-trailer
-   boot is a bench step and must be attended.
+2. **Continue the driver/binding series** (host-side): CRG clock/reset + watchdog are ported and
+   compile; next are FMC/NAND, MDIO/PHY/GEMAC, pinctrl, thermal, PCIe, the internal switch, then
+   machine restart (vendor reset path still TODO). Prune the `[D-default]` other-SoC Hisilicon
+   drivers and run `dtbs_check` per binding. After that, wire the custom image chain
+   (`luofu-uimage` -> `fip-slice` with the generated trailer -> `fip-manifest` -> UBI ->
+   sysupgrade), resolve the board-compatible mismatch (`cudy,wr3000-v2` vs
+   `hisilicon,luofu-r116`), write `platform.sh`/install, then the first attended boot of a full
+   image (bench step, human-attended).
 3. **Consolidate the reversal evidence**: EVIDENCE-INDEX rows for the v6-v17 line, publish-readiness
    purge plan, and the reversal report.
 4. **Optional, only if resumed:** the vendor `sk_buff`/bridge/HYFI port strictly per

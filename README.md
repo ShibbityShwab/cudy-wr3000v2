@@ -24,7 +24,8 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    compile the 6.18 kernel with the correct load address, the FIP trailer format is decoded with
    a byte-exact generator, and an own-artifact FIP kernel slice was assembled and validated
    structurally (never booted) - but **no target image was built**, no DTS was `dtbs_check`ed,
-   there is no driver series, and the Wi-Fi + LAN-switch + unanswered GPL source request remain
+   the first two drivers (CRG clock/reset + watchdog) are ported and compile, but the rest of the
+   driver series does not exist, and the Wi-Fi + LAN-switch + unanswered GPL source request remain
    the gating programme. Bench gates are not upstream progress.
 
 ## Start here
