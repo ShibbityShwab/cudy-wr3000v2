@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 22:41 - MILESTONE: the vendor stack runs on our kernel, network live on both paths | `mem-entries.md:22088` |
 | 2026-11-14 |  | 2026-11-14 23:5x - The MDIO controller protocol, decoded from the live driver | `mem-entries.md:22123` |
 | 2026-11-14 |  | 2026-11-14 23:15 - M2 core proven: our MDIO and GEMAC carry a real 1Gbps link | `mem-entries.md:22168` |
 | 2026-11-15 |  | 2026-11-15 01:30 - The no-op shadow was a mistake: hi_kpinctrl is load-bearing | `mem-entries.md:22196` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000 | `mem-entries.md:23478` |
 | 2026-11-18 |  | 2026-11-18 09:30 - First own-artifact FIP kernel slice assembled and structurally validated (host-only, never booted) | `mem-entries.md:23525` |
 | 2026-11-18 |  | 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS | `mem-entries.md:23580` |
+| 2026-11-18 |  | 2026-11-18 10:55 - FMC/SPI-NAND and network drivers ported; driver series at six patches (004-009) with bindings | `mem-entries.md:23643` |
 
 ## All dated entries
 
@@ -632,3 +632,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000 | `mem-entries.md:23478` |
 | 2026-11-18 |  | 2026-11-18 09:30 - First own-artifact FIP kernel slice assembled and structurally validated (host-only, never booted) | `mem-entries.md:23525` |
 | 2026-11-18 |  | 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS | `mem-entries.md:23580` |
+| 2026-11-18 |  | 2026-11-18 10:55 - FMC/SPI-NAND and network drivers ported; driver series at six patches (004-009) with bindings | `mem-entries.md:23643` |

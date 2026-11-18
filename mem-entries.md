@@ -23639,3 +23639,62 @@ thermal, PCIe, internal switch drivers+bindings, machine restart, image chain/ro
 dtbs_check for the remaining nodes, one attended boot. Publication NOT READY.
 
 LEDGER
+
+## 2026-11-18 10:55 - FMC/SPI-NAND and network drivers ported; driver series at six patches (004-009) with bindings
+
+Two parallel lanes, each validated independently in isolated OpenWrt clones (openwrt main 27663a0,
+linux-6.18.60, OpenWrt GCC 14.4.0), then merged into the same repo tree with their integration
+patches (both regenerated/re-checked against the combined tree; no conflict markers).
+
+FMC lane (patch 006-arm-mtd-nand-luofu-fmc.patch, sha256 1f8809e98be649fb915c33d0ceaadb0c7e98509068347e72557839d3c7f5865e):
+- Framework decision: the die is SPI-NAND (ESMT F50L1G41LC, SPI opcodes 0x13/0x6b/0x32/0x10/0xd8/0x9f,
+  controller in SPI mode), so raw-NAND cannot bind it. Ported as a SPI-MEM controller
+  (drivers/spi/spi-luofu-fmc.c) reusing the mainline SPI-NAND stack; 4 files (Kconfig, Makefile,
+  driver, YAML).
+- Config: CONFIG_LUOFU_FMC=y plus SPI/SPI-MEM/SPI-NAND dependencies, annotated [N] provenance.
+- DTS: spi@10a20000 + flash@1/spi-nand child with 17 partitions, CRG clock LUOFU_CLK_SFC and
+  2-cell reset; no vendor-only properties.
+- Evidence: pristine dry-run RC=0; prepare RC=0; full compile RC=0; zImage 3,248,984 B sha256
+  51f340ad...; config derivation 285/285 symbols identical/idempotent; dt_binding_check RC=0;
+  board DTS dtc RC=0 stderr empty (DTB 9,163 B); checkpatch 0/0; no lab/bench breadcrumbs.
+- Gaps: FMC ECC semantics (host ECC vs on-die pass-through), DMA OOB, quad-enable state, command
+  engine 0x13 path, 15 undecoded vendor init words (deliberately not written), program-execute
+  ordering, partition read-only/env semantics; chip entry depends on OpenWrt's generic v6.19 ESMT
+  backport, so upstream needs that entry or a kernel bump.
+
+Network lane (patches 007-009):
+- 007-net-mdio-luofu.patch sha256 dcbb2821...: drivers/net/mdio/mdio-luofu.c, 6.18 mdiobus API,
+  gate clock + 7 CRG resets, polled transfer handshake, YAML; complete port.
+- 008-net-phy-luofu.patch sha256 676e332e...: drivers/net/phy/luofu-phy.c, PHYLIB driver matched
+  by PHY ID 0x20669a00/mask 0xffffff00, genphy C22 ops; complete port; no YAML by design.
+- 009-net-gmac-luofu.patch sha256 96022d6a...: binding + platform resource validation driver that
+  refuses probe (-EOPNOTSUPP) because the ring/DMA model is not decoded; no netdev/xmit; DTS nodes
+  disabled. Honest PARTIAL, not a stub.
+- Config: CONFIG_LUOFU_MDIO/PHY/GMAC=y ([N] in the delta; plain tristates reusing existing
+  OF_MDIO/MDIO_BUS/PHYLIB symbols).
+- DTS: MDIO node with 7 resets, four C22 PHY children (vendor mapping gmac 14380000->phy2,
+  14400000->phy3, 14480000->phy4 wired, 14500000->phy5; gmac0 unused), GEMAC3 disabled + 2 resets.
+- Evidence: pristine dry-run RC=0 for all three; prepare RC=0; full compile RC=0 (0 warnings,
+  CONFIG_WERROR=y); zImage 3,223,728 B sha256 2749c294...; dt_binding_check RC=0 for both YAMLs;
+  board DTB 9,459 B zero warnings; checkpatch 0/0; no ioremap/request_mem_region in drivers.
+- Gaps: no hardware behaviour proven (MDIO transfer, reset polarity, PHY link/autoneg and the
+  per-PHY firmware patch, GEMAC data path absent).
+
+Integration: both lanes merged; combined tree patches 004-009 apply together (integration patches
+verified git apply --check RC=0 after rebasing the FMC one on the net-merged tree), and the combined
+draft DTS compiles with cpp+dtc (9,659 B, zero warnings). A combined full kernel compile was not
+re-run after the merge; it relies on the two lane compiles plus disjoint kernel files (006 touches
+mtd/spi Kconfig/Makefile; 007-009 touch net Kconfig/Makefile).
+
+Repo tidy: per-lane integration records moved to target-skeleton/docs/port-notes/{fmc,net}/SUMMARY.md
+(applied shared.patch files removed from the tree); DTS/SUMMARY stale "incoming/" references fixed.
+
+GPL: tracking table now records the project owner's confirmation (2026-11-18) that the original
+request was sent at project start and no reply was ever received; sent copy/receipt still missing.
+
+Remaining drivers: pinctrl, thermal, PCIe, internal switch, GEMAC data path, machine restart - no
+lab driver source exists for them, so each needs a documented RE/port from vendor evidence first.
+Then image chain/rootfs/sysupgrade and one attended boot. Publication NOT READY; box untouched
+(stock), no bench fires.
+
+LEDGER

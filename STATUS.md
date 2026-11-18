@@ -114,6 +114,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   offsets for one group and reset polarity remain provisional. Details:
   `opensource/docs/SKELETON-SMOKE.md` (driver section).
 
+- **FMC/SPI-NAND and network drivers ported (2026-11-18, host-only).** `patches-6.18/006` adds a
+  SPI-MEM controller + SPI-NAND stack for the board's ESMT F50L1G41LC die (17 partitions, CRG
+  clock/reset); it relies on OpenWrt's generic v6.19 ESMT support backport for that chip entry, so
+  an upstream submission needs that entry or a kernel bump. `007`-`009` add the MDIO bus
+  controller (clock + 7 CRG resets) and the Genius PHY (PHYLIB, ID `0x20669a00`/mask
+  `0xffffff00`) complete, and GEMAC as an **honest partial** (binding + resource validation; probe
+  refuses; DTS nodes disabled; no rings/DMA/NAPI). Per-lane verified: pristine dry-run RC=0,
+  prepare RC=0, **full compile RC=0** (zImage shas `51f340ad...`/`2749c294...`), zero warnings from
+  the new files, `dt_binding_check` PASS, zero-warning DTS. The combined tree (patches 004-009,
+  both lanes merged) compiles its DTS cleanly (9,659 B). Unverified: hardware behaviour (FMC
+  ECC/DMA, MDIO handshake, PHY link/autoneg, GEMAC data path). No bench/boot.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
@@ -122,10 +134,11 @@ submission-ready.
 
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
-2. **Continue the driver/binding series** (host-side): CRG clock/reset + watchdog are ported and
-   compile; next are FMC/NAND, MDIO/PHY/GEMAC, pinctrl, thermal, PCIe, the internal switch, then
-   machine restart (vendor reset path still TODO). Prune the `[D-default]` other-SoC Hisilicon
-   drivers and run `dtbs_check` per binding. After that, wire the custom image chain
+2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND and MDIO/PHY are
+   ported (GEMAC is partial); the remaining blocks are pinctrl, thermal, PCIe, the internal switch,
+   the GEMAC data path and machine restart - these have no lab driver source, so each needs a
+   documented RE/port from the vendor evidence before code. Prune the `[D-default]` other-SoC
+   Hisilicon drivers and run `dtbs_check` per binding. After that, wire the custom image chain
    (`luofu-uimage` -> `fip-slice` with the generated trailer -> `fip-manifest` -> UBI ->
    sysupgrade), resolve the board-compatible mismatch (`cudy,wr3000-v2` vs
    `hisilicon,luofu-r116`), write `platform.sh`/install, then the first attended boot of a full
