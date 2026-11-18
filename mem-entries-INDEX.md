@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-15 |  | 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle | `mem-entries.md:22439` |
 | 2026-11-15 |  | 2026-11-15 18:30 - Bench recovered by TFTP; the calibration snapshot is real now, and 3df stays unmeasured | `mem-entries.md:22477` |
 | 2026-11-15 |  | 2026-11-15 18:45 - 3df debugged off the box: the wfile channel works, and it is the kmsg line nobody read | `mem-entries.md:22506` |
 | 2026-11-15 |  | 2026-11-15 19:05 - Emulation closes the init-side question: the shadow writes work when /vendor mounts | `mem-entries.md:22545` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100 | `mem-entries.md:24117` |
 | 2026-11-18 |  | 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved | `mem-entries.md:24181` |
 | 2026-11-18 |  | 2026-11-18 18:05 - Remaining SoC blocks decoded: MAC source resolved (bdinfo 0xde00); efuse/RNG/LED-PWM/PMU-PWM/CRG-parents decisions recorded | `mem-entries.md:24199` |
+| 2026-11-18 |  | 2026-11-18 18:25 - SMP vendor bring-up decoded; draft platsmp patch 018 integrated; review-form series extended to 18 patches | `mem-entries.md:24246` |
 
 ## All dated entries
 
@@ -643,3 +643,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100 | `mem-entries.md:24117` |
 | 2026-11-18 |  | 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved | `mem-entries.md:24181` |
 | 2026-11-18 |  | 2026-11-18 18:05 - Remaining SoC blocks decoded: MAC source resolved (bdinfo 0xde00); efuse/RNG/LED-PWM/PMU-PWM/CRG-parents decisions recorded | `mem-entries.md:24199` |
+| 2026-11-18 |  | 2026-11-18 18:25 - SMP vendor bring-up decoded; draft platsmp patch 018 integrated; review-form series extended to 18 patches | `mem-entries.md:24246` |

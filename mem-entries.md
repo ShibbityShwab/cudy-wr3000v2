@@ -24242,3 +24242,45 @@ No bindings invented; clk-parents extension/nvmem MAC read path remain unwritten
 No hardware action; box stock; bench fires stopped; publication NOT READY.
 
 LEDGER
+
+## 2026-11-18 18:25 - SMP vendor bring-up decoded; draft platsmp patch 018 integrated; review-form series extended to 18 patches
+
+SMP RE (opensource/docs/SMP-RE.md, sha 90d25efe...): decoded the vendor "hisilicon,hsan_smp"
+method from the stock kernel (dumped kernela slot -> uImage -> zImage -> XZ -> raw vmlinux
+12,207,156 B sha 779f7b39..., recovered kallsyms 76,769 symbols) and the vendor base DTB:
+- The method is a fourth __cpu_method_of_table entry; hsan_smp_ops has only smp_boot_secondary
+  (hotplug off). It maps SYSCTRL (0x10100000) and CRG (0x14880000), writes __pa_symbol(
+  secondary_startup) (0x80609680 in both stock kernels) to the SYSCTRL pen word at +0xc00,
+  RMW-clears the core's two CRG resume bits at CRG+0x38 (CPU0 0x16/0x18, CPU1 0x17/0x19), then
+  arch_send_wakeup_ipi_mask(IPI_WAKEUP). No SMC/HVC/PSCI anywhere - the earlier "pen/smc" guess is
+  corrected: pen [V], SMC [X]. CRG-bit power semantics/pen consumer remain [U] (attended).
+- Deliverable patch 018 (sha 5509ca59...): arch/arm/mach-hisilicon/platsmp.c with
+  CPU_METHOD_OF_DECLARE(luofu_smp, "hisilicon,luofu-smp"), SCU enable, decoded pen+resume-bit+IPI
+  release, fail-safe -ENODEV when DT nodes are missing; machine Kconfig/Makefile/luofu.c refactor.
+  Shared DTS change sets /cpus/enable-method = "hisilicon,luofu-smp".
+- Validation in an isolated clone (series 001-018): pristine apply RC=0, prepare RC=0 (1,202
+  patching lines), full compile RC=0 (20m06s), zImage 3,264,472 B sha ae59d998..., no warnings
+  attributable to new/changed files, platsmp.o/luofu_smp symbols linked, TEXT_OFFSET unchanged,
+  dt_binding_check RC=0 for all 13 series YAMLs, board DTS zero warnings (DTB 10,710 B sha
+  bc599a4e...), dt-validate only pre-existing baseline findings, config derivation idempotent,
+  checkpatch 0/0. The CPU1 release has never run on our kernel; pen consumer, CRG resume-bit
+  semantics, SCU pre-state, TWD/GIC and secure-world traps are attended S2 gates.
+- Staging: S1 (mergeable UP-first) drops the single DTS enable-method hunk (driver is inert/
+  fail-safe without it; two DT CPUs with no matching method is the known 5.10 bench failure mode);
+  S2 enables method + CPU1 only with recovery armed, UART read-only, soak and repeated cold boot.
+
+Review-form series updated to [PATCH 00/18] (opensource/upstream/series-6.18): new
+commit-messages/0018, series/0018 (sha b4268e65...; diff body byte-identical to source 018),
+regenerated 0001-0017 (subject denominator /17 -> /18 only), mapping/cover letter/MAINTAINERS/
+rationale/validation/README and scrubbed validation logs/sha256sums. Revalidated on pristine
+linux-6.18.60 (tarball sha 3c2f44ef...): patch(1) 18/18 RC=0 and git am 18/18 RC=0 with identical
+trees, only the known 0008 offsets, combined 60 files +6,424/-4; checkpatch default/strict 0
+errors / 47 warnings / 4 strict CHECKs (0018 alone 0/1/0); sha256sums 36/36 OK; gen-series --check
+clean. 0018 is grouped Group 5 "SMP bring-up (RFC, attended; not in the UP-first set)".
+
+Integration: SMP shared.patch applied (DTS enable-method, TARGET-DESIGN 6.2/7.1/8.5/12.8, README,
+SKELETON-SMOKE), SMP-RE doc + patch 018 committed, port notes under docs/port-notes/smp/, upstream
+series extended to 18; root STATUS/EVIDENCE/ledger updated. No hardware action; box stock; bench
+fires stopped; publication NOT READY.
+
+LEDGER

@@ -240,6 +240,21 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   recorded; patch `004`'s "provisional 0x20 offsets" are resolved in the decoded table). No
   bindings invented; TARGET-DESIGN open question 5 is now resolved.
 
+- **SMP vendor bring-up decoded; draft platsmp patch 018 (2026-11-18, host-only).**
+  `opensource/docs/SMP-RE.md` decodes the vendor `hisilicon,hsan_smp` method from the stock kernel
+  (recovered vmlinux + kallsyms): a `CPU_METHOD_OF_DECLARE` entry with only `smp_boot_secondary`,
+  which maps SYSCTRL/CRG, writes `secondary_startup`'s physical address to the SYSCTRL pen word
+  (`+0xc00`), RMW-clears the core's two CRG resume bits (`0x16/0x18` CPU0, `0x17/0x19` CPU1 at
+  `CRG+0x38`) and sends the wakeup IPI - **no SMC/HVC/PSCI** anywhere (correcting the earlier
+  "pen/smc" assumption; pen [V], SMC [X]). Patch `018` adds `arch/arm/mach-hisilicon/platsmp.c`
+  (`CPU_METHOD_OF_DECLARE(luofu_smp, "hisilicon,luofu-smp")`, fail-safe `-ENODEV` when nodes are
+  missing), the machine refactor and the DTS `enable-method` via the shared patch. Validated:
+  001-018 series applies and compiles (RC=0, zImage `ae59d998...`, zero warnings attributable to
+  the new files, `platsmp.o`/method table linked, TEXT_OFFSET unchanged), dt_binding_check/DTS
+  clean, config derivation idempotent. **The release has never run on our kernel**; pen consumer,
+  CRG-bit semantics, SCU pre-state, TWD/GIC and secure-world traps are the attended gates. For the
+  UP-first submission the DTS enable-method hunk is dropped (driver inert/fail-safe without it).
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
