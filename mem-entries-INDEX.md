@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 20:11 - Three observation channels tried; none can see a failing boot on this bench | `mem-entries.md:21982` |
 | 2026-11-14 |  | 2026-11-14 20:17 - The other way: patch the modules, not the kernel | `mem-entries.md:22006` |
 | 2026-11-14 |  | 2026-11-14 20:44 - The module patch works: hi_swa loads past the PLT gate | `mem-entries.md:22023` |
 | 2026-11-14 |  | 2026-11-14 20:48 - The init loads the vendor stack in the vendor's own order | `mem-entries.md:22047` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 06:50 - v17 fire: no crash with hyfi removed, but br-lan is created/destroyed in HSLINK cycles and userspace goes silent; bench network needs the multi-step vendor bridge port | `mem-entries.md:23245` |
 | 2026-11-18 |  | 2026-11-18 07:45 - Upstream design layer delivered: concrete OpenWrt target/DTS/image design, GPL follow-up pack, vendor sk_buff/bridge port spec | `mem-entries.md:23268` |
 | 2026-11-18 |  | 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool | `mem-entries.md:23327` |
+| 2026-11-18 |  | 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare) | `mem-entries.md:23368` |
 
 ## All dated entries
 
@@ -627,3 +627,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 06:50 - v17 fire: no crash with hyfi removed, but br-lan is created/destroyed in HSLINK cycles and userspace goes silent; bench network needs the multi-step vendor bridge port | `mem-entries.md:23245` |
 | 2026-11-18 |  | 2026-11-18 07:45 - Upstream design layer delivered: concrete OpenWrt target/DTS/image design, GPL follow-up pack, vendor sk_buff/bridge port spec | `mem-entries.md:23268` |
 | 2026-11-18 |  | 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool | `mem-entries.md:23327` |
+| 2026-11-18 |  | 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare) | `mem-entries.md:23368` |

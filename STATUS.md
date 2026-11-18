@@ -71,8 +71,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
 - `opensource/docs/DOCUMENTATION-HUNT.md` - refreshed open-gaps table.
 - `opensource/target-skeleton/` + `opensource/docs/TARGET-SKELETON.md` - first-pass target files
   from the design (target/linux/hisilicon/luofu Makefiles/Kconfig/profile/board.d/config, a draft
-  DTS, and a fail-closed `fip-slice.py` that refuses to fabricate the trailer). Status:
-  **UNTESTED / SCHEMATIC** - never built in an OpenWrt tree and never run on hardware.
+  DTS, and the `fip-slice.py` tool). Status: **SCHEMATIC but structure-validated** - copied into
+  OpenWrt `main` (commit `27663a0`), `make defconfig` PASS (device symbol generated) and
+  `make target/linux/prepare` RC=0 (kernel 6.18.60); no compile, image or boot
+  (`opensource/docs/SKELETON-SMOKE.md`).
+- **FIP trailer decoded and generation implemented (2026-11-18, offline):** U-Boot `bootfip`
+  fully decoded (gate, 96-byte descriptor, 11-row vendor/board match table, applier validation
+  order; uImage CRCs are not checked). `target-skeleton/tools/fip-slice.py make-trailer` now
+  generates a fail-closed trailer from user-supplied base DTB + overlays and reproduces the vendor
+  2.4.15 (40,828 B) and 2.5.24 containers byte-for-byte; the bench lane still copies its fixed
+  40,732-byte artifact. A novel generated trailer still needs **one attended boot**.
+  Details: `opensource/target-skeleton/docs/TRAILER-FORMAT.md`.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
@@ -82,11 +91,14 @@ submission-ready.
 
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
-2. **Take the skeleton into a real OpenWrt tree and close its open questions** (host-side, no
-   bench): board compatible mismatch (`cudy,wr3000-v2` vs `hisilicon,luofu-r116`), DTS delivery
-   mechanism, FIP trailer generation (the schematic tool refuses; descriptor words +8..+28 and the
-   overlay match rule are still unknown), watchdog/CRG same-page unit-address collision, and the
-   platform.sh/sysupgrade install path. Build and `dtbs_check` it there before claiming a target.
+2. **Turn the structure-validated skeleton into a real kernel/image build** (host-side): add the
+   kernel platform patch (mach-hisilicon/ARCH_LUOFU, machine descriptor, DTS Makefile entry,
+   `TEXT_OFFSET`), re-derive the kernel config for the tree's version, wire the custom image chain
+   (`luofu-uimage` -> `fip-slice assemble` with the now-decoded trailer generator ->
+   `fip-manifest` -> UBI -> sysupgrade), resolve the board compatible mismatch
+   (`cudy,wr3000-v2` vs `hisilicon,luofu-r116`), the watchdog/CRG same-page unit-address
+   collision, and `platform.sh`/install. Then `dtbs_check`/build. The first generated-trailer
+   boot is a bench step and must be attended.
 3. **Consolidate the reversal evidence**: EVIDENCE-INDEX rows for the v6-v17 line, publish-readiness
    purge plan, and the reversal report.
 4. **Optional, only if resumed:** the vendor `sk_buff`/bridge/HYFI port strictly per

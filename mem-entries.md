@@ -23364,3 +23364,57 @@ Next: take the skeleton into a real OpenWrt tree, close the open questions, run 
 send the GPL follow-up (human); consolidate the reversal evidence/report.
 
 LEDGER
+
+## 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare)
+
+Trailer (offline, local artifacts + disassembly of dumps/router-20261108/uboota.bin, U-Boot
+2022.07 (Nov 25 2023) luofu; ubootb identical matcher; the 2.4.15-firmware loader is the same code
+linked 0x30 lower):
+- bootfip validation order decoded: uImage magic/print/arch byte/zImage size; base DTB
+  fdt_check_header; applier FUN_800743ec: gate be32(base_dtb+base_totalsize)==0xd7b7ab1e, container
+  total <=8 MiB, 32-byte descriptor header (hard-checked u32[+8]=u32[+12]=u32[+20]=32, entry count
+  <=64 at +16), 32-byte entries {overlay totalsize (not read by bootfip), overlay offset (read; FDT
+  header checked; <=128 KiB)}; 11-row vendor/board family table (vendorid env, compatible strstr,
+  boardid env or 4-bit pinctrl strap at 0x14940000+4*{0x0a,0x0b,0x12,0x13}); first matching overlay
+  applied with libfdt fdt_overlay_apply, no match => applier -1 => "boot apply overlay fail".
+  uImage hcrc/dcrc are NOT verified on the boot path (corrects the PHASE 95 claim, matches
+  phase42-decode).
+- 40,828 B vendor container = 31,220 B base DTB + 96 B descriptor (32-byte header + 2 x 32-byte
+  entries) + 4,592 B (board_id 0) + 4,920 B (board_id 3) overlays; the fixed 40,732 B bench
+  artifact is byte-identical to its first 40,732 bytes (last 96 B of the final overlay's 1,024 B
+  all-zero FDT padding cut). The 2.5.24 firmware carries a second container (base 31,300; overlays
+  4,604/4,968; total 9,668) confirming the formulas.
+- Delivered: opensource/target-skeleton/docs/TRAILER-FORMAT.md (463 lines: byte tables, field table
+  with confidence, loader checks, match rule, evidence hashes/ledger anchors, remaining unknowns)
+  and fip-slice.py v0.2 (992 lines: generalized parser, check-trailer, make-trailer implemented,
+  check/assemble/manifest updated). make-trailer takes user-supplied base DTB + overlays and fails
+  closed on every decoded loader check; it reproduces the vendor 2.4.15 (40,828 B) and 2.5.24
+  containers byte-for-byte and embeds no vendor bytes.
+- Lead re-verified independently: check-trailer parses the local 40,732 B trailer (base 31,220;
+  overlays 4,592/4,920; descriptor 96 B); splitting the local trailer (base; ov1; ov2 padded +96
+  zeros) and running make-trailer produces exactly the local trailer + 96 zero bytes (40,828 B,
+  sha256 d0e3aa32...). No .bin/.dtb/.ko/.o or __pycache__ committed.
+
+OpenWrt main smoke test (host-side, no device): cloned openwrt main commit 27663a0; restructured
+the published skeleton to main's layout (board image/Makefile + image/luofu.mk, DEVICE_DTS_DIR
+../dts + target dts/luofu-r116.dts, board-level base-files, KERNEL_PATCHVER 6.18, config-6.18
+placeholder, profile renamed .unused) and copied it into target/linux/hisilicon:
+- make defconfig PASS, no target/image errors; generated CONFIG_TARGET_hisilicon=y,
+  CONFIG_TARGET_hisilicon_luofu=y, CONFIG_TARGET_hisilicon_luofu_DEVICE_cudy_wr3000-v2=y,
+  board/subtarget/profile values.
+- make target/linux/prepare RC=0; linux-6.18.60 fetched/unpacked under
+  build_dir/target-arm_cortex-a9_musl_eabi/linux-hisilicon_luofu/.
+- What it proves: target/image metadata shape + device stanza are accepted by main and
+  target/linux/prepare completes. What it does NOT prove: no kernel compile (platform patch,
+  mach driver, DTS Makefile entry, TEXT_OFFSET absent), no image build (custom image chain not
+  wired), no dtbs_check, no boot, no feeds/toolchain/packages.
+- New doc opensource/docs/SKELETON-SMOKE.md; updated TARGET-DESIGN (open question 1 and 5.2 now
+  decoded/implemented), TARGET-SKELETON, SKELETON-SMOKE, target-skeleton README (stale refusal
+  statements fixed), opensource README, PUBLISH-READINESS. Publication remains NOT READY.
+
+Remaining: one attended boot of a novel generated trailer; kernel platform patch + config
+re-derivation + image-chain wiring; board-compatible reconciliation; watchdog/CRG unit-address
+collision; platform.sh/install path; GPL follow-up send (human). Box stock/healthy, bench fires
+stopped.
+
+LEDGER
