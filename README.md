@@ -22,8 +22,9 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    and the GPL follow-up now exist (2026-11-18); the target skeleton's structure was accepted by
    OpenWrt main (`make defconfig` + `target/linux/prepare`), the kernel platform patches now
    compile the 6.18 kernel with the correct load address, the FIP trailer format is decoded with
-   a byte-exact generator, and an own-artifact FIP kernel slice was assembled and validated
-   structurally (never booted) - but **no target image was built**, no DTS was `dtbs_check`ed,
+   a byte-exact generator, an own-artifact FIP kernel slice was assembled and validated
+   structurally, and a **real target image now builds end-to-end** (`make world` RC=0, reproducible,
+   host-only - never flashed or booted) - but no DTS was `dtbs_check`ed,
    CRG clock/reset + watchdog, FMC/SPI-NAND, MDIO/PHY, pinctrl, thermal, a provisional
    machine-restart driver, the PCIe host and a refusing PIE packet-engine draft are ported and
    compile (GEMAC is an honest partial; the CRG reset polarity was corrected); the internal switch

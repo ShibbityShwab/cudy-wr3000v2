@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-18 07:40 +07
+**Updated:** 2026-11-18 15:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -183,6 +183,19 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   and its rootif write is a userspace compatibility layer, not a hardware API; recommended shape
   is switchdev over per-port netdevs, D0-D2 plan. No driver for the switch yet.
 
+- **First real target image built (2026-11-18, host-only; never flashed).** The image recipe is
+  now wired (`image/luofu.mk` real `Build/` stages, `luofu-ubinize.cfg`, `platform.sh` with a
+  real structural `platform_check_image` and a refusing `platform_do_upgrade`,
+  `opensource/target-skeleton/tools/luofu-image.py`,
+  `KERNELNAME:=zImage`). In an isolated OpenWrt main clone, `make world -j16` reached **RC=0**,
+  producing `openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin` (6,175,022 B, sha256
+  `0303d76a...`) with the own FIP kernel slice (3,285,034 B, `dfc53b95...`), rootfs UBI (2,883,584 B,
+  `b7f5a2ed...`), generated trailer (10,832 B) and manifest; the first (001-015) build was
+  byte-reproducible and the final (001-016) build also reached RC=0. The
+  container and all structural fields were independently re-read (`luofu-image.py check-container`
+  PASS; real `platform_check_image` PASS; corrupted/wrong-board/foreign images refused). **Nothing has been flashed or booted**;
+  the A/B selector install path and factory image remain [U] and `platform_do_upgrade` refuses.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
@@ -203,7 +216,11 @@ submission-ready.
    sysupgrade), resolve the board-compatible mismatch (`cudy,wr3000-v2` vs
    `hisilicon,luofu-r116`), write `platform.sh`/install, then the first attended boot of a full
    image (bench step, human-attended).
-3. **Consolidate the reversal evidence**: EVIDENCE-INDEX rows for the v6-v17 line, publish-readiness
+3. **Image built, boot remains the gate**: after the 001-016 rebuild, the next steps are an
+   attended installation (A/B selector protocol + `platform_do_upgrade` still [U]) and one attended
+   boot of the generated image on a recovered unit; then rootfs/overlay mount and boot-arg hand-off
+   validation. The stock-loader acceptance of a novel generated trailer is still unproven.
+4. **Consolidate the reversal evidence**: EVIDENCE-INDEX rows for the v6-v17 line, publish-readiness
    purge plan, and the reversal report.
 4. **Optional, only if resumed:** the vendor `sk_buff`/bridge/HYFI port strictly per
    `VENDOR-SKB-BRIDGE-PORT.md` - E0 host probe first, no bench fires before that. Bench fires stay

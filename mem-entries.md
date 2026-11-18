@@ -23932,3 +23932,73 @@ netdev wiring, image chain/rootfs/sysupgrade, one attended boot. Plans: REMAININ
 PIE-DATAPATH.md, LSW-SPEC.md. Publication NOT READY; box untouched (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 15:20 - LSW D1a draft (016) integrated; image recipe wired and first real OpenWrt image built (make world RC=0, reproducible, host-only)
+
+LSW lane (patch 016-net-lsw-luofu.patch, sha256
+c15aba7c52b671211334423b919d5ca209906a53b339ff0ccef5259f22a0b68a):
+- New drivers/net/ethernet/hisilicon/luofu-switch.c (447 lines): one switch node with the 15 MMIO
+  windows (5 queue-manager dp/ips/fam/eqm/eps + 10 classifier/forwarding prbs/pfe_glb/pa/ifc/l2/
+  napt/mcc/opp/pub/pe, 512 KiB each); the vendor's lsw_dp/lsw_pfe split mirrors modules, not
+  hardware. DDR queue/flow windows deliberately excluded (engine-consumed DDR, live base [U]).
+  switchdev, not DSA (no CPU-port tag; per-port GEMAC netdevs; vendor integration is switchdev
+  with stub handlers). Port model = ethernet-ports children with reg ordering index + ethernet
+  phandle (hardware port id [U]). Probe validates resources/port model and refuses -EOPNOTSUPP;
+  zero register access in the file (mapping only), no clock/reset/IRQ/netdev/switchdev notifier;
+  DTS node disabled.
+- YAML (179 lines), CONFIG_LUOFU_SWITCH, Kconfig/Makefile. Lane validation (isolated clone,
+  chained 001-016): dry-run/chained apply RC=0; prepare RC=0; compile RC=0, 0 warnings
+  (luofu-switch.o 23,860 B); zImage 3,263,624 B sha 201ba868...; TEXT_OFFSET unchanged;
+  dt_binding_check RC=0; board DTS zero warnings (DTB 10,538 B sha ff34bc7f...); dt-validate
+  clean for the node; config re-derivation byte-identical (308 symbols); checkpatch 0/0/0;
+  static scans: 0 MMIO accessors, no clock/reset/IRQ/netdev registration, no forbidden addresses.
+- Unverified: register/queue/port-id model recovered offline, never measured; port_bitmap
+  semantics, MAC-vs-LSW port-id mapping, EQM command word, qid-map high classes, classifier/VLAN/
+  L2 formats, queue/flow DDR base, reset order all [U]; D1b attended read-only inventory is the
+  gate.
+
+Image lane (recipe + real build, host-only):
+- target-skeleton/target/linux/hisilicon/image/luofu.mk rewritten with real Build/ stages:
+  kernel-bin | luofu-check-textofs | append-dtb | uImage none | luofu-fip-slice |
+  luofu-fip-manifest, then luofu-rootfs-ubi | luofu-sysupgrade-container | append-metadata;
+  derived load/entry (0x83200000 & 0xf8000000)+0x00608000, trailer generation via
+  fip-slice.py make-trailer with our DTB + loader-match overlay (.dtso now the canonical name),
+  slot/load/entry assertions, UBI cfg (luofu-ubinize.cfg), manifest, documented container;
+  factory/install stanza still absent.
+- base-files/lib/upgrade/platform.sh: real structural platform_check_image (tar/CONTROL, uImage
+  load/entry, FIP gate/descriptor constants, UBI shape, manifest-vs-bytes, slot budgets, exit 74
+  foreign) and a refusing platform_do_upgrade (A/B selector [U]).
+- tools/luofu-image.py (rootfs-ubi/sysupgrade/check-container, fail-closed, re-parses UBI CRCs and
+  volume table); KERNELNAME:=zImage added to the target Makefile (required for the chain).
+- Isolated clone make world -j16 RC=0 (kernel with patches 001-015, packages, image stage); a
+  repeat produced a byte-identical image. Artifacts: sysupgrade
+  openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin 6,175,022 B sha ea143b03...;
+  own FIP kernel slice 3,283,008 B sha 23c3286b...; rootfs UBI 2,883,584 B sha d3c5611c...;
+  generated trailer 10,487 B sha d9616d26...; manifest 945 B. check-container PASS; real
+  platform_check_image PASS in-tree; corrupted/wrong-board/foreign images refused;
+  platform_do_upgrade refuses.
+- After patch 016 landed, the repo target was synced and the final 001-016 world build ran:
+  RC=0; final sysupgrade 6,185,262 B sha 0303d76a...; kernel slice 3,285,034 B sha dfc53b95...;
+  rootfs UBI 2,883,584 B sha b7f5a2ed...; trailer 10,832 B sha beaad4d9...; check-container PASS
+  (kernel 0x80608000/0x80608000, gate 0xd7b7ab1e at 0x321f04, rootfs squashfs 20 used EBs, both
+  slots within budget); the image carries the NOT FLASHABLE install-status marker.
+
+Integration: LSW shared.patch applied (DTS/config/docs), image shared.patch applied (README/
+SKELETON-SMOKE/TARGET-DESIGN), per-lane records moved to docs/port-notes/{lsw,image}/; overlay
+canonicalized to dts/luofu-r116-overlay.dtso (DEVICE_DTS_OVERLAY convention) with script/default
+and image Makefile references updated; config/DTS ranges 004-016; STATUS/EVIDENCE/README/
+TARGET-SKELETON record the image build and the LSW draft; port-notes README updated.
+
+Proven: the image recipe is valid OpenWrt idiom and builds end-to-end (make world RC=0) with our
+kernel/drivers/bindings/DTS/trailer/rootfs UBI; every image artifact is validated from its own
+bytes at build time and re-validated independently; the 001-015 build was byte-reproducible; the
+LSW D1a kernel patch compiles warning-free in the full series with a dtschema-clean binding.
+Not proven: anything about booting/flashing - stock-loader acceptance of the novel trailer, kernel
+execution, rootfs/overlay mount, boot-arg hand-off, A/B selector/install protocol are [U]; the
+image explicitly refuses upgrade and carries NOT FLASHABLE.
+
+Next: LSW D1b attended read-only inventory; one attended boot of the generated image (A/B selector
++ platform_do_upgrade first); PIE P3 read-only inventory; then rootfs/overlay and boot-arg
+validation. Publication NOT READY; box untouched (stock), no bench fires.
+
+LEDGER
