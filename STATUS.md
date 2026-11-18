@@ -378,6 +378,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   checkpatch 0/0/0, inventory cross-check 0 mismatches. **Never run on ARM** - W3/W4/W5/W6 are the
   attended write-stage checks.
 
+- **Submission form now 001-021; curated repo synced (2026-11-18).** The review-form series was
+  extended with **020** (PIE datapath + GEMAC: fail-closed `luofu_pie.arm=1` gate, coherent
+  measured rings, RX decode still `[U]`) and **021** (read-only LSW D1b probe, no writes, W2-W6
+  attended campaign owed), revalidated on pristine linux-6.18.60: **patch(1) 21/21 and git am
+  21/21 RC=0 with identical trees**, checkpatch **0 errors** (53 warnings/6 strict CHECKs), 42/42
+  hashes OK. Both sit in the RFC/partial-drafts "do not merge" group with their dependencies
+  documented. The curated public repo **cudy-wr3000v2-openwrt** was synced to source HEAD
+  `6bcea12` (push `ee5b882`): new inventory + bench-inventory docs, measured spec updates,
+  patches 020/021, port notes and status tables; API/fresh-clone verified clean; a follow-up sync
+  brings its review-form copy to 001-021. The remaining review gaps are mechanical/documentary
+  (binding split, MAINTAINERS entry, 0014->0004 fold, DCO identity, second-boot stability sample).
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

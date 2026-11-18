@@ -24669,3 +24669,37 @@ extended to 001-021 and the curated public repo is being synced; both run lanes 
 No device action; bench idle; box stock.
 
 LEDGER
+
+## 2026-11-18 21:40 - Review-form series extended to 001-021; curated public repo synced (port + inventory docs)
+
+Series: opensource/upstream/series-6.18 now covers 21 patches (submodule 9d5005c, pushed):
+- new commit messages 0020 (PIE datapath + GEMAC front end: coherent rings measured on stock,
+  recovered v250 init/mask order, NAPI recycle-only RX with status/length [U], TX producer,
+  GEMAC netdev/phylink front end, fail-closed luofu_pie.arm=1 gate with read-back + halt, never
+  run on hardware) and 0021 (read-only LSW D1b baseline probe: powered-state gate via CRG gate
+  word 0x20 bits 0/1 + four active-low resets, 30 measured baseline words + 384 qid-map words
+  validated, no writel, no netdev, always -EOPNOTSUPP, node disabled, W2 exists only as a paper
+  write set and attended W2-W6 is owed).
+- generated series/0020 (sha 5f3e1e52...), series/0021 (sha 7ed09990...); cover letter now
+  [PATCH 00/21]; mapping/MAINTAINERS/rationale/validation/README regenerated; both in the RFC/
+  partial-drafts "do not merge" group; dependency notes (0009/0015 -> 0020, 0016+0020 -> 0021;
+  0017 has no overlap); 0014->0004 fold and DCO identity remain open.
+- pristine linux-6.18.60 validation: patch(1) 21/21 RC=0, git am 21/21 RC=0, identical trees,
+  0 rejects (only the 0008 offsets plus 0021's ethernet-Kconfig +6), checkpatch 0 errors/53
+  warnings/6 strict CHECKs, sha256sums 42/42 OK, gen-series --check clean. No rebuild (lane
+  builds: 001-020 zImage dfc7b753..., 001-021 zImage 96b927d3..., both zero warnings under WERROR).
+
+Curated public repo cudy-wr3000v2-openwrt synced to the source HEAD 6bcea12 (commit ee5b882,
+pushed): added INVENTORY-2026-11-18.md + BENCH-READONLY-INVENTORY.md, measured PIE-DATAPATH/
+LSW-SPEC/MISC/SMP/TARGET-DESIGN/SKELETON-SMOKE text, patches 020/021, port-notes pie/lsw, DTS/
+config updates, README status tables (001-021, inventory 600/600, PIE ring engine + LSW read-only
+probe), docs index/PUBLISHING/NOTICE; 20 files +6,134/-510; API/fresh-clone verified clean (no
+forbidden binaries in tree or history, all expected files, links resolve). Its upstream/series
+copy still held 001-019 pending the in-flight source extension; a follow-up sync to 001-021 is
+running (repo-sync-2).
+Residual deviations: curated repo excludes FIRST-INSTALL/PUBLISH-PREP/port-notes firstinstall per
+its no-install-procedure stance; the project SSH-key filename was genericised in the curated copy.
+
+No device action; bench idle; box stock.
+
+LEDGER

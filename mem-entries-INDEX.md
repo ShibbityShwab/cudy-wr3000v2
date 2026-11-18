@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
 | 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
 | 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
 | 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed | `mem-entries.md:24543` |
 | 2026-11-18 |  | 2026-11-18 21:10 - PIE datapath ring engine + GEMAC front end implemented (patch 020), built from the measured 2026-11-18 baseline | `mem-entries.md:24592` |
 | 2026-11-18 |  | 2026-11-18 21:25 - LSW read-only D1b baseline probe implemented (patch 021) and integrated | `mem-entries.md:24631` |
+| 2026-11-18 |  | 2026-11-18 21:40 - Review-form series extended to 001-021; curated public repo synced (port + inventory docs) | `mem-entries.md:24673` |
 
 ## All dated entries
 
@@ -653,3 +653,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed | `mem-entries.md:24543` |
 | 2026-11-18 |  | 2026-11-18 21:10 - PIE datapath ring engine + GEMAC front end implemented (patch 020), built from the measured 2026-11-18 baseline | `mem-entries.md:24592` |
 | 2026-11-18 |  | 2026-11-18 21:25 - LSW read-only D1b baseline probe implemented (patch 021) and integrated | `mem-entries.md:24631` |
+| 2026-11-18 |  | 2026-11-18 21:40 - Review-form series extended to 001-021; curated public repo synced (port + inventory docs) | `mem-entries.md:24673` |
