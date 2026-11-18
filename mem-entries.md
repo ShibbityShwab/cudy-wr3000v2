@@ -24177,3 +24177,21 @@ env re-stamp, recorder timing on silicon, NAND writes/first boot of a written pa
 A/B install. Box untouched (stock); no bench fires; publication NOT READY.
 
 LEDGER
+
+## 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved
+
+Decision (owner, 2026-11-18): the 2026-10-01 GPL source request has had no reply and is no longer
+tracked as an open project action or gate. Rationale recorded: GPL is a real copyright license but
+enforcement is private civil action, not a project dependency; we redistribute no vendor binaries
+and our drivers are our own code with provenance markers, so the only practical effect of no reply
+is that source cannot accelerate the LSW/PIE/Wi-Fi work. The request page is kept as a
+provenance/licensing record and as an optional lever (follow-up/escalation text remains ready if
+ever wanted), but no waiting and no enforcement-org route is planned. The project continues
+reverse-engineering everything itself.
+
+Docs: STATUS next-action item 1 rewritten (optional accelerator, no action); GPL-REQUEST.md status
+block gained the project decision paragraph. No hardware action; box stock; bench fires stopped.
+Next reversal lanes started: SMP/platsmp RE + draft, and a misc-SoC-blocks RE spec (efuse/MAC,
+RNG, LED/PMU PWM, CRG parents/PLLs/mux, sysctrl/sysenv nvmem).
+
+LEDGER

@@ -234,8 +234,10 @@ submission-ready.
 
 ## 4. Next action
 
-1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
-   record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
+1. **GPL source: optional accelerator only - not a project gate (decision 2026-11-18).** The
+   2026-10-01 request got no reply and needs no further follow-up for this project. The record is
+   kept for provenance/optional leverage (a source drop would mainly accelerate LSW/PIE/Wi-Fi); the
+   work proceeds by our own reverse engineering. No waiting, no enforcement org.
 2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND, MDIO/PHY,
    pinctrl, thermal, PCIe host and the provisional restart are ported (GEMAC partial); the
    remaining blocks are the internal switch driver and the PIE data-path bring-up - the PIE half
