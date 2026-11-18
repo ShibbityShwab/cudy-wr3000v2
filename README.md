@@ -25,11 +25,12 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    a byte-exact generator, and an own-artifact FIP kernel slice was assembled and validated
    structurally (never booted) - but **no target image was built**, no DTS was `dtbs_check`ed,
    CRG clock/reset + watchdog, FMC/SPI-NAND, MDIO/PHY, pinctrl, thermal, a provisional
-   machine-restart driver and the PCIe host are ported and compile (GEMAC is an honest partial;
-   the CRG reset polarity was corrected); the internal switch and the GEMAC data path have an
-   evidence-graded plan in `opensource/docs/REMAINING-DRIVERS.md`, with the wired data path
-   specified in `opensource/docs/PIE-DATAPATH.md`, and the Wi-Fi + LAN-switch + unanswered GPL
-   source request remain the gating programme. Bench gates are not upstream progress.
+   machine-restart driver, the PCIe host and a refusing PIE packet-engine draft are ported and
+   compile (GEMAC is an honest partial; the CRG reset polarity was corrected); the internal switch
+   and the PIE data-path bring-up remain, with `opensource/docs/REMAINING-DRIVERS.md`,
+   `opensource/docs/LSW-SPEC.md` and `opensource/docs/PIE-DATAPATH.md` as the plans, and the Wi-Fi
+   + LAN-switch + unanswered GPL source request remain the gating programme. Bench gates are not
+   upstream progress.
 
 ## Start here
 

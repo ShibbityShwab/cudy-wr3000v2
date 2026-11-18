@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-15 |  | 2026-11-15 03:30 - The broker-staged fire works; the shadow writes do not land | `mem-entries.md:22223` |
 | 2026-11-15 |  | 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap | `mem-entries.md:22251` |
 | 2026-11-15 |  | 2026-11-15 13:07 - 3de broker fire, attempt 1: the host firewall blocked the slice download | `mem-entries.md:22275` |
 | 2026-11-15 |  | 2026-11-15 13:33 - 3de broker fire: the image boots, the shadow writes are still silent | `mem-entries.md:22284` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated | `mem-entries.md:23702` |
 | 2026-11-18 |  | 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012 | `mem-entries.md:23757` |
 | 2026-11-18 |  | 2026-11-18 12:10 - PCIe host driver (013), CRG reset-polarity fix (014), PIE data-path spec; series 001-014 integrated and combined-verified | `mem-entries.md:23808` |
+| 2026-11-18 |  | 2026-11-18 13:05 - PIE packet-engine refusing draft (015) and LSW switch RE spec integrated; whole series 001-015 combined-verified | `mem-entries.md:23880` |
 
 ## All dated entries
 
@@ -636,3 +636,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated | `mem-entries.md:23702` |
 | 2026-11-18 |  | 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012 | `mem-entries.md:23757` |
 | 2026-11-18 |  | 2026-11-18 12:10 - PCIe host driver (013), CRG reset-polarity fix (014), PIE data-path spec; series 001-014 integrated and combined-verified | `mem-entries.md:23808` |
+| 2026-11-18 |  | 2026-11-18 13:05 - PIE packet-engine refusing draft (015) and LSW switch RE spec integrated; whole series 001-015 combined-verified | `mem-entries.md:23880` |

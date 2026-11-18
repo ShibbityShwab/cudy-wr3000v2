@@ -168,6 +168,21 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   `8654b99a...`, 0 warnings/errors, all CONFIG_LUOFU_* symbols, DTS 10,133 B zero warnings); `014`
   compiles as the changed driver object in the same tree. Nothing booted.
 
+- **PIE packet-engine draft (015) and LSW switch spec (2026-11-18, host-only).** `015` adds
+  `drivers/net/ethernet/hisilicon/luofu-pie.c` (+ YAML): validates window/clock/reset/4 named
+  IRQs/`dma-coherent`, allocates coherent RX/TX ring bookkeeping, then **refuses to probe**
+  (`-EOPNOTSUPP`) - no register access, clock, reset, IRQ or NAPI, because the read-only P3
+  inventory is not captured; DTS node disabled. Lane-validated: prepare/compile RC=0 (zImage
+  `5231214b...`), zero warnings, `dt_binding_check` PASS, DTB 10,193 B zero warnings, config 307
+  symbols idempotent, checkpatch clean. Combined whole-series verification (patches 001-015 applied
+  from the repo in a scratch tree): prepare RC=0, **full compile RC=0** with 0 warnings/errors,
+  zImage `c82d0ffe...`, all `CONFIG_LUOFU_*` drivers built in (including the polarity-fixed CRG),
+  combined DTS 10,193 B with zero warnings. `opensource/docs/LSW-SPEC.md` (1,375 lines) decodes the
+  internal switch: module layering, synthetic module-id register map, port/queue/qid model, table
+  formats, and two corrections - the vendor switchdev handlers are **stubs** in the shipped build
+  and its rootif write is a userspace compatibility layer, not a hardware API; recommended shape
+  is switchdev over per-port netdevs, D0-D2 plan. No driver for the switch yet.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
@@ -178,8 +193,10 @@ submission-ready.
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
 2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND, MDIO/PHY,
    pinctrl, thermal, PCIe host and the provisional restart are ported (GEMAC partial); the
-   remaining blocks are the internal switch and the GEMAC data path - the PIE half is specified in
-   `opensource/docs/PIE-DATAPATH.md`, the switch plan in `opensource/docs/REMAINING-DRIVERS.md`.
+   remaining blocks are the internal switch driver and the PIE data-path bring-up - the PIE half
+   has a refusing draft (`015`), spec in `opensource/docs/PIE-DATAPATH.md` and the switch spec in
+   `opensource/docs/LSW-SPEC.md`; PIE needs the attended read-only P3 inventory before arming
+   rings, and the switch needs its D1 implementation.
    Prune the `[D-default]` other-SoC Hisilicon drivers and run `dtbs_check` per binding. After
    that, wire the custom image chain
    (`luofu-uimage` -> `fip-slice` with the generated trailer -> `fip-manifest` -> UBI ->

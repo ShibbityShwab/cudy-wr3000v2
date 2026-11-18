@@ -23876,3 +23876,59 @@ pinctrl, 012 thermal, 013 PCIe host, 014 CRG reset polarity. Remaining: internal
 and one attended boot. Publication NOT READY; box untouched (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 13:05 - PIE packet-engine refusing draft (015) and LSW switch RE spec integrated; whole series 001-015 combined-verified
+
+PIE lane (patch 015-net-pie-luofu.patch, sha256
+fac5ab382964c4696ba1a305ec4401068edded8372980f0af25bd62ed01446d2):
+- New drivers/net/ethernet/hisilicon/luofu-pie.c (597 lines): validates the 64 KiB PIE window
+  (devm_ioremap only), one unnamed CRG gate clock, one CRG reset line, four by-name IRQs
+  (ch0-7/ch1-6/ch2-5/ch3-4), dma-coherent and a 32-bit DMA mask; allocates 4x32 KiB RX and
+  4x128 KiB TX coherent ring bookkeeping with dma_alloc_attrs(...,0) using documented board
+  constants (vendor rx_ring/tx_ring are not DT ABI; why documented); frees the rings and returns
+  -EOPNOTSUPP ("data path not started: PIE register/channel inventory is not captured"). No MMIO,
+  clock enable, reset toggle, IRQ request, NAPI or netdev in the probe path. Recovered v250
+  offsets/descriptor accessors/IRQ schedule are compiled scaffolding; unrecovered fields are TODO
+  or zero. Kconfig CONFIG_LUOFU_PIE + YAML net/hisilicon,luofu-pie.yaml; DTS node finalised
+  (interrupt-names, resets <&crg 0x30 0x19>, dma-coherent) but kept disabled.
+- Lane validation (isolated clone, series 001-015 from scratch): dry-run/chained apply RC=0;
+  prepare RC=0; compile RC=0 in 1m50s, 0 warnings under WERROR; zImage 3,262,336 B sha
+  5231214b...; dt_binding_check RC=0; DTS zero warnings (DTB 10,193 B); config re-derivation
+  byte-identical (307 symbols); checkpatch 0/0/0; static scans clean.
+- Not proven: any hardware behaviour; register offsets are from the vendor module, ring/descriptor/
+  IRQ/ACP semantics remain [U]; next hardware step is the attended read-only P3 inventory (bench
+  blocked), then ring arming/RX/NAPI, TX, and the LSW egress map.
+
+LSW spec (opensource/docs/LSW-SPEC.md, 1,375 lines): evidence-graded RE of the internal switch -
+module layering (lsw_pub/dp/pfe, kcara, kcfe_pub/lrn*, swa), the synthetic module-id register map
+(addr = id<<24 | offset over a 256x12-byte table; DP regs 0x40..0x44, PFE ids 0,1,3,5,6,7,8,9,0xa,
+0xb; "module 6" = opp @0x12400000 resolves PIE-DATAPATH's open item), qid tables at opp+0x42800/
++0x43800 with exact index formulas and 8-QIDs/port loop, port model (MAC ports 8-12; WAN=eth3,
+LAN=eth0-2), 46x56-byte SW port table, port_bitmap=<0xf01 0x1ff0> (semantics [U]), switchdev
+object/table mapping, init/order dependencies, and the D0/D1/D2 staging plan with a W1-W6 attended
+write campaign and effort (D1 15-25 host + 4-8 bench, GPL source would cut it to 5-8 host).
+Two corrections: hi_swa's switchdev/port-object handlers are compiled stubs in the shipped build
+(vendor sets g_intf_bypass=1 then loads it), and the rootif write is a vendor-userspace
+compatibility layer, not a hardware API - our switchdev driver must not reproduce it.
+
+Integration: patch 015 + PIE shared.patch applied (no conflict markers); LSW-SPEC/PIE-DATAPATH
+cross-linked from REMAINING-DRIVERS block D/E + summary table, TARGET-DESIGN 6.2/7.1 + not-met,
+target-skeleton README, TARGET-SKELETON; per-lane record under docs/port-notes/pie/; README patch
+row 015; DTS header/config legend ranges 004-015; SKELETON-SMOKE eleventh session + combined
+verification note; STATUS/EVIDENCE/README/ledger updated.
+
+Combined whole-series verification (scratch tree, patches 001-015 applied from the repo):
+make target/linux/prepare RC=0 and make target/linux/compile RC=0 with 0 warnings/errors; zImage
+3,262,792 B sha256 c82d0ffeff2fcaa3ab98f5cd7f731f71ccbbc62785b69366a0d7bbaa02e855bd; all
+CONFIG_LUOFU_* drivers built in (CRG with the 014 polarity fix, WDT, FMC, MDIO, PHY, GMAC,
+REBOOT, TVSENSOR, PIE) plus CONFIG_PINCTRL_LUOFU and CONFIG_PCIE_LUOFU_HOST; combined DTS compiles
+with zero warnings (DTB 10,193 B).
+
+Driver/binding series now: 001 mach-hisilicon, 002 Kconfig/textofs, 003 TEXT_OFFSET, 004 CRG,
+005 watchdog, 006 FMC/SPI-NAND, 007 MDIO, 008 Genius PHY, 009 partial GEMAC, 010 provisional
+restart, 011 pinctrl, 012 thermal, 013 PCIe host, 014 CRG reset polarity, 015 PIE draft.
+Remaining: LSW switch driver (D1), PIE data-path bring-up (attended P3 inventory first), GEMAC
+netdev wiring, image chain/rootfs/sysupgrade, one attended boot. Plans: REMAINING-DRIVERS.md,
+PIE-DATAPATH.md, LSW-SPEC.md. Publication NOT READY; box untouched (stock), no bench fires.
+
+LEDGER
