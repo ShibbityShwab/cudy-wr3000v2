@@ -346,6 +346,38 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   clean. This is the first step of the next attended session (it closes the LSW D1b baseline, PIE P3,
   clk-rate and SYSCTRL [U] items without any write).
 
+- **PIE datapath ring engine + GEMAC front end implemented (020, 2026-11-18, host-only).**
+  Patch 020 turns the patch-015 PIE scaffold into a real datapath built on the measured baseline:
+  coherent 32-byte descriptor rings for the **measured 2 RX / 2 TX channels** (log2 8 RX + 1536 B
+  buffers, log2 12 TX), recovered v250 init sequence (mask-all → unmask-active, global RX enable
+  via 0x3200 bit0), four IRQs with the recovered schedule/mask/ack order, NAPI RX polling that
+  recycles completions but **does not decode the still-`[U]` status/length words**, TX producer
+  with poll completion, and read-back verification that tears the engine down on mismatch. The
+  probe is **fail-closed**: it refuses with `-EOPNOTSUPP` before any register write/clock/reset/IRQ
+  unless `luofu_pie.arm=1` is on the cmdline, and the DTS nodes remain disabled. GEMAC becomes a
+  phylink/netdev front end only when armed and writes only the measured 1 Gbps link words.
+  Validated in an isolated clone: series 001-020 applies RC=0, prepare/compile RC=0 with **zero
+  warnings under `CONFIG_WERROR=y`** (zImage `dfc7b753...`), TEXT_OFFSET unchanged,
+  `dt_binding_check` PASS, board DTS zero-warning, config idempotent, checkpatch 0/0/0. **Never
+  run on hardware** - attended ring/IRQ/descriptor checks remain.
+
+- **LSW read-only D1b baseline probe implemented (021, 2026-11-18, host-only).** Patch 021 adds
+  a register-map driver and a **read-only** probe of the measured baseline: new
+  `luofu-switch-regs.h` with every offset/value graded in-line and a 17-window model (15 MMIO
+  windows mapped; the measured DDR windows `queue=0x80000000/4 MiB` and `flow=0x80400000/1 MiB`
+  validated from DT and never ioremapped), variant `hwver=0x250` match data (no ID register was
+  measured, so none is invented), a fail-closed powered-state gate through the CRG syscon gate
+  bits + corrected active-low resets (refuses without touching the block), validation of the 30
+  measured baseline words, word-for-word re-derivation of both qid maps (384 words), the
+  `port_bitmap <0xf01 0x1ff0>` baseline check and port-ownership resolution without netdev
+  registration. **It performs no writes at all** (no `writel`); the qid-table write recipes are
+  documented as the D1b W2 set but not executed, and the probe always exits `-EOPNOTSUPP`.
+  Validated in an isolated clone: series 001-021 applies RC=0, prepare/compile RC=0 with **zero
+  warnings under `CONFIG_WERROR=y`** (zImage `96b927d3...`), TEXT_OFFSET unchanged,
+  `dt_binding_check` PASS, board DTS zero warnings, config symbol-identical/idempotent,
+  checkpatch 0/0/0, inventory cross-check 0 mismatches. **Never run on ARM** - W3/W4/W5/W6 are the
+  attended write-stage checks.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

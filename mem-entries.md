@@ -24627,3 +24627,45 @@ The upstream review-form series still covers 001-019 until the LSW patch 021 lan
 be added together. No device action; bench idle; box stock.
 
 LEDGER
+
+## 2026-11-18 21:25 - LSW read-only D1b baseline probe implemented (patch 021) and integrated
+
+Patch 021-net-lsw-init-luofu.patch (sha256 de69296d80f2419b574d3af4ec4a8b83c877a711d278fc71350d14a231fe307e,
+1,485 lines, 4 files):
+- new luofu-switch-regs.h with every offset/value graded in-line; 17-window model - 15 MMIO
+  windows mapped, the measured live DDR windows queue=0x80000000/4 MiB and flow=0x80400000/1 MiB
+  validated from DT and never ioremapped; variant match data hwver=0x250 (no hardware ID register
+  was measured, so none is invented).
+- fail-closed powered-state gate: CRG gate word 0x20 bits 0/1 read-only through the CRG syscon
+  (clk_is_enabled() removed in 6.18) plus four reset lines via the corrected active-low reset API;
+  refuses WITHOUT touching the block unless the measured state holds.
+- table sanity: 30 measured W1 baseline words validated; both qid maps re-derived from the
+  contiguous qid 1..104 / 8-per-port model and compared word-for-word (384 words); port_bitmap
+  <0xf01 0x1ff0> baseline check (semantics remain [U]); resolves each port's owning GEMAC
+  platform device but registers no netdev/notifier (deferred).
+- NO writes at all (no writel): qid table A/B write recipes documented as the D1b W2 write set
+  (LSW-SPEC 7.7, per-write evidence grade) but not executed; EQM indirect command word, queue
+  table, IFC/L2/VLAN formats excluded as [U]. Probe always exits -EOPNOTSUPP; DTS node disabled.
+
+Validation in isolated clone (/home/shibbityshwab/openwrt-lab-lswinit + fresh pristine 6.18.60):
+series 001-021 applies in order RC=0, 82 files, 0 rejects (021 after 020: 6-line offset in the
+hisilicon ethernet Kconfig only); prepare RC=0 (1,215 patching lines); compile RC=0, 121 s, 0
+warnings/0 errors under CONFIG_WERROR=y; zImage 3,279,096 B sha 96b927d3...; TEXT_OFFSET
+unchanged (0x00608000, _text=stext=0xc0608000); CONFIG_LUOFU_SWITCH=y, CONFIG_PHYLINK=y,
+luofu_switch_probe in System.map; dt_binding_check RC=0; board DTS 11,516 B sha 43c1e94b... with
+zero dtc warnings; dt-validate no diagnostic for the switch node; checkpatch 0/0/0; config delta
+symbol-identical and idempotent; inventory cross-check all 30 baseline words, 16 channel-map words
+and 384 qid-map words re-derived with 0 mismatches; static checks no writel/regmap-write/
+clk-enable/reset-toggle/netdev registration.
+
+Not proven: the probe has never executed on ARM and no register has ever been written. Owed: W3
+(gate/reset only + pre-write baseline capture), W4/W5 qid writes, W6 learning-off behaviour, a
+second-boot/unit stability sample; port-id mapping, 40..47 class meaning, DDR layout and
+port_bitmap semantics remain [U].
+
+Integration: patch + docs committed/pushed (submodule 6bcea12), port notes lsw/, shared docs
+(LSW-SPEC, TARGET-DESIGN, SKELETON-SMOKE, README) updated. Upstream review-form series is being
+extended to 001-021 and the curated public repo is being synced; both run lanes are in flight.
+No device action; bench idle; box stock.
+
+LEDGER
