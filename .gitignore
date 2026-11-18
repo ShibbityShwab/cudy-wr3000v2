@@ -30,6 +30,19 @@ omo_rsa.pub
 0x80198019
 fake_bdinfo.bin
 
+# Extra credential/key patterns (publish policy - PUBLISH.md). Never rely on ignore alone:
+# `git grep` the staged paths before any commit.
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+.env
+.env.*
+
 # Scratch
 *.log
 *.tmp

@@ -29,7 +29,8 @@ def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "fake_bdinfo.bin"
     key = des_string_to_key(b"88T3j05dtFu8=")
     lines = [
-        "mac = d4:0d:ab:64:1c:73",
+        # documentation example MAC; the lab unit's per-unit MAC was redacted 2026-11-18
+        "mac = 02:00:00:00:00:01",
         "sn = 2543XXXXXX",
         "deviceid = 000000000000",
         "secret = FAKE-SECRET-FOR-ROUNDTRIP",

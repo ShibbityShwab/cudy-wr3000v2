@@ -4,6 +4,10 @@ WORK="${WEB_LOGIN_DIR:-$(dirname "$0")/../build/linux-kbuild/web-login}"
 mkdir -p "$WORK"
 cd "$WORK" || exit 1
 H="http://192.168.10.1"
+# The default salt is the STATIC constant baked into the vendor 2.4.15 LuCI wizard page.
+# It is a public vendor value, NOT a secret (it ships in the firmware). Override it with
+# ROUTER_WEB_SALT; the per-request salt is read from the wizard page. The password is never
+# stored here - set ROUTER_WEB_PASSWORD from .omo-secrets/ or the environment at runtime.
 SALT="${ROUTER_WEB_SALT:-f2e816513d9cb58b008f4404af651581}"
 PW="${ROUTER_WEB_PASSWORD:-}"
 [ -n "$PW" ] || { echo "web_login.sh: set ROUTER_WEB_PASSWORD" >&2; exit 1; }

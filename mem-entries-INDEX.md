@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-15 |  | 2026-11-15 19:05 - Emulation closes the init-side question: the shadow writes work when /vendor mounts | `mem-entries.md:22545` |
 | 2026-11-15 |  | 2026-11-15 19:20 - Emulation closes the init-side question: it is correct, only the mount can fail | `mem-entries.md:22584` |
 | 2026-11-16 |  | 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran | `mem-entries.md:22619` |
 | 2026-11-16 |  | 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount | `mem-entries.md:22647` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 18:25 - SMP vendor bring-up decoded; draft platsmp patch 018 integrated; review-form series extended to 18 patches | `mem-entries.md:24246` |
 | 2026-11-18 |  | 2026-11-18 18:55 - Factory-MAC provisioning from bdinfo 0xde00 implemented and image-validated (mock 103/103) | `mem-entries.md:24288` |
 | 2026-11-18 |  | 2026-11-18 19:10 - CRG clock tree completed (019): real gate parents, fixed clocks, read-only PLL/mux providers; duplicate SKELETON-SMOKE session fixed | `mem-entries.md:24326` |
+| 2026-11-18 |  | 2026-11-18 19:23 - PUBLISH POLICY: the root notebook goes intentionally public; lab web-admin credential and per-unit MACs redacted in HEAD (history not rewritten) | `mem-entries.md:24370` |
 
 ## All dated entries
 
@@ -646,3 +646,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 18:25 - SMP vendor bring-up decoded; draft platsmp patch 018 integrated; review-form series extended to 18 patches | `mem-entries.md:24246` |
 | 2026-11-18 |  | 2026-11-18 18:55 - Factory-MAC provisioning from bdinfo 0xde00 implemented and image-validated (mock 103/103) | `mem-entries.md:24288` |
 | 2026-11-18 |  | 2026-11-18 19:10 - CRG clock tree completed (019): real gate parents, fixed clocks, read-only PLL/mux providers; duplicate SKELETON-SMOKE session fixed | `mem-entries.md:24326` |
+| 2026-11-18 |  | 2026-11-18 19:23 - PUBLISH POLICY: the root notebook goes intentionally public; lab web-admin credential and per-unit MACs redacted in HEAD (history not rewritten) | `mem-entries.md:24370` |

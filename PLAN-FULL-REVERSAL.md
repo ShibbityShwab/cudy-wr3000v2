@@ -390,7 +390,7 @@ the same source loss that took the watchdog). Both sources are back in the tree 
 be a module; `drivers/net/phy/Kconfig` now gives it `tristate "PHYlink support"`. The next Phase D
 fire is therefore an integration fire, not a code fire. The cable is on eth2 (gmac 0x14480000, mdio0:04), not eth0.
 
-The measured target from 2026-10-30: ARP `192.168.10.2 -> 10:ff:e0:c7:f0:26` REACHABLE, the bridge
+The measured target from 2026-10-30: ARP `192.168.10.2 -> 02:00:00:00:00:02` (documentation value; real MAC redacted) REACHABLE, the bridge
 answers its own `192.168.10.1` in 0.17 ms, tx 45->179, rx 97->261, zero tx/rx errors, and the host
 ping still 0/3. The remaining asymmetry is between frames the kernel counts as transmitted and
 frames the host receives, which is a TX path or MAC/PHY mapping question, not an ARP one.

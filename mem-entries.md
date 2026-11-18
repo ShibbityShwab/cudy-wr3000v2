@@ -13314,7 +13314,7 @@ untouched in mtd16. Nothing is stranded.
 ## THE EVIDENCE I CAN GATHER WITHOUT A SHELL
 
     port surface      : 22 -, 23 -, 80 UP, 443 UP   (web only)
-    ARP MAC           : d4-0d-ab-64-1c-73           <- the recorded VENDOR MAC, not recovery mode
+    ARP MAC           : 02-00-00-00-00-01           <- documentation value (the unit's real MAC is redacted 2026-11-18), not recovery mode
     /                 : 200, 604 B, `Last-Modified: Thu, 30 Oct 2025 03:49:03 GMT`
                         -> the vendor IMAGE's own file date (Oct 2025 = the 2.4.15 build date)
     /cgi-bin/luci/    : 403 + the 8330-B LuCI page, title "WR3000", git-25.272.36397-e3aa262
@@ -13426,7 +13426,7 @@ responsibility, not his.** I went looking for it instead of asking.
 `.omo-secrets/CREDENTIALS.txt`:
 
     Web admin user: admin
-    password: Wr3000-bxjmio
+    password: Wr3***[REDACTED-2026-11-18]   (the laboratory web-admin credential from .omo-secrets, recorded because it was used; value redacted/compromised - see the 2026-11-18 publish-policy entry)
     (set 2026-09-30 by the agent during OpenWrt/custom-firmware work; **factory reset clears it**)
 
 `tools/web_login.sh` also carries a **hardcoded salt** that is NOT the page's:
@@ -13435,7 +13435,7 @@ responsibility, not his.** I went looking for it instead of asking.
 
 ## EVERYTHING I TRIED (all 403)
 
-    password        : Wr3000-bxjmio, and a set of candidate defaults (admin, password, cudy, ...)
+    password        : Wr3***[REDACTED-2026-11-18] (compromised; redacted), and a set of candidate defaults (admin, password, cudy, ...)
     salt            : the PAGE's (222f6c90...) AND the TOOL's hardcoded one (f2e81651...)
     hash form       : sha256(pw+salt) | sha256(sha256(pw+salt)) | sha256(sha256(pw+salt)+token)
                       | plaintext
@@ -17451,7 +17451,7 @@ vendor system:
     eth2 operstate = up
     eth2 speed     = 1000
     eth2 duplex    = full
-    eth2 address   = d4:0d:ab:64:1c:73         (the same MAC on both stacks)
+    eth2 address   = 02:00:00:00:00:01         (documentation value; the unit's real MAC is redacted - the same MAC on both stacks)
     /sys/bus/mdio_bus/devices/ -> 14000000.mdio0:02, :03, **:04**, :05
 
 **The mapping is confirmed: our driver's PHY-4 claim is the port that actually carries.**
@@ -20692,7 +20692,7 @@ lab mounts, mounted the vendor squashfs (`/dev/ubiblock0_0`, `/dev/mtdblock13` f
 devtmpfs, pivoted with `pivot_root(".", ".")` + `umount2(".", MNT_DETACH)`, and exec'd `/sbin/init`.
 
 The box reset on schedule and is back at 192.168.10.1, but only port 53 answers. SSH (22), HTTP (80)
-and HTTPS (443) are closed; ICMP and DNS answer, MAC d4:0d:ab:64:1c:73. The fire script gave up at
+and HTTPS (443) are closed; ICMP and DNS answer, MAC 02:00:00:00:00:01 (documentation value; real MAC redacted). The fire script gave up at
 poll 150: "VENDOR DID NOT RETURN".
 
 The likely cause is cumulative: every seed-on fire erases the first 8 MiB of the vendor's own jffs2,
@@ -24366,5 +24366,59 @@ docs/port-notes/clk/; root STATUS/EVIDENCE updated; upstream review-form series 
 parents (all decoded, never measured); no write path; kernel never booted. Attended checks: one
 read-only boot printing clk_summary and reading 0x198/0x1e0/0x90. No hardware action; box stock;
 publication NOT READY.
+
+## 2026-11-18 19:23 - PUBLISH POLICY: the root notebook goes intentionally public; lab web-admin credential and per-unit MACs redacted in HEAD (history not rewritten)
+
+Policy: `PUBLISH.md` now states the intentional-public posture for the root notebook and the
+curated repos (`cudy-wr3000v2`, `cudy-wr3000v2-openwrt`, `cudy-wr3000v2-cve`), the fresh-history
+strategy (curated repos born clean; legacy repos superseded and left to owner containment, no
+rewrite), the MIT docs/tools + GPL-2.0 kernel license split, the GPL-compatible (not clean-room)
+reverse-engineering provenance, the no-vendor-binaries/no-secrets rules, and the pre-policy
+history caveat. README/AGENTS framing updated; .gitignore gained key/credential patterns. Local
+commit only - no push, no force-push, no history rewrite (the owner decides that separately).
+
+Exposure (lead-verified 2026-11-18): the lab web-admin credential recorded in this ledger
+(PHASE 141; the `.omo-secrets` password set 2026-09-30) has been in PUBLIC git history since
+commit 2f018c0 (2026-10-12 12:53 +07), which is an ancestor of origin/master (public tip 359ee59,
+2026-11-15), and the repo has been public since 2026-10-16; the value was readable at
+`origin/master:mem-entries.md` lines 13429/13438 in every clone since. Liveness: the
+CURRENT stock box does NOT accept it (2026-11-18 auth check failed; the box has been
+factory-reset/reprovisioned since the value was set), and PHASE 141 itself measured
+byte-identical 403s for it - it is nonetheless COMPROMISED by publication and must never be
+reused. Two per-unit MACs (the `eth2` vendor MAC and the `192.168.10.2` ARP MAC recorded in this
+ledger) were public in the same history; low sensitivity, but unit-identifying.
+
+Redaction in HEAD (this commit): the password value -> `Wr3***[REDACTED-2026-11-18]` in
+`mem-entries.md`, with an inline note that it was the laboratory web-admin credential from
+`.omo-secrets`, recorded because it was used, and is redacted/compromised. Both MACs ->
+documentation values `02:00:00:00:00:01` / `02:00:00:00:00:02` in `mem-entries.md` (2 password
+sites + 3 MAC sites), `PLAN-FULL-REVERSAL.md`, `docs/archive/STATE-2026-10-30.md`,
+`tools/mk_fake_bdinfo.py`, `tools/archive/cryptbrute.py` and `tools/archive/cryptbrute2.py`.
+The static LuCI salt in `tools/web_login.sh` is a public vendor constant, not a secret: it is
+now commented as such, the ROUTER_WEB_SALT env override is documented, and the password is still
+read only from ROUTER_WEB_PASSWORD. Final `git grep` of the tracked tree for the exact
+password/MAC values: zero hits (the exposure itself is documented without republishing the
+values).
+
+Residual risk: HISTORY IS NOT CLEANED. The credential and the MACs stay readable in public commit
+2f018c0 and every descendant, in every fresh clone, until an optional `git filter-repo` purge +
+force-push - which this task must not perform and did not. The public root history also carries
+pre-policy binaries (two vendor `.ko` + four vendor-derived Lua bytecode + five of our build
+outputs), and HEAD still tracks the four `patched/*.lua` bytecode files - removing them from
+HEAD is owned by the publish-prep lane (`opensource/docs/PUBLISH-PREP.md`), not this task. The
+legacy `cudy-wr3000v2-open-firmware` repo is public with ten vendor TR6560 `.o` files reachable
+in history (never deleted from a public ref); it is superseded by the fresh-history
+`cudy-wr3000v2-openwrt` repo, and archiving/making the legacy repos private is an owner-only
+action. The `opensource/` submodule still carries the unit MAC in
+`docs/phase42/block-structure.md` and `docs/phase42/word-semantics.md` (packet hex) - separate
+submodule lane. Stale "private / NOT READY" policy wording in `EVIDENCE-INDEX.md`,
+`CURRENT-TRUTHS.md` and `REVERSAL-REPORT.md` is being reconciled by the integration lane;
+`PUBLISH.md` declares itself the policy of record in the meantime.
+
+Recommendation: (1) rotate / never reuse that web-admin password anywhere, including password
+managers and browser saves; (2) optional history purge with `git filter-repo --replace-text` and a
+force-push, only with explicit owner approval; (3) from now on the forward control is the
+no-secrets-in-tracked-text rule (AGENTS.md / PUBLISH.md) - anything committed is published
+forever.
 
 LEDGER

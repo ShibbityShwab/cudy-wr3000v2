@@ -10,6 +10,25 @@ This file is a pointer, not a status page. **The only live state page is
 [`STATUS.md`](STATUS.md).** Physical invariants are in [`BENCH-FACTS.md`](BENCH-FACTS.md);
 the procedure is [`RUNBOOK.md`](RUNBOOK.md).
 
+## Curated public repos
+
+This is an **intentionally public research notebook**: the ledger, tools, negative results and
+analysis are published on purpose. The policy, licenses and provenance live in
+[`PUBLISH.md`](PUBLISH.md). The curated surfaces are:
+
+- **[cudy-wr3000v2](https://github.com/ShibbityShwab/cudy-wr3000v2)** - this repository: the
+  bench reversal record, harness/tools and analysis. No vendor binaries, no credentials.
+- **[cudy-wr3000v2-openwrt](https://github.com/ShibbityShwab/cudy-wr3000v2-openwrt)** - the
+  curated port repo: OpenWrt target skeleton, board DTS, 19-patch kernel series, image recipe and
+  a host-validated A/B install path. Host-validated only - nothing booted or flashed, and not an
+  accepted upstream target.
+- **[cudy-wr3000v2-cve](https://github.com/ShibbityShwab/cudy-wr3000v2-cve)** - the CVE writeups
+  (CVE-2026-71960, CVE-2026-71961) with sanitized PoCs and mitigation.
+
+The `opensource/` submodule points at **`cudy-wr3000v2-open-firmware`**, a legacy pre-policy
+public repo that is superseded by `cudy-wr3000v2-openwrt`; its history is not clean (vendor `.o`
+files). See [`PUBLISH.md`](PUBLISH.md).
+
 ## The two tracks
 
 1. **Bench reversal** ([`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md)): our kernel with the
@@ -62,8 +81,8 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
 | `tools/archive/` | retired scratch and the old Wi-Fi lane (device-mutating; do not use) |
 | `tools/lab-src/` | tracked mirror of the modified kernel sources (`tools/check-lab-src.sh`) |
 | `build/linux-kbuild/` | gitignored kernel tree, toolchain, slices, fire logs, calibration snapshots, evidence (source of truth, local) |
-| `patched/` | de-crypted stock LuCI bytecode (LuaQ); evidence, not source - private |
-| `opensource/` | git submodule, the published half: docs, lab modules, vendor-stack recipe, roadmap |
+| `patched/` | de-crypted stock LuCI bytecode (LuaQ); evidence, not source - vendor-derived, not redistributable |
+| `opensource/` | git submodule: legacy open-firmware half (docs, lab modules, vendor-stack recipe; superseded by `cudy-wr3000v2-openwrt`; pre-policy history is not clean) |
 | `docs/archive/` | retired status pages and plans; history only |
 | `mem-entries.md` | append-only evidence ledger; use the index |
 
@@ -79,5 +98,8 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
   `rmmod` vendor modules. Never replace `/etc/rc.d/luofu` wholesale.
 - Snapshot calibration before an experiment; never restore without a verified
   `MANIFEST.sha256` (incomplete snapshots are refused).
-- Never commit credentials or vendor binaries/objects. The root repo is private until the
-  publish-boundary cleanup in `EVIDENCE-INDEX.md` is complete.
+- **Never commit credentials or vendor binaries/objects.** The root repo is a public
+  notebook: live values belong in gitignored `.omo-secrets/`, tracked text carries placeholders
+  only, and per-unit identifiers use documentation values. Pre-policy public history still
+  contains an older lab credential and vendor objects - see [`PUBLISH.md`](PUBLISH.md). Public
+  means published forever: redact in HEAD, record it in the ledger, rotate.

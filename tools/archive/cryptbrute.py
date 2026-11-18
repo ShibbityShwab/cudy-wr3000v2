@@ -2,7 +2,7 @@ import itertools, hashlib
 from Crypto.Cipher import AES
 data = open(r'C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2/pages/backup.bin','rb').read()
 print('cipher bytes:', len(data), data[:8].hex())
-srcs = ['WR3000','WR3000V2','WR3000 2.0','WR3000V2.0','WR3000-2.0','Cudy','cudy','Cudy-WR3000','V2.0','2.0','admin','WR3000@aes#hex','Cudy@aes#hex','0123456789abcdef','30313233343536373839616263646566','000000000000','0000000000000000','d40dab641c73','D40DAB641C73','d4:0d:ab:64:1c:73','4D50318802','CudyRouter','cudyrouter','Cudy@2023','cudygogo2018@606','WR3000V2@aes#hex','wr3000@aes#hex']
+srcs = ['WR3000','WR3000V2','WR3000 2.0','WR3000V2.0','WR3000-2.0','Cudy','cudy','Cudy-WR3000','V2.0','2.0','admin','WR3000@aes#hex','Cudy@aes#hex','0123456789abcdef','30313233343536373839616263646566','000000000000','0000000000000000','020000000001','020000000001','02:00:00:00:00:01','4D50318802','CudyRouter','cudyrouter','Cudy@2023','cudygogo2018@606','WR3000V2@aes#hex','wr3000@aes#hex']  # per-unit MAC candidates use documentation values (MAC redacted 2026-11-18)
 keys = set()
 for s in srcs:
     b = s.encode()

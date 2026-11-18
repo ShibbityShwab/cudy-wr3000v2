@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Updated:** 2026-11-16
+**Updated:** 2026-11-18
 **Read first:** `BENCH-FACTS.md` (physical invariants), `STATUS.md` (only live state),
 `RUNBOOK.md` (procedure), `LESSONS.md` (rules that cost fires).
 **This file holds no volatile state.** If a state claim appears here, it is a bug: fix the
@@ -21,9 +21,15 @@ Two tracks, deliberately separated:
    DTS, image recipe or driver series exists, and the Wi-Fi + LAN-switch + GPL source
    questions are open. Do not present bench gates as upstream progress.
 
-The published half is the `opensource/` submodule. The root repo is private research
-material and must stay private until the publish-boundary cleanup in
-`EVIDENCE-INDEX.md` is done (it tracks vendor-derived binaries/Lua and dumps).
+This repository is an **intentionally public research notebook** (`PUBLISH.md`): the ledger,
+tools, negative results and analysis are published on purpose; the curated public repos are this
+notebook, `cudy-wr3000v2-openwrt` and `cudy-wr3000v2-cve` (`PUBLISH.md`). The `opensource/`
+submodule is the superseded legacy half (its pre-policy history is not clean). Two standing
+controls apply: **no secrets in tracked text** (live values from gitignored `.omo-secrets/`;
+placeholders only) and **no vendor binaries/blobs in tracked text** (vendor-derived artifacts
+stay local and gitignored). Pre-policy public history is not
+clean - it still carries an older lab credential and vendor objects until an optional history
+purge; `PUBLISH.md` states that, and "public" never means "safe to paste a secret".
 
 ## START OF SESSION (do this, in order)
 
@@ -60,8 +66,11 @@ material and must stay private until the publish-boundary cleanup in
 - Snapshot calibration before an experiment; never restore without a verified
   `MANIFEST.sha256`. A snapshot marked incomplete must not be applied.
 - Never commit credentials or vendor binaries/objects. Live values come from `.omo-secrets/`
-  (gitignored). The published `opensource/` half must never contain vendor `.o/.ko`,
-  firmware blobs, calibration data, or extracted DTS.
+  (gitignored); tracked text carries placeholders, and per-unit MAC/serial values use
+  documentation examples. The published `opensource/` half must never contain vendor `.o/.ko`,
+  firmware blobs, calibration data, or extracted DTS. A public notebook makes this a security
+  rule, not a tidiness rule: if a secret lands in a tracked file, redact HEAD, append the
+  exposure to the ledger, and rotate it (`PUBLISH.md`).
 
 ## ENVIRONMENT (THIS CHECKOUT)
 
@@ -87,6 +96,7 @@ material and must stay private until the publish-boundary cleanup in
 | Durable rules | `LESSONS.md` |
 | Claim -> artifact -> regeneration | `EVIDENCE-INDEX.md` |
 | Bench reversal plan | `PLAN-FULL-REVERSAL.md` |
+| Publication policy, curated repos, licenses | `PUBLISH.md` |
 | Upstream roadmap / GPL request / publication | `opensource/docs/` |
 | Session brief / checks / teardown | `tools/session-brief.sh`, `tools/check-repo.sh`, `tools/bench-teardown.sh` |
 | UART capture (read-only) | `tools/uart-capture.sh` |
