@@ -24422,3 +24422,50 @@ no-secrets-in-tracked-text rule (AGENTS.md / PUBLISH.md) - anything committed is
 forever.
 
 LEDGER
+
+## 2026-11-18 19:35 - Publication pivot integrated: curated repos live, root notebook policy/redaction committed locally, first-install tooling integrated; push awaits owner approval
+
+Owner decision: the work is intentionally public for career purposes; novel work is published as
+curated repos with fresh histories while the root notebook is kept as the raw record. Standing
+controls recorded in PUBLISH.md and AGENTS.md: no secrets in tracked text (live values from
+gitignored .omo-secrets, placeholders/documentation MACs only), no vendor binaries/blobs in tracked
+text, and a leak-report path (redact HEAD, append ledger exposure note, rotate).
+
+Published (API/fresh-clone verified public, clean trees, no vendor binaries, licenses present):
+- https://github.com/ShibbityShwab/cudy-wr3000v2-openwrt - curated port repo: showcase README
+  (honest host-validated vs hardware-unverified status), 14 design/RE docs, target-skeleton with
+  patches 001-019, image/A-B install layer, MAC provisioning + pair recorder, 19-patch review-form
+  series + validation, mocked tools/tests; 5 fresh commits / 138 files; MIT docs/tools + GPL-2.0
+  kernel split; NOTICE/provenance; nothing booted/flashed.
+- https://github.com/ShibbityShwab/cudy-wr3000v2-cve - security research repo: CVE-2026-71960/71961
+  (fleet bdinfo JWT -> forged token -> root cmagent injection) and systime-RCE writeups, sanitized
+  demo-mode PoCs, affected versions, disclosure timeline/status, mitigation, methodology; 13 files,
+  MIT, no secrets/per-unit data. Note: the CVE records were already published by VulnCheck
+  2026-08-19; our contribution is the detailed technical chain.
+
+Root notebook (public, intentionally): commit 0e9f3ba adds PUBLISH.md (policy + curated-repo index
++ license/provenance + no-vendor/no-secret rules + pre-policy-history caveat), README curated
+section, AGENTS policy replacement, .gitignore secret patterns, and redacts in HEAD the lab
+web-admin password (Wr3***[REDACTED-2026-11-18], 2 sites), the per-unit eth2/ARP MACs (5 sites) and
+the hardcoded-MAC brute-force candidates (documentation MACs now). The ledger records the exposure
+(committed 2026-10-12 in 2f018c0, public since 2026-10-16; current stock fails auth but treat the
+credential as compromised), the residual public-history exposure, rotation recommendation and the
+optional owner-approved filter-repo purge plan (opensource/docs/PUBLISH-PREP.md). check-repo PASS;
+no push performed; origin/master remains 359ee59 and is an ancestor, so the eventual push is a
+plain fast-forward.
+
+First-install-from-stock tooling integrated (host-only): tools/first-install-stock.sh (1,175 lines;
+read-only inspection default; --write/--handover/--reboot require --attended --recovery-armed and a
+validated --image; inactive-pair-only writes with full-region sha256 read-back; bad-block aborts;
+active pair/rootfs_data/env/vendor data never written; measured selector handover A=0x10/B=0x11,
+selector last, env-unchanged check, 0x21 never used; recovery plan on every failure), tools/tests/
+first-install.test.sh (144/144 mocked assertions incl. the real container via luofu-image.py),
+opensource/docs/FIRST-INSTALL.md (design/sequence/loader vocabulary/rollback/risks/[U]) and the
+RUNBOOK/tools-AGENTS pointer. No device execution.
+
+Remaining before public push: owner approval to fast-forward push origin/master (59 commits; no
+force; improves the public tip by removing tracked vendor binaries) and password-rotation
+confirmation. Optional later: legacy history purge (force-push + GitHub cache purge) per
+PUBLISH-PREP.md Appendix A. Box stock; bench fires stopped; nothing device-touched.
+
+LEDGER

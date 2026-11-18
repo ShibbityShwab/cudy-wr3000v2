@@ -281,6 +281,33 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   0/0. **PLL rates/mux parents are decoded, never measured**; attended read-only `clk_summary`
   check remains.
 
+- **Public-strategy pivot (2026-11-18): curated public repos + notebook cleanup.** Owner decision:
+  the work is intentionally public for career purposes, so novel work is published as curated repos
+  with fresh histories while the root notebook is kept as the raw record. Published: 
+  **https://github.com/ShibbityShwab/cudy-wr3000v2-cve** (public, MIT, 13 files; CVE-2026-71960/71961
+  and systime-RCE writeups + sanitized demo PoCs, no secrets/per-unit data; API-verified) and
+  **https://github.com/ShibbityShwab/cudy-wr3000v2-openwrt** (public, fresh history, 5 curated
+  commits/138 files: showcase README, 14 design/RE docs, target-skeleton with patches 001-019,
+  image/A-B install layer, 19-patch review-form series, tools/tests; MIT+GPL-2.0 split; no vendor
+  binaries; API/fresh-clone verified clean). Root notebook: local redaction in
+  progress (exposed lab password and per-unit MACs in HEAD) plus PUBLISH.md policy and curated links;
+  **not pushed yet** pending owner approval. Legacy `open-firmware` submodule remains public with 10
+  vendor `.o` blobs in history/tree (B0) and the full history-purge plan is documented in
+  `opensource/docs/PUBLISH-PREP.md` (non-destructive; owner-gated). Security note: the lab web-admin
+  password in old public history must be treated as compromised (rotation recommended; the current
+  stock build no longer accepts it).
+
+- **First-install-from-stock tooling ready (2026-11-18, host-only; not run on device).**
+  `tools/first-install-stock.sh` is a fail-closed, attended installer: read-only inspection by
+  default; `--write`/`--handover`/`--reboot` require `--attended --recovery-armed` and a validated
+  `--image`; it writes **only the inactive pair** (kernel via `mtd erase`+`mtd write`, rootfs via
+  `ubiformat`) with full-region sha256 read-back, aborts on bad blocks, never writes the active
+  pair/rootfs_data/env/vendor data, and performs the selector handover using only the measured
+  `SELECTOR-0x21` semantics (A=0x10/B=0x11, selector last, env-unchanged check; 0x21 never used).
+  Mocked harness: **144/144 assertions**, including the real built container through
+  `luofu-image.py check-container`; design/recovery/rollback in `opensource/docs/FIRST-INSTALL.md`
+  and the RUNBOOK pointer. **Nothing has been written to the device.**
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

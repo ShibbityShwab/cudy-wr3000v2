@@ -121,6 +121,19 @@ fail while the box's own verify returns 0 (re-verify); the image has no `/bin/fw
 `tools/fire.sh run <phase> --detach --attended` is the historical per-phase dispatcher. It
 now runs preflight too. Do not add new per-phase scripts without a written plan.
 
+### First install from stock (host-side design; not a fire lane)
+
+The stock-to-image first-install path is documented in
+[opensource/docs/FIRST-INSTALL.md](opensource/docs/FIRST-INSTALL.md) and implemented as
+`tools/first-install-stock.sh` (read-only by default; writes only with
+`--write|--handover|--reboot --attended --recovery-armed --image <container>`; mocked
+tests `tools/tests/first-install.test.sh`). It writes only the inactive pair, verifies
+both regions with full-region sha256 read-backs and moves the selector last; the env blocks
+and the active pair are never written. It has never run on hardware. Read the document
+(preconditions, expected loader/UART output, rollback cost, [U] list) before using it; a
+`--reboot` is fire-class and still needs the recovery door armed, a read-only UART
+capture and a human at the bench.
+
 ### Validity (read this before interpreting a capture)
 
 - Ours is an **uncompressed uImage**: U-Boot prints `Image Name: Linux-5.10.201` and our

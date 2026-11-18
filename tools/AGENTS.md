@@ -21,6 +21,7 @@ Read `../BENCH-FACTS.md` and `../STATUS.md` before touching a device.
 | Recovery door | `recovery-card.sh` | checks + prints the physical RESET/TFTP card; `--arm`, `--stop` |
 | Fire gate | `fire-preflight.sh` | fail-closed checks; `--slice --slot a|b --attended` |
 | Fire cycle | `fire.sh` | `ssh`, `run`, `broker` are preflight-gated; `list/latest/status/verdict` |
+| First install from stock (design + tool) | `first-install-stock.sh`, `../opensource/docs/FIRST-INSTALL.md` | read-only by default; writes only the inactive pair and needs `--attended --recovery-armed`; mocked tests `tests/first-install.test.sh`; never executed on hardware; not a fire lane |
 | Generic SSH fire | `fire-ssh.sh` | trailer fail-closed, slot env forwarded, boot_id-verified return |
 | Device-side fire | `fire-device.sh` | runs ON THE BOX; validates MTD/device pair and handover before erasing |
 | Shadow guard | `check-init-shadow.sh` | source-level PASS/FAIL; not an artifact proof |
