@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-16 |  | 2026-11-16 00:00 - 3df fire 6: the slice is written and the handover is set, but the reboot never ran | `mem-entries.md:22619` |
 | 2026-11-16 |  | 2026-11-16 05:40 - 3df is GREEN on hardware: the shadow writes land; the blocker was never the mount | `mem-entries.md:22647` |
 | 2026-11-16 |  | 2026-11-16 15:45 - Picked up the PLT thread: STATUS is stale, the stack loads, and the init now reports every load on the console | `mem-entries.md:22687` |
 | 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 19:10 - CRG clock tree completed (019): real gate parents, fixed clocks, read-only PLL/mux providers; duplicate SKELETON-SMOKE session fixed | `mem-entries.md:24326` |
 | 2026-11-18 |  | 2026-11-18 19:23 - PUBLISH POLICY: the root notebook goes intentionally public; lab web-admin credential and per-unit MACs redacted in HEAD (history not rewritten) | `mem-entries.md:24370` |
 | 2026-11-18 |  | 2026-11-18 19:35 - Publication pivot integrated: curated repos live, root notebook policy/redaction committed locally, first-install tooling integrated; push awaits owner approval | `mem-entries.md:24426` |
+| 2026-11-18 |  | 2026-11-18 19:55 - Notebook and legacy submodule pushed (fast-forward); public trees verified clean | `mem-entries.md:24473` |
 
 ## All dated entries
 
@@ -648,3 +648,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 19:10 - CRG clock tree completed (019): real gate parents, fixed clocks, read-only PLL/mux providers; duplicate SKELETON-SMOKE session fixed | `mem-entries.md:24326` |
 | 2026-11-18 |  | 2026-11-18 19:23 - PUBLISH POLICY: the root notebook goes intentionally public; lab web-admin credential and per-unit MACs redacted in HEAD (history not rewritten) | `mem-entries.md:24370` |
 | 2026-11-18 |  | 2026-11-18 19:35 - Publication pivot integrated: curated repos live, root notebook policy/redaction committed locally, first-install tooling integrated; push awaits owner approval | `mem-entries.md:24426` |
+| 2026-11-18 |  | 2026-11-18 19:55 - Notebook and legacy submodule pushed (fast-forward); public trees verified clean | `mem-entries.md:24473` |

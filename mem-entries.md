@@ -24469,3 +24469,31 @@ confirmation. Optional later: legacy history purge (force-push + GitHub cache pu
 PUBLISH-PREP.md Appendix A. Box stock; bench fires stopped; nothing device-touched.
 
 LEDGER
+
+## 2026-11-18 19:55 - Notebook and legacy submodule pushed (fast-forward); public trees verified clean
+
+Owner approved the push and clarified the exposed lab credential was the vendor's stock/default
+password (not a unique secret) - accepted as low risk; rotation remains optional hygiene, and the
+HEAD redaction/policy stays in place.
+
+Pushed (plain fast-forward, no force):
+- root notebook cudy-wr3000v2: master 359ee59..51049b9 (60 local commits). Before the push the
+  final vendor-derived artifacts were removed from HEAD (patched/*.lua de-crypted LuCI bytecode now
+  local-only and gitignored, matching PUBLISH.md). tools/check-repo.sh PASS.
+- legacy submodule cudy-wr3000v2-open-firmware: master 7ff9242..9978723 (26 commits; publish prep,
+  first-install docs, clock-tree/019 docs, port notes). Its tip tree no longer contains vendor
+  binaries, though its pre-policy history still does (documented; optional purge plan in
+  opensource/docs/PUBLISH-PREP.md Appendix A).
+
+Remote verification: GitHub API tree scans of both master tips return no .ko/.o/.bin/.img/.dtb/
+.dtbo/.ubi files (root scan includes .lua -> none); curated repos
+ShibbityShwab/cudy-wr3000v2-openwrt and cudy-wr3000v2-cve remain public and clean. gh repo list
+shows all four public repos present.
+
+Public surface now: curated openwrt portfolio repo (fresh, clean), curated CVE research repo,
+raw public notebook (redacted HEAD, policy), legacy submodule (superseded, tip cleaned, dirty
+pre-policy history). Remaining: optional legacy history purge (owner-approved destructive plan),
+bench-inventory tool doc (lane in progress), and the attended hardware session (first-install /
+boot / inventory). Box stock, fires stopped, no device action.
+
+LEDGER

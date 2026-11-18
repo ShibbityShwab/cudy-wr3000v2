@@ -308,6 +308,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   `luofu-image.py check-container`; design/recovery/rollback in `opensource/docs/FIRST-INSTALL.md`
   and the RUNBOOK pointer. **Nothing has been written to the device.**
 
+- **Public publishing completed (2026-11-18).** The owner approved publication: the root notebook
+  was fast-forward pushed (`master` 359ee59..51049b9) after removing the last vendor-derived
+  artifacts from HEAD (`patched/*.lua` are now local-only/gitignored), and the legacy submodule was
+  pushed to a clean tip (`7ff9242..9978723`; its pre-policy history still contains the vendor `.o`
+  files - optional purge plan in `opensource/docs/PUBLISH-PREP.md`). Remote trees verified clean
+  (no `.ko/.o/.bin/.img/.dtb/.ubi`, or `.lua` in root). Live curated repos:
+  `cudy-wr3000v2-openwrt` (portfolio: docs + 001-019 series + tools) and `cudy-wr3000v2-cve`
+  (security research). The exposed lab credential was confirmed by the owner to be the vendor's
+  stock/default password (low risk; optional rotation remains hygiene).
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
