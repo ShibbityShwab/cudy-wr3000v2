@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-16 |  | 2026-11-16 17:35 - The bench lost its only write path: the vendor loader cannot boot our slot A and cannot be prompted | `mem-entries.md:22729` |
 | 2026-11-16 |  | 2026-11-16 18:25 - 3dk fired and read: the fire wrote a slot U-Boot does not boot for us, so the slice was never run | `mem-entries.md:22767` |
 | 2026-11-16 |  | 2026-11-16 19:05 - Vendor stock restored; the recovery trigger was the RESET counter, and NetworkManager was stripping the host address | `mem-entries.md:22799` |
 | 2026-11-17 |  | 2026-11-17 00:20 - Harness audit: bench re-verified, physical invariants encoded, fire lane gated, publish/upstream gaps recorded | `mem-entries.md:22835` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 19:55 - Notebook and legacy submodule pushed (fast-forward); public trees verified clean | `mem-entries.md:24473` |
 | 2026-11-18 |  | 2026-11-18 20:05 - Read-only bench inventory tool completed and integrated (145/145 mocked tests); host-side backlog finished | `mem-entries.md:24501` |
 | 2026-11-18 |  | 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed | `mem-entries.md:24543` |
+| 2026-11-18 |  | 2026-11-18 21:10 - PIE datapath ring engine + GEMAC front end implemented (patch 020), built from the measured 2026-11-18 baseline | `mem-entries.md:24592` |
 
 ## All dated entries
 
@@ -651,3 +651,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 19:55 - Notebook and legacy submodule pushed (fast-forward); public trees verified clean | `mem-entries.md:24473` |
 | 2026-11-18 |  | 2026-11-18 20:05 - Read-only bench inventory tool completed and integrated (145/145 mocked tests); host-side backlog finished | `mem-entries.md:24501` |
 | 2026-11-18 |  | 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed | `mem-entries.md:24543` |
+| 2026-11-18 |  | 2026-11-18 21:10 - PIE datapath ring engine + GEMAC front end implemented (patch 020), built from the measured 2026-11-18 baseline | `mem-entries.md:24592` |

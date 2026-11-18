@@ -24588,3 +24588,42 @@ semantics, EQM/VLAN/L2/IFC formats, and whether the stock wired-only channel mas
 model once Wi-Fi/WoC lanes are ported. Bench is idle; next bench step is the first install/boot.
 
 LEDGER
+
+## 2026-11-18 21:10 - PIE datapath ring engine + GEMAC front end implemented (patch 020), built from the measured 2026-11-18 baseline
+
+Patch 020 (sha256 806a113c9dc581ccb3d9248f1298f4cf8a48e1645228b525b1a4853f70bfa6e8, 2,148
+lines, 6 files) rewrites luofu-pie.c from the patch-015 scaffold into a ring engine and extends
+luofu-gmac.c into a phylink/netdev front end:
+- coherent 32-byte descriptor rings for the measured 2 RX / 2 TX channels (log2 8 RX descriptors
+  + 1536 B buffers, log2 12 TX descriptors); recovered v250 global/per-channel init sequence;
+  mask-all -> unmask-active; global RX enable via 0x3200 bit0; four IRQs with the recovered
+  schedule/mask/ack order; NAPI RX poll that recycles completions but deliberately does NOT decode
+  the [U] status/length words; TX producer with poll-only completion; read-back verification tears
+  the engine down on mismatch.
+- Fail-closed arm gate: probe validates resources/ring tables and refuses with -EOPNOTSUPP before
+  any register write, clock enable, reset toggle or IRQ unless luofu_pie.arm=1 on the cmdline; DTS
+  stays disabled. GEMAC only registers a netdev once the backend is armed, forwards
+  ndo_start_xmit to PIE, and writes only the measured 1 Gbps MAC link-up/down words (other speeds
+  warn instead of guessing). New luofu-pie.h + GPL-exported backend; binding gains required
+  rx-ring/tx-ring tables; Kconfig GMAC->PIE dependency and select PHYLINK (CONFIG_PHYLINK m->y is
+  the only symbol change).
+
+Validation in isolated clone (openwrt-lab-pie-datapath): series 001-020 applies RC=0 with 0
+rejects; make target/linux/prepare RC=0 (1,211 patching lines); make target/linux/compile RC=0
+with 0 warnings/0 errors under CONFIG_WERROR=y, zImage 3,276,656 B sha dfc7b753...; PIE/GEMAC/
+phylink symbols linked; TEXT_OFFSET unchanged (0x00608000, _text=stext=0xc0608000);
+dt_binding_check RC=0; board DTS zero warnings (DTB 11,430 B d3a9dd86..., ring tables
+<0x8 0x600 0x8 0x600>/<0xc 0x2>, nodes disabled); dt-validate only pre-existing findings; config
+canonical/idempotent (300 symbols); checkpatch 0/0/0; static scan no RC-misc/CA addresses and the
+arm path is the only PIE MMIO write path.
+
+Not proven: any hardware behaviour - no register has been written and nothing booted. The
+arm-time writes are evidence-graded in the SUMMARY ([V] measured sequences vs [I] inferred);
+attended checks (ring bring-up, descriptor/status decoding, IRQ behaviour, GEMAC link) remain.
+
+Integration: patch committed/pushed (submodule cf955b2), port notes pie/, shared docs
+(TARGET-DESIGN, PIE-DATAPATH, SKELETON-SMOKE, README) updated; root STATUS/EVIDENCE/ledger update.
+The upstream review-form series still covers 001-019 until the LSW patch 021 lands, when both will
+be added together. No device action; bench idle; box stock.
+
+LEDGER
