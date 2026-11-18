@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 23:15 - M2 core proven: our MDIO and GEMAC carry a real 1Gbps link | `mem-entries.md:22168` |
 | 2026-11-15 |  | 2026-11-15 01:30 - The no-op shadow was a mistake: hi_kpinctrl is load-bearing | `mem-entries.md:22196` |
 | 2026-11-15 |  | 2026-11-15 03:30 - The broker-staged fire works; the shadow writes do not land | `mem-entries.md:22223` |
 | 2026-11-15 |  | 2026-11-15 04:10 - The init's /vendor mount is read-only on this strap | `mem-entries.md:22251` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS | `mem-entries.md:23580` |
 | 2026-11-18 |  | 2026-11-18 10:55 - FMC/SPI-NAND and network drivers ported; driver series at six patches (004-009) with bindings | `mem-entries.md:23643` |
 | 2026-11-18 |  | 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated | `mem-entries.md:23702` |
+| 2026-11-18 |  | 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012 | `mem-entries.md:23757` |
 
 ## All dated entries
 
@@ -634,3 +634,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS | `mem-entries.md:23580` |
 | 2026-11-18 |  | 2026-11-18 10:55 - FMC/SPI-NAND and network drivers ported; driver series at six patches (004-009) with bindings | `mem-entries.md:23643` |
 | 2026-11-18 |  | 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated | `mem-entries.md:23702` |
+| 2026-11-18 |  | 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012 | `mem-entries.md:23757` |

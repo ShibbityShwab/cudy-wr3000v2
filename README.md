@@ -24,11 +24,11 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    compile the 6.18 kernel with the correct load address, the FIP trailer format is decoded with
    a byte-exact generator, and an own-artifact FIP kernel slice was assembled and validated
    structurally (never booted) - but **no target image was built**, no DTS was `dtbs_check`ed,
-   CRG clock/reset + watchdog, FMC/SPI-NAND, MDIO/PHY and a provisional machine-restart driver are
-   ported and compile (GEMAC is an honest partial); pinctrl, thermal, PCIe, the internal switch and
-   the GEMAC data path have an evidence-graded plan in `opensource/docs/REMAINING-DRIVERS.md`, and
-   the Wi-Fi + LAN-switch + unanswered GPL source request remain the gating programme. Bench gates
-   are not upstream progress.
+   CRG clock/reset + watchdog, FMC/SPI-NAND, MDIO/PHY, pinctrl, thermal and a provisional
+   machine-restart driver are ported and compile (GEMAC is an honest partial); PCIe host, the
+   internal switch and the GEMAC data path have an evidence-graded plan in
+   `opensource/docs/REMAINING-DRIVERS.md`, and the Wi-Fi + LAN-switch + unanswered GPL source
+   request remain the gating programme. Bench gates are not upstream progress.
 
 ## Start here
 

@@ -23753,3 +23753,54 @@ Driver series now: 001 mach-hisilicon, 002 Kconfig/textofs, 003 non-immediate TE
 box untouched (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012
+
+Pinctrl lane (patch 011-pinctrl-luofu.patch, sha256
+700bba855492352afc88dfaeca618c5f3a351bfec1734cdc294f54427fad7442):
+- New drivers/pinctrl/hisilicon/pinctrl-luofu.c (848 lines: mainline pinctrl platform driver,
+  pinctrl/pinmux/pinconf ops, pinconf_generic_dt_node_to_map_all), drivers/pinctrl/hisilicon
+  Kconfig/Makefile wiring (CONFIG_PINCTRL_LUOFU bool) and YAML binding (two windows mux 0x3c /
+  cfg 0x100; 37 pins/24 groups/24 functions; generic state form).
+- Vendor tables re-verified from the local hi_kpinctrl.ko fixture (pyelftools/capstone):
+  37 pins/24 groups/24 functions, 5-hit mux table, group-level mux RMW fields, cfg_off=4*pin.
+  Pinconf decoded from the module: pull-up/down, drive-strength [4:2], schmitt, input-enable,
+  output level ([10], 5.10 PIN_CONFIG_OUTPUT -> 6.18 PIN_CONFIG_LEVEL); unsupported params fail
+  loudly. Probe writes no mux/cfg register, no reset. No consumer pin states attached (vendor DTS
+  attaches none; needs [U]).
+- Validation isolated clone: dry-run RC=0; prepare RC=0; full compile RC=0, 0 warnings
+  (pinctrl-luofu.o 52,336 B); zImage 3,252,544 B sha a4686a41...; load contract unchanged
+  (_text=stext=0xc0608000, TEXT_OFFSET 0x00608000 -> 0x80608000); CONFIG_PINCTRL_LUOFU=y linked;
+  dt_binding_check RC=0; board DTS cpp+dtc RC=0 zero warnings (DTB 9,887 B sha eddb76f5...);
+  config re-derivation RC=0 twice byte-/symbol-identical (290 symbols); checkpatch 0/0/0;
+  devm_platform_ioremap_resource_byname only; no lab/bench breadcrumbs.
+
+Thermal lane (patch 012-arm-thermal-luofu-tvsensor.patch, sha256
+3c42f8e6a08ea159b5c3a074890ff64d8c1476f3cbc16bc7c92780b89c7edb5f):
+- New drivers/thermal/luofu_tvsensor.c (read-only, devm_thermal_of_zone_register +
+  thermal_zone_device_ops.get_temp, vendor v4 formula ((165*raw-32835)/100)*1000-40000 on
+  +0x24&0xffff), Kconfig/Makefile (CONFIG_LUOFU_TVSENSOR), YAML binding.
+- DTS: real sensor node (reg widened from vendor 0x14 to 0x100; vendor IRQ SPI 0 not claimed) +
+  cls0-thermal zone with vendor trips (115000 passive / 125000 critical, 3000 hysteresis,
+  polling-delay 1000) and no cooling map; sustainable-power dropped (units [U]).
+- Validation isolated clone: dry-run RC=0; prepare RC=0; full compile RC=0, 0 warnings; zImage
+  3,250,848 B sha 34ed6116...; supplementary CONFIG_WERROR=y rebuild identical; dt_binding_check
+  RC=0; board DTS zero warnings (DTB 9,799 B sha 2677acd7...); config re-derivation byte-identical
+  (298 symbols); checkpatch 0/0/0. Caught: thermal-zones.yaml requires *-thermal child names
+  (cls0 -> cls0-thermal), removing a pre-existing dt-validate error.
+
+Integration: both shared.patch files applied cleanly to the tree (thermal first, pinctrl second;
+disjoint hunks, no conflict markers); combined DTS compiles with cpp+dtc (9,795 B at application
+time, then 9,887 B with all nodes; zero warnings). Per-lane records moved to
+target-skeleton/docs/port-notes/{pinctrl,thermal}/SUMMARY.md (applied shared.patch files removed).
+Docs updated: README patch rows 010-012, missing-series bullet, DTS header and config legend
+ranges (004-012), TARGET-DESIGN 6.2/7.1 pinctrl+thermal rows and not-met paragraph,
+TARGET-SKELETON status, SKELETON-SMOKE eighth/ninth session sections, port-notes README.
+
+Driver series now: 001 mach-hisilicon, 002 Kconfig/textofs, 003 TEXT_OFFSET, 004 CRG, 005
+watchdog, 006 FMC/SPI-NAND, 007 MDIO, 008 Genius PHY, 009 partial GEMAC, 010 provisional restart,
+011 pinctrl, 012 thermal. Remaining: PCIe host, internal LSW switch, GEMAC data path (plans in
+REMAINING-DRIVERS.md; recommended order: PCIe host next), then image chain/rootfs/sysupgrade and
+one attended boot. Publication NOT READY; box untouched (stock), no bench fires.
+
+LEDGER

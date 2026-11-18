@@ -145,6 +145,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   blocked (no 6.18 image/install path, fires stopped), so the offline order starts with
   thermal+pinctrl, then PCIe host, then PIE/GEMAC, then LSW.
 
+- **Pinctrl and thermal ported (2026-11-18, host-only).** `011` adds
+  `drivers/pinctrl/hisilicon/pinctrl-luofu.c` (+ YAML): vendor pin tables re-verified from
+  `hi_kpinctrl.ko` (37 pins/24 groups/24 functions, 5-hit mux, cfg_off=4*pin), six pinconf params
+  decoded, probe writes nothing, consumer states still [U]. `012` adds
+  `drivers/thermal/luofu_tvsensor.c` (+ YAML): read-only vendor v4 conversion, 6.18 of-thermal API,
+  DTS `cls0-thermal` with the vendor trips (115/125 C, 3 C hysteresis, 1 s poll) and no cooling
+  map; threshold/IRQ/enable/trim registers undecoded and unwritten. Per lane: pristine dry-run,
+  prepare, **full compile RC=0** (zImages `a4686a41...`/`34ed6116...`), 0 warnings, both YAMLs
+  `dt_binding_check` PASS, zero-warning DTS (DTBs 9,887/9,799 B), config re-derivation
+  idempotent, checkpatch clean. Never booted; no bench.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
@@ -153,11 +164,11 @@ submission-ready.
 
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
-2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND and MDIO/PHY are
-   ported (GEMAC is partial); the remaining blocks are pinctrl, thermal, PCIe, the internal switch,
-   the GEMAC data path and machine restart - these have no lab driver source, so each needs a
-   documented RE/port from the vendor evidence before code. Prune the `[D-default]` other-SoC
-   Hisilicon drivers and run `dtbs_check` per binding. After that, wire the custom image chain
+2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND, MDIO/PHY,
+   pinctrl and thermal are ported (GEMAC partial; restart provisional); the remaining blocks are
+   the PCIe host, the internal switch and the GEMAC data path - planned in
+   `opensource/docs/REMAINING-DRIVERS.md`, recommended order PCIe host next. Prune the `[D-default]`
+   other-SoC Hisilicon drivers and run `dtbs_check` per binding. After that, wire the custom image chain
    (`luofu-uimage` -> `fip-slice` with the generated trailer -> `fip-manifest` -> UBI ->
    sysupgrade), resolve the board-compatible mismatch (`cudy,wr3000-v2` vs
    `hisilicon,luofu-r116`), write `platform.sh`/install, then the first attended boot of a full
