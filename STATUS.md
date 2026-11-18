@@ -268,6 +268,19 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   remain placeholders until the switch port map exists, so MACs currently reach `board.json` only;
   nothing booted.
 
+- **CRG gate parents + fixed clocks + read-only PLL/mux model (019, 2026-11-18, host-only).**
+  `019` extends the CRG driver with the real decoded gate parents (`ahb`, `gemacN`, `lsw_dp`,
+  `lsw_pfe`), two **read-only** PLLs (0x198/0x1e0: `.recalc_rate`/`.is_enabled` only, no
+  `.set_rate`; the vendor PLL write protocol was decoded but deliberately not implemented because a
+  wrong store can hang the core), two **read-only** muxes (0x138: `.get_parent` only; CPU mux never
+  writable) and the missing fixed clocks (`gemacN` 125 MHz, `lsw_dp` 166 MHz, `lsw_pfe` 333 MHz,
+  `efuse_ring` 20 MHz). The vendor `hi_clk.ko` rate equation is reproduced: parent * (int +
+  frac/2^24) / fbdiv with divider-select fields; probe stays register-free. Validated in an isolated
+  clone (series 001-019): prepare/compile RC=0, zImage `4456b0ec...`, zero warnings, TEXT_OFFSET
+  unchanged, `dt_binding_check` PASS, DTS zero warnings (11,346 B), config idempotent, checkpatch
+  0/0. **PLL rates/mux parents are decoded, never measured**; attended read-only `clk_summary`
+  check remains.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

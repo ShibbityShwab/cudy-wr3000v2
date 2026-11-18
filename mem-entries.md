@@ -24322,3 +24322,49 @@ switch port map exists; random fallback changes identity after factory reset; th
 wrap rejections are conservative policy. No hardware action; box stock; publication NOT READY.
 
 LEDGER
+
+## 2026-11-18 19:10 - CRG clock tree completed (019): real gate parents, fixed clocks, read-only PLL/mux providers; duplicate SKELETON-SMOKE session fixed
+
+Patch 019-arm-clk-luofu-clock-tree.patch (sha256
+9d86498b405e43cc05b77b46b5ce74d4dfa5256a3dd6f444690d85e0cbc0513c):
+- drivers/clk/hisilicon/crg-luofu.c: all 16 gates parented on the real decoded parents (apb, ahb,
+  gemacN, lsw_dp, lsw_pfe) via DT clocks/clock-names and of_clk_get_parent_name; two READ-ONLY PLL
+  providers (0x198/0x1e0; status word 0x90 bits 30/27, busy bit 7) implementing recalc_rate/
+  is_enabled only - no set_rate, because the vendor writer/relock protocol's feedback-word encoding
+  is inconsistent with the recalc path and a wrong store can hang the core; two READ-ONLY muxes
+  (0x138 bit 3 CPU / bit 1 efuse) with get_parent only (set_parent = -EOPNOTSUPP; CPU mux never
+  writable); CLK_IGNORE_UNUSED on gates; probe remains register-free; provisional-0x20 wording
+  retired.
+- dt-bindings header: IDs 16-19 appended (PLL_CPU/PLL_LSW/CPU_MUX/EFUSE_MUX, NR=20); existing 16
+  IDs not renumbered. YAML: required 7-input clocks/clock-names + read-only PLL/mux description.
+  No new config symbols (CONFIG_LUOFU_CRG unchanged).
+- Shared DTS: four missing fixed clocks (gemacN_clk 125 MHz, lsw_dp_clk 166 MHz, lsw_pfe_clk
+  333 MHz, efuse_ring_clk 20 MHz) + CRG clock tree; TARGET-DESIGN 6.2/7.1, README, SKELETON-SMOKE
+  section and MISC-SOC-BLOCKS 5.3 correction (bit-3 polarity + decoded equation).
+
+Decode evidence: vendor hi_clk.ko (GPL, unstripped, 15,556 B, md5 3b331b9058e13bc409dd8f0040af3b11,
+identical in both rootfs): hi_pll_recalc_rate = parent * (int + frac/2^24) / fbdiv, then non-zero
+divider-select fields word0[10:8]/word0[6:4] each add a div-factor (absent here = 0); bit 3 of word0
+byte 0 = integer-only mode; word0 byte3[5:0] = feedback divider; bit 7 = writer busy.
+
+Validation in an isolated clone (openwrt-lab-clk, series 001-019; shared clone untouched):
+prepare RC=0 (019 applied); compile RC=0 with 0 warnings/0 errors; zImage 3,264,560 B sha
+4456b0ec...; crg-luofu.o 43,900 B; TEXT_OFFSET unchanged (0x00608000, _text=stext=0xc0608000);
+dt_binding_check RC=0; board DTS cpp+dtc RC=0 zero warnings (DTB 11,346 B sha a31ab53f...);
+dt-validate RC=0 (only six pre-existing findings); five kernel_oldconfig runs RC=0, fragment
+idempotent (300 syms, .config 1b9b084e...); checkpatch driver/header/YAML 0/0; series 001-019
+applies to pristine 6.18.60 RC=0 no rejects; shared.patch git apply/patch dry+apply RC=0 on a fresh
+git archive of 0fe742f with byte-identical results and identical rebuilt DTB.
+
+Also fixed: docs/SKELETON-SMOKE.md contained the bdinfo-MAC session twice (one copy with escaped
+backticks) from the integration overlap - removed the duplicate block, single MAC session remains
+before the new CRG clock-tree section.
+
+Integration: clk shared.patch applied (DTS/TARGET-DESIGN/MISC/README/SKELETON), port notes under
+docs/port-notes/clk/; root STATUS/EVIDENCE updated; upstream review-form series being extended to
+19 patches. Not proven: PLL rate values, status-bit meaning, mux parent read-back and runtime gate
+parents (all decoded, never measured); no write path; kernel never booted. Attended checks: one
+read-only boot printing clk_summary and reading 0x198/0x1e0/0x90. No hardware action; box stock;
+publication NOT READY.
+
+LEDGER
