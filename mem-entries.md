@@ -23418,3 +23418,59 @@ collision; platform.sh/install path; GPL follow-up send (human). Box stock/healt
 stopped.
 
 LEDGER
+
+## 2026-11-18 08:55 - Kernel platform patch series + canonical 6.18 config delivered; machine code compiles with OpenWrt GCC 14.4; sole kernel blocker = TEXT_OFFSET non-immediate
+
+Delivered in opensource/target-skeleton (uncommitted until this integration):
+- target/linux/hisilicon/patches-6.18/001-arm-mach-hisilicon-luofu.patch (sha256 996bf896...):
+  new arch/arm/mach-hisilicon/{Kconfig,Makefile,luofu.c}. ARCH_LUOFU depends on the existing
+  upstream ARCH_HISI (redefining ARCH_HISI would duplicate Kconfig); machine descriptor sets only
+  dt_compat (cudy,wr3000-v2 / hisilicon,luofu-r116 / hisilicon,luofu) and the PL310 AUX replay
+  (0x430001 / ~0, with the vendor mask 0xffb0fffe and latency fields left as TODO); map_io/
+  init_early/init_time/init_machine deliberately at DT-platform defaults; .smp and .restart are
+  documented TODOs (UP-only). No bench breadcrumbs, no vendor symbol stubs, no vendor dt_compat.
+- 002-arm-kconfig-textofs.patch (sha256 278bb1a0...): arch/arm/Kconfig sources
+  mach-hisilicon/Kconfig; arch/arm/Makefile adds machine-$(CONFIG_ARCH_LUOFU) += hisilicon and
+  textofs-$(CONFIG_ARCH_LUOFU) := 0x00608000 (load address derivation 0x83200000 staging ->
+  0x80608000).
+- 003 deliberately not created: the board DTS is delivered by target dts/ + DEVICE_DTS_DIR; a
+  second copy under arch/arm/boot/dts would be the hand-maintained duplicate the design forbids.
+- luofu/config-6.18 replaced: 430 lines, 281-symbol delta derived canonically (see below);
+  provenance marked: 6 [P] platform symbols restored from the lab 5.10 config (the first attempt
+  silently dropped ARCH_MULTI_V7 and fell back to ARMv5), 46 [L] lab symbols, 22 reference
+  symbols, 13 dropped (9 not 6.18 symbols, 4 hidden), PHYLINK y->m, 12 [D-default] other-SoC
+  Hisilicon drivers pulled in by ARCH_HISI defaults (to prune or consciously keep).
+
+Verified in /home/shibbityshwab/openwrt-lab (shallow openwrt main 27663a0, linux-6.18.60):
+- patch -p1 --dry-run both patches PASS; make target/linux/prepare RC=0; patched tree contains
+  arch/arm/mach-hisilicon/*, arch/arm/Kconfig:396, arch/arm/Makefile:175 (textofs) and :200
+  (machine-).
+- canonical config path: yes '' | make kernel_oldconfig -j16 RC=0 after the tree built its own
+  host tools + OpenWrt GCC 14.4.0 toolchain (~13.5 min); emitted luofu/config-6.18; a second run
+  was byte-identical (idempotent); the committed annotated file merges through kconfig.pl to the
+  same map with no warnings.
+- compile: make target/linux/compile V=s -j16 RC=2, single blocker:
+  arch/arm/kernel/head.S:123 (and :188 via the pgtbl macro at :68; decompressor
+  arch/arm/boot/compressed/head.S:312/:410) "invalid constant (608000) after fixup" - 0x00608000
+  is not an encodable ARM rotated immediate. arch/arm/mach-hisilicon/luofu.o compiled with GCC
+  14.4 (6,028 B, __mach_desc_LUOFU + name + all three compat strings). No retain-attribute
+  errors with the real toolchain (an earlier bench GCC 11.3 attempt had hit 94).
+- evidence-only local workaround (NOT delivered, not boot evidence): CONFIG_WERROR off +
+  TEXT_OFFSET=0x00008000 override -> zImage RC=0, 3,205,816 B, sha256 9e79d591... . It proves
+  the patch/config break nothing else; it has the wrong text offset, no trailer, no rootfs, no
+  boot.
+- local-only evidence under build/linux-kbuild/waves/upstream-6.18-patches-20261118/ (logs,
+  configs, compile logs, evidence zImage, SHA256SUMS, README).
+
+Docs updated: SKELETON-SMOKE dated later-session section (commands/results/blockers),
+target-skeleton README inventory/mapping/checked-status/TODOs.
+
+Not proven: correctly-linked kernel image/load address, target image, dtbs_check, packaging,
+sysupgrade/install, boot, driver series (watchdog/CRG/thermal/pinctrl/FMC/MDIO/PHY/GEMAC/switch/
+PCIe), SMP, restart. Box untouched (stock, healthy); no bench fires.
+
+Next: clean TEXT_OFFSET core patch (4 early-boot assembly sites) or a documented encodable-offset
+alternative, then full kernel compile with the correct load address; driver/binding series; image
+chain; one attended boot.
+
+LEDGER

@@ -69,11 +69,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
 - `opensource/docs/VENDOR-SKB-BRIDGE-PORT.md` - feasibility/design spec for the optional hybrid
   vendor HYFI/bridge lane (ABI deltas, options, offset probe, staged fires, acceptance criteria).
 - `opensource/docs/DOCUMENTATION-HUNT.md` - refreshed open-gaps table.
-- `opensource/target-skeleton/` + `opensource/docs/TARGET-SKELETON.md` - first-pass target files
-  from the design (target/linux/hisilicon/luofu Makefiles/Kconfig/profile/board.d/config, a draft
-  DTS, and the `fip-slice.py` tool). Status: **SCHEMATIC but structure-validated** - copied into
-  OpenWrt `main` (commit `27663a0`), `make defconfig` PASS (device symbol generated) and
-  `make target/linux/prepare` RC=0 (kernel 6.18.60); no compile, image or boot
+- `opensource/target-skeleton/` + `opensource/docs/TARGET-SKELETON.md` - target files from the
+  design (target/linux/hisilicon/luofu Makefiles/Kconfig/profile/board.d, a draft DTS, the
+  `fip-slice.py` tool, **and a kernel platform patch series**). Status: **structure + kernel-config
+  validated, not compiled into a correct image** - copied into OpenWrt `main` (commit `27663a0`):
+  `make defconfig` PASS, `make target/linux/prepare` RC=0 (kernel 6.18.60); patches-6.18/ adds
+  arch/arm/mach-hisilicon (clean UP-only machine descriptor, ARCH_LUOFU via the existing
+  ARCH_HISI) + Kconfig/textofs; `config-6.18` was canonically re-derived (281-symbol delta,
+  idempotent) with the tree's own GCC 14.4 toolchain and the machine code compiles with it. The
+  kernel build's **sole remaining compile blocker** is `TEXT_OFFSET=0x00608000` not being an ARM
+  rotated immediate (early-boot assembly). No correct-offset kernel, image or boot yet
   (`opensource/docs/SKELETON-SMOKE.md`).
 - **FIP trailer decoded and generation implemented (2026-11-18, offline):** U-Boot `bootfip`
   fully decoded (gate, 96-byte descriptor, 11-row vendor/board match table, applier validation
@@ -91,9 +96,10 @@ submission-ready.
 
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
-2. **Turn the structure-validated skeleton into a real kernel/image build** (host-side): add the
-   kernel platform patch (mach-hisilicon/ARCH_LUOFU, machine descriptor, DTS Makefile entry,
-   `TEXT_OFFSET`), re-derive the kernel config for the tree's version, wire the custom image chain
+2. **Fix `TEXT_OFFSET` and complete the kernel/image build** (host-side): write the clean
+   early-boot assembly patch for `TEXT_OFFSET=0x00608000` (four sites in
+   `arch/arm/kernel/head.S`/`arch/arm/boot/compressed/head.S`; alternative: pick an encodable
+   offset and update the load-address assertions), then wire the custom image chain
    (`luofu-uimage` -> `fip-slice assemble` with the now-decoded trailer generator ->
    `fip-manifest` -> UBI -> sysupgrade), resolve the board compatible mismatch
    (`cudy,wr3000-v2` vs `hisilicon,luofu-r116`), the watchdog/CRG same-page unit-address
