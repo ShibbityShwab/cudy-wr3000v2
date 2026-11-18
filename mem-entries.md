@@ -23521,3 +23521,58 @@ PCIe), prune [D-default] other-SoC Hisilicon drivers, then wire the image chain 
 attended boot of a full image.
 
 LEDGER
+
+## 2026-11-18 09:30 - First own-artifact FIP kernel slice assembled and structurally validated (host-only, never booted)
+
+Deliverables (opensource/target-skeleton):
+- tools/build-kernel-slice.sh (676 lines, executable, bash -n + shellcheck clean): parameterized,
+  fail-closed host build script. Steps: cpp+dtc the draft base DTS (target-skeleton/dts/
+  luofu-r116.dts) with the kernel include paths; compile the new minimal loader-match overlay;
+  assert FDT props (base root compatible hisilicon,luofu-r116/hisilicon,luofu; overlay vendor_id
+  "hsan", compatible hsan-luofu, board_id 3, target-path "/" no-op fragment); mkimage the 6.18
+  zImage (-A arm -O linux -T kernel -C none -a/-e 0x80608000 -n "Linux-6.18.60");
+  fip-slice.py make-trailer --overlay-apply require; assemble with --loader-stage 0x83200000
+  --text-offset 0x00608000 --max-size 8650752; check; independent gate re-read; manifest.
+  SOURCE_DATE_EPOCH=0 for reproducibility; refuses missing inputs and vendor-derived paths.
+- dts/luofu-r116-overlay.dts (90 lines): minimal loader-match stub for OUR OWN base DTB (root
+  vendor_id hsan / compatible hsan-luofu / board_id 3 / one no-op fragment). Not a vendor DTBO,
+  no vendor bytes/fixups. board_id 3 is inferred from the vendor overlay the stock loader applied
+  to this unit + live R116 model [I]; a wrong value means no match/no boot.
+- SKELETON-SMOKE.md dated "fourth session" section; target-skeleton/README inventory and checked
+  status; image/luofu.mk stale comments corrected (fixed-trailer assumption and "not implemented"
+  text); docs/TARGET-SKELETON.md status updated.
+
+Verified (host-only, run1/run2 byte-identical; third clean rerun matches SHA256SUMS):
+- base DTB 8,984 B sha256 2f97313a..., overlay DTBO 230 B sha256 8e4ab83b..., uImage 3,205,264 B
+  sha256 77406f1d... (ih_size 3,205,200 = 0x30e850, ih_load=ih_ep=0x80608000 =
+  (0x83200000 & 0xf8000000)+0x00608000, name Linux-6.18.60), trailer 9,278 B sha256 aaf45c10...
+  (base 8,984 + descriptor 64 (32-byte header + 1x32 entry) + overlay 230; container total 294),
+  slice 3,214,542 B sha256 3311a3e560c0b3c3af8b68c206a0e3b2e943ed0f754185afc1e82993b120d143.
+- gate magic 0xd7b7ab1e at 0x310ba8 = 0x40 + 0x30e850 + 0x2318; 5,436,210 B under the 8,650,752
+  slot limit; manifest generated (901 B).
+- Cross-checked with independent tools (system dtc 1.8.1, fdtget, fdtoverlay; separate Python
+  re-read not using fip-slice.py): gate/descriptor/totals re-derived, embedded base DTB/DTBO
+  byte-identical to inputs, no-op apply leaves the applied tree byte-identical to base.
+- Local evidence: build/linux-kbuild/waves/upstream-6.18-slice-20261118/ (00-README index, run1/
+  run2 artifacts/logs/SHA256SUMS/SIZES/INPUTS.sha256, reproducibility, slice bytes, independent
+  checks, commands, git state). Gitignored; not published; artifacts not committed.
+
+Proven: our base DTB + our match overlay + our uImage satisfy every check the DECODED bootfip
+performs (FDT chain, descriptor constants/count/offsets/totals, gate magic at the computed offset,
+overlay match props, libfdt apply), correct uImage identity and derived load/entry, slot budget,
+reproducibility.
+Not proven: that the stock loader accepts a novel slice or that anything boots - one attended boot
+on a recovered unit is still required (also the stock U-Boot's libfdt version/applier work-buffer
+sizes are not fully decoded). No rootfs/UBI, no sysupgrade container/platform.sh/A-B selector, no
+appended DTB, no install path, no driver series, no dtbs_check.
+
+Open items: no-op overlay may need to become a real overlay if the base DTB ever depends on
+overlay-provided props; board_id=3 is inferred [I]; the bench fire preflight still expects the
+fixed 40,732-byte trailer, so adopting the generated lane needs one attended boot + preflight/
+recipe updates; image/luofu.mk still treats the trailer as a fixed input (comment corrected,
+wiring pending).
+
+Next: driver + dt-binding series; wire the generated slice into the image recipe/preflight; one
+attended boot of the generated slice when bench work resumes; GPL follow-up send (human).
+
+LEDGER

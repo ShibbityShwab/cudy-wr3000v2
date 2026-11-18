@@ -91,6 +91,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   40,732-byte artifact. A novel generated trailer still needs **one attended boot**.
   Details: `opensource/target-skeleton/docs/TRAILER-FORMAT.md`.
 
+- **First own-artifact FIP kernel slice assembled and structurally validated (2026-11-18, host-only).**
+  `target-skeleton/tools/build-kernel-slice.sh` compiles our draft DTB + a loader-match stub
+  overlay (`vendor_id=hsan`, `hsan-luofu`, `board_id=3`, no-op fragment), builds the uImage
+  (`-a/-e 0x80608000`, `Linux-6.18.60`), generates a 9,278 B trailer with `fip-slice.py
+  make-trailer`, assembles the slice and validates it: size 3,214,542 B, gate `0xd7b7ab1e` at
+  `0x310ba8`, 5,436,210 B under the slot limit, reproducible byte-for-byte. This is **not a
+  deliverable image and has never been booted**; the bench fire preflight still expects the fixed
+  40,732-byte vendor trailer, so adopting this lane needs one attended boot plus preflight/recipe
+  updates. Details: `opensource/docs/SKELETON-SMOKE.md` (2026-11-18 slice section).
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
