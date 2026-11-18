@@ -212,6 +212,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   router**; the in-boot cell/env re-stamp, NAND writes and first boot of the written pair are the
   remaining attended validations.
 
+- **Reversal report and review-form submission series (2026-11-18, host-only).**
+  `REVERSAL-REPORT.md` (1,543 lines) consolidates the whole reversal with an evidence map and the
+  remaining gates. `opensource/upstream/series-6.18/` is the 001-017 series in submission form:
+  cover letter, 17 commit messages, MAINTAINERS proposal, tree-placement rationale, sequential
+  `git am`/`patch(1)` validation on pristine linux-6.18.60 (RC=0, identical trees) and checkpatch
+  (0 errors; 46 warnings / 4 strict checks, all enumerated). Pre-submission work is documented:
+  split bindings from drivers, add MAINTAINERS, fold `014` into `004` for bisectability, DCO
+  identity/provenance, regenerate `008` on mainline. **Not submitted**, nothing booted.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

@@ -14,8 +14,9 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
 
 1. **Bench reversal** ([`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md)): our kernel with the
    vendor userspace on this unit. This is the current bench work; the hybrid image is a
-   research instrument, not a release. Current blocker: the slice-delivery lane
-   (`STATUS.md` section 3).
+   research instrument, not a release. The lab-kernel line is at its documented v17 ceiling
+   (vendor HYFI/bridge ABI; `STATUS.md` section 3) and bench fires are stopped; the upstream
+   driver/image work is a separate host-only track.
 2. **Upstream OpenWrt submission** ([`opensource/docs/TARGET-DESIGN.md`](opensource/docs/TARGET-DESIGN.md),
    [`ROADMAP-OPENWRT.md`](opensource/docs/ROADMAP-OPENWRT.md)): own target, clean-room drivers,
    accepted upstream. **Still not on track as a submission**: the concrete target/DTS/image design
@@ -46,6 +47,8 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
 | Build, fire, read, recover | [`RUNBOOK.md`](RUNBOOK.md) |
 | Rules that have cost fires | [`LESSONS.md`](LESSONS.md) |
 | Claim -> artifact | [`EVIDENCE-INDEX.md`](EVIDENCE-INDEX.md) |
+| Consolidated engineering reversal report | [`REVERSAL-REPORT.md`](REVERSAL-REPORT.md) |
+| Review-form kernel submission series (001-017) | [`opensource/upstream/series-6.18/README.md`](opensource/upstream/series-6.18/README.md) |
 | Bench reversal plan | [`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md) |
 | Unit identity and UART limits | [`HARDWARE-IDENTITY.md`](HARDWARE-IDENTITY.md) |
 | Ledger index | [`mem-entries-INDEX.md`](mem-entries-INDEX.md) |

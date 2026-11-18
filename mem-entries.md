@@ -24074,3 +24074,42 @@ sha256sum/mktemp/head and that platform_check_image re-runs there; measure 0x21 
 decide/test first-install path. Publication NOT READY; box untouched (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 16:20 - Consolidated reversal report and review-form upstream submission series (001-017) delivered and integrated
+
+Reversal report (REVERSAL-REPORT.md, root, 1,543 lines, 347 links verified): consolidated
+engineering record at pins root beea531 / submodule 4a2eddc, with an 11-part structure and
+executive summary: scope/method/evidence grading; hardware+boot chain (FIP gate/overlay match
+table/trailer analysis, selector cell, recovery); stock firmware + GPL facts (58/58 GPL modules,
+request 2026-10-01 no reply); vendor architecture + module graph; RE findings (HSLINK/rootif,
+WEXT 8-byte net_device shift, vendor sk_buff ABI +0x74/+0x78, br_* pointer variables + net_bridge
+cache trap, PIE/LSW layering, FMC SPI-NAND traps); v6-v17 lab-kernel lineage/what worked/ceiling;
+001-017 series table with host-validated vs partial/refusing; image+install path with final
+001-017 artifacts; remaining gates (G-BOOT/G-INSTALL/G-NAND, LSW D1b, PIE P3, PCIe, Wi-Fi [X],
+GPL, publish, SMP/MAC/bootargs, first-install); claim->evidence map with regeneration commands;
+limitations and publication boundary. It also flagged three documentation discrepancies that were
+fixed: the abinstall port-note container hash (001-016 0303d76a vs final 001-017 e869f105), the
+stale root README slice-delivery blocker line, and the stale TARGET-DESIGN status header.
+
+Upstream submission series (opensource/upstream/series-6.18/, 59 files, ~564 KB): cover letter
+[PATCH 00/17] with scope split (core platform / ready drivers / RFC drivers / refusing drafts /
+not-for-submission), hardware and FIP/TEXT_OFFSET dependency, test evidence and explicit
+no-hardware statement; 17 per-patch commit messages with SOB placeholders and mapping/provenance
+tables; MAINTAINERS proposal; tree-placement/rationale+bisectability notes; README (apply
+instructions, what must not be expected); commit-ready format-patch-style series/0001-0017.patch
+(identical hunks to the source patches), generator and reproducible validation script; validation
+logs/hashes. Validation: tarball linux-6.18.60 (sha 3c2f44ef...), patch(1) 17/17 RC=0 and
+git am 17/17 RC=0 with identical resulting trees, 0 fuzz/rejects, only patch 0008 applied with
+offsets (generated against OpenWrt-patched tree; content clean); series diff 59 files +6199/-4,
+no binaries; checkpatch --no-tree 0 errors, 46 warnings + 4 strict checks all enumerated (bindings
+should be separate patches 14x, MAINTAINERS 14x, 16 long CRG table lines, 2 short Kconfig help,
+spinlock comments, 2 alignment); sha256sums 34/34 OK. Pre-submission work documented: fold 0014
+into 0004 for bisectability, split bindings, add MAINTAINERS, DCO identity/provenance, regenerate
+0008 against mainline, naming/gating cleanups.
+
+Integration: root README start-here links both; STATUS/EVIDENCE-INDEX rows; opensource README
+design-layer and TARGET-DESIGN "how it relates" link the submission series; report updated to
+reference the series (not submitted). No hardware action; box stock, fires stopped; publication
+NOT READY.
+
+LEDGER
