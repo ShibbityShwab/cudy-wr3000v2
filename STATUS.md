@@ -188,29 +188,36 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   real structural `platform_check_image` and a refusing `platform_do_upgrade`,
   `opensource/target-skeleton/tools/luofu-image.py`,
   `KERNELNAME:=zImage`). In an isolated OpenWrt main clone, `make world -j16` reached **RC=0**,
-  producing `openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin` (6,175,022 B, sha256
-  `e869f105...`) with the own FIP kernel slice (3,284,486 B, `ea268be9...`), rootfs UBI (2,883,584 B,
-  `1ae08540...`), generated trailer (10,958 B) and manifest; the first (001-015) build was
-  byte-reproducible and the final (001-017) build also reached RC=0. The
+  producing `openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin` (6,185,262 B, sha256
+  `362ca4ec...`) with the own FIP kernel slice (3,285,206 B, `e0826f8e...`), rootfs UBI (2,883,584 B,
+  `97ba0488...`), generated trailer (10,958 B `0cf73b47...`) and manifest; the first (001-015) build
+  was byte-reproducible and the final corrected (001-017 + selector/recorder) build also reached RC=0. The
   container and all structural fields were independently re-read (`luofu-image.py check-container`
   PASS; real `platform_check_image` PASS; corrupted/wrong-board/foreign images refused). **Nothing has been flashed or booted**;
-  the A/B selector install path and factory image remain [U] and `platform_do_upgrade` refuses.
+  the A/B install path is implemented and mock-tested (never executed on hardware) and the
+  factory/first-install path remains [U].
 
 - **A/B selector + install path implemented (2026-11-18, host-only; hardware-unproven).** `017`
   adds `drivers/soc/hisilicon/luofu-selector.c` (+ YAML/ABI doc): a syscon-regmap interface on the
   existing SYSCTRL node (no second ioremap) exposing `current_pair` (`a`=0x10, `b`=0x11,
   `manual-b`=0x21, uninitialised/unknown), `raw`, and a write-only `next_pair` that accepts only
-  `a`/`b`, writes the measured dword and verifies read-back; probe touches no register.
+  `a`/`b`, does a low-byte RMW preserving the upper 24 bits and verifies the whole-cell read-back;
+  probe touches no register. The 0x21 research (`SELECTOR-0x21.md`) corrected the provenance: the
+  env `bootflag` is the actual pair selector, the cell is the failure record, 0x21 is the project's
+  bench value (the vendor writes only 0x10/0x11), and a successful boot requires userspace to
+  re-record the running pair.
   `platform_do_upgrade` is now implemented: two-witness active-pair detection (selector +
   booted rootfs slot), label-only inactive slot selection (`kernelb`+`rootfsb` after A, vice
   versa), slot-size validation, `mtd write` kernel + `ubiformat` rootfs with read-back, sync, then
   the selector store (last step, A pair preserved on failure); it never touches the active pair,
   `rootfs_data` or the env blocks, and refuses 0x21/unknown/mismatch/oversize/foreign images.
-  Mocked harness passes **52/52** fixture assertions and **58/58** against the real built container
-  (A→B and B→A slot choice, kernel→rootfs→sync→selector order, every refusal path). Full 001-017
-  series compiles cleanly; final world build re-running. **No write has been executed on the
-  router**; the in-boot cell/env re-stamp, NAND writes and first boot of the written pair are the
-  remaining attended validations.
+  A boot-time recorder (`/etc/init.d/luofu_record_pair`, S96) now re-records the running pair from
+  the booted rootfs slot, closing the silent-rollback gap for our image. Mocked harness passes
+  **94/94** fixture assertions and **100/100** against the real rebuilt container (A→B and B→A
+  slot choice, kernel→rootfs→sync→selector order, recorder scenarios, every refusal path). Full
+  001-017 series compiles cleanly; the corrected image is the final build above. **No write has
+  been executed on the router**; the in-boot cell/env re-stamp, NAND writes and first boot of the
+  written pair are the remaining attended validations.
 
 - **Reversal report and review-form submission series (2026-11-18, host-only).**
   `REVERSAL-REPORT.md` (1,543 lines) consolidates the whole reversal with an evidence map and the

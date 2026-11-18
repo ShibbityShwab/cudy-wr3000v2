@@ -24113,3 +24113,67 @@ reference the series (not submitted). No hardware action; box stock, fires stopp
 NOT READY.
 
 LEDGER
+
+## 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100
+
+0x21 research (opensource/docs/SELECTOR-0x21.md, 926 lines incl. resolution section; 129 [V]/20 [U]/
+6 [X]): reconstructed from read-only U-Boot disassembly, env dumps and bench records:
+- The selector is the 32-bit SYSCTRL cell 0x10100C08; the env blocks (enva mtd3/envb mtd4, one
+  128 KiB block each crc32-le(4)|flags(1)|data(131067)) hold bootcmd=bootflag pair selection.
+- The env bootflag is the ACTUAL pair selector; the cell is the failure record. The loader prints
+  bootflag/bootreg, initialises the cell from env when 0 (10/11), and bootfip stores the OPPOSITE
+  pair's low byte before Linux starts (0x11 for an A boot, 0x10 for B). A recorded value that
+  contradicts env means "last boot of that pair failed": loader re-stamps env to the other pair
+  and boots it. A successful boot therefore requires userspace to re-record the running pair
+  (vendor hsd_appm boot_done, ~16-30 s).
+- 0x21 is the PROJECT'S bench value (FLASH-PLAN/fire-device), not vendor-written; the vendor
+  userspace writes only 0x10/0x11. 0x21 boots B when env=b, bootfip then stores 0x10, and 0x21
+  never persists; a true POR clears the cell to 0 (43/43 POR sequences). A 0x21/bad handover
+  cannot strand the box (RESET-hold/TFTP recovery is entered after a POR that clears the cell).
+- Driver/installer implications: patch 017's claim that the vendor writes 0x21 was unsupported;
+  the store must be a low-byte RMW preserving the upper 24 bits (upper meaning [U]); and our
+  target was missing the boot-time pair-recorder service, so the installer's two-witness check
+  would refuse on our own system and the first reboot after a normal boot could silently flip
+  pairs.
+
+Selector fixes (patch 017, sha c991aaa50419f4b6ba0c9a37018a682c0a7a5afc66d43c611c947af25cce0f1d):
+- corrected comments/ABI/Kconfig/YAML: 0x21 = project bench value, env selects and cell records
+  failure, vendor writes only 0x10/0x11; store is now a low-byte RMW preserving upper 24 bits with
+  whole-cell read-back; probe remains register-free.
+- new target image service base-files/etc/init.d/luofu_record_pair (START=96, enabled as
+  S96luofu_record_pair): determines the booted rootfs slot from UBI mtd_num + /proc/mtd label
+  (optional ubi.mtd= cross-check), bounded wait for the selector sysfs, maps to pair a/b, writes
+  the running pair, logs, idempotent, fail-safe (never manual-b/uninitialised/unknown, never
+  touches env/mtd/devmem).
+- platform.sh comments corrected (env is the selector; handover via the loader mismatch path;
+  two-witness valid because of the recorder; non-fatal warning if the recorder is absent;
+  refusals unchanged). Harness extended with recorder scenarios: 94/94 fixture assertions and
+  100/100 with the real rebuilt container.
+
+Upstream review-form series regenerated consistently: commit message 0017 rewritten, series/0017
+and 01-commit-messages regenerated via gen-series.py --check, validation logs/hashes replaced,
+cover-letter/README/03-rationale/04-validation updated (new section 13). Revalidated: patch(1)
+17/17 RC=0 and git am 17/17 RC=0, identical trees, checkpatch default/strict 0 errors / 46
+warnings; kernel clone prepare RC=0 (1,198 patching lines), compile RC=0 0 warnings, zImage
+3,265,056 B sha 5b417ce9..., dt_binding_check RC=0, DTS zero warnings (10,664 B), config
+re-derivation byte-identical (309/309 symbols), file-mode checkpatch 0/0.
+
+Final corrected image rebuilt in an isolated clone: make world -j16 RC=0; container
+6,185,262 B sha 362ca4ece4df2b77b0e527ad5d948bbd997201ccb3bf6e2518d5ddaccbb59899; kernel slice
+3,285,206 B sha e0826f8e...; rootfs UBI 2,883,584 B sha 97ba0488...; trailer 10,958 B sha
+0cf73b47...; rootfs carries the recorder (0755) and enabled rc.d link; luofu-image.py
+check-container PASS; install harness 100/100 on this container.
+
+Integration: selectorfix shared.patch applied (10 files incl. docs/upstream-series updates), the
+new SELECTOR-0x21.md and recorder file committed, incoming dir removed; root README start-here,
+STATUS image/A-B bullets and EVIDENCE rows updated with corrected semantics/hashes; opensource
+README and TARGET-DESIGN link SELECTOR-0x21.md.
+
+Proven host-only: corrected selector ABI/compile/binding/DTS/config/checkpatch; recorder
+installed+enabled in a rebuilt image and behaviourally covered; install ordering/refusals
+preserved; upstream series consistent. Unverified [U]: all hardware behaviour - in-boot cell vs
+running pair (incl. after the recorder), POR clearing/normalisation chain, upper-24-bit meaning,
+env re-stamp, recorder timing on silicon, NAND writes/first boot of a written pair, full attended
+A/B install. Box untouched (stock); no bench fires; publication NOT READY.
+
+LEDGER

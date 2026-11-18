@@ -8,7 +8,14 @@ derived from the committed record or from local read-only artifacts named in
 **Pins:** root repository `beea531` (`beea531114d752aef196451dedb8ae73ce2e36c2`), published
 submodule `4a2eddc` (`4a2eddc48d4f46c44dbd0bbcc27f0c7a2eb134cb`), both 2026-11-18 15:45 +07.
 **Live state:** [`STATUS.md`](STATUS.md) is the only live status page; this report consolidates the
-record at the pins above and must not be read as current bench state. Physical invariants:
+record at the pins above and must not be read as current bench state.
+
+> **Addendum (2026-11-18 16:55, after the pins above).** The 0x21/slot-selector evidence review
+> ([`opensource/docs/SELECTOR-0x21.md`](opensource/docs/SELECTOR-0x21.md)) corrected patch 017
+> (low-byte RMW, bench-value provenance for 0x21) and added the target's boot-time pair recorder.
+> The current final 001-017 container is 6,185,262 B sha256 `362ca4ec...`, kernel slice
+> `e0826f8e...`, rootfs UBI `97ba0488...`; the `e869f105...`/`ea268be9...`/`1ae08540...` hashes
+> in Section 8 describe the pre-correction build. Nothing has been booted or flashed either way. Physical invariants:
 [`BENCH-FACTS.md`](BENCH-FACTS.md). Claim→artifact map: [`EVIDENCE-INDEX.md`](EVIDENCE-INDEX.md).
 The append-only ledger is [`mem-entries.md`](mem-entries.md) (index:
 [`mem-entries-INDEX.md`](mem-entries-INDEX.md)); the newest dated ledger entry wins over any older
@@ -1173,7 +1180,7 @@ rootfs format or selector store. `RAMFS_COPY_BIN` includes `mktemp sha256sum hea
 in `DEFAULT_PACKAGES` because the write path calls `ubiformat`. [V]
 [`opensource/target-skeleton/docs/port-notes/abinstall/SUMMARY.md`](opensource/target-skeleton/docs/port-notes/abinstall/SUMMARY.md) §3, §5.
 
-**Mocked validation** (host-only): `tools/test-platform-abinstall.sh` sources the real
+**Mocked validation** (host-only): `opensource/target-skeleton/tools/test-platform-abinstall.sh` sources the real
 `platform.sh` against fake `/proc/mtd`, fake `ubi0/mtd_num`, fake selector sysfs and
 `mtd`/`ubiformat`/`sync`/`reboot` shims: **52/52** fixture assertions pass and **58/58** pass with
 `--container` on the real built image, covering A→B and B→A choice, the required
@@ -1442,7 +1449,7 @@ They require a human at the bench and the recovery door READY; the UART path is 
 
 | # | discrepancy | resolution |
 | --- | --- | --- |
-| 1 | A/B port note quotes the "real built" container as `6,185,262 B` sha `0303d76a…`, while the final 001–017 ledger/EVIDENCE-INDEX value is `6,185,262 B` sha `e869f105…` (`0303d76a…` is the 001–016 build) | re-run `test-platform-abinstall.sh --container <final image>` and record the pairing; this report treats `e869f105…` as the final 001–017 container (§8.7) |
+| 1 | A/B port note quotes the "real built" container as `6,185,262 B` sha `0303d76a…`, while the final 001–017 ledger/EVIDENCE-INDEX value is `6,185,262 B` sha `e869f105…` (`0303d76a…` is the 001–016 build) | re-run `opensource/target-skeleton/tools/test-platform-abinstall.sh --container <final image>` and record the pairing; this report treats `e869f105…` as the pre-correction 001–017 container (see the addendum for the post-correction `362ca4ec…`) |
 | 2 | root [`README.md`](README.md) two-track bullet still says "Current blocker: the slice-delivery lane"; [`STATUS.md`](STATUS.md) §3 records the bench line at its documented ceiling with fires stopped | STATUS wins (per [`AGENTS.md`](AGENTS.md): STATUS is the only live page); README is a pointer and should be regenerated at session end. Not edited by this report (the deliverable is this new root file only) |
 | 3 | [`opensource/docs/TARGET-DESIGN.md`](opensource/docs/TARGET-DESIGN.md) header still describes only "the first two drivers" as drafts, while its §7.1 and [`STATUS.md`](STATUS.md) §3 record the whole 001–017 series | read the per-section status rows and STATUS; the design header predates the later lanes. Not edited by this report |
 | 4 | [`opensource/docs/PORT-STATUS.md`](opensource/docs/PORT-STATUS.md), [`DEPLOYMENT-DECISION.md`](opensource/docs/DEPLOYMENT-DECISION.md), [`HYBRID-IMAGE-PLAN.md`](opensource/docs/HYBRID-IMAGE-PLAN.md) are historical/superseded | they carry their own banners; do not use for current state |
