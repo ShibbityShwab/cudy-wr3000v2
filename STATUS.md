@@ -69,6 +69,10 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
 - `opensource/docs/VENDOR-SKB-BRIDGE-PORT.md` - feasibility/design spec for the optional hybrid
   vendor HYFI/bridge lane (ABI deltas, options, offset probe, staged fires, acceptance criteria).
 - `opensource/docs/DOCUMENTATION-HUNT.md` - refreshed open-gaps table.
+- `opensource/target-skeleton/` + `opensource/docs/TARGET-SKELETON.md` - first-pass target files
+  from the design (target/linux/hisilicon/luofu Makefiles/Kconfig/profile/board.d/config, a draft
+  DTS, and a fail-closed `fip-slice.py` that refuses to fabricate the trailer). Status:
+  **UNTESTED / SCHEMATIC** - never built in an OpenWrt tree and never run on hardware.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
@@ -78,10 +82,11 @@ submission-ready.
 
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
-2. **Implement the OpenWrt target skeleton from TARGET-DESIGN.md** (host-side, no bench): create
-   `target/linux/hisilicon/` (Kconfig, `image/Makefile`, `luofu/target.mk`, device stanza),
-   convert `tools/lab-src/arch/arm/boot/dts/luofu-r116.dts` to the upstreamable form, and build the
-   first image recipe against the FIP trailer. This is the next real upstream increment.
+2. **Take the skeleton into a real OpenWrt tree and close its open questions** (host-side, no
+   bench): board compatible mismatch (`cudy,wr3000-v2` vs `hisilicon,luofu-r116`), DTS delivery
+   mechanism, FIP trailer generation (the schematic tool refuses; descriptor words +8..+28 and the
+   overlay match rule are still unknown), watchdog/CRG same-page unit-address collision, and the
+   platform.sh/sysupgrade install path. Build and `dtbs_check` it there before claiming a target.
 3. **Consolidate the reversal evidence**: EVIDENCE-INDEX rows for the v6-v17 line, publish-readiness
    purge plan, and the reversal report.
 4. **Optional, only if resumed:** the vendor `sk_buff`/bridge/HYFI port strictly per

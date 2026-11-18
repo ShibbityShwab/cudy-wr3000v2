@@ -23323,3 +23323,44 @@ Next: send the GPL follow-up (human); implement target/linux/hisilicon/luofu ske
 TARGET-DESIGN.md; consolidate reversal evidence; optional hybrid lane only per its spec.
 
 LEDGER
+
+## 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool
+
+opensource/target-skeleton/ (10 files) + opensource/docs/TARGET-SKELETON.md, generated from
+TARGET-DESIGN.md sections 4-6 and clearly marked UNTESTED / SCHEMATIC / NOT A WORKING TARGET:
+- target/linux/hisilicon/{Makefile,Kconfig} and luofu/{target.mk, profiles/cudy_wr3000-v2.mk,
+  image/Makefile, config-5.10 (lab-derived reference, explicitly not final), base-files board.d}
+  - target/subtarget layout, FIP-slice assembly calls, UBI geometry, A/B sysupgrade metadata sketch,
+    board.d deliberately configures no interface (the LSW switch has no driver).
+- dts/luofu-r116.dts (841 lines): draft from the lab DTS with fixed-partitions (stock upgrade
+  0x1d80000), CRG/watchdog/pinctrl/FMC/gmac/mdio/phy/LSW/PIE/PCIe (misc window NEVER-READ warning),
+  thermal; every proposed hisilicon,luofu-* compatible carries TODO(binding) - no invented bindings,
+  no vendor DTS bytes.
+- tools/fip-slice.py (556 lines, executable): check (read-only), assemble (fail-closed gate/size/
+  uImage/FDT validation, load/entry derived from TEXT_OFFSET), manifest (fip-manifest), and
+  make-trailer which validates inputs then REFUSES (exit 3) because the 96-byte overlay-container
+  descriptor (+8..+28), the overlay match rule and the 96-byte vendor-tail difference are still
+  unknown. It never embeds vendor bytes and never skips the gate check.
+Self-checks (host-only, no build/boot): python py_compile PASS; check/assemble/manifest PASS on a
+synthetic uImage + the local 40,732-byte bench trailer; negatives (tampered gate, truncated slice,
+bad magic, wrong derived load address, overwrite guard) all exit non-zero; make-trailer refuses
+exit 3; DTS compiles with cpp+dtc with exactly one expected warning
+(unique_unit_address for the CRG/watchdog share at 0x14880000); sh -n on board.d PASS; no
+.pyc/.bin/.dtb committed.
+
+Open questions handed to the implementation step (also in the skeleton README):
+board compatible mismatch (skeleton DTS keeps hisilicon,luofu-r116; image recipe/sysupgrade would
+use cudy,wr3000-v2), DTS delivery mechanism (target dts/ vs kernel patch under arch/arm/boot/dts),
+trailer generation blocked on the unknown descriptor/overlay rule (+ one attended boot),
+watchdog/CRG unit-address collision, platform.sh + install path unwritten (A/B selector/install
+protocol unknown), switch DSA-vs-switchdev decision, SMP/Wi-Fi out of first scope.
+
+Publication: NOT READY still (vendor .o history purge, GPL-2.0 license text/DCO, GPL reply/receipt,
+wifi/LAN statements). opensource/README.md, docs/PUBLISH-READINESS.md and root STATUS/EVIDENCE-INDEX
+were updated to say the design layer exists but **no working target/DTS/image recipe/driver series**
+has been built or tested.
+
+Next: take the skeleton into a real OpenWrt tree, close the open questions, run dtbs_check/build;
+send the GPL follow-up (human); consolidate the reversal evidence/report.
+
+LEDGER
