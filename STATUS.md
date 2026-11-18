@@ -228,6 +228,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   split bindings from drivers, add MAINTAINERS, fold `014` into `004` for bisectability, DCO
   identity/provenance, regenerate `008` on mainline. **Not submitted**, nothing booted.
 
+- **MAC source resolved; remaining SoC blocks decided (2026-11-18, host-only).**
+  `opensource/docs/MISC-SOC-BLOCKS.md` (1,146 lines) decodes the remaining SoC blocks. Key result:
+  the **factory MAC is in the encrypted `bdinfo` partition** (mtd6) with a plaintext 6-byte copy at
+  `0xde00` (vendor userspace uses `mtd_get_mac_binary bdinfo 0xde00`; WAN = base+1); the efuse has
+  **no MAC cell**, `fac` has no plaintext MAC, and U-Boot `ethaddr` is a random locally-administered
+  address, not the factory MAC. Other decisions: eFuse write path not to be ported (one-way
+  fences/key material), RNG is a software jitterentropy wrapper (drop), LED PWM is absent on this
+  board, PMU PWM is the `vdd_logic` pwm-regulator (optional attended power-rail work), and the CRG
+  parents/PLLs/muxes are decoded for a future clock-model extension (the vendor's real parents are
+  recorded; patch `004`'s "provisional 0x20 offsets" are resolved in the decoded table). No
+  bindings invented; TARGET-DESIGN open question 5 is now resolved.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

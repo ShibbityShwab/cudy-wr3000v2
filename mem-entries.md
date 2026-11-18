@@ -24195,3 +24195,50 @@ Next reversal lanes started: SMP/platsmp RE + draft, and a misc-SoC-blocks RE sp
 RNG, LED/PMU PWM, CRG parents/PLLs/mux, sysctrl/sysenv nvmem).
 
 LEDGER
+
+## 2026-11-18 18:05 - Remaining SoC blocks decoded: MAC source resolved (bdinfo 0xde00); efuse/RNG/LED-PWM/PMU-PWM/CRG-parents decisions recorded
+
+Deliverable: opensource/docs/MISC-SOC-BLOCKS.md (1,146 lines, sha 1f9d727e...), host-only static
+analysis of local vendor modules (hi_ksysenv, hi_kmac, hi_efuse, hi_kjent_rng, led/pmu pwm, CRG
+related), dumps/router-20261108 raw DTBs/kernel image, both rootfs trees and the committed series.
+
+Key result - MAC source RESOLVED (TARGET-DESIGN open question 5 [U] -> [V]): the factory MAC is in
+the encrypted bdinfo partition (mtd6), 4-byte header + DES-CBC text + plaintext 6-byte copy at
+0xde00; vendor userspace reads it via "bdinfo mac" and "mtd_get_mac_binary bdinfo 0xde00"
+(2.5.24 99_fixwan:41; 2.4.15 board.d/02_network:25-29), WAN = base+1. U-Boot ethaddr is a
+locally-administered random value, not the factory MAC. efuse has no MAC cell; fac has no plaintext
+MAC copy (byte search 0 hits). hi_kmac starts netdevs with get_random_bytes() + local bit and relies
+on userspace ndo_set_mac_address. Recommended follow-up: bdinfo read path/nvmem + device-page MAC
+wiring.
+
+Other block decisions:
+- efuse/nvmem: cell census (ns/chip_key/sec_ctrl/online) with offsets/bits and three syscon
+  windows; safe read = one regmap_bulk_read; write sequence decoded but NOT to be ported (one-way
+  fences incl. bootrom_forbid and key material; vendor sysfs mode 0644).
+- RNG: no hardware block; hsen,jent-rng has no reg/irq and hi_kjent_rng wraps the software
+  jitterentropy_rng (devm_hwrng_register, quality 512); drop in favour of mainline jitterentropy +
+  urngd.
+- LED PWM: dead on this board (no driver in either rootfs or extracted vendor vmlinux, no
+  consumer); out of scope.
+- PMU PWM at 0x14900800: CPU vdd_logic pwm-regulator (740-1040 mV, duty 100 0, avs pin function,
+  <=255-cycle period); optional M-effort attended power-rail work.
+- CRG parents/PLL/mux: vendor DT gives the real gate parents (ahb 200M, gemacN 125M, lsw_dp 166M,
+  lsw_pfe 333M, efuse_ring 20M), PLL nodes 0x198/0x1e0 with status/busy and 12-bit int/24-bit
+  frac/6-bit fbdiv decode (integer multiplier 16..3200) and 0x138 muxes; patch 004's "provisional
+  0x20 offsets" resolved via raw-DTB decode; vendor writes 0x138 for the efuse mux while CPU mux
+  bit 3 must stay read-only. Recommended follow-up: extend CRG driver with parents/PLL model.
+- SYSCTRL/sysenv: patches 010/017 already own the selector; hi_ksysenv boot_reg RMW/boot_done flip
+  decoded; optional board_id-offset chip_type/rf_slave_type absent on this board; cells 0xc00
+  (SMP), 0xc10 (reset record) noted, bench crumbs 0xc18/0xc94 never modelled; nvmem deferred.
+
+Doc includes per-block [V]/[I]/[U]/[X], framework/binding sketches, dependency map, offline-vs-
+attended split, risks, recommended order (MAC -> CRG parents -> SYSCTRL close-out -> efuse read-only
+-> PLL -> PMU PWM; do not do efuse-write/LED-PWM/RNG), summary table and evidence map.
+
+Integration: TARGET-DESIGN open question 5 marked resolved and 6.2/7.1 rows updated with the
+decisions; REMAINING-DRIVERS out-of-scope note points at the doc; opensource README design layer
+cleaned and now links all plan docs incl MISC-SOC-BLOCKS; root STATUS/EVIDENCE/ledger updated.
+No bindings invented; clk-parents extension/nvmem MAC read path remain unwritten follow-ups.
+No hardware action; box stock; bench fires stopped; publication NOT READY.
+
+LEDGER

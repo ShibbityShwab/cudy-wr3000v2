@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-15 |  | 2026-11-15 16:05 - 3df broker fire 4: the instrument shipped, the box booted stock | `mem-entries.md:22396` |
 | 2026-11-15 |  | 2026-11-15 16:20 - The box went silent after the first handover reboot; recovery needs a physical power cycle | `mem-entries.md:22439` |
 | 2026-11-15 |  | 2026-11-15 18:30 - Bench recovered by TFTP; the calibration snapshot is real now, and 3df stays unmeasured | `mem-entries.md:22477` |
 | 2026-11-15 |  | 2026-11-15 18:45 - 3df debugged off the box: the wfile channel works, and it is the kmsg line nobody read | `mem-entries.md:22506` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 16:20 - Consolidated reversal report and review-form upstream submission series (001-017) delivered and integrated | `mem-entries.md:24078` |
 | 2026-11-18 |  | 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100 | `mem-entries.md:24117` |
 | 2026-11-18 |  | 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved | `mem-entries.md:24181` |
+| 2026-11-18 |  | 2026-11-18 18:05 - Remaining SoC blocks decoded: MAC source resolved (bdinfo 0xde00); efuse/RNG/LED-PWM/PMU-PWM/CRG-parents decisions recorded | `mem-entries.md:24199` |
 
 ## All dated entries
 
@@ -642,3 +642,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 16:20 - Consolidated reversal report and review-form upstream submission series (001-017) delivered and integrated | `mem-entries.md:24078` |
 | 2026-11-18 |  | 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100 | `mem-entries.md:24117` |
 | 2026-11-18 |  | 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved | `mem-entries.md:24181` |
+| 2026-11-18 |  | 2026-11-18 18:05 - Remaining SoC blocks decoded: MAC source resolved (bdinfo 0xde00); efuse/RNG/LED-PWM/PMU-PWM/CRG-parents decisions recorded | `mem-entries.md:24199` |
