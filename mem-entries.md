@@ -24002,3 +24002,75 @@ Next: LSW D1b attended read-only inventory; one attended boot of the generated i
 validation. Publication NOT READY; box untouched (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 15:55 - A/B selector driver (017) and install path implemented; final 001-017 image build RC=0 with 58/58 mocked install assertions on the real container
+
+A/B lane (patch 017-soc-luofu-boot-selector.patch, sha256
+c639642a7648bf4f4c16390560f81afb496ff7afd16e7a3b0b08e6d9bfef524b):
+- New drivers/soc/hisilicon/luofu-selector.c + hisilicon,luofu-boot-selector.yaml +
+  Documentation/ABI doc + Kconfig LUOFU_SELECTOR/Makefile. Uses syscon_regmap_lookup_by_phandle
+  on the existing shared SYSCTRL syscon (no ioremap/page claim); probe does zero register access;
+  first access is a userspace read/store.
+- ABI: current_pair RO (a=0x10, b=0x11, manual-b=0x21, uninitialised=0x00, unknown), raw RO,
+  next_pair WO accepting only a->0x10 / b->0x11, full-dword write + read-back verification
+  (-EIO if not sticky), nothing invented. DTS node enabled with hisilicon,sysctrl = <&sysctrl>
+  and selector offset 0x0c08.
+- Selector semantics evidence: 0x10 A pair (kernela mtd11 + rootfsa mtd13), 0x11 B pair (kernelb
+  mtd12 + rootfsb mtd14) from controlled loader tests/ledger phase 67; 0x21 vendor sysenv
+  manual/recovery B handover (reported manual-b, automated installer refuses); 0x00 uninitialised
+  at POR (refused). Env blocks enva mtd3/envb mtd4 are not written: bootflag is an output the
+  loader re-stamps from the cell; the re-stamp is the remaining [U] item for one attended A/B
+  validation.
+- platform_do_upgrade (platform.sh, +362/-42): re-runs platform_check_image; active pair from two
+  witnesses that must agree (luofu-selector current_pair + booted rootfs slot via
+  /sys/class/ubi/ubi0/mtd_num with /proc/mtd label); inactive pair located by /proc/mtd label
+  only (kernelb+rootfsb after A, kernela+rootfsa after B); validates against measured kernel slot
+  8,650,752 B and rootfs partition 24,379,392 B (image budgets 8,650,752/24,313,856 B); mtd write
+  kernel with exact-length md5 read-back; ubiformat rootfs with PEB0 UBI#/UBI! read-back; sync;
+  then selector store last (active pair preserved/restored on failure); returns so do_stage2
+  reboots. Never touches the active pair, rootfs_data mtd15 or the env blocks; RAMFS_COPY_BIN
+  includes mktemp sha256sum head; refusals for 0x21/unknown/missing selector/pair mismatch/
+  oversize/foreign image/failed writes/selector store/re-check.
+- New mocked harness tools/test-platform-abinstall.sh (549 lines): fake /proc/mtd, selector sysfs,
+  mtd/ubiformat/reboot; 52/52 fixture assertions PASS and 58/58 PASS with --container on the real
+  built image (A->B and B->A slot choice, kernel->rootfs->sync->selector order, all refusal paths).
+- Validation in isolated clone: patch 017 pristine dry-run RC=0; chained 001-017 apply RC=0
+  (0 .rej/.orig); prepare RC=0; compile RC=0 with 0 warnings under CONFIG_WERROR=y; zImage
+  3,262,472 B sha a4e4f6c0...; CONFIG_LUOFU_SELECTOR=y and luofu_selector_probe in System.map;
+  TEXT_OFFSET unchanged; dt_binding_check RC=0; board DTS zero warnings (DTB 10,664 B sha
+  5726f7cd...); dt-validate RC=0; config canonical re-derivation byte-identical (309/309
+  symbols); checkpatch 0/0 on driver/YAML/ABI; sh -n platform.sh, bash -n harness clean.
+- ubi-utils added to DEFAULT_PACKAGES in shared.patch; an explicit target package compile
+  attempt failed earlier in the clone's incomplete hostpkg tree (host apk), unrelated; the full
+  make world (below) covers it.
+
+Final 001-017 world build (isolated clone openwrt-lab-image, target synced from repo with all
+patches 001-017, dts incl. .dtso, scripts/fip-slice.py + luofu-image.py, platform.sh and
+selector): make world -j16 RC=0. Final artifacts: sysupgrade
+openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin 6,185,262 B sha
+e869f105ee547a6017a86926ae5629730b51b165a9303d179c7c1fe819f44065; own FIP kernel slice
+3,284,486 B sha ea268be93de6ce15660aead24b0308f35416736609f628293d8120dacfd0f9ce; rootfs UBI
+2,883,584 B sha 1ae085409a6a24d457d7063d37e3f5d0c00e952f82b9611ccae47f679944985a; trailer 10,958 B
+sha 0cf73b4739a6600a2df1f9d7da81385a9df5cb14fb05e4bb97707942e7acaed3. luofu-image.py
+check-container PASS (kernel 0x80608000/0x80608000, gate 0xd7b7ab1e at 0x321ce0, rootfs
+squashfs static used_ebs 20, both slots within budget, NOT FLASHABLE marker). Mocked harness on
+this real container: 58/58 PASS.
+
+Integration: abinstall shared.patch applied (10 files: DTS boot-selector node, CONFIG_LUOFU_SELECTOR,
+ubi-utils in DEFAULT_PACKAGES, README/SKELETON-SMOKE/TARGET-DESIGN/TARGET-SKELETON/port-notes,
+new port-notes/abinstall/SUMMARY.md); incoming dir removed; STATUS/EVIDENCE/README/ledger updated
+with the install path and final artifact hashes; overlay canonicalized earlier to .dtso.
+
+Proven (host-only): selector ABI values and stores, install sequence and every refusal path, the
+final image builds end-to-end with all 001-017 patches, a real container passes the mocked install
+harness. Not proven (hardware): in-boot cell value after a real handover, loader env re-stamp,
+NAND writes under FMC/ECC/bad blocks, first boot of the written pair, rollback, restart-driver
+write-same interaction; container never booted, still NOT FLASHABLE.
+
+Remaining hardware TODOs: one attended A/B validation (upgrade -> boot written pair -> confirm
+other rootfs attaches and current_pair matches -> switch back); read fw_printenv bootflag after
+that boot; NAND geometry includes a bad-block case; confirm the ramfs ships mtd/ubiformat/
+sha256sum/mktemp/head and that platform_check_image re-runs there; measure 0x21 in-boot state;
+decide/test first-install path. Publication NOT READY; box untouched (stock), no bench fires.
+
+LEDGER

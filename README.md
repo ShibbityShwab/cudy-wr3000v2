@@ -23,8 +23,10 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    OpenWrt main (`make defconfig` + `target/linux/prepare`), the kernel platform patches now
    compile the 6.18 kernel with the correct load address, the FIP trailer format is decoded with
    a byte-exact generator, an own-artifact FIP kernel slice was assembled and validated
-   structurally, and a **real target image now builds end-to-end** (`make world` RC=0, reproducible,
-   host-only - never flashed or booted) - but no DTS was `dtbs_check`ed,
+   structurally, a **real target image now builds end-to-end** (`make world` RC=0, reproducible,
+   host-only - never flashed or booted), and an **A/B install path exists** (selector driver +
+   platform_do_upgrade implemented and mock-tested; never executed on hardware) - but no DTS was
+   `dtbs_check`ed,
    CRG clock/reset + watchdog, FMC/SPI-NAND, MDIO/PHY, pinctrl, thermal, a provisional
    machine-restart driver, the PCIe host and a refusing PIE packet-engine draft are ported and
    compile (GEMAC is an honest partial; the CRG reset polarity was corrected); the internal switch
