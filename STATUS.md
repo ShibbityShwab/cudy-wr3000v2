@@ -318,6 +318,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   (security research). The exposed lab credential was confirmed by the owner to be the vendor's
   stock/default password (low risk; optional rotation remains hygiene).
 
+- **Read-only bench inventory tool ready (2026-11-18, host-only; never run on hardware).**
+  `tools/bench-inventory.sh` performs **600 static allowlisted 32-bit reads** (LSW/PIE/CRG/SYSCTRL)
+  under fail-closed gates (attended/transport/no-active-fire/bench-link PASS/recovery READY/
+  read-only UART/stock health) with re-scanned read-only scripts, a denylist for the RC misc window
+  and forbidden CA, aligned dwords only, batching/timeouts, and PARTIAL/INVALID handling. Evidence
+  bundles carry spec-mapped JSON/TSV, raw batches, DT/mtd/cmdline/UBI/clk context and SHA256SUMS;
+  the attended procedure and expected-value tables are in
+  `opensource/docs/BENCH-READONLY-INVENTORY.md`. Mocked suite: **145/145** assertions PASS, shellcheck
+  clean. This is the first step of the next attended session (it closes the LSW D1b baseline, PIE P3,
+  clk-rate and SYSCTRL [U] items without any write).
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

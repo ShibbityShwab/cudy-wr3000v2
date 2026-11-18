@@ -22,6 +22,7 @@ Read `../BENCH-FACTS.md` and `../STATUS.md` before touching a device.
 | Fire gate | `fire-preflight.sh` | fail-closed checks; `--slice --slot a|b --attended` |
 | Fire cycle | `fire.sh` | `ssh`, `run`, `broker` are preflight-gated; `list/latest/status/verdict` |
 | First install from stock (design + tool) | `first-install-stock.sh`, `../opensource/docs/FIRST-INSTALL.md` | read-only by default; writes only the inactive pair and needs `--attended --recovery-armed`; mocked tests `tests/first-install.test.sh`; never executed on hardware; not a fire lane |
+| Read-only bench inventory | `bench-inventory.sh` | 600 allowlisted 32-bit reads (LSW/PIE/CRG/SYSCTRL), fail-closed gates (attended/transport/bench-link/recovery/UART/stock health), never writes, never reads the RC misc window; `--check-only`, `--print-plan`, `--explain`; tests `tests/bench-inventory.test.sh`; procedure `../opensource/docs/BENCH-READONLY-INVENTORY.md` |
 | Generic SSH fire | `fire-ssh.sh` | trailer fail-closed, slot env forwarded, boot_id-verified return |
 | Device-side fire | `fire-device.sh` | runs ON THE BOX; validates MTD/device pair and handover before erasing |
 | Shadow guard | `check-init-shadow.sh` | source-level PASS/FAIL; not an artifact proof |

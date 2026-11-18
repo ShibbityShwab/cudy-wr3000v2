@@ -24497,3 +24497,45 @@ bench-inventory tool doc (lane in progress), and the attended hardware session (
 boot / inventory). Box stock, fires stopped, no device action.
 
 LEDGER
+
+## 2026-11-18 20:05 - Read-only bench inventory tool completed and integrated (145/145 mocked tests); host-side backlog finished
+
+Deliverables:
+- tools/bench-inventory.sh (1,702 lines): 600 static allowlisted 32-bit reads - LSW 476
+  (dp/eps/eqm/fam/ips/pfe windows, opp+0x42800 table A 128 words, opp+0x43800 table B 256 words,
+  W1 baseline set), PIE 108 (P3 ring/channel/IRQ/global set), CRG 13 (gates/resets/0x38/0x90/0x100/
+  0x138/PLL pairs), SYSCTRL 3 (0xc00/0xc08/0xc10). Fail-closed gates in order: --attended,
+  transport, no-active-fire, bench-link PASS, recovery-card READY, read-only UART capture (or
+  --no-uart WARN), stale writers, then an SSH stock-health gate (kernel/build stamp, 22.03.6,
+  2 wiphys + cal [SUCC], >=30 hi_ modules, no .omo-off, mtd11-14, bootflag/pair match, rootfs slot,
+  usable devmem or /dev/mem+dd/od). Local gate failure => no SSH at all; stock-health failure =>
+  no register read. Read-only enforcement: one static read-only template, generated scripts
+  re-scanned before send for write tokens/redirections/out-of-plan addresses, denylist
+  0x10160000-0x1016ffff (incl. 0x10161000) and 0x400392f0, aligned dwords only, batching/timeouts,
+  PARTIAL on errors/truncation/out-of-batch, INVALID on boot_id/uptime change. Evidence bundle:
+  build/bench-inventory/<UTC-date>/ with inventory.json (spec section/field/expected token/passes/
+  value/stable/status), inventory.tsv, plan.tsv, log, commands, raw batches, DT readback + mtd/
+  cmdline/boot_reg/UBI/clk_summary context, SHA256SUMS.
+- tools/tests/bench-inventory.test.sh (650 lines): 145/145 assertions PASS, shellcheck -S warning
+  clean; sandboxed real-tool runs with stubbed transport/bench-link/recovery and fixtures covering
+  allowlist/plan/explain/RC-misc denial, every gate refusal with no device contact, check-only,
+  full 600-entry run with JSON/TSV/SHA and expected-value checks, write-token safety scan,
+  repeat/stability, batching, partial/ERR/timeout/truncation/unexpected-address/failure paths.
+- opensource/docs/BENCH-READONLY-INVENTORY.md (581 lines): exact attended procedure (preflight ->
+  check-only -> run -> verify/archive -> teardown), gate/failure/recovery fallbacks, expected CRG
+  refs (0x01360ef1, 0x02f8300b, 0x000ff309, 0x6a010008/0x6a090008), PLL equation, PIE ring-size
+  expectations, qid-table layout, selector pair, what one run closes (LSW D1b W1 baseline + DT
+  queue base, PIE P3, clk rates/parents, SYSCTRL) vs not (EQM command word, VLAN/L2/IFC formats,
+  write set, /proc/hsan dumps), and the honest "never touched hardware; expected tokens are
+  spec-derived until the first run" limitation.
+
+Integration: tools/AGENTS.md row added; opensource doc committed (54c4f95, pushed);
+parent README/RUNBOOK pointers unchanged (tool row in tools/AGENTS.md only). No device execution;
+fires stopped; box stock.
+
+This completes the host-side backlog: publication strategy executed (curated repos live, notebook
+pushed), first-install tooling, read-only inventory tool, publish playbook/checker, and all driver/
+target/RE work through series 001-019. Remaining is the attended hardware session (inventory run,
+first install, first boot) plus optional legacy history purge.
+
+LEDGER
