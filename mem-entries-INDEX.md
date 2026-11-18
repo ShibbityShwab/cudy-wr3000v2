@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 20:44 - The module patch works: hi_swa loads past the PLT gate | `mem-entries.md:22023` |
 | 2026-11-14 |  | 2026-11-14 20:48 - The init loads the vendor stack in the vendor's own order | `mem-entries.md:22047` |
 | 2026-11-14 |  | 2026-11-14 22:13 - EINVAL explained: the ARM finit_module number is 379, not 350 | `mem-entries.md:22067` |
 | 2026-11-14 |  | 2026-11-14 22:41 - MILESTONE: the vendor stack runs on our kernel, network live on both paths | `mem-entries.md:22088` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool | `mem-entries.md:23327` |
 | 2026-11-18 |  | 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare) | `mem-entries.md:23368` |
 | 2026-11-18 |  | 2026-11-18 08:55 - Kernel platform patch series + canonical 6.18 config delivered; machine code compiles with OpenWrt GCC 14.4; sole kernel blocker = TEXT_OFFSET non-immediate | `mem-entries.md:23422` |
+| 2026-11-18 |  | 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000 | `mem-entries.md:23478` |
 
 ## All dated entries
 
@@ -629,3 +629,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool | `mem-entries.md:23327` |
 | 2026-11-18 |  | 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare) | `mem-entries.md:23368` |
 | 2026-11-18 |  | 2026-11-18 08:55 - Kernel platform patch series + canonical 6.18 config delivered; machine code compiles with OpenWrt GCC 14.4; sole kernel blocker = TEXT_OFFSET non-immediate | `mem-entries.md:23422` |
+| 2026-11-18 |  | 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000 | `mem-entries.md:23478` |

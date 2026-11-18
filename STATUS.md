@@ -76,9 +76,12 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   `make defconfig` PASS, `make target/linux/prepare` RC=0 (kernel 6.18.60); patches-6.18/ adds
   arch/arm/mach-hisilicon (clean UP-only machine descriptor, ARCH_LUOFU via the existing
   ARCH_HISI) + Kconfig/textofs; `config-6.18` was canonically re-derived (281-symbol delta,
-  idempotent) with the tree's own GCC 14.4 toolchain and the machine code compiles with it. The
-  kernel build's **sole remaining compile blocker** is `TEXT_OFFSET=0x00608000` not being an ARM
-  rotated immediate (early-boot assembly). No correct-offset kernel, image or boot yet
+  idempotent) with the tree's own GCC 14.4 toolchain and the machine code compiles with it. Patch `003` fixes the last compile blocker
+  (`TEXT_OFFSET=0x00608000` is not an ARM rotated immediate) with the kernel's own `mov_l`
+  idiom, and **`make target/linux/compile` now reaches RC=0** with the real offset, no
+  workarounds: zImage produced (local-only evidence, sha256 `45ad00d5...`), linked/load
+  address verified as `0x80608000` (mkimage `-a/-e 0x80608000`). This is still **not a
+  deliverable image**: no FIP slice, rootfs, target image, dtbs_check or boot
   (`opensource/docs/SKELETON-SMOKE.md`).
 - **FIP trailer decoded and generation implemented (2026-11-18, offline):** U-Boot `bootfip`
   fully decoded (gate, 96-byte descriptor, 11-row vendor/board match table, applier validation

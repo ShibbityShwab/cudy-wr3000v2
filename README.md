@@ -20,9 +20,10 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    [`ROADMAP-OPENWRT.md`](opensource/docs/ROADMAP-OPENWRT.md)): own target, clean-room drivers,
    accepted upstream. **Still not on track as a submission**: the concrete target/DTS/image design
    and the GPL follow-up now exist (2026-11-18); the target skeleton's structure was accepted by
-   OpenWrt main (`make defconfig` + `target/linux/prepare`) and the FIP trailer format is decoded
-   with a byte-exact generator - but no kernel/image was built, no DTS was `dtbs_check`ed, and
-   there is no driver series, so the Wi-Fi + LAN-switch + unanswered GPL source request remain
+   OpenWrt main (`make defconfig` + `target/linux/prepare`), the kernel platform patches now
+   compile the 6.18 kernel with the correct load address, and the FIP trailer format is decoded
+   with a byte-exact generator - but **no target image was built**, no DTS was `dtbs_check`ed,
+   there is no driver series, and the Wi-Fi + LAN-switch + unanswered GPL source request remain
    the gating programme. Bench gates are not upstream progress.
 
 ## Start here

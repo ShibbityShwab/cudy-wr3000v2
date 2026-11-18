@@ -23474,3 +23474,50 @@ alternative, then full kernel compile with the correct load address; driver/bind
 chain; one attended boot.
 
 LEDGER
+
+## 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000
+
+Problem: textofs-$(CONFIG_ARCH_LUOFU) := 0x00608000 is required by the stock-loader address
+derivation (stage 0x83200000 -> (stage & 0xf8000000) + TEXT_OFFSET = 0x80608000) but 0x00608000 is
+not an encodable ARM rotated immediate, so stock 6.18 fails in arch/arm/kernel/head.S:123/:188
+(pgtbl macro) and arch/arm/boot/compressed/head.S:312/:410 with "invalid constant (608000)".
+
+Fix (opensource/target-skeleton/target/linux/hisilicon/patches-6.18/003-arm-textofs-nonimmediate.patch,
+sha256 407352b8aced76da6c6f1fcef53c77bca0221473515c144126cbe3358e707f5c): use the kernel's own
+mov_l macro to materialize TEXT_OFFSET instead of an immediate add/sub at the four sites:
+- arch/arm/kernel/head.S: pgtbl macro -> mov_l rd, TEXT_OFFSET; add rd, rd, @phys; and the
+  PHYS_OFFSET recovery -> mov_l r5, TEXT_OFFSET; sub r8, r8, r5.
+- arch/arm/boot/compressed/head.S: final kernel image address -> mov_l r4, TEXT_OFFSET; add
+  r4, r0, r4; and the zreladdr-relative adjustment -> mov_l r0, TEXT_OFFSET; sub r0, r4, r0.
+mov_l expands to movw/movt on the target (CONFIG_CPU_V7) and to an ldr literal-pool load for older
+CPUs; pristine-6.18.60 dry-run passes; no make override or WERROR workaround is used.
+
+Verified in /home/shibbityshwab/openwrt-lab (openwrt main 27663a0, linux-6.18.60, tree's
+OpenWrt GCC 14.4.0 toolchain): make target/linux/prepare RC=0 (patches 001/002/003 apply, no
+.rej), make target/linux/compile -j16 RC=0; invalid-constant errors 0; arch/arm/boot/zImage
+produced (sha256 45ad00d502ed7b2386f83db794e9015267f4f9d66de8d0deaab8aca24cf18d10).
+Address story verified from the built artifacts: head objects compiled with
+-DTEXT_OFFSET=0x00608000 (no override); vmlinux _text = 0xc0608000 with PAGE_OFFSET=0xc0000000;
+linked stext recovers PHYS_OFFSET via adr_l _text + movw/movt 0x608000 (disasm
+05-disasm-kernel-head.txt); physical _text = 0x80608000 == computed load address; uImage
+mkdir must use -a/-e 0x80608000. An incremental rebuild (03b-rebuild) also RC=0.
+Local-only evidence: build/linux-kbuild/waves/upstream-6.18-textoffset-20261118/ (00-README index,
+baseline/fix logs and rc files, zImage sha, link/load derivation, kernel-head and compressed-head
+disassemblies, pre-ARMv7 literal-pool fallback check, patch sha/dry-run). Gitignored; not
+published; the zImage is an intermediate compile product, not a deliverable image.
+
+Docs updated: target-skeleton README + opensource/docs/SKELETON-SMOKE.md (dated section: defect,
+approach, exact commands, address proof, what it does/does not prove, updated blockers); root
+STATUS/EVIDENCE-INDEX/README record that the kernel now compiles with the correct offset and the
+remaining work is driver/binding series, image-chain wiring, dtbs_check, upstream review and one
+attended boot.
+
+Not proven: no target image, no FIP slice/trailer-in-image, no rootfs/UBI, no sysupgrade
+container/platform.sh/A-B selector, no dtbs_check/binding review, no SMP/restart driver, no boot,
+no device interaction. Publication NOT READY; patches 001-003 unreviewed upstream.
+
+Next: driver + dt-binding series (watchdog, CRG, thermal, pinctrl, FMC, MDIO/PHY/GEMAC, switch,
+PCIe), prune [D-default] other-SoC Hisilicon drivers, then wire the image chain and prepare one
+attended boot of a full image.
+
+LEDGER
