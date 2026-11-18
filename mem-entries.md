@@ -24703,3 +24703,27 @@ its no-install-procedure stance; the project SSH-key filename was genericised in
 No device action; bench idle; box stock.
 
 LEDGER
+
+## 2026-11-18 21:50 - Curated repo review form synced to 001-021; publication and driver surfaces all current
+
+Follow-up sync of the curated public repo cudy-wr3000v2-openwrt completed: origin/main fast-forward
+ee5b882..9fc9e5d (two commits: upstream series sync 5f95202, docs/pins 9fc9e5d). Its
+upstream/series-6.18 now matches the notebook HEAD 9d5005c: 21 generated series patches + 21
+commit messages, 0020/0021 do-not-merge draft caveats, 21/21 patch(1)/git-am validation logs,
+checkpatch 0 errors/53 warnings/6 CHECKs, 42/42 hashes, gen-series --check clean; curated
+layout/gen-series path adaptations preserved; API + fresh-clone verified: tip match, no forbidden
+binaries in tree or history, links resolve, no host paths/secrets. README/NOTICE/docs/PUBLISHING
+updated to the 21-patch review form and the new source pin.
+
+Final state of all public surfaces:
+- cudy-wr3000v2-openwrt: 9fc9e5d (curated port + 001-021 series + measured inventory docs).
+- cudy-wr3000v2-cve: 9b1e7d1 (sanitized CVE research).
+- cudy-wr3000v2 (notebook): 6fff321 (public policy, redacted HEAD, inventory + PIE/LSW sessions).
+- cudy-wr3000v2-open-firmware (legacy): 9d5005c (tip clean; pre-policy history documented).
+Measured baseline (2026-11-18, read-only, 600/600) is recorded and drives patches 020 (PIE
+datapath, fail-closed arm gate) and 021 (LSW read-only probe, no writes). Remaining: attended
+hardware work (LSW W3-W6 write stages, PIE arm/bring-up, first install+boot) and mechanical review
+gaps (binding split, MAINTAINERS entry, 0014->0004 fold, DCO identity, second-boot sample).
+Box stock; bench idle; no writes performed at any point during this session.
+
+LEDGER
