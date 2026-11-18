@@ -671,6 +671,7 @@ echo "rootfs_mtd_num=$(cat /sys/class/ubi/ubi0/mtd_num 2>/dev/null)"
 echo "devmem=$(command -v devmem 2>/dev/null)"
 echo "devmem_sbin=$([ -x /sbin/devmem ] && echo yes || echo no)"
 echo "dd=$(command -v dd 2>/dev/null)"
+echo "hexdump=$(command -v hexdump 2>/dev/null)"
 echo "od=$(command -v od 2>/dev/null)"
 echo "mem_readable=$([ -r /dev/mem ] && echo yes || echo no)"
 DEV=$(command -v devmem 2>/dev/null)
@@ -911,7 +912,8 @@ if [ ! -d "$DT" ]; then DT=/sys/firmware/devicetree/base; fi
 if [ -d "$DT" ]; then echo "DTROOT=$DT"; else echo "DTROOT="; fi
 for f in model lsw_dp/reg lsw_dp/reg-names lsw_dp/port_bitmap lsw_dp/hwver lsw_pfe/reg lsw_pfe/reg-names lsw_pfe/hwver pie@0x10a70000/reg pie@0x10a70000/hwver pie@0x10a70000/rx_ring pie@0x10a70000/tx_ring pie@0x10a70000/interrupts pie@0x10a70000/dma-coherent system-controller@10100000/reg system-controller@10100000/smp-offset sysenv/bootreg-offset rstinfo@0x14880000/record_addr; do
     if [ -r "$DT/$f" ]; then
-        b=$(od -An -tx1 -v "$DT/$f" 2>/dev/null | tr -d '[:space:]')
+        b=$(hexdump -v -e '1/1 "%02x"' "$DT/$f" 2>/dev/null | tr -d '[:space:]')
+        [ -n "$b" ] || b=$(od -An -tx1 -v "$DT/$f" 2>/dev/null | tr -d '[:space:]')
         echo "BIN $f $b"
     else
         echo "MISSING $f"

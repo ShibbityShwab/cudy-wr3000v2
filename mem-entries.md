@@ -24539,3 +24539,52 @@ target/RE work through series 001-019. Remaining is the attended hardware sessio
 first install, first boot) plus optional legacy history purge.
 
 LEDGER
+
+## 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed
+
+Attended read-only session (bench link PASS, recovery door READY, UART capture running, operator
+present): tools/bench-inventory.sh --check-only PASS (all gates + stock health), then the full run
+COMPLETE: 600/600 allowlisted 32-bit reads on ONE boot, 0 errors, 0 failed batches, 600 stable,
+40 expected-value checks pass, 16 fail (all PIE expected-token assumptions), post-run health fine.
+No writes of any kind; box not rebooted. UART capture stopped and bench torn down afterwards
+(TFTP/broker down); box stock and pingable.
+
+Measured results (evidence: build/bench-inventory/20261118T130512Z-inv1-run/, incl. a follow-up
+read-only sub-bundle saved after the run because the tool's device-side context capture used od and
+stock busybox lacks od; tool now uses hexdump with od fallback, 145/145 tests still pass):
+- PIE (0x10a70000): only channels 0/1 active on stock wired-only. ch0 TX base 0x825c0000, ch1
+  0x82600000 (TX config 0x2004=0xc); ch0 RX base 0x82420000, ch1 0x82518000 (RX config 0x3004=0x8);
+  0x3504 reads 0xc for all channels (global/mirrored; not the 0x100 assumed). ch2/ch3: all ring
+  regs 0, configs 0, RX IRQ masks 0x400+ch*4=1; ch0/ch1 masks 0. Globals: 0x1000=0x000a01c8,
+  0x2200=0x0045e000, 0x3200=0x00002001 (RX enabled), 0x3204=0, 0x3208=0x7d, 0x3404=0x1b04,
+  0x3408=0, 0x3700=0xffff. per-ch 0x180/0x200/0x380=1, 0x3210=3, 0x3290=2, 0x3310=8.
+  DT readback: pie rx_ring = 0x8,0x600,0x8,0x600; tx_ring = 0xc,2 (two active channels).
+- LSW D1b W1 baseline: qid table A (opp+0x42800, 128 words) 72/128 nonzero - ports 4..12, 8 slots
+  each, qids 0x101..0x148 contiguous (port4 0x101-0x108 ... port12 0x141-0x148); table B
+  (opp+0x43800) all zero; DT port_bitmap = 0xf01,0x1ff0.
+- Queue/flow DDR windows resolved from the live U-Boot-overlay DT (lsw_dp reg-names "queue flow dp
+  eps eqm fam ips"): queue = 0x80000000 size 0x400000 (4 MiB), flow = 0x80400000 size 0x100000
+  (1 MiB); dp 0x11000000, eps 0x11280000, eqm 0x11200000, fam 0x11100000, ips 0x11080000 (0x80000
+  each); lsw_pfe ten 0x80000 windows (0x12100000/0x12180000/0x12280000/0x12380000/0x12400000/
+  0x12080000/0x11180000/0x12000000/0x11380000/0x12480000).
+- CRG measured: gates 0x14=0x01360ef1, 0x20=0x02f8300b; resets 0x2c=0x0d300e01, 0x30=0xfe7fe05b,
+  0x34=0x000ff309; 0x38=0x00200000; 0x90=0x6a010008; 0x100=0; 0x138=0x00018042; PLL1 word0
+  0x8103c11c/word1 0x11000000; PLL2 word0 0x81064548/word1 0x11000000. clk_summary: osc 20 MHz,
+  corrector 1.2 GHz, fixed_factor 300 MHz, cpu 1.2 GHz, lsw-clk 100 MHz, lsw_pfe 333 MHz,
+  lsw_dp 166 MHz, gemacN 125 MHz, ahb 200 MHz (pie_clk0 200 MHz), apb 100 MHz, efuse_ring 20 MHz.
+  The decoded PLL equation (osc*(int+frac/2^24)/fbdiv) reproduces 1.2 GHz (int 60, fbdiv 1).
+- SYSCTRL: 0xc00 SMP pen = 0x80609680 - exactly the secondary_startup physical address decoded in
+  SMP-RE (validates patch 018's release target); 0xc08 = 0x10 (pair A selector, upper bits zero);
+  0xc10 = 0x82000000. cmdline: maxcpus=2 nr_cpus=2 additional_cpus=1.
+
+16 expected-check failures are spec-token corrections, not tool failures: the P3 tokens assumed
+four active channels and 0xa/0x100 ring config values; live stock (wired-only) has two active
+channels with RX config 8 / ring-size token 0xc, and inactive ch2/3. The specs are being updated
+with a dated measured section and these corrections.
+
+This closes the PIE P3 baseline, LSW D1b W1 baseline, queue/flow base, clk rate/parent and SYSCTRL
+cell unknowns at the register level. What remains [U]: behaviour under our drivers, write-side
+semantics, EQM/VLAN/L2/IFC formats, and whether the stock wired-only channel mask is the right
+model once Wi-Fi/WoC lanes are ported. Bench is idle; next bench step is the first install/boot.
+
+LEDGER

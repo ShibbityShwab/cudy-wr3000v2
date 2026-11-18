@@ -318,6 +318,23 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   (security research). The exposed lab credential was confirmed by the owner to be the vendor's
   stock/default password (low risk; optional rotation remains hygiene).
 
+- **First read-only silicon inventory COMPLETE (2026-11-18, attended, no writes).** The bench
+  inventory ran end-to-end: **600/600 allowlisted reads, one boot, 0 errors, 0 failed batches**,
+  40 expected-value checks pass and 16 PIE expected-token corrections; post-run health fine. Live
+  measurements closed the big `[U]` items: **PIE only channels 0/1 are active** on stock wired-only
+  (TX bases 0x825c0000/0x82600000, RX 0x82420000/0x82518000, configs 0xc/0x8; ch2/3 ring regs 0 and
+  RX IRQ masked; DT tx_ring=[0xc,2], rx_ring=[8,0x600]x2); **LSW qid table A** has 72/128 words -
+  ports 4..12, 8 slots, qids `0x101..0x148`, table B zero; **queue/flow DDR windows** resolved to
+  `0x80000000`/4 MiB and `0x80400000`/1 MiB from the live U-Boot overlay; CRG gates/resets/mux/PLL
+  raw words captured and `clk_summary` shows CPU 1.2 GHz, lsw_dp 166 MHz, lsw_pfe 333 MHz, gemacN
+  125 MHz, ahb 200 MHz, apb 100 MHz, osc 20 MHz (the decoded PLL equation reproduces 1.2 GHz);
+  **SYSCTRL pen word = 0x80609680**, exactly SMP-RE's `secondary_startup` target (validates patch
+  018), selector `0x10`, reset record `0x82000000`, cmdline `maxcpus=2 nr_cpus=2`. The tool's
+  context capture was empty because stock busybox lacks `od`; fixed to use `hexdump` with `od`
+  fallback (145/145 tests pass) and the DT values were re-read read-only into a provenance-stamped
+  `followup/` sub-bundle. Bench torn down afterwards (TFTP/broker down); box stock and pingable.
+  Analysis/spec updates land in `opensource/docs/INVENTORY-2026-11-18.md`, `PIE-DATAPATH.md`,
+  `LSW-SPEC.md`, `MISC-SOC-BLOCKS.md`, `SMP-RE.md`.
 - **Read-only bench inventory tool ready (2026-11-18, host-only; never run on hardware).**
   `tools/bench-inventory.sh` performs **600 static allowlisted 32-bit reads** (LSW/PIE/CRG/SYSCTRL)
   under fail-closed gates (attended/transport/no-active-fire/bench-link PASS/recovery READY/
