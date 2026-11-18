@@ -23698,3 +23698,58 @@ Then image chain/rootfs/sysupgrade and one attended boot. Publication NOT READY;
 (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated
+
+Restart lane (patch 010-arm-luofu-restart.patch, sha256
+3fbfaaeed7f3038eeb0c56701e4cc52ccdc082e693a04b990336b188c2d25095):
+- New drivers/power/reset/luofu-reboot.c (compatible hisilicon,luofu-reboot, CONFIG_LUOFU_REBOOT,
+  select MFD_SYSCON), bindings for the reboot node and a new hisilicon,luofu-sysctrl syscon node.
+- Restart handler: (1) save the SYSCTRL boot selector by reading 0x10100000+0xc08 and writing the
+  same value back, only when the low byte is the measured 0x10/0x11 A/B encoding (0x21 untouched,
+  never invents the stock value); (2) write the vendor softrst_val0/1 pair 0x51162100/0xaee9deff
+  to the CRG reboot word at page offset 0x00; (3) if that does not take, arm the CRG watchdog
+  (vendor hwver-2 enable pair, 1 s) and wait a bounded 1.5 s - never parks forever. Both pages are
+  shared syscon regmaps; probe performs no register access; writes confined to selector/reboot/
+  watchdog words (never soft-reset 0x84, mux, PLL).
+- Validation (host-only, isolated reflink clone with the full 001-010 series): pristine dry-run
+  RC=0; prepare RC=0 (no .rej); full compile RC=0, 0 warnings/errors, zImage 3,251,336 B sha256
+  e548bc7b4c54160da2b482fcb2111d5569227c1132ba4c0299ba2e665d26aeb4; luofu_reboot_probe and
+  luofu_restart_handler in System.map; _text=stext=0xc0608000 and -DTEXT_OFFSET=0x00608000
+  unchanged; CONFIG_LUOFU_REBOOT/POWER_RESET/MFD_SYSCON=y; dt_binding_check RC=0 for both YAMLs;
+  board DTS zero warnings (DTB 9,891 B); checkpatch 0/0; config derivation 297 symbols identical
+  and idempotent.
+- Honest status: the CRG software-reset command is PROVISIONAL (vendor-DT values/offset; exact
+  order/width never measured) and the selector protocol remains [U]; nothing has run on hardware,
+  no reset claim. The watchdog fallback is the lab-proven stranding fix.
+
+Remaining-driver plan (opensource/docs/REMAINING-DRIVERS.md, 914 lines, new):
+- Evidence-graded plan for pinctrl, thermal, PCIe host + Wi-Fi endpoint, internal LSW switch, and
+  the GEMAC TX/RX ring+DMA data path: per block [V] evidence with citations, [U]/[X] missing
+  pieces and where they must come from, port framework + binding sketch + dependencies, risks,
+  session estimates; recommended order, offline-vs-bench split, restart contract, evidence map,
+  summary table.
+- Key findings: the GEMAC data path is not in hi_kmac (it imports hi_net_dev_* and tail-calls
+  hi_net_dev_xmit); the netdev/NAPI/DMA/ring code is in hi_kpie (68,524 B, 403 symbols) with the
+  pie DT node and 4 channels/IRQs. The internal LSW switch is switchdev, not DSA (swa_switchdev_
+  event/port_obj_add), with no source in either tree. The PCIe host is a legitimate DWC port
+  (two RCs, iATU windows, measured DBI/cfg values) but the Wi-Fi endpoint driver is [X]. Pinctrl
+  has 37 pins/24 groups/24 functions transcribed; thermal formula/trips verified, v1 = sensor +
+  zone without cooling map.
+- Estimates: ~32-55 focused host sessions + 11-19 attended bench sessions for the five blocks;
+  bench is currently blocked (no 6.18 image/install path, fires stopped), ~20-35 host sessions are
+  possible offline. Recommended order: thermal+pinctrl, PCIe host, PIE/GEMAC, LSW.
+
+Integration: patch 010 + both new YAMLs + sysctrl syscon/reboot DTS nodes + config symbol + docs
+merged cleanly (incoming shared.patch applied, no conflict markers); per-lane record moved to
+target-skeleton/docs/port-notes/restart/SUMMARY.md (applied shared.patch removed); plan doc linked
+from TARGET-DESIGN 7.1/not-met paragraph, target-skeleton README, ROADMAP; stale "FMC/switch/PCIe
+unwritten" and "trailer cannot be regenerated" statements corrected.
+
+Driver series now: 001 mach-hisilicon, 002 Kconfig/textofs, 003 non-immediate TEXT_OFFSET,
+004 CRG clock/reset, 005 watchdog, 006 FMC/SPI-NAND, 007 MDIO, 008 Genius PHY, 009 partial GEMAC,
+010 provisional restart. Remaining: pinctrl, thermal, PCIe host, LSW switch, GEMAC data path
+(plans written), then image chain/rootfs/sysupgrade and one attended boot. Publication NOT READY;
+box untouched (stock), no bench fires.
+
+LEDGER

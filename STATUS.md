@@ -126,6 +126,25 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   both lanes merged) compiles its DTS cleanly (9,659 B). Unverified: hardware behaviour (FMC
   ECC/DMA, MDIO handshake, PHY link/autoneg, GEMAC data path). No bench/boot.
 
+- **Machine restart driver ported (2026-11-18, host-only; provisional reset command).** `patches-6.18/010`
+  adds `drivers/power/reset/luofu-reboot.c` (+ bindings for the reboot and the SYSCTRL syscon node):
+  it saves the stock boot selector with a read-back/write-same (only on the measured `0x10`/`0x11`
+  values; never invents it), writes the vendor CRG `softrst_val0/1` pair to the reboot word, and
+  falls back to a bounded 1 s watchdog arm if the reset does not take - never parks. Both pages are
+  shared syscon regmaps; probe touches no register. Verified: pristine dry-run RC=0, prepare RC=0,
+  **full compile RC=0** (zImage `e548bc7b...`, both YAML bindings pass `dt_binding_check`, DTB
+  9,891 B zero warnings, config derivation 297/297 symbols idempotent, checkpatch clean). The CRG
+  reset command itself is **PROVISIONAL** (vendor-DT values/offset; write order/width never
+  measured) and the selector protocol remains [U]; **nothing has run on hardware**.
+- **Remaining-driver plan (2026-11-18).** `opensource/docs/REMAINING-DRIVERS.md` (914 lines) is an
+  evidence-graded plan for the five blocks with no driver source: pinctrl, thermal, PCIe host
+  (Wi-Fi endpoint [X]), internal LSW switch (switchdev, not DSA) and the GEMAC data path. Key
+  structural finding: the wired data path lives in **hi_kpie (PIE rings/NAPI/DMA)**, not hi_kmac,
+  which only tail-calls it; the internal switch is switchdev and has no source in either tree.
+  Estimate: 32-55 focused host sessions + 11-19 attended bench sessions; bench is currently
+  blocked (no 6.18 image/install path, fires stopped), so the offline order starts with
+  thermal+pinctrl, then PCIe host, then PIE/GEMAC, then LSW.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
