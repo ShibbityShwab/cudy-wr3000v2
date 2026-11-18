@@ -23264,3 +23264,62 @@ upstream target/DTS/image recipe + GPL source request, and the sk_buff/bridge po
 project if desired.
 
 LEDGER
+
+## 2026-11-18 07:45 - Upstream design layer delivered: concrete OpenWrt target/DTS/image design, GPL follow-up pack, vendor sk_buff/bridge port spec
+
+Three parallel writers produced the non-bench deliverables; all files are in the published submodule
+(committed separately, NOT READY for publication - history purge still pending).
+
+1. opensource/docs/TARGET-DESIGN.md (752 lines) - the concrete upstream design: target
+   target/linux/hisilicon + subtarget luofu (justified by the vendor's own hisilicon/luofu target
+   string, the hsan-luofu DT root and the arm_cortex-a9 package arch; the triductor alternative is
+   rejected in the doc); boot/image facts made exact (FIP slice = uImage + fixed 40,732-byte
+   trailer, gate at 0x40+ih_size+dtb_totalsize with magic 0xd7b7ab1e, measured trailer anatomy
+   31,220 B base DTB + 96 B descriptor + 4,592/4,920 B overlays, 8,650,752 B kernel slots,
+   load/entry 0x80608000, A/B sysupgrade metadata schema with CONTROL/kernel/root/fip-manifest,
+   env+sysenv selector, JFFS2 rootfs_data kept); DTS conversion plan from
+   tools/lab-src/.../luofu-r116.dts; per-driver upstream readiness table ([V]/[I]/[U]/[X] legend);
+   required new work (LSW switch, real PCIe host, pinmux, sysenv, SMP); wifi marked blocked
+   (PORT-SURFACE: 211 HW_RTOS_NS symbols, 0 mac80211, closed 928,920-byte firmware); acceptance
+   criteria and staged plan. Every claim is anchored to ledger/EVIDENCE-INDEX dates.
+2. opensource/docs/ROADMAP-OPENWRT.md - refreshed to 2026-11-18: v17 ceiling header, superseded
+   phase claims point at the ledger, the false "bootfip rejects a failed slot via a status word"
+   claim corrected, milestone status column added, references updated, publish NOT READY caveat.
+3. opensource/docs/GPL-REQUEST.md - status: original request SENT 2026-10-01, still no reply and no
+   evidence copy (the core evidence gap is unchanged); added a ready-to-send English follow-up with
+   a deadline, a 6-rung escalation ladder, a tracking table, and an 11-item requested-artifacts
+   checklist that now includes the vendor bridge patches, the vendor sk_buff fields/padding, DTS/DTBO
+   sources, U-Boot 2022.07 + FIP/trailer tooling, wifi driver+firmware terms, and all GPL modules.
+   Contacts web-verified 2026-11-18: support@cudy.com/sales@cudy.com, phone +86 755 8600 8993,
+   Shenzhen address, FCC grantee 2APRG (fccid.io); www.cudy.com/pages/gpl still 404 and the
+   download-center GPL archive is NEEDS-VERIFICATION (JS page). support@jeton-tech.ru remains
+   repo-only. The follow-up is NOT SENT (human action).
+4. opensource/docs/DOCUMENTATION-HUNT.md - refreshed priority/status table: resolved items closed
+   (rootif chain, module dependency graph, WEXT net_device layout, 3dh root cause, post-procd RCU
+   stall, HYFI=sk_buff cause, bootfip abort cause) and the open gaps named precisely (sk_buff
+   layout/private fields, br_* call sites + vendor bridge patches, hi_kpie g_api_priv/hi_net_dev_probe
+   contract, hi_cfe tables, hsan,* bindings, wifi firmware/source licensing).
+5. opensource/docs/VENDOR-SKB-BRIDGE-PORT.md (853 lines) - feasibility spec for the optional hybrid
+   lane: v17 ceiling evidence; vendor sk_buff ABI table (0xc8/0xcc/0x106/0x108/0x10a/0x10c/0x110/
+   0x114/0x118 vs 0x54/0x58/0x8e/0x90/0x92/0x94/0x98/0x9c/0xa0, +0x74/+0x78, 4-byte vendor field,
+   target sizeof 0x128 marked derived); net_device/WEXT layout; br_* exported pointer variables;
+   rootif/port-registration chain; Option A vs B1 (sk_buff adaptation with impact analysis and
+   expected follow-on faults 0x51/0x53/0xb4/0xb8 + hi_cfe_intf_rx) vs rejected B2 (module patching);
+   required vendor bridge patches; kbuild offsetof probe + BUILD_BUG_ON design (no DWARF/BTF in
+   vmlinux, so probe-module route); staged E0-E4 fire plan with the existing safety mechanisms and
+   their honest caveats; effort/risks/acceptance/9 open questions. B1 is necessary but not
+   sufficient without the bridge patch series (GPL-source dependency).
+
+Also fixed at integration: STATUS.md had accumulated duplicate sections 3/4 from the day's edits and
+was regenerated cleanly (bench state now records the stock box, bootflag=a, latest fired v17 slice);
+EVIDENCE-INDEX rows updated (3dh superseded, upstream design-doc row + GPL/spec rows added);
+CURRENT-TRUTHS stale "3dh never starts" claim replaced with the resolved root cause; root README now
+points at TARGET-DESIGN.md.
+
+Box: read-only verified 2026-11-18 07:35 - stock, uptime ~39 min, bootflag=a, both slots stock,
+wiphys 2, SSH on project key; bench fires stopped, capture stopped, TFTP recovery door armed.
+
+Next: send the GPL follow-up (human); implement target/linux/hisilicon/luofu skeleton from
+TARGET-DESIGN.md; consolidate reversal evidence; optional hybrid lane only per its spec.
+
+LEDGER

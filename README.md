@@ -16,10 +16,12 @@ the procedure is [`RUNBOOK.md`](RUNBOOK.md).
    vendor userspace on this unit. This is the current bench work; the hybrid image is a
    research instrument, not a release. Current blocker: the slice-delivery lane
    (`STATUS.md` section 3).
-2. **Upstream OpenWrt submission** ([`opensource/docs/ROADMAP-OPENWRT.md`](opensource/docs/ROADMAP-OPENWRT.md)):
-   own target, clean-room drivers, accepted upstream. **Not on track today**: no target,
-   DTS, image recipe, or driver series exists, and the Wi-Fi + LAN-switch + unanswered GPL
-   source request are the gating programme. Bench gates are not upstream progress.
+2. **Upstream OpenWrt submission** ([`opensource/docs/TARGET-DESIGN.md`](opensource/docs/TARGET-DESIGN.md),
+   [`ROADMAP-OPENWRT.md`](opensource/docs/ROADMAP-OPENWRT.md)): own target, clean-room drivers,
+   accepted upstream. **Still not on track as a submission**: the concrete target/DTS/image design
+   and the GPL follow-up now exist (2026-11-18), but there is no `target/linux` tree, DTS series,
+   image recipe or driver series, and the Wi-Fi + LAN-switch + unanswered GPL source request remain
+   the gating programme. Bench gates are not upstream progress.
 
 ## Start here
 

@@ -20,12 +20,14 @@ ledger is the long form and the newest dated entry wins. Physical invariants: `B
 - **Gates G1-G4/G6** are green on the bench (2026-11-14). G4 is met by the vendor's modules;
   the bound PHY driver is `hi_kphy`, so M2 ("no vendor network modules") is not met.
   G5 (Wi-Fi) is vendor-only.
-- **The 3dh-class kernel never starts.** 3df and 3dg did run on hardware (our own
-  `luofu-fmc`/`luofu:` markers and init output are in their captures). 3dh/3di/3dk are read by
-  U-Boot and then reset silently before the kernel console registers; the kernel source and DTB
-  are unchanged, so the variable is the 3dh-era kernel `.config` (COMPILE_TEST / SLAB /
-  TRACING group). `luofu-slice-phase3dl.bin` is a 3dh-class kernel and is NOT fireable.
-  Do not fire until `STATUS.md` section 4's diagnostic plan has run.
+- **The 3dh-class kernel boot problem is RESOLVED (2026-11-17 08:45).** 3df and 3dg genuinely
+  ran on hardware; the 3dh/3di/3dk class died pre-console. The 3dm earlycon diagnostic captured
+  the fault: `luofu_early()` (the mach `.init_early` hook) called `ioremap()` before
+  `mm_init()` had created the kmalloc caches, so the `CONFIG_SLAB`+`CONFIG_TRACING` kmalloc path
+  NULL-dereferenced in `kmem_cache_alloc_trace`. The fix (defer the sysctrl crumb/bootreg flip to
+  `luofu_early_crumb`, an early_initcall) is committed (`0f8044e`); the fixed slice `3dn` booted
+  on hardware (capture `build/uart-logs/20261117T012608Z-uart-3dn.log`; ledger 2026-11-17 08:45),
+  and later builds repeated it. The older "3dh never starts, .config unknown" claim is superseded.
 - **Validity markers:** ours is an uncompressed uImage and does not print
   `Uncompressing Linux`; stock does. A fire is valid only when our uImage identity and our
   kernel output are in the capture (`LESSONS.md` 20). U-Boot printing our uImage header is

@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-14 |  | 2026-11-14 17:35 - The symbol maps are IDENTICAL between a booting and a failing build | `mem-entries.md:21946` |
 | 2026-11-14 |  | 2026-11-14 18:17 - Console-free probe: the init stamps the crash partition before anything else | `mem-entries.md:21964` |
 | 2026-11-14 |  | 2026-11-14 20:11 - Three observation channels tried; none can see a failing boot on this bench | `mem-entries.md:21982` |
 | 2026-11-14 |  | 2026-11-14 20:17 - The other way: patch the modules, not the kernel | `mem-entries.md:22006` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |
 | 2026-11-17 |  | 2026-11-17 20:40 - RE verdict: hyfi_bridging crash is a vendor sk_buff ABI mismatch, not the bridge hooks; v17 drops hyfi preload and fixes the hook variable ABI | `mem-entries.md:23217` |
 | 2026-11-18 |  | 2026-11-18 06:50 - v17 fire: no crash with hyfi removed, but br-lan is created/destroyed in HSLINK cycles and userspace goes silent; bench network needs the multi-step vendor bridge port | `mem-entries.md:23245` |
+| 2026-11-18 |  | 2026-11-18 07:45 - Upstream design layer delivered: concrete OpenWrt target/DTS/image design, GPL follow-up pack, vendor sk_buff/bridge port spec | `mem-entries.md:23268` |
 
 ## All dated entries
 
@@ -625,3 +625,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |
 | 2026-11-17 |  | 2026-11-17 20:40 - RE verdict: hyfi_bridging crash is a vendor sk_buff ABI mismatch, not the bridge hooks; v17 drops hyfi preload and fixes the hook variable ABI | `mem-entries.md:23217` |
 | 2026-11-18 |  | 2026-11-18 06:50 - v17 fire: no crash with hyfi removed, but br-lan is created/destroyed in HSLINK cycles and userspace goes silent; bench network needs the multi-step vendor bridge port | `mem-entries.md:23245` |
+| 2026-11-18 |  | 2026-11-18 07:45 - Upstream design layer delivered: concrete OpenWrt target/DTS/image design, GPL follow-up pack, vendor sk_buff/bridge port spec | `mem-entries.md:23268` |
