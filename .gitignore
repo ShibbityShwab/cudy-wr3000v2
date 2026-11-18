@@ -71,3 +71,6 @@ __pycache__/
 
 # Vendor binaries: local fixtures only, never tracked or published (GPL object code)
 tools/vendor-mods/*.ko
+
+# Vendor-derived artifacts stay local (public policy: no vendor blobs in tracked text)
+patched/*.lua
