@@ -156,6 +156,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   `dt_binding_check` PASS, zero-warning DTS (DTBs 9,887/9,799 B), config re-derivation
   idempotent, checkpatch clean. Never booted; no bench.
 
+- **PCIe host, CRG reset-polarity fix, PIE data-path spec (2026-11-18, host-only).** `013` adds
+  `drivers/pci/controller/dwc/pcie-luofu.c` (+ YAML): DWC host glue, CRG clock + 4 resets, RC
+  mode/iATU from DT `ranges`, aligned-dword DBI accesses, `pci_host_probe`; the hard rules are
+  encoded (never read the misc window), RC/endpoint nodes stay disabled (Wi-Fi endpoint `[X]`).
+  The lane found a real defect in `004`: the vendor reset class is **active-low** (assert clears,
+  deassert sets; measured `0x14880034 = 0x000ff309` with both RCs up), so `014` swaps the reset
+  operations and inverts `reset_control_status`. `docs/PIE-DATAPATH.md` (743 lines) specifies the
+  real wired data path (the MAC owns netdev/phylink, **PIE owns rings/DMA/NAPI**), correcting the
+  earlier layering note. Combined verification: series 001-013 full compile **RC=0** (zImage
+  `8654b99a...`, 0 warnings/errors, all CONFIG_LUOFU_* symbols, DTS 10,133 B zero warnings); `014`
+  compiles as the changed driver object in the same tree. Nothing booted.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
@@ -165,10 +177,11 @@ submission-ready.
 1. **Send the GPL follow-up** (human action): the letter is ready in `opensource/docs/GPL-REQUEST.md`;
    record the sent copy, `To:` header and receipt in the repo so the evidence gap closes.
 2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND, MDIO/PHY,
-   pinctrl and thermal are ported (GEMAC partial; restart provisional); the remaining blocks are
-   the PCIe host, the internal switch and the GEMAC data path - planned in
-   `opensource/docs/REMAINING-DRIVERS.md`, recommended order PCIe host next. Prune the `[D-default]`
-   other-SoC Hisilicon drivers and run `dtbs_check` per binding. After that, wire the custom image chain
+   pinctrl, thermal, PCIe host and the provisional restart are ported (GEMAC partial); the
+   remaining blocks are the internal switch and the GEMAC data path - the PIE half is specified in
+   `opensource/docs/PIE-DATAPATH.md`, the switch plan in `opensource/docs/REMAINING-DRIVERS.md`.
+   Prune the `[D-default]` other-SoC Hisilicon drivers and run `dtbs_check` per binding. After
+   that, wire the custom image chain
    (`luofu-uimage` -> `fip-slice` with the generated trailer -> `fip-manifest` -> UBI ->
    sysupgrade), resolve the board-compatible mismatch (`cudy,wr3000-v2` vs
    `hisilicon,luofu-r116`), write `platform.sh`/install, then the first attended boot of a full

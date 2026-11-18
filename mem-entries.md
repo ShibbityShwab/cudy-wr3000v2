@@ -23804,3 +23804,75 @@ REMAINING-DRIVERS.md; recommended order: PCIe host next), then image chain/rootf
 one attended boot. Publication NOT READY; box untouched (stock), no bench fires.
 
 LEDGER
+
+## 2026-11-18 12:10 - PCIe host driver (013), CRG reset-polarity fix (014), PIE data-path spec; series 001-014 integrated and combined-verified
+
+PCIe host lane (patch 013-arm-pci-luofu-host.patch, sha256
+73c413dda1463842aa4bfda63879147894930c64ef6e6909b7914110c9d01202):
+- New drivers/pci/controller/dwc/pcie-luofu.c (467 lines): DWC host glue over the two RCs - CRG
+  clock plus four named apb/pcs/phy/ctrl resets through the reset API, write-only full-word misc
+  stores for RC mode/iATU-enable/LTSSM-enable, aligned-dword read_dbi/write_dbi, config-window
+  pci_ops with pci_generic_config_read32/write32, CFG0 iATU viewport programming, mem/IO iATU
+  viewports from DT ranges via the framework, link wait/report, pci_host_probe; Kconfig
+  CONFIG_PCIE_LUOFU_HOST; YAML pci/hisilicon,luofu-pcie.yaml built on pci-host-bridge.yaml.
+  Hard rules encoded: never read the RC misc window 0x10161000, aligned dwords only, no forbidden
+  CA writes, iATU tables are driver data not vendor DT props.
+- Shared DTS rewrite: both PCIe nodes (reg-names dbi/misc/config, corrected ranges, pcie clock,
+  four resets, num-lanes=1, documented-but-disabled pci59e7,0005 endpoint children); RC nodes stay
+  disabled (write path unmeasured) and the Wi-Fi endpoint driver is [X].
+- Validation isolated clone (series 001-013): dry-run RC=0; prepare RC=0; full compile RC=0 in
+  1m56s, 0 warnings with CONFIG_WERROR=y; zImage 3,262,016 B sha 392d5861...; luofu_pcie_probe
+  linked; TEXT_OFFSET contract unchanged; dt_binding_check RC=0; board DTS RC=0 zero warnings
+  (DTB 10,133 B sha 46fac7ad...); dt-validate RC=0; config re-derivation byte-identical
+  (306 symbols incl. CONFIG_PCIE_LUOFU_HOST=y); checkpatch 0/0/0; static scans clean.
+- Unverified: misc wrapper store semantics, iATU-enable/LTSSM interaction, CFG0 per-access
+  programming, DWC version word, endpoint power GPIOs, radm/linkdown, MSI/INTx, dma-ranges, ACP,
+  ASPM/L1SS; no boot/enumeration claim.
+
+Cross-lane defect found by the PCIe lane and fixed (patch 014-arm-crg-reset-polarity.patch,
+sha256 739700c0ee0a85f969acbfde33d462fc0d501c1a1df3bff5ef223cdf53949227):
+- The vendor CRG reset class is ACTIVE-LOW (hi_kreset: assert clears the bit, deassert sets it),
+  while patch 004 implemented assert=set/deassert=clear. Measured evidence: live census read
+  0x14880034 = 0x000ff309 with both PCIe RCs up - the four RC0 reset bits are set in the released
+  state. Without the fix, reset_control_deassert() would clear the bits and drive the RCs into
+  reset.
+- Patch 014 swaps the operations (assert clears, deassert sets), inverts reset_control_status
+  (asserted = bit clear), and documents the measured polarity in the driver and CRG YAML. All
+  consumers (FMC, MDIO/GEMAC, PCIe) use the standard reset API and now release their lines
+  correctly; no consumer code change needed.
+- Validation: applies cleanly to the 004-created files; in the combined verification tree the
+  patched crg-luofu.o compiles with the tree's GCC 14.4.0 (object 27,460 B); the series 001-013
+  full compile it sits in was RC=0 with zero warnings (zImage 3,262,144 B sha 8654b99a...; 0
+  error/warning lines; all CONFIG_LUOFU_* symbols; DTS 10,133 B zero warnings).
+
+PIE data-path spec (opensource/docs/PIE-DATAPATH.md, 743 lines, sha
+6ec33cc5a8fc622720d2c24c3f4892a0036984f7e42b5ec1b35691cab9f52cf0):
+- The wired data path is the PIE packet engine. Correction to the earlier layering note: hi_kmac
+  DOES allocate/register the per-port netdev and phylink (alloc_etherdev_mqs/register_netdev/
+  phylink_*); hi_kpie owns rings/DMA/NAPI and keeps its cpu netdev unregistered as a NAPI
+  container. hi_mac_probe calls hi_net_dev_probe(dev,&desc8); hi_mac_net_xmit tail-calls
+  hi_net_dev_xmit(dev+0x5a8).
+- Recovered: v250 variant dispatch and ops table; TX 0x2000+ch*0x10 and RX 0x3000+ch*0x10 ring
+  registers; IRQ status 0x300+ch*4 (W1C), mask 0x400+ch*4, enable 0x3200; 32-byte descriptor
+  unit and 1<<N / 32<<N ring geometry; board rx_ring {0xa,0x800} x4 and tx_ring {0xc,0x4};
+  channel/IRQ model (4 vectors, 8-slot space, 16 NAPI instances); egress qid/port mapping through
+  g_api_priv[(port<<8)|vport] and the LSW queue hooks; DMA is coherent-only, ACP triples apply,
+  v300 ACP notifier call is [U] for 0x250.
+- 7-stage plan (P0 spec -> P1 binding/probe -> P2 ring engine -> P3 read-only attended inventory
+  -> P4 netdev wiring extending 009 -> P5 minimal LSW egress -> P6 upstream) with dependencies
+  004/007/008/009, effort, risks (AHB hang, no validated restart, silent DMA corruption) and
+  [U]/bench-only table.
+
+Integration: patch 013 + shared.patch applied cleanly (no conflict markers); patch 014 committed;
+PIE doc added and cross-linked from REMAINING-DRIVERS (layering correction + plan), TARGET-DESIGN
+(GEMAC/not-met), target-skeleton README; per-lane record under docs/port-notes/pcie/; README patch
+rows 013/014; DTS header/config legend ranges 004-014; SKELETON-SMOKE tenth-session + cross-lane
+fix sections; TARGET-SKELETON status.
+
+Driver series now: 001 mach-hisilicon, 002 Kconfig/textofs, 003 TEXT_OFFSET, 004 CRG, 005 watchdog,
+006 FMC/SPI-NAND, 007 MDIO, 008 Genius PHY, 009 partial GEMAC, 010 provisional restart, 011
+pinctrl, 012 thermal, 013 PCIe host, 014 CRG reset polarity. Remaining: internal LSW switch
+(switchdev plan) and the GEMAC/PIE data path (spec written), then image chain/rootfs/sysupgrade
+and one attended boot. Publication NOT READY; box untouched (stock), no bench fires.
+
+LEDGER
