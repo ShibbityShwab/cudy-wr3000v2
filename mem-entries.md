@@ -24886,3 +24886,28 @@ lane re-ran everything from the new HEAD and confirmed no series file needs to c
 No device action; box still on the proven 001-017 image; final 001-023 image 15dae772 not flashed.
 
 LEDGER
+
+## 2026-11-19 14:50 - Curated public repo synced to the final state (001-023 + overlay image + series); all surfaces current
+
+Curated repo cudy-wr3000v2-openwrt synced from opensource HEAD 8bb7f2e and pushed fast-forward
+25b257c..1b53485 (3 commits, 61 files +5,344/-1,009, tree 147 -> 154 files):
+- image/overlay: luofu-ubinize.cfg (second dynamic empty rootfs_data volume, autoresize),
+  luofu.mk two-volume UBI + board.d guard, luofu-image.py v0.2-overlay with the
+  BOOT-VERIFIED RECIPE / NOT FLASHABLE-UNTIL-INSTALLED marker
+- patches 022/023 (gated LSW W2/W3/W4/W5 writes, GEMAC netdev readiness) + board DTS/config
+- full 001-023 review-form series (regenerated; 0022/0023 messages/patches; logs/validation)
+- docs: TARGET-DESIGN, SKELETON-SMOKE, LSW-SPEC, PIE-DATAPATH, port notes net/ + overlay/
+- README/NOTICE/docs index/PUBLISHING: series 001-023, final image 6,205,742 B sha256
+  15dae772..., kernel 6c99aa3d..., rootfs 81d04951... (squashfs + empty dynamic rootfs_data),
+  the not-flashed caveat, the W3/W4/W5/PIE gate plan and remaining gaps.
+Independent verification: patch(1) 23/23 and git am 23/23 RC=0, identical trees, 3 known offsets;
+checkpatch 0 errors/56 warnings; gen-series --check clean; 46/46 hashes; GitHub API + fresh clone:
+tip 1b53485, 154 blobs, no binaries, expected files present, changed-doc links resolve.
+
+Final project state: root notebook 112b366+ (public), legacy submodule 8bb7f2e, curated port repo
+1b53485, curated CVE repo 9b1e7d1. Box runs the proven 001-017 debug build (console-only, no
+network); the final 001-023 image 15dae772 is host-validated and staged for the next attended
+session (SMP/CPU1 + persistent overlay + LSW/PIE gates + carrier/DHCP). All work is committed and
+pushed; nothing is in flight.
+
+LEDGER
