@@ -24950,3 +24950,31 @@ queue tables/qid->egress [U]; nvmem MAC read unverified; attended gates W3/W4/W5
 the conformance outcome still unknown.
 
 LEDGER
+
+## 2026-11-19 15:35 - PIE completion decode (024) integrated; final image rebuilt to 001-026 with hisilicon,port DTS (26dde6fe...)
+
+PIE completion decode (patch 024, sha d81a44fb..., submodule 1ca172b) is the biggest data-path
+step: RX completion fields decoded from vendor hi_kpie.ko (u16 frame length at +0; 7-bit
+status/error at +8; port/vport from the u32 at +16; tag/flag classes; owner bit; 12-byte summary
+contract proven through the consumer arithmetic) and delivered via napi_gro_receive to the
+per-port net_device; TX builds the full recovered normal non-TSO descriptor (length +0, control
++3, DMA address +4, port tag +8, +11/+12/+14/+19 words), doorbell = masked ring index, poll-only
+reclaim; ring pointer semantics implemented; CHECKSUM_NONE and in-frame 802.1Q kept. GEMAC requires
+hisilicon,port (8..12) and registers/unregisters the RX port; bindings updated. Validation:
+001-024 applies 24/24; compile RC=0 with zero warnings under WERROR; TEXT_OFFSET unchanged;
+bindings/DTS/config/checkpatch clean; cross-lane fully-clean 001-026 prepare+compile RC=0 (zImage
+3,282,528 B sha 08b76747...). NOT executed on hardware: no PIE register has ever been written; RX
+flag semantics, ACP coherency, TSO/fragment TX variants and any traffic claim remain [U].
+
+Final image rebuilt after applying the PIE DTS shared patch (hisilicon,port on the five MAC nodes)
+so the driver no longer refuses probe:
+6,205,742 B sha256 26dde6fe14b3b3c9b9141efce019cd3e0d0993b41d09ea644e68d480ed420bb0
+(kernel slice 3,307,134 B with the port properties, rootfs 2,883,584 B = squashfs + dynamic
+rootfs_data; check-container PASS; harnesses first-install 144/144, abinstall 100/100, MAC 103/103,
+mac-nvmem 82/0). This supersedes aa642862 and 15dae772. Still NOT flashed; box runs the proven
+001-017 image.
+
+Remaining before working network: EQM queue tables/qid->egress [U]; nvmem MAC read unverified;
+W3/W4/W5/PIE gates and the conformance outcome unexecuted; attended tests per the lane summaries.
+
+LEDGER

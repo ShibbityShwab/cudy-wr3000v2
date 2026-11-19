@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 15:20 +07
+**Updated:** 2026-11-19 15:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -451,6 +451,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   overlay, check-container PASS, harnesses 144/100/103/82) supersedes 15dae772; still NOT
   flashed. Remaining network unknowns: PIE RX decode never executed, LSW EQM queue tables/
   qid->egress [U], nvmem MAC read unverified.
+
+- **PIE completion/TX decode (024) integrated; final image rebuilt to 001-026 with the PIE DTS**
+  (2026-11-19). Patch 024 decodes RX completion length/status/port and the full normal non-TSO TX
+  descriptor from the vendor module, delivers frames via napi_gro_receive to the per-port netdev,
+  implements ring pointer/doorbell/reclaim semantics, and requires hisilicon,port (8..12) in the
+  DT; bindings updated. Validated: 001-024 apply 24/24, compile RC=0 zero warnings, cross-lane
+  fully-clean 001-026 compile RC=0. Final image 6,205,742 B sha256 26dde6fe... (kernel slice
+  3,307,134 B with the port properties, rootfs squashfs + dynamic rootfs_data; harnesses
+  144/100/103/82, check-container PASS) supersedes aa642862/15dae772; still NOT flashed.
+  Remaining network unknowns: EQM qid->egress mapping [U], nvmem MAC read unverified, and the
+  attended W3/W4/W5/PIE-gate run.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
