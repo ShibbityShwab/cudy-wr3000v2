@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 19:25 +07
+**Updated:** 2026-11-19 19:40 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -539,6 +539,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   plain-entry control). Host-validated 001-034 apply/prepare/compile RC=0. Next boot: marker/1P =
   pen consumed -> direct-entry control or instrument __secondary_switched; no marker = core never
   consumes it -> cold boot, clear_mask variants, earlier pen write. QM lane still fixing W7.
+
+- **W7 verification fixed (table 19 write-only) and final combined image built (2026-11-19).**
+  Patch 032 revision acknowledges the write-only table-19 record (same vendor bytes, completion
+  verified, read view logged) and verifies the other tables only on the fields the vendor's own
+  readers consume (per-field masks, restore skips write-only entries). Combined image
+  6,205,742 B sha256 5d2c5476... carries patches 001-034, the five switch gates + PIE arm, and the
+  default-on SMP pen-probe/dumps from 034 (no cmdline token needed). Host-validated; NOT flashed.
+  Next boot: W7 expected 168 verified on vendor-read fields + 1 write-only acknowledged, 034
+  dumps/marker/1P, then ping/sniff. Box runs the failed-W7 image (console-only, recovery 7x).
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

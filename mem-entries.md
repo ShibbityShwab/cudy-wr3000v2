@@ -25218,3 +25218,22 @@ consumed (then direct-entry control or instrument __secondary_switched); no mark
 earlier). QM lane is still fixing W7; the next combined image will carry 034 + the fixed W7.
 
 LEDGER
+
+## 2026-11-19 19:40 - W7 verification contract fixed (table 19 write-only); final combined image 5d2c5476 built (001-034)
+
+QM lane root-caused the W7 readback refusal: table 19 is write-only in the vendor (only
+hi_queue_init writes it; no reader exists in any vendor module; the engine's read view 0x3fff =
+written & GENMASK(13,0)), so strict equality was an invalid contract. Patch 032 revision
+(170b2684...): table 19 is acknowledged after a completed write command (busy clear, no error) and
+its read view logged; tables 16/17/32/34/35 are verified only on the fields the vendor's own read
+paths consume (per-field masks), outside-mask bits are diagnostic; restore skips write-only
+entries; mismatch logs mask + snapshot + full read view. Validated 001-033 apply 33/33, prepare+
+compile RC=0 zero warnings, checkpatch clean; never executed.
+Combined bench image rebuilt with patches 001-034 and the cleaned cmdline (switch gates
+arm/egress/qidmap/eps/qminit + pie arm; SMP 034 probe is default-on and needs no token):
+6,205,742 B sha256 5d2c547686222c23d43b6673db8db340b453aa169a5e3421dd28ec0b3ddddde0.
+Next attended boot = W7 (expect 168 verified on their vendor-read fields, 1 write-only entry
+acknowledged) + 034 unconditional SYSCTRL/CRG/SCU dumps and pen-probe marker/1P + one ping/sniff.
+Box currently runs the failed-W7 image; recovery proven 7x; no netdev there.
+
+LEDGER
