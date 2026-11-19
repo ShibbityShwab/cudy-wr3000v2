@@ -25260,3 +25260,26 @@ Box runs this image (console-only, no netdevs); recovery proven 8x this session;
 uart-w7smp-final.log sha256 f27437b2... under build/evidence-bench-gates/2026-11-19/.
 
 LEDGER
+
+## 2026-11-19 21:15 - SMP probe marker fixed (035); pen-0 explained; probe still unrun but now measurable
+
+SMP lane re-opened on the 5d2c5476 run: 034's marker ioremap was rejected on System RAM (6.18
+pfn_valid path) and the stub's UART poll was unbounded, so the probe result was inconclusive rather
+than negative. Patch 035 (submodule fe3484f, sha 8724e926...): marker word0 = MPIDR immediately on
+entry (proof of consumption even if UART fails), bounded LSR poll (1<<20) so a dead UART cannot park
+the core, prints P, marker word1 = 0x50454e21 (PEN!) then branches to the real entry; readback via
+__sync_cache_range_r + READ_ONCE (LINEAR map, not ioremap) and a late_initcall re-read; all 034
+dumps/knobs unchanged. Lane also explained the pen-0 mystery: the stock 0x80609680 sample was taken
+at runtime with the vendor kernel running (its own write); the loader-left state was never measured
+on stock, and the decoded U-Boot boot-core path clears the pen then re-inits SCU/watchdog - our 034
+reading 0 at prepare proves that path ran [V]. SCU status 0x03030000 = CPU0/CPU1 NORMAL, CPU2/3
+powered off/absent; SCU ctrl=3 (loader-enabled), config=0x511 (2 cores); CRG resume 0x00200000
+matches the stock 2-CPU reference, so the release remains vendor-equivalent. New unknowns recorded:
+rstinfo 0x10100c10 = 0x42000000 vs stock 0x82000000 [U]; 0x10100c14 = 0xdfdf0781 [U]; cold-boot
+SCU sample missing. Next single-variable boot: 001-035 image, probe on by default; consumed=yes ->
+direct-entry control or instrument __secondary_switched; consumed=no -> cold power-on, then probe=0,
+power=1 controls, clear_mask after stock reads.
+Validated 001-035 apply 113 files no rejects, prepare+compile RC=0 zero warnings, stub bytes
+verified; never executed. QM lane still working the EQM read-view mapping fix for patch 032.
+
+LEDGER

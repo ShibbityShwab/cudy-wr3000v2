@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 21:00 +07
+**Updated:** 2026-11-19 21:15 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -558,6 +558,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   write 0x81195000 remained, marker ioremap failed, no 1P -> CPU1 likely never consumed pen (probe
   instrumentation to fix). Both lanes reopened; box on this image (console-only, recovery 8x);
   evidence uart-w7smp-final.log sha f27437b2....
+
+- **SMP probe marker fixed (2026-11-19, patch 035).** 034's "cannot map marker" was ioremap on
+  System RAM being rejected (and the UART poll was unbounded), so the probe was inconclusive; 035
+  writes MPIDR to marker word0 on entry, marker word1 = PEN! after a bounded poll, reads back via
+  cache maintenance + linear map, and re-reads in late_initcall. Lane also proved loader-left pen 0
+  is expected (stock 0x80609680 was the vendor kernel's runtime write; 034 observing 0 proves the
+  loader's clear-pen path ran), SCU status 0x03030000 = CPU0/1 NORMAL + CPU2/3 off, SCU ctrl=3/config
+  0x511 = 2 cores, CRG resume matches the stock 2-CPU reference. Next boot: consumed=yes -> direct
+  entry/__secondary_switched; consumed=no -> cold boot, then probe=0/power=1/clear_mask controls.
+  Host-validated 001-035 apply/prepare/compile RC=0. QM lane still fixing EQM read mapping.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
