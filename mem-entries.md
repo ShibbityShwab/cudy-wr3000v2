@@ -25172,3 +25172,27 @@ tests W7 (169 entries/845 words programmed and verified) + the SMP pen-probe stu
 and then one ping/tcpdump over the bench link.
 
 LEDGER
+
+## 2026-11-19 19:10 - W7 queue-manager init exercised: snapshot+idle gates pass, first EQM readback mismatch -> restore/refuse (fail-closed); SMP probe shows no pen consumption, SCU status 00
+
+Image 14791958 (001-033, gates arm/egress/qidmap/eps/qminit + pie arm + smp diag/probe) installed via
+the verified B-pair path and booted:
+- W3/W4/W5/W6 all programmed+verified again (W4 line, W6 "16 EPS channel-map/companion words
+  programmed and verified").
+- W7: "169 EQM table entries (845 words) read and stable, indirect interface idle (eqm+0x48 0x0)"
+  then "EQM readback mismatch at table 19 entry 0 word 0: read 0x3fff, expected 0xffffffff;
+  restoring the pre-write snapshot". The driver restored and refused readiness; GEMAC correctly
+  refused to register any netdev ("LSW data path is not complete"). So the safety design works and
+  no partial data path was left armed. The write path itself needs a fix (QM lane reopened):
+  command encoding/stride/data-word readback mapping/expected-value formula are the hypotheses.
+- SMP: diag printed "boot cpu=1 logical=1 pen=0x8070a000 resume 02a00000 (mask 02800000)
+  scu_status=00"; NO "1P" stub output; CPU1 failed to come online. Per the lane's decision tree,
+  CPU1 never consumed the pen: either the decoded resume bits do not power/release the core, or
+  the loader did not park CPU1 on this (warm/failover) boot path. SCU CPU status 00 needs decoding;
+  next single-variable variant (luofu_smp_power=1 / CRG page reads / stock-boot measurements) is
+  being prepared by the SMP lane.
+No network (expected: readiness was refused before GEMAC). Box left on the W7 image, console-only;
+recovery proven 7x this session; evidence uart-w7-run.log under build/evidence-bench-gates/2026-11-19/.
+Both lanes are reopened with the exact logs and asked to fix/plan the next iteration.
+
+LEDGER

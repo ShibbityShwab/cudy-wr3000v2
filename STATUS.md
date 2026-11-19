@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 18:50 +07
+**Updated:** 2026-11-19 19:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -521,6 +521,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   RC=0 zero warnings. Combined bench image 6,205,742 B sha256 14791958... bakes all five switch
   gates + PIE arm + SMP diag/probe into the cmdline (patches 001-033); NOT flashed yet (box still
   on the EPS image 1db10314). Next attended boot: W7 verified + pen-probe "1P" + one ping/tcpdump.
+
+- **W7 run (2026-11-19): fail-closed refusal at the first EQM readback (safe, no partial path).**
+  Snapshot 169 entries/845 words stable, EQM idle; table 19 entry 0 word 0 read back 0x3fff vs
+  expected 0xffffffff -> full restore, readiness refused, GEMAC registered no netdev (fail-closed
+  works). The QM lane is fixing the write/readback implementation. **SMP probe: no pen
+  consumption** - diag shows pen 0x8070a000, resume 02a00000 (mask 02800000), SCU status 00, no
+  "1P" stub output, CPU1 offline; the SMP lane is preparing the next single-variable variant
+  (SCU power/CRG measurements). Box runs the W7 image (console-only), recovery proven 7x; evidence
+  under build/evidence-bench-gates/2026-11-19/.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
