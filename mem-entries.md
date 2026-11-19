@@ -24793,3 +24793,38 @@ All source claims were corrected (STATUS, EVIDENCE-INDEX, SKELETON-SMOKE); the c
 README already carried the correct measured count. No hardware action in this correction.
 
 LEDGER
+
+## 2026-11-19 14:20 - Minimum connectivity path implemented (022/023): gated LSW W2/W3/W4/W5 write stages + GEMAC netdev readiness
+
+Net lane (submodule e2705a2, integration 884cf6a):
+- patch 022 (sha256 33ab1364...): LSW staged write path. Default remains the patch-021 read-only probe;
+  luofu_lsw.arm=1 runs W3 (enable two gate clocks, release four resets, verify powered state,
+  snapshot 30 measured words + qid maps read-only, NO LSW register write); +luofu_lsw.qidmap=1
+  runs W4/W5: pre-write conformance gate (unpopulated qid rows must read 0), program the W2 qid
+  tables (table A ports 4-12, table B ports 40-43), read back every word, restore on mismatch.
+  New luofu-switch.h exports luofu_switch_probed()/ready(); DT port model gains measured hardware
+  port ids 9-12 validated against populated qid rows.
+- patch 023 (sha256 bf5fb54b...): GEMAC netdev readiness. Registers only when luofu_pie_armed()
+  and luofu_switch_ready() (LUOFU_GMAC depends on LUOFU_SWITCH); phylink type fixed to
+  PHYLINK_NETDEV (the 020 draft used PHYLINK_DEV, which would never drive carrier); DT MAC source
+  + random fallback; only the measured 1 Gbps link-up/down MAC words are written.
+- shared DTS/config/docs: lsw/pie/gmac1-4 nodes enabled, hisilicon,port ids; config annotations
+  (no new symbols); LSW-SPEC/PIE-DATAPATH/TARGET-DESIGN/README/SKELETON-SMOKE updated; port notes
+  net/ record the attended sequence: luofu_lsw.arm=1 (W3) -> +qidmap=1 (W4/W5) -> +luofu_pie.arm=1
+  (PIE rings, eth0-eth3; bench cable on eth2/gmac3).
+
+Validation (isolated clone openwrt-lab-net): pristine 23/23 patch apply RC=0 (90 files, 0 rejects);
+prepare RC=0 (1,223 patching lines); compile RC=0 with 0 warnings under CONFIG_WERROR=y (1,254 s;
+zImage 3,281,376 B sha 5903db04...); TEXT_OFFSET unchanged; dt_binding_check RC=0; board DTS zero
+warnings (11,571 B); config symbol-identical and idempotent; checkpatch 0/0/0; static audit: the
+only LSW writes are the two W2 qid helpers and the only CRG writes are inside the gated power
+sequence. NEVER EXECUTED ON HARDWARE: no LSW/PIE/CRG register has been written; the 2026-11-19
+userspace boot predates these patches.
+
+Remaining gaps: PIE RX completion decode [U] (no frame reaches the stack yet), PIE TX descriptor ->
+LSW egress selection [U], LSW dp/eqm/ips init not in any write set, MDIO/GEMAC pinctrl consumer
+states TODO, PHY firmware patch load absent, board.d LAN/WAN map still placeholder, and the
+review-form series currently ends at 021 (extension to 023 running). The next attended boot must
+also test the full 001-023 series (the booted image was 001-017, UP-only).
+
+LEDGER

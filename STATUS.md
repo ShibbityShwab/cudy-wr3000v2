@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 14:10 +07
+**Updated:** 2026-11-19 14:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -401,6 +401,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   897d4926...); a clean production image e893c388... (config-verified) was rebuilt but not yet
   re-flashed. Remaining gaps: no network (LSW/PIE/GEMAC netdevs not wired), no persistent overlay
   (no rootfs_data volume; tmpfs fallback), /lib/functions/board.sh missing for board_detect.
+
+- **Minimum connectivity path implemented (022/023, 2026-11-19, compile-validated only).**
+  Patch 022 adds the gated LSW write path: default stays the 021 read-only probe; luofu_lsw.arm=1
+  runs W3 (gate clocks + resets, powered-state verify, read-only snapshot, no LSW writes), and
+  +luofu_lsw.qidmap=1 runs W4/W5 (conformance gate, W2 qid-table programming for table A ports
+  4-12 and table B ports 40-43, word-by-word read-back, restore on mismatch). Patch 023 makes GEMAC
+  register netdevs only when PIE is armed and the switch is ready (and fixes the 020 draft's
+  PHYLINK_DEV type to PHYLINK_NETDEV, which would have kept carrier dead). DTS enables
+  lsw/pie/gmac1-4 with measured port ids. Validated in an isolated clone: **23/23 patches apply,
+  compile RC=0 with zero warnings under WERROR** (zImage 5903db04...), bindings/DTS/config clean,
+  checkpatch 0/0/0. **Never executed on hardware** - the next attended boot must run W3 -> W4/W5 ->
+  PIE arm and then test carrier/DHCP; PIE RX decode and TX-to-LSW-egress mapping remain [U].
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
