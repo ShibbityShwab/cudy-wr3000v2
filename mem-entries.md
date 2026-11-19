@@ -25237,3 +25237,26 @@ acknowledged) + 034 unconditional SYSCTRL/CRG/SCU dumps and pen-probe marker/1P 
 Box currently runs the failed-W7 image; recovery proven 7x; no netdev there.
 
 LEDGER
+
+## 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P
+
+Image 5d2c5476 (001-034, five switch gates + PIE, SMP 034 default-on) installed via the verified
+B-pair path and booted:
+- W3/W4/W5/W6 all verified again; W7 snapshot 169 entries/845 words stable, interface idle; table 19
+  write-only ack accepted (read view 0x3fff 0x3e8 0x3fff 0x1ffffff 0x0 logged, not compared).
+- Next verified field: "EQM readback mismatch at table 17 entry 17 word 0: read 0x0, expected
+  0xbb8 (mask 0x1fff), snapshot 0x0, read view 0x0 0x10000000 0xffff0bb8 0x2000bb8 0x0" -> the
+  driver restored the verified entries, skipped the write-only table-19 restore, powered down and
+  refused (probe -EIO); GEMAC correctly refused every netdev ("data path not complete").
+  Interpretation: the expected profile words appear in read-view slots 1..3 with slot0 reading 0 ->
+  the read/write EQM data-word register mapping (or word ordering) is off by one; QM lane reopened
+  to re-verify hi_eqm_read_tab/hi_eqm_write_tab and fix patch 032.
+- SMP 034 ran: dumps captured (SYSCTRL/CRG/SCU before, +1ms, +21ms); SCU ctrl=3 config=0x511
+  status=0x03030000 cpu0=0 cpu1=0; prep pen value 00000000 (loader state), our write 0x81195000
+  stayed at +21ms, marker read failed ("cannot map the probe marker" - ioremap of RAM
+  0x81194000 fails), no 1P -> CPU1 almost certainly never consumed the pen, but the marker
+  instrumentation must be fixed first (memremap/coherent scratch); SMP lane reopened.
+Box runs this image (console-only, no netdevs); recovery proven 8x this session; evidence
+uart-w7smp-final.log sha256 f27437b2... under build/evidence-bench-gates/2026-11-19/.
+
+LEDGER

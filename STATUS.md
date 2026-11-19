@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 19:40 +07
+**Updated:** 2026-11-19 21:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -548,6 +548,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   default-on SMP pen-probe/dumps from 034 (no cmdline token needed). Host-validated; NOT flashed.
   Next boot: W7 expected 168 verified on vendor-read fields + 1 write-only acknowledged, 034
   dumps/marker/1P, then ping/sniff. Box runs the failed-W7 image (console-only, recovery 7x).
+
+- **Final image 5d2c5476 run (2026-11-19): W7 table-19 ack works; table-17 read-view mapping bug
+  caused restore/refuse; SMP probe marker mapping failed but pen untouched.** W3-W6 verified;
+  W7 169-entry snapshot stable and table 19 acknowledged write-only; table 17 entry 17 word 0 read
+  0x0 vs expected 0xbb8 with expected words visible in read-view slots 1..3 -> EQM read/write
+  data-word mapping/order off by one; driver restored, powered down, refused (GEMAC no netdevs).
+  034 dumps ran; SCU ctrl=3 config=0x511 status=0x03030000 cpu0/1=0; prep pen 0 (loader state),
+  write 0x81195000 remained, marker ioremap failed, no 1P -> CPU1 likely never consumed pen (probe
+  instrumentation to fix). Both lanes reopened; box on this image (console-only, recovery 8x);
+  evidence uart-w7smp-final.log sha f27437b2....
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

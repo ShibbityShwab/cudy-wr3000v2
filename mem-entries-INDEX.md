@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated | `mem-entries.md:23702` |
 | 2026-11-18 |  | 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012 | `mem-entries.md:23757` |
 | 2026-11-18 |  | 2026-11-18 12:10 - PCIe host driver (013), CRG reset-polarity fix (014), PIE data-path spec; series 001-014 integrated and combined-verified | `mem-entries.md:23808` |
 | 2026-11-18 |  | 2026-11-18 13:05 - PIE packet-engine refusing draft (015) and LSW switch RE spec integrated; whole series 001-015 combined-verified | `mem-entries.md:23880` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 19:10 - W7 queue-manager init exercised: snapshot+idle gates pass, first EQM readback mismatch -> restore/refuse (fail-closed); SMP probe shows no pen consumption, SCU status 00 | `mem-entries.md:25176` |
 | 2026-11-19 |  | 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on | `mem-entries.md:25200` |
 | 2026-11-19 |  | 2026-11-19 19:40 - W7 verification contract fixed (table 19 write-only); final combined image 5d2c5476 built (001-034) | `mem-entries.md:25222` |
+| 2026-11-19 |  | 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P | `mem-entries.md:25241` |
 
 ## All dated entries
 
@@ -673,3 +673,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 19:10 - W7 queue-manager init exercised: snapshot+idle gates pass, first EQM readback mismatch -> restore/refuse (fail-closed); SMP probe shows no pen consumption, SCU status 00 | `mem-entries.md:25176` |
 | 2026-11-19 |  | 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on | `mem-entries.md:25200` |
 | 2026-11-19 |  | 2026-11-19 19:40 - W7 verification contract fixed (table 19 write-only); final combined image 5d2c5476 built (001-034) | `mem-entries.md:25222` |
+| 2026-11-19 |  | 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P | `mem-entries.md:25241` |
