@@ -24911,3 +24911,42 @@ session (SMP/CPU1 + persistent overlay + LSW/PIE gates + carrier/DHCP). All work
 pushed; nothing is in flight.
 
 LEDGER
+
+## 2026-11-19 15:20 - Egress (025) and bdinfo-MAC nvmem (026) integrated; final image rebuilt to 001-026 (aa642862...)
+
+LSW egress (patch 025, sha 0fd8b1ea...): luofu_lsw.egress=1 (requires arm=1) runs the recovered
+R1/R3/R5 dp/ips/eqm init writes in vendor order with a pre-write conformance gate (EQM indirect
+interface idle, target words stable, fam+0x504 cell-count match = 0x2000), readback against
+pre-write-derived values and restore on mismatch. Order W3 arm -> W4 egress -> W5 qidmap; egress
+without qidmap refuses and restores. Decode closed the port_bitmap semantics (0x1ff0 first under
+of_property_read_u64; walk ports 4-12/32/40-43 reproduces the measured qid map word for word) and
+the EQM indirect command word (index bits 15:0, table 26:20, write bit30, busy bit31, error
+bit29); per-frame path carries ZERO LSW register writes (PIE TX descriptor port/vport words at
++8..+11), but queue-table contents and qid->egress selection remain [U], so TX forwarding is not
+proven. Validated: 001-025 apply 25/25, full kernel compile RC=0 (W=1 warning-free), checkpatch 0
+errors. Never executed on hardware.
+
+bdinfo MAC nvmem (patch 026, sha f979ea9b...): stock MTD nvmem provider exposes the plaintext
+factory MAC at bdinfo+0xde00 (read_only/root_only); fixed-layout mac-base cell + gmac nvmem-cells
+(offsets 0/1 per port pair); GEMAC honours nvmem MACs with -EPROBE_DEFER and random fallback, adds
+ndo_set_mac_address/ndo_validate_addr so the userspace provisioner still works. New board.d maps
+the guarded vendor LAN/WAN ports (wan eth3; lan eth2/eth1/eth0) before the unchanged luofu-mac
+provisioning; test-mac-nvmem.sh and the old MAC harness pass. Unverified: nvmem read on hardware,
+provider-vs-GEMAC probe order, netdev naming/board.d activation on an attended boot.
+
+PIE completion decode (patch 024, sha d81a44fb...): the fix for 6.18's missing GRO_DROP landed
+(just calls napi_gro_receive without comparing the result); pristine 001-026 applies 26/26 with no
+rejects and the full tree compiles RC=0 with zero warnings under WERROR (zImage 3,282,656 B sha
+346fb1f6... in the lane, and the image build below).
+
+Final image rebuilt in the image clone from the full 001-026 series + overlay recipe:
+6,205,742 B sha256 aa64286221e3e228e49911a271b000e1c4d17e3b6832f287eb069befbdfc5d92
+(kernel slice 3,306,974 B; rootfs 2,883,584 B with squashfs + dynamic rootfs_data; check-container
+PASS; harnesses first-install 144/144, abinstall 100/100, MAC 103/103, mac-nvmem 82/0). This
+supersedes the 001-023 image 15dae772. Still NOT flashed; the box runs the proven 001-017 image.
+
+Remaining before a working network: PIE RX decode is implemented in 024 but never run; LSW EQM
+queue tables/qid->egress [U]; nvmem MAC read unverified; attended gates W3/W4/W5 + PIE arm and
+the conformance outcome still unknown.
+
+LEDGER

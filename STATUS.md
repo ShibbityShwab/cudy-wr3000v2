@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 14:50 +07
+**Updated:** 2026-11-19 15:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -440,6 +440,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   caveats; independently revalidated 23/23. All repos are committed and pushed; no work is in
   flight. The box runs the proven 001-017 image (console-only); the final 001-023 image is staged
   for the next attended session (SMP/CPU1 + persistent overlay + LSW/PIE gates).
+
+- **Egress (025) + bdinfo-MAC nvmem (026) integrated; final image rebuilt to 001-026**
+  (2026-11-19). Patch 025 adds the gated W4 egress/dp/eqm/ips init write stage (vendor order,
+  conformance gate, readback/restore; W3 -> W4 -> W5 order) and closed the port_bitmap/EQM
+  command-word decode; per-frame TX carries zero LSW writes, but EQM queue tables and qid->egress
+  remain [U]. Patch 026 exposes the factory MAC at bdinfo+0xde00 as read-only MTD nvmem with
+  mac-base cells for the GEMAC nodes, plus board.d LAN/WAN mapping ahead of the unchanged
+  userspace provisioner. Final image 6,205,742 B sha256 aa642862... (001-026 + rootfs_data
+  overlay, check-container PASS, harnesses 144/100/103/82) supersedes 15dae772; still NOT
+  flashed. Remaining network unknowns: PIE RX decode never executed, LSW EQM queue tables/
+  qid->egress [U], nvmem MAC read unverified.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
