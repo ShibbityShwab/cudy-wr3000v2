@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 08:55 - Kernel platform patch series + canonical 6.18 config delivered; machine code compiles with OpenWrt GCC 14.4; sole kernel blocker = TEXT_OFFSET non-immediate | `mem-entries.md:23422` |
 | 2026-11-18 |  | 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000 | `mem-entries.md:23478` |
 | 2026-11-18 |  | 2026-11-18 09:30 - First own-artifact FIP kernel slice assembled and structurally validated (host-only, never booted) | `mem-entries.md:23525` |
 | 2026-11-18 |  | 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS | `mem-entries.md:23580` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
 | 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
 | 2026-11-19 |  | 2026-11-19 18:15 - W6 EPS channel-map gate: accepted/verified, but still no wire egress and zero RX interrupts; queue-manager init is the next layer | `mem-entries.md:25095` |
+| 2026-11-19 |  | 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement | `mem-entries.md:25121` |
 
 ## All dated entries
 
@@ -668,3 +668,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
 | 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
 | 2026-11-19 |  | 2026-11-19 18:15 - W6 EPS channel-map gate: accepted/verified, but still no wire egress and zero RX interrupts; queue-manager init is the next layer | `mem-entries.md:25095` |
+| 2026-11-19 |  | 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement | `mem-entries.md:25121` |

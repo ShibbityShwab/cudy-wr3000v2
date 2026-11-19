@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 18:15 +07
+**Updated:** 2026-11-19 18:45 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -503,6 +503,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   which must be decoded from the vendor before another write attempt. SMP still 1 CPU. Box runs
   the EPS image (console-only, recovery proven 6x); evidence under
   build/evidence-bench-gates/2026-11-19/.
+
+- **CPU1 release diagnosed; patch 033 ready as a one-boot measurement (2026-11-19).** The pen
+  value 0x8070a000 is correct (our secondary_startup = _text+0x102000 due 6.18 STRICT_KERNEL_RWX
+  layout; vendor used _text+0x1680) and the stock U-Boot polls the pen with MMU off, so the IPI is
+  not the release. Remaining: CPU1 never consumes the pen vs dies in the 6.18 secondary entry.
+  Patch 033 adds default-off attended gates: diag (SCU/pen/resume re-reads), a pen-probe stub that
+  prints MPIDR+“P” then branches to secondary_startup (proves consumption), SCU power-mode,
+  all-bits/force-pen/retries, with vendor two-bit release semantics + explicit ordering. Validate
+  001-033 host-side only; next boot makes the failure measurable. SMP still 1 CPU until then.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

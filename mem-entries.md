@@ -25117,3 +25117,26 @@ uart-eps-run.log + SHA256SUMS). Next session: decode and gate the queue-manager 
 (EQM/EPS deque + per-port MAC mapping), then repeat the trace; in parallel, SMP SCU/IPI.
 
 LEDGER
+
+## 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement
+
+SMP lane deliverable (submodule 2f26c94): patch 033, -- sha256 cf0df0ee... -- keeps the decoded
+vendor release semantics (clear only the target core's two resume bits) with explicit writel/dsb
+order, and adds attended-only, default-off gates: luofu_smp_diag (SCU CBAR/ctrl/config/CPU-status,
+pen/resume re-reads), luofu_smp_probe (pen -> position-independent stub that prints the MPIDR
+nibble + "P" on the UART and then branches to secondary_startup, proving pen consumption),
+luofu_smp_power (SCU CPU power NORMAL), luofu_smp_allbits, luofu_smp_force_pen, retries.
+Diagnosis: the pen value 0x8070a000 is CORRECT for our layout - System.map secondary_startup =
+c070a000, physical 0x8070a000; the +0x102000 offset is the 6.18 STRICT_KERNEL_RWX layout (.head.text
+0xc0608000 size 0x290 then .text aligned to 1 MiB), whereas the vendor 5.10 kernel has it at
+_text+0x1680. The stock U-Boot polls the pen with MMU/caches off, so the IPI cannot be the release
+of a parked core. Remaining ambiguity cannot be resolved offline: either CPU1 never consumes the
+pen (reset/power/wake path) or it consumes it and dies in the 6.18 secondary entry. Patch 033 makes
+that distinguishable on the next boot: "1P" + CPU1 online => stub works, reconcile layout;
+"1P" + offline => dies in secondary entry; no output + SCU status change => power-state confusion;
+etc.
+Validation: 001-033 apply (111 files, no rejects), prepare+compile RC=0, TEXT_OFFSET and pins
+unchanged (secondary_startup 0xc070a000), probe stub bytes verified, checkpatch clean; never
+executed on hardware. Shared docs updated via incoming smp-decode package; port notes smp-decode/.
+
+LEDGER
