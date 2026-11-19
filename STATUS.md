@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 21:15 +07
+**Updated:** 2026-11-19 21:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -568,6 +568,14 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   0x511 = 2 cores, CRG resume matches the stock 2-CPU reference. Next boot: consumed=yes -> direct
   entry/__secondary_switched; consumed=no -> cold boot, then probe=0/power=1/clear_mask controls.
   Host-validated 001-035 apply/prepare/compile RC=0. QM lane still fixing EQM read mapping.
+
+- **Combined image 75868fe0 built (2026-11-19): W7 tiered verification + SMP marker fix.** Patches
+  001-035; W7 STRICT only on bench-proven fields (table 32 priorities, table 35 word0 bytes1-2,
+  table 17 words1..3 = 91 entries), DIAG read views for tables 16/34 (77), ACK for write-only table
+  19 (1); expected success line 91/77/1 then GEMAC registration. SMP 035 stores MPIDR on entry and
+  PEN! after a bounded UART poll, marker read via linear map + cache maintenance, probe on by
+  default. Image 6,205,742 B sha256 75868fe0... (check-container PASS), NOT flashed. Next attended
+  boot tests W7 + SMP + traffic; box on previous image, recovery proven.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

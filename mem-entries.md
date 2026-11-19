@@ -25283,3 +25283,18 @@ Validated 001-035 apply 113 files no rejects, prepare+compile RC=0 zero warnings
 verified; never executed. QM lane still working the EQM read-view mapping fix for patch 032.
 
 LEDGER
+
+## 2026-11-19 21:20 - Image 75868fe0 built: W7 tiered verification (032 rev3) + SMP marker fix (035)
+
+Combined bench image with patches 001-035: five switch gates (arm/egress/qidmap/eps/qminit) + PIE
+arm, SMP 035 probe default-on. W7 now verifies only bench-proven fields (table 32 priorities,
+table 35 word0 bytes1-2, table 17 words1..3) = 91 entries strict; tables 16/34 acknowledged with
+diagnostic read views (77 entries); table 19 write-only acknowledged (1); restore only bench-proven
+entries; failure powers down and refuses. Expected success line: 91 verified / 77 diagnostic /
+1 write-only. SMP: marker now read via linear map + cache maintenance, MPIDR stored on entry and a
+"PEN!" word after a bounded UART poll; probe default-on. Image 6,205,742 B sha256
+75868fe0cd826a867813a1df73975e9e7ee1a35288428d02e3810039a041143b; check-container PASS.
+Next attended boot: W7 verified + GEMAC registration/carrier expected (first real data-path
+chance), SMP consumed=yes|no, then ping/sniff. Box is on the previous image; recovery proven.
+
+LEDGER

@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 12:10 - PCIe host driver (013), CRG reset-polarity fix (014), PIE data-path spec; series 001-014 integrated and combined-verified | `mem-entries.md:23808` |
 | 2026-11-18 |  | 2026-11-18 13:05 - PIE packet-engine refusing draft (015) and LSW switch RE spec integrated; whole series 001-015 combined-verified | `mem-entries.md:23880` |
 | 2026-11-18 |  | 2026-11-18 15:20 - LSW D1a draft (016) integrated; image recipe wired and first real OpenWrt image built (make world RC=0, reproducible, host-only) | `mem-entries.md:23936` |
 | 2026-11-18 |  | 2026-11-18 15:55 - A/B selector driver (017) and install path implemented; final 001-017 image build RC=0 with 58/58 mocked install assertions on the real container | `mem-entries.md:24006` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 19:40 - W7 verification contract fixed (table 19 write-only); final combined image 5d2c5476 built (001-034) | `mem-entries.md:25222` |
 | 2026-11-19 |  | 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P | `mem-entries.md:25241` |
 | 2026-11-19 |  | 2026-11-19 21:15 - SMP probe marker fixed (035); pen-0 explained; probe still unrun but now measurable | `mem-entries.md:25264` |
+| 2026-11-19 |  | 2026-11-19 21:20 - Image 75868fe0 built: W7 tiered verification (032 rev3) + SMP marker fix (035) | `mem-entries.md:25287` |
 
 ## All dated entries
 
@@ -675,3 +675,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 19:40 - W7 verification contract fixed (table 19 write-only); final combined image 5d2c5476 built (001-034) | `mem-entries.md:25222` |
 | 2026-11-19 |  | 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P | `mem-entries.md:25241` |
 | 2026-11-19 |  | 2026-11-19 21:15 - SMP probe marker fixed (035); pen-0 explained; probe still unrun but now measurable | `mem-entries.md:25264` |
+| 2026-11-19 |  | 2026-11-19 21:20 - Image 75868fe0 built: W7 tiered verification (032 rev3) + SMP marker fix (035) | `mem-entries.md:25287` |
