@@ -25063,3 +25063,31 @@ Next: PIE TX/RX trace image to locate where frames stop (TX submission/doorbell 
 delivery), then the SMP SCU/IPI diagnosis.
 
 LEDGER
+
+## 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers
+
+Trace image 36da0bd8... (patches 001-030, gates baked, PIE TX/RX pr_info traces) installed via the
+same verified B-pair path; boot reproduced the gate milestone (W3 snapshot, W4 programmed+verified,
+W5 qid map, PIE armed, GEMAC netdevs, eth2 1G carrier). Host ran ping/ARP on the bench link while
+the console was captured:
+- TX path works up to the engine: GMAC eth2 xmit(port=11, len=90) -> PIE descriptor built
+  (desc words 7400005a 82b5a002 3040000b 00010020), doorbell written (1,4,6,7,9,12), and the TX
+  read pointer advanced 1,3,5,...,0xb - the engine consumes descriptors [V].
+- No box-originated frame reached the wire: a host AF_PACKET sniff on enp195s0f3u1 saw only the
+  host's own 6 ARP requests (src 00:e0:4c:63:17:58, broadcast), no ARP replies/gratuitous ARP from
+  the box [V negative].
+- No pie-trace RX line at all: nothing is delivered to the PIE RX path/lstack; the host's ARP
+  requests are not making it to the MAC/PIE RX, or completions never occur [V negative].
+Conclusion: the register-level gate (W3/W4/W5) is accepted, PIE TX submission works, but the
+switch-to-MAC channel mapping and queue tables are missing. The W3 snapshot itself shows exactly
+that: eps channel map ch7 = 0x0 (vendor baseline 0x83090), channel companions ch0/ch1 = 0x0
+(vendor baselines 0x8000ffff/0x8001ffff), eqm+0x18 cell config 0x1fc0 (vendor 0x80001cc0),
+eqm+0x40 enable 0x0 (vendor 0x80000000). The egress lane deliberately excluded the EPS channel
+map, EQM queue tables and the per-queue egress handle as [U]; those are now the measured
+blockers, not guesses.
+
+Next: decode and add gated writes for the EPS channel map / companions and the EQM queue tables
+(measured vendor baselines exist for several words), plus RX-poll/drop counters, then repeat the
+trace cycle. Recovery proven; box left on the trace image (console-only, no network).
+
+LEDGER

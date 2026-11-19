@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 17:10 +07
+**Updated:** 2026-11-19 17:40 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -484,6 +484,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   still 1 CPU (pen 0x8070a000, CPU1 failed even with all resume bits cleared). The earlier CRG
   regression was fixed (read-only mux .set_parent violates 6.18 clk-core rules). Box runs the gate
   image (console-only, recovery proven); next is a PIE TX/RX trace image, then SMP.
+
+- **PIE trace (2026-11-19): TX descriptors are accepted/consumed by the engine, but no frame
+  reaches the wire and no RX is delivered.** Trace image 36da0bd8 (patches 001-030) reproduced the
+  gate milestone (W3/W4/W5 accepted, PIE armed, GEMAC netdevs, 1G carrier); TX doorbells written
+  and the TX read pointer advances (1,3,5,...,0xb), so submission works. Host sniff sees only its
+  own ARP requests (no box frames) and the PIE RX trace is empty. Blocker: the EPS channel map/
+  companions and EQM queue tables (W3 snapshot: eps ch7=0x0 vs vendor 0x83090, companions 0x0 vs
+  0x8000ffff/0x8001ffff, eqm+0x40=0x0 vs 0x80000000) were never programmed - exactly the [U]
+  area the egress lane excluded. Next: decode/gate those writes + RX poll counters.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

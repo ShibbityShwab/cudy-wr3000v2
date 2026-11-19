@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool | `mem-entries.md:23327` |
 | 2026-11-18 |  | 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare) | `mem-entries.md:23368` |
 | 2026-11-18 |  | 2026-11-18 08:55 - Kernel platform patch series + canonical 6.18 config delivered; machine code compiles with OpenWrt GCC 14.4; sole kernel blocker = TEXT_OFFSET non-immediate | `mem-entries.md:23422` |
 | 2026-11-18 |  | 2026-11-18 09:15 - TEXT_OFFSET early-boot fix (patch 003): full 6.18 kernel compile RC=0 with the real, non-encodable offset; load address verified 0x80608000 | `mem-entries.md:23478` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 15:45 - Review-form series finalized at [PATCH 00/26] | `mem-entries.md:24982` |
 | 2026-11-19 |  | 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean | `mem-entries.md:25006` |
 | 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
+| 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
 
 ## All dated entries
 
@@ -666,3 +666,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 15:45 - Review-form series finalized at [PATCH 00/26] | `mem-entries.md:24982` |
 | 2026-11-19 |  | 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean | `mem-entries.md:25006` |
 | 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
+| 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
