@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 07:45 - Upstream design layer delivered: concrete OpenWrt target/DTS/image design, GPL follow-up pack, vendor sk_buff/bridge port spec | `mem-entries.md:23268` |
 | 2026-11-18 |  | 2026-11-18 07:55 - First upstream artifact: schematic OpenWrt target skeleton delivered (untested) with a fail-closed FIP tool | `mem-entries.md:23327` |
 | 2026-11-18 |  | 2026-11-18 08:35 - FIP trailer decoded + generator implemented (byte-exact vs both vendor containers); target skeleton's structure accepted by OpenWrt main (defconfig + kernel prepare) | `mem-entries.md:23368` |
 | 2026-11-18 |  | 2026-11-18 08:55 - Kernel platform patch series + canonical 6.18 config delivered; machine code compiles with OpenWrt GCC 14.4; sole kernel blocker = TEXT_OFFSET non-immediate | `mem-entries.md:23422` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 15:35 - PIE completion decode (024) integrated; final image rebuilt to 001-026 with hisilicon,port DTS (26dde6fe...) | `mem-entries.md:24954` |
 | 2026-11-19 |  | 2026-11-19 15:45 - Review-form series finalized at [PATCH 00/26] | `mem-entries.md:24982` |
 | 2026-11-19 |  | 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean | `mem-entries.md:25006` |
+| 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
 
 ## All dated entries
 
@@ -665,3 +665,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 15:35 - PIE completion decode (024) integrated; final image rebuilt to 001-026 with hisilicon,port DTS (26dde6fe...) | `mem-entries.md:24954` |
 | 2026-11-19 |  | 2026-11-19 15:45 - Review-form series finalized at [PATCH 00/26] | `mem-entries.md:24982` |
 | 2026-11-19 |  | 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean | `mem-entries.md:25006` |
+| 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |

@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 15:50 +07
+**Updated:** 2026-11-19 17:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -476,6 +476,14 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   verified 26-patch/52-hash/harnesses clean). All repos committed and pushed; no work in flight.
   Box runs the proven 001-017 image (console-only); final 001-026 image 26dde6fe is host-validated
   and staged for the next attended session (SMP/CPU1 + persistent overlay + gated LSW/PIE path).
+
+- **BENCH MILESTONE (2026-11-19): full 001-027 gate image boots with persistent overlay; W3/W4/W5
+  accepted on silicon; PIE armed; GEMAC netdevs up with 1 Gbps carrier.** W4 probe config
+  programmed+verified (dp+0x1c=0x10000 ... fam+0x504=0x2000), W5 qid map programmed, eth2 in
+  br-lan forwarding. ARP/ping still fails (no frame traverses the PIE RX/TX datapath yet); SMP
+  still 1 CPU (pen 0x8070a000, CPU1 failed even with all resume bits cleared). The earlier CRG
+  regression was fixed (read-only mux .set_parent violates 6.18 clk-core rules). Box runs the gate
+  image (console-only, recovery proven); next is a PIE TX/RX trace image, then SMP.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

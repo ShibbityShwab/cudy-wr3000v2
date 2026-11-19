@@ -25025,3 +25025,41 @@ host-validated and staged for the next attended session (SMP/CPU1 + persistent o
 W3/W4/W5/PIE path + carrier/DHCP).
 
 LEDGER
+
+## 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU
+
+Attended bench session (lead + user physical recovery cycles), gate image 9161f677... (full
+001-027, gates baked in the clone cmdline: luofu_switch.arm=1 luofu_switch.egress=1
+luofu_switch.qidmap=1 luofu_pie.arm=1):
+- boot: our 6.18.60 kernel, UBI rootfsb, ubiblock squashfs, mount_root switches to the UBIFS
+  rootfs_data overlay (default FS created) - PERSISTENT OVERLAY WORKS [V]
+- luofu-switch W3 snapshot read (dp+0x1c=0x0 vs vendor 0x18000, dp+0x68=0x1 vs 0x0,
+  eqm+0x18=0x1fc0 vs 0x80001cc0, eqm+0x40=0x0 vs 0x80000000: the bootloader leaves the block
+  unpowered, as predicted; the attended W3 step initialises it)
+- W4 probe configuration programmed AND verified by readback: dp+0x1c=0x10000 dp+0x64=0x1
+  eqm+0x18=0x80001cc0 eqm+0x38=0x7f0 eqm+0x40=0x80000000 eqm+0xa4=0x1fc0 ips+0x08=0x2a
+  ips+0x10=0x790011 (fam+0x504=0x2000 read-only) [V]
+- W5 qid-map write set programmed with readback (serial line garbled by overlap; driver logic
+  verifies) [I/V]
+- PIE armed: 2 RX channels, 2 TX channels, 4 interrupts [V]
+- GEMAC: eth0..eth3 netdevs registered; eth2 joins br-lan and enters forwarding; PHY reports
+  1 Gbps full duplex; eth3 WAN PHY driver binds [V]
+- SMP: still 1 CPU. Diagnostics: luofu-smp boot cpu=1 logical=1 pen=0x8070a000 (symbol
+  secondary_startup at c070a000 -> 0x8070a000, consistent), resume 0x02a00000 -> 0x00200000;
+  CPU1 failed to come online even after clearing all four resume bits 0x16..0x19. SCU/IPI path
+  remains [U].
+- connectivity: ping 192.168.1.1 -> 100% loss, ARP INCOMPLETE. The register-level path is
+  accepted but no frame traverses PIE RX/TX yet; this is the known unproven data path, now
+  directly measurable with a trace image.
+Bench process fixes landed for bring-up: patch 027 drops the read-only mux .set_parent (6.18's
+clk core requires .determine_rate when set_parent exists; the CRG probe was failing, blocking
+every clock consumer, FMC and the rootfs), patch 028 adds SMP diagnostics, patch 029 clears all
+four resume bits. The gate cmdline lives only in the bench image clone; the repo default config
+stays gate-free. Box left running the gate image (console-only, no network); recovery was proven
+four times this session; TFTP/recovery armed; console log saved under
+build/evidence-bench-gates/2026-11-19/ (sha256 9dce8e5e...).
+
+Next: PIE TX/RX trace image to locate where frames stop (TX submission/doorbell vs RX completion
+delivery), then the SMP SCU/IPI diagnosis.
+
+LEDGER
