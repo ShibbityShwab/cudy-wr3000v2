@@ -24978,3 +24978,27 @@ Remaining before working network: EQM queue tables/qid->egress [U]; nvmem MAC re
 W3/W4/W5/PIE gates and the conformance outcome unexecuted; attended tests per the lane summaries.
 
 LEDGER
+
+## 2026-11-19 15:45 - Review-form series finalized at [PATCH 00/26]
+
+Upstream-026 lane (submodule 7475fc5): added commit messages and generated series patches 0024
+(PIE RX completion + TX descriptor decode/delivery; GRO_DROP fix for 6.18; arm-gated),
+0025 (gated LSW W4 egress/dp/eqm/ips write stage with conformance/readback/restore) and
+0026 (bdinfo MAC as read-only MTD nvmem + board.d LAN/WAN map; readiness-gated). Regenerated
+series (0001-0023 changed only in the NN/26 denominator), cover letter [PATCH 00/26],
+mapping/provenance, MAINTAINERS notes, rationale (new section 11 + ordering), validation
+(new section 18), README and all validation logs/sha256sums.
+
+Pristine linux-6.18.60 validation: patch(1) 26/26 RC=0 (100 patching-file events, 0 fuzz,
+0 rejects, only the 3 known offsets; 0022-0026 offset-free), git am 26/26 RC=0 with identical
+trees; combined diff 63 files +10,276/-4; checkpatch 0 errors/58 warnings/6 strict CHECKs
+(all review work: 18 MAINTAINERS, 22 binding-split, 16 long lines in 0004, 2 Kconfig help);
+sha256sums 52/52 OK; gen-series --check clean. No rebuild (asserted): the cross-lane fully-clean
+001-026 build prepared/compiled RC=0 with zero compiler warnings under WERROR, zImage 3,282,528 B
+sha 08b76747..., _text unchanged.
+
+All three new patches are Group 4 RFC/do-not-merge drafts; the cover letter recommends not sending
+them until the attended decode/egress/nvmem gates run. Remaining review items unchanged
+(MAINTAINERS/binding-split/long lines, 0008 offsets, 0014 not folded, no CI tested).
+
+LEDGER

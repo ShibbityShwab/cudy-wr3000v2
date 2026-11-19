@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 15:35 +07
+**Updated:** 2026-11-19 15:45 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -462,6 +462,14 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   144/100/103/82, check-container PASS) supersedes aa642862/15dae772; still NOT flashed.
   Remaining network unknowns: EQM qid->egress mapping [U], nvmem MAC read unverified, and the
   attended W3/W4/W5/PIE-gate run.
+
+- **Review-form series finalized at [PATCH 00/26]** (2026-11-19): 024 (PIE RX completion/TX
+  descriptor decode, arm-gated), 025 (gated LSW W4 egress/dp/eqm/ips write stage), 026 (bdinfo
+  MAC read-only MTD nvmem + board.d map) added with regenerated cover/mapping/MAINTAINERS/
+  rationale/validation; pristine-6.18.60 revalidation patch(1) 26/26 and git am 26/26 RC=0 with
+  identical trees (63 files, +10,276/-4), checkpatch 0 errors/58 warnings/6 strict checks,
+  52/52 hashes OK. All three are RFC/do-not-merge drafts; attended decode/egress/nvmem gates
+  unexecuted.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
