@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 19:10 +07
+**Updated:** 2026-11-19 19:25 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -530,6 +530,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   "1P" stub output, CPU1 offline; the SMP lane is preparing the next single-variable variant
   (SCU power/CRG measurements). Box runs the W7 image (console-only), recovery proven 7x; evidence
   under build/evidence-bench-gates/2026-11-19/.
+
+- **SMP diagnosis corrected; patch 034 ready (2026-11-19).** The W7-run "no 1P" was invalid: the
+  built-in module_param tokens were silently unknown (correct names would be platsmp.*), and SCU
+  status 00 means NORMAL, not dormant. Patch 034 uses bare __setup knobs, dumps SYSCTRL/CRG/SCU
+  unconditionally at prepare/pre/+1 ms/+21 ms (read-only), and makes a marker-backed pen stub the
+  default (prints MPIDR nibble + "P", then branches to secondary_startup; luofu_smp_probe=0 is the
+  plain-entry control). Host-validated 001-034 apply/prepare/compile RC=0. Next boot: marker/1P =
+  pen consumed -> direct-entry control or instrument __secondary_switched; no marker = core never
+  consumes it -> cold boot, clear_mask variants, earlier pen write. QM lane still fixing W7.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

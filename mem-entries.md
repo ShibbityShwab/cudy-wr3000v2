@@ -25196,3 +25196,25 @@ recovery proven 7x this session; evidence uart-w7-run.log under build/evidence-b
 Both lanes are reopened with the exact logs and asked to fix/plan the next iteration.
 
 LEDGER
+
+## 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on
+
+SMP lane re-opened on the W7-run log and found the "no 1P" result was not evidence: built-in
+object module_param names carry the KBUILD_MODNAME prefix, so the W7 image's luofu_smp_diag/probe
+tokens were Unknown kernel parameters and the pen was the plain entry. Also: SCU CPU status 00 is
+NORMAL (powered), not dormant/power-down (bits[1:0]: 00 normal, 10 dormant, 11 poweroff), so
+luofu_smp_power=1 is expected to be a no-op control; CRG release matches the vendor stock reading
+0x00200000; warm-reset stock boots do bring up 2 CPUs, so the failure is not the reset type.
+Patch 034 (submodule be8ff43): bare-name __setup knobs (probe, power, allbits, clear_mask,
+force_pen, retries), unconditional read-only dumps at prepare/pre-release/+1 ms/+21 ms of SYSCTRL
+0xc00.., CRG 0x04..0x3c (skipping reboot/watchdog words) and SCU ctrl/config/status + both CPU
+status bytes, and a pen-probe stub that stores its MPIDR to a scratch marker page (read back via an
+uncached alias so it survives a UART failure), prints the nibble + "P", then branches to
+secondary_startup; probe is ON by default in this bench patch, luofu_smp_probe=0 is the
+plain-entry control. Validated 001-034 apply (112 files, no rejects), prepare+compile RC=0,
+symbols/pins verified, stub word-checked; never executed. Next boot decides: marker/1P = pen
+consumed (then direct-entry control or instrument __secondary_switched); no marker + pen unchanged
+= core never consumes it (then cold boot, then clear_mask variants, then move the pen write
+earlier). QM lane is still fixing W7; the next combined image will carry 034 + the fixed W7.
+
+LEDGER

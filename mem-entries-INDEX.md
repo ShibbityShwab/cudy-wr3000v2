@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 09:55 - First drivers ported to 6.18 with DT bindings: CRG clock+reset controller and watchdog; full kernel compile RC=0, dt_binding_check PASS | `mem-entries.md:23580` |
 | 2026-11-18 |  | 2026-11-18 10:55 - FMC/SPI-NAND and network drivers ported; driver series at six patches (004-009) with bindings | `mem-entries.md:23643` |
 | 2026-11-18 |  | 2026-11-18 11:10 - Machine-restart driver (patch 010, provisional reset) and remaining-driver evidence plan delivered; driver series 001-010 integrated | `mem-entries.md:23702` |
 | 2026-11-18 |  | 2026-11-18 11:45 - Pinctrl (011) and thermal (012) drivers ported and integrated; driver series now 001-012 | `mem-entries.md:23757` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement | `mem-entries.md:25121` |
 | 2026-11-19 |  | 2026-11-19 18:50 - W7 queue-manager init integrated; combined W7+SMP-probe bench image built (14791958...) | `mem-entries.md:25144` |
 | 2026-11-19 |  | 2026-11-19 19:10 - W7 queue-manager init exercised: snapshot+idle gates pass, first EQM readback mismatch -> restore/refuse (fail-closed); SMP probe shows no pen consumption, SCU status 00 | `mem-entries.md:25176` |
+| 2026-11-19 |  | 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on | `mem-entries.md:25200` |
 
 ## All dated entries
 
@@ -671,3 +671,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement | `mem-entries.md:25121` |
 | 2026-11-19 |  | 2026-11-19 18:50 - W7 queue-manager init integrated; combined W7+SMP-probe bench image built (14791958...) | `mem-entries.md:25144` |
 | 2026-11-19 |  | 2026-11-19 19:10 - W7 queue-manager init exercised: snapshot+idle gates pass, first EQM readback mismatch -> restore/refuse (fail-closed); SMP probe shows no pen consumption, SCU status 00 | `mem-entries.md:25176` |
+| 2026-11-19 |  | 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on | `mem-entries.md:25200` |
