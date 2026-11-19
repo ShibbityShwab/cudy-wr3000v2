@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-17 |  | 2026-11-17 17:45 - v6/v7/v8: EVERY vendor module now loads and eth2 comes up on our kernel; the LAN blocker moved to HSLINK rootif (vendor gmac driver mismatch) | `mem-entries.md:23077` |
 | 2026-11-17 |  | 2026-11-17 18:00 - v9/v10: vendor MAC lane (hsan,himac + port) still ends in a userspace-stage hang at ~33 s; the blocker is the vendor HSLINK/wifi userspace interface, not symbol loading | `mem-entries.md:23114` |
 | 2026-11-17 |  | 2026-11-17 18:55 - v13: WEXT net_device ABI fix, non-persistent init masks, and the U-Boot bootfip data-abort that blocks the vendor-DT lane | `mem-entries.md:23142` |
 | 2026-11-17 |  | 2026-11-17 20:15 - v14-v16: bridge stack enabled, rootif bypassed, hyfi_bridging loads; crash moved into hyfi_netlink_receive (vendor bridge hooks need real implementations) | `mem-entries.md:23179` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 14:10 - Correction to the 2026-11-19 milestone entry: the booted kernel was UP (1 CPU), not SMP (2 CPUs) | `mem-entries.md:24777` |
 | 2026-11-19 |  | 2026-11-19 14:20 - Minimum connectivity path implemented (022/023): gated LSW W2/W3/W4/W5 write stages + GEMAC netdev readiness | `mem-entries.md:24797` |
 | 2026-11-19 |  | 2026-11-19 14:35 - Final full-series image with persistent overlay ready (15dae772...), validated; next attended boot is its first hardware test | `mem-entries.md:24832` |
+| 2026-11-19 |  | 2026-11-19 14:45 - Review-form series finalized at [PATCH 00/23] (022/023 added and revalidated) | `mem-entries.md:24869` |
 
 ## All dated entries
 
@@ -659,3 +659,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 14:10 - Correction to the 2026-11-19 milestone entry: the booted kernel was UP (1 CPU), not SMP (2 CPUs) | `mem-entries.md:24777` |
 | 2026-11-19 |  | 2026-11-19 14:20 - Minimum connectivity path implemented (022/023): gated LSW W2/W3/W4/W5 write stages + GEMAC netdev readiness | `mem-entries.md:24797` |
 | 2026-11-19 |  | 2026-11-19 14:35 - Final full-series image with persistent overlay ready (15dae772...), validated; next attended boot is its first hardware test | `mem-entries.md:24832` |
+| 2026-11-19 |  | 2026-11-19 14:45 - Review-form series finalized at [PATCH 00/23] (022/023 added and revalidated) | `mem-entries.md:24869` |

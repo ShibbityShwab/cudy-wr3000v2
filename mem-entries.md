@@ -24865,3 +24865,24 @@ was told; it will verify consistency from the new HEAD and commit any remaining 
 message. No content was lost; only the commit message/ownership is muddled.
 
 LEDGER
+
+## 2026-11-19 14:45 - Review-form series finalized at [PATCH 00/23] (022/023 added and revalidated)
+
+Upstream-023 lane finalization commit 8bb7f2e (after my accidental mid-edit sweep in ebdedd5; the
+lane re-ran everything from the new HEAD and confirmed no series file needs to change further):
+- commit messages 0022 (gated LSW write path: default read-only; luofu_lsw.arm=1 W3; +qidmap=1
+  W4/W5 conformance-gated W2 qid programming with readback/restore; never executed) and 0023
+  (GEMAC netdev readiness: registers only when PIE armed + switch ready; PHYLINK_NETDEV carrier
+  fix; DT/random MAC; measured 1 Gbps words only; RX/TX path [U]).
+- series regenerated 0001-0023 (bytes of the new bodies identical to the source patches; earlier
+  patches changed only via the NN/23 denominator + Date header); cover letter [PATCH 00/23],
+  mapping, MAINTAINERS, rationale, validation (§17), README, refreshed validation logs +
+  sha256sums.
+- pristine linux-6.18.60: patch(1) 23/23 RC=0 (90 files, 0 rejects, 3 known offsets), git am 23/23
+  RC=0 identical trees; checkpatch 0 errors/56 warnings/6 strict CHECKs (all review work);
+  sha256sums 46/46 OK; series 0022 sha 955f85ed..., 0023 sha 5da6e5fa..., sources unchanged.
+- 0022/0023 are Group 4 RFC/do-not-merge drafts; staged gates W3/W4/W5/PIE arm are attended and
+  none has run; no frame is delivered yet (RX decode and TX-egress [U]).
+No device action; box still on the proven 001-017 image; final 001-023 image 15dae772 not flashed.
+
+LEDGER

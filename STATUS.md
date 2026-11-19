@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 14:35 +07
+**Updated:** 2026-11-19 14:45 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -425,6 +425,14 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   first-install 144/144, abinstall 100/100, MAC 103/103, check-container PASS. **The next attended
   boot is the first test of SMP/CPU1, the persistent overlay and the connectivity gates** - the
   box still runs the proven 001-017 image.
+
+- **Review-form series finalized at [PATCH 00/23]** (2026-11-19): 022 (gated LSW write path:
+  default read-only; W3/W4/W5 behind luofu_lsw.arm=1 and +qidmap=1, conformance gate, readback,
+  restore-on-mismatch, never executed) and 023 (GEMAC netdev readiness, PHYLINK_NETDEV fix,
+  registers only when PIE armed + switch ready) regenerated with cover/mapping/MAINTAINERS/
+  rationale/validation; pristine-6.18.60 revalidation patch(1) 23/23 and git am 23/23 RC=0 with
+  identical trees, checkpatch 0 errors/56 warnings/6 strict checks, 46/46 hashes OK. Both are
+  RFC/do-not-merge drafts; the attended W3/W4/W5/PIE gates are unexecuted.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
