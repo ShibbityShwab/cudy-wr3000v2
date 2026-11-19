@@ -25091,3 +25091,29 @@ Next: decode and add gated writes for the EPS channel map / companions and the E
 trace cycle. Recovery proven; box left on the trace image (console-only, no network).
 
 LEDGER
+
+## 2026-11-19 18:15 - W6 EPS channel-map gate: accepted/verified, but still no wire egress and zero RX interrupts; queue-manager init is the next layer
+
+Image 1db10314... (patches 001-031: adds luofu_switch.eps=1 W6 programming of the measured EPS
+channel-map/companion words with readback verification, plus PIE RX-poll tracing) installed through
+the verified B-pair path; boot reached READY/registered GEMAC netdevs again, so the W6 write set
+was accepted and verified [V].
+- TX unchanged: PIE consumes descriptors (doorbells accepted, TX read pointer 1,2,3,8,11...),
+  but a host AF_PACKET sniff again sees only the host's own ARP requests - no box frame reaches
+  the wire [V negative].
+- RX: the new RXpoll trace printed NOTHING. NAPI poll never runs, i.e. no PIE RX interrupt is
+  raised at all: the host's ARP requests are not reaching the MAC->PIE RX path (or the switch
+  never routes them there).
+So the EPS channel-map/companion words are necessary-looking but not sufficient: the remaining
+missing layer is the queue-manager/EQM init (the egress lane only decoded a single EQM command
+word and deliberately excluded the queue tables) plus whatever per-port MAC<->EPS deque
+configuration the vendor programs. That is a focused reverse-engineering task, not another
+guess-write; the measurements to target are the stock EQM/EPS/queue-manager register dumps and
+the vendor hi_swa/hi_dp init sequence.
+Also unresolved: SMP still 1 CPU (pen 0x8070a000; CPU1 fails even with all resume bits cleared).
+Bench state: box runs the EPS gate image (console-only, no network), recovery proven 6x this
+session, TFTP armed. Evidence: build/evidence-bench-gates/2026-11-19/ (uart-pie-trace.log,
+uart-eps-run.log + SHA256SUMS). Next session: decode and gate the queue-manager init tables
+(EQM/EPS deque + per-port MAC mapping), then repeat the trace; in parallel, SMP SCU/IPI.
+
+LEDGER

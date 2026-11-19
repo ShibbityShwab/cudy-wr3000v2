@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 17:40 +07
+**Updated:** 2026-11-19 18:15 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -493,6 +493,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   companions and EQM queue tables (W3 snapshot: eps ch7=0x0 vs vendor 0x83090, companions 0x0 vs
   0x8000ffff/0x8001ffff, eqm+0x40=0x0 vs 0x80000000) were never programmed - exactly the [U]
   area the egress lane excluded. Next: decode/gate those writes + RX poll counters.
+
+- **W6 EPS channel-map gate (2026-11-19): accepted and verified, but the data path still does not
+  pass frames.** Image 1db10314 (001-031) programmes the measured EPS channel-map/companion words
+  (readback-verified) and still reports READY with GEMAC netdevs; TX descriptors are consumed
+  (doorbells + TX read pointer advance) but no box frame reaches the wire, and the new RX-poll
+  trace never fires (no PIE RX interrupts at all). Conclusion: EPS maps alone are insufficient;
+  the next layer is the queue-manager/EQM init (queue tables + per-port MAC<->EPS deque config),
+  which must be decoded from the vendor before another write attempt. SMP still 1 CPU. Box runs
+  the EPS image (console-only, recovery proven 6x); evidence under
+  build/evidence-bench-gates/2026-11-19/.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
