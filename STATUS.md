@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 14:20 +07
+**Updated:** 2026-11-19 14:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -413,6 +413,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   compile RC=0 with zero warnings under WERROR** (zImage 5903db04...), bindings/DTS/config clean,
   checkpatch 0/0/0. **Never executed on hardware** - the next attended boot must run W3 -> W4/W5 ->
   PIE arm and then test carrier/DHCP; PIE RX decode and TX-to-LSW-egress mapping remain [U].
+
+- **Final full-series image with persistent overlay ready (2026-11-19, host-validated, not flashed).**
+  Image 6,205,742 B sha256 15dae772... built from the **full 001-023 series** (SMP, clock tree,
+  PIE datapath, LSW probe, gated LSW W2/W3/W4/W5 writes, GEMAC netdev readiness) plus the boot
+  fixes (CMDLINE_FORCE, XZ_DEC_ARM, 4 KiB padding). Rootfs UBI now carries a dynamic
+  **rootfs_data** volume (reserved_pebs 9, autoresize) so mount_root gets a persistent UBIFS
+  overlay instead of tmpfs; the stale board.sh reference was removed and a build-time guard
+  checks board.d helper sources. Marker: BOOT-VERIFIED RECIPE / NOT FLASHABLE-UNTIL-INSTALLED
+  (records the earlier 001-017 userspace boot; this rebuild is untested on hardware). Harnesses:
+  first-install 144/144, abinstall 100/100, MAC 103/103, check-container PASS. **The next attended
+  boot is the first test of SMP/CPU1, the persistent overlay and the connectivity gates** - the
+  box still runs the proven 001-017 image.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

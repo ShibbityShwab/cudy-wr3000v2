@@ -24828,3 +24828,40 @@ review-form series currently ends at 021 (extension to 023 running). The next at
 also test the full 001-023 series (the booted image was 001-017, UP-only).
 
 LEDGER
+
+## 2026-11-19 14:35 - Final full-series image with persistent overlay ready (15dae772...), validated; next attended boot is its first hardware test
+
+Overlay lane built the final production image in the selectorfix clone from the FULL series
+001-023 (23/23 applied cleanly, prepare RC=0, make world -j16 RC=0 no errors/warnings):
+- image: openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin, 6,205,742 B
+  sha256 15dae772984669545f175806cff70216039684e494f6196e0a94b71530026b99
+- kernel slice 3,305,732 B sha256 6c99aa3d..., load/ep 0x80608000, gate 0xd7b7ab1e at 0x326fde;
+  TEXT_OFFSET unchanged; 23-patch list includes SMP (018), clk tree (019), PIE datapath (020),
+  LSW probe (021), gated LSW W2/W3/W4/W5 writes (022) and GEMAC netdev readiness (023)
+- rootfs UBI 2,883,584 B sha256 81d04951...: volume 0 squashfs (static, used_ebs 20) +
+  volume 1 rootfs_data (dynamic, empty, reserved_pebs 9, autoresize flag) - the standard OpenWrt
+  ubinize shape that mount_root uses for a persistent UBIFS overlay (first rw mount creates the
+  default UBIFS; autoresize grows it). 31 reserved PEBs of 185; image budget met.
+- marker now BOOT-VERIFIED RECIPE / NOT FLASHABLE-UNTIL-INSTALLED: records the 2026-11-19
+  userspace boot of an EARLIER 001-017 build, states THIS rebuild is not flashed/booted, and keeps
+  the literal NOT FLASHABLE substring the install tool/platform_check_image rely on.
+- board.sh warning resolved: the file exists nowhere in OpenWrt main; the stale target
+  base-files/etc/board.d/02_network reference was the cause and the corrected file (sources
+  uci-defaults.sh/system.sh/luofu-mac.sh) is installed; a build-time guard now fails the image if
+  any installed board.d sources a missing /lib helper. MAC provisioning harness 103/103.
+
+Validation run by the lead on the final container: first-install mocked harness 144/144 (real
+container path), abinstall harness 100/100, MAC harness 103/103, luofu-image.py check-container
+PASS with both volumes detected.
+
+CAVEAT: the booted image was 001-017 (UP, 1 CPU, tmpfs overlay, stale board.d). This rebuild is
+the FIRST image carrying SMP 018, clk 019, PIE/LSW 020-023 and the rootfs_data volume; it has NOT
+been flashed. The next attended boot is the first real test of CPU1/SMP, the persistent overlay,
+and (with luofu_lsw.arm=1 [+qidmap=1] + luofu_pie.arm=1) the connectivity gates.
+
+Process note: my overlay integration commit ebdedd5 accidentally included the upstream-023 lane's
+in-flight review-series regeneration (it was editing upstream/series-6.18 concurrently). The lane
+was told; it will verify consistency from the new HEAD and commit any remaining file with a proper
+message. No content was lost; only the commit message/ownership is muddled.
+
+LEDGER
