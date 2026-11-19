@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 13:50 +07
+**Updated:** 2026-11-19 14:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -391,7 +391,7 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   (binding split, MAINTAINERS entry, 0014->0004 fold, DCO identity, second-boot stability sample).
 
 - **MILESTONE 2026-11-19: our kernel 6.18.60 + our OpenWrt rootfs booted to userspace on the
-  WR3000 v2.** U-Boot failover booted kernelb (2 CPUs), UBI attached rootfsb, ubiblock0_0 ->
+  WR3000 v2.** U-Boot failover booted kernelb (1 CPU: the image carries series 001-017, SMP patch 018 was not in this build), UBI attached rootfsb, ubiblock0_0 ->
   squashfs mounted, /sbin/init -> preinit -> procd -> kmodloader -> urngd -> overlayfs ->
   console prompt. Fixes: built-in CONFIG_CMDLINE_FORCE (loader supplies no cmdline; DTB bootargs
   crashed U-Boot), 4 KiB squashfs padding (ubiblock rounds to 512 B), CONFIG_XZ_DEC_ARM=y

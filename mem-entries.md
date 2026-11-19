@@ -24773,3 +24773,23 @@ board_detect. Box currently runs our image with console only; recovery door was 
 stock fallback path is proven.
 
 LEDGER
+
+## 2026-11-19 14:10 - Correction to the 2026-11-19 milestone entry: the booted kernel was UP (1 CPU), not SMP (2 CPUs)
+
+The ledger entry above and the first versions of STATUS.md / EVIDENCE-INDEX.md / SUCCESS.md said
+"2 CPUs (SMP release)" for the successful boot. That is wrong: the boot log
+(build/evidence-firstboot/uart-boot8-SUCCESS.log) says "smp: Bringing up secondary CPUs ...",
+"CPU1: thread ..." only in the stock vendor fallback boot; our 6.18 boot reports
+"Brought up 1 node, 1 CPU" / "Total of 1 processors activated". The 2-CPU lines earlier in the
+capture belong to the vendor 5.10 fallback, not to our kernel.
+
+Reason: the image used for the bring-up was built from patches 001-017 - the clone's
+target/linux/hisilicon/patches-6.18 was never synced with patches 018-021 (SMP, clock tree, PIE
+datapath, LSW probe), so patch 018 was not in the booted kernel. The 1-CPU result is therefore
+expected and does not test the SMP release; a rebuild with the full 001-021 series is the next
+step for a real 2-CPU check.
+
+All source claims were corrected (STATUS, EVIDENCE-INDEX, SKELETON-SMOKE); the curated repo
+README already carried the correct measured count. No hardware action in this correction.
+
+LEDGER
