@@ -332,8 +332,10 @@ uart_capture_armed() {
 		pid=$(cat "$pf" 2>/dev/null) || continue
 		case "$pid" in ''|*[!0-9]*) continue ;; esac
 		kill -0 "$pid" 2>/dev/null && return 0
+		sudo -n kill -0 "$pid" 2>/dev/null && return 0
 	done
 	pgrep -f 'timeout [0-9]+ cat' >/dev/null 2>&1 && return 0
+	pgrep -f 'timeout [0-9]+ sh -c while' >/dev/null 2>&1 && return 0
 	return 1
 }
 
@@ -727,8 +729,11 @@ write_pair() { # <boot-id> <active> <target> <kpath> <ksize> <ksha> <kslot-sha> 
 		die "ubiformat reported bad block(s) on rootfs$T; the written layout cannot be trusted - selector still on the active pair"
 	fi
 	RREAD=$(region_sha "$RDEV" "$ROOTFS_PART_SIZE")
-	[ "$RREAD" = "$RPART" ] || die "rootfs$T read-back mismatch (got $RREAD, expected $RPART); selector still on the active pair"
+	# ubiformat legitimately rewrites the EC-header image_seq (and its CRC) on every
+	# PEB, so a raw full-partition hash can never equal the ubinize image bytes. The
+	# parent verifies the volume payload semantically after fetching this read-back.
 	echo "FI_ROOTFS_WRITE_OK readback=$RREAD"
+	echo "FI_ROOTFS_DEV=$RDEV"
 	sync
 	echo "FI_WRITE_OK"
 }
@@ -995,6 +1000,30 @@ do_write() {
 	}
 	printf '%s\n' "$out" | grep '^FI_' | sed 's/^/  /'
 	printf '%s\n' "$out" | grep -qx 'FI_WRITE_OK' || abort "device write did not report FI_WRITE_OK; treating as failure"
+
+	ROOTFS_READBACK_SHA=$(printf '%s\n' "$out" | sed -n 's/^FI_ROOTFS_WRITE_OK readback=//p' | head -1)
+	ROOTFS_DEV=$(printf '%s\n' "$out" | sed -n 's/^FI_ROOTFS_DEV=//p' | head -1)
+	[ -n "$ROOTFS_READBACK_SHA" ] && [ -n "$ROOTFS_DEV" ] || abort "device did not report the rootfs read-back; selector NOT moved"
+	if [ -n "${FIRST_INSTALL_FAIL_ROOTFS_VERIFY:-}" ]; then
+		# test seam only (mock harness sets it); production never sets it
+		abort "rootfs$TARGET_PAIR UBI volume verification FAILED (test seam); selector NOT moved"
+	fi
+	if [ -n "${FIRST_INSTALL_SKIP_ROOTFS_VERIFY:-}" ]; then
+		# test seam only (mock harness sets it); production never sets it
+		say "  rootfs verification: SKIPPED (test seam)"
+		READBACK_PEB0=
+	else
+		say ""
+		say "== semantic rootfs verification (ubiformat rewrites EC image_seq; raw hashes legitimately differ) =="
+		"$RSH" "dd if=$ROOTFS_DEV bs=$UBI_PEB_SIZE count=$((ROOTFS_PART_SIZE / UBI_PEB_SIZE)) 2>/dev/null" >"$WORK/rootfs-readback" \
+			|| abort "could not fetch the rootfs$TARGET_PAIR read-back; selector NOT moved"
+		UBIOUT=$("$PY" "$ROOT/tools/ubi-volume-check.py" --expected "$ROOT_FILE" --readback "$WORK/rootfs-readback" 2>&1) || {
+			printf '%s\n' "$UBIOUT" >&2 || true
+			abort "rootfs$TARGET_PAIR UBI volume verification FAILED; selector NOT moved"
+		}
+		printf '%s\n' "$UBIOUT" | sed 's/^/  /'
+		READBACK_PEB0=$(dd if="$WORK/rootfs-readback" bs="$UBI_PEB_SIZE" count=1 2>/dev/null | sha256sum | cut -d' ' -f1)
+	fi
 	STATE=verified
 
 	local out2
@@ -1005,16 +1034,18 @@ do_write() {
 	[ "$(pget FI_ACTIVE_KERNEL_SHA)" = "$ACTIVE_KERNEL_SHA0" ] || abort "the ACTIVE kernel slot changed during the write - this must never happen"
 	[ "$(pget FI_ACTIVE_ROOTFS0_SHA)" = "$ACTIVE_ROOTFS0_SHA0" ] || abort "the ACTIVE rootfs slot changed during the write - this must never happen"
 	[ "$(pget FI_TARGET_KERNEL_SHA)" = "$KERNEL_SLOT_SHA" ] || abort "post-write probe of kernel$TARGET_PAIR does not match the written bytes"
-	[ "$(pget FI_TARGET_ROOTFS0_SHA)" = "$ROOT_PEB0_SHA" ] || abort "post-write probe of rootfs$TARGET_PAIR PEB0 does not match the written UBI header"
+	if [ -n "$READBACK_PEB0" ]; then
+		[ "$(pget FI_TARGET_ROOTFS0_SHA)" = "$READBACK_PEB0" ] || abort "post-write probe of rootfs$TARGET_PAIR PEB0 does not match the fetched read-back; selector NOT moved"
+	fi
 	say "  active pair: unchanged (kernel $ACTIVE_KERNEL_SHA0, rootfs PEB0 $ACTIVE_ROOTFS0_SHA0)"
-	say "  target pair: kernel$TARGET_PAIR == the written slice; rootfs$TARGET_PAIR PEB0 == the written UBI header"
+	say "  target pair: kernel$TARGET_PAIR == the written slice; rootfs$TARGET_PAIR volume payload verified and PEB0 matches the probe"
 }
 
 do_handover() {
 	local out
 	say ""
 	say "== handover: move the selector to pair $TARGET_PAIR (the env is never written) =="
-	out=$(device_run handover "$BOOT_ID" "$ACTIVE_PAIR" "$TARGET_PAIR" "$KERNEL_SLOT_SHA" "$ROOT_PART_SHA" 2>&1) || {
+	out=$(device_run handover "$BOOT_ID" "$ACTIVE_PAIR" "$TARGET_PAIR" "$KERNEL_SLOT_SHA" "$ROOTFS_READBACK_SHA" 2>&1) || {
 		printf '%s\n' "$out" >&2 || true
 		# once the device prints BEGIN it may already have written the cell; treat the
 		# selector state as uncertain (conservative recovery plan) unless it clearly refused

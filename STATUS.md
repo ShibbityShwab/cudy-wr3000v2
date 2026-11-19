@@ -390,6 +390,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   brings its review-form copy to 001-021. The remaining review gaps are mechanical/documentary
   (binding split, MAINTAINERS entry, 0014->0004 fold, DCO identity, second-boot stability sample).
 
+- **MILESTONE 2026-11-19: our kernel 6.18.60 + our OpenWrt rootfs booted to userspace on the
+  WR3000 v2.** U-Boot failover booted kernelb (2 CPUs), UBI attached rootfsb, ubiblock0_0 ->
+  squashfs mounted, /sbin/init -> preinit -> procd -> kmodloader -> urngd -> overlayfs ->
+  console prompt. Fixes: built-in CONFIG_CMDLINE_FORCE (loader supplies no cmdline; DTB bootargs
+  crashed U-Boot), 4 KiB squashfs padding (ubiblock rounds to 512 B), CONFIG_XZ_DEC_ARM=y
+  (squashfs uses XZ ARM BCJ), semantic UBI-volume read-back verification (ubiformat rewrites
+  image_seq), single-write selector recipe. Evidence: build/evidence-firstboot/
+  (uart-boot8-SUCCESS.log, SUCCESS.md). The box is running the debug-CRC kernel (slot sha
+  897d4926...); a clean production image e893c388... (config-verified) was rebuilt but not yet
+  re-flashed. Remaining gaps: no network (LSW/PIE/GEMAC netdevs not wired), no persistent overlay
+  (no rootfs_data volume; tmpfs fallback), /lib/functions/board.sh missing for board_detect.
+
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.

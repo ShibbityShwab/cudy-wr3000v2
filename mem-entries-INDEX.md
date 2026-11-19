@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-17 |  | 2026-11-17 00:30 - NetworkManager reclaimed the bench adapter mid-audit; the unmanage is now persistent | `mem-entries.md:22911` |
 | 2026-11-17 |  | 2026-11-17 08:05 - THE 3dh-CLASS KERNEL NEVER BOOTED: the blocker is a kernel-config regression, not the slot; 3df/3dg were the last running kernels | `mem-entries.md:22925` |
 | 2026-11-17 |  | 2026-11-17 08:45 - ROOT CAUSE FOUND AND FIXED: the 3dh kernel died in luofu_early's ioremap; 3dn boots to userspace, then wedges in a new userspace-stage problem | `mem-entries.md:22981` |
 | 2026-11-17 |  | 2026-11-17 10:15 - 3dq: our kernel boots the vendor stack far enough to bring eth2 up at 1 Gbps; module dependency ordering is the next fix | `mem-entries.md:23031` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 21:25 - LSW read-only D1b baseline probe implemented (patch 021) and integrated | `mem-entries.md:24631` |
 | 2026-11-18 |  | 2026-11-18 21:40 - Review-form series extended to 001-021; curated public repo synced (port + inventory docs) | `mem-entries.md:24673` |
 | 2026-11-18 |  | 2026-11-18 21:50 - Curated repo review form synced to 001-021; publication and driver surfaces all current | `mem-entries.md:24707` |
+| 2026-11-19 |  | 2026-11-19 13:45 - MILESTONE: our kernel 6.18.60 + our OpenWrt rootfs BOOTED TO USERSPACE on the WR3000 v2 (attended) | `mem-entries.md:24731` |
 
 ## All dated entries
 
@@ -655,3 +655,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-18 |  | 2026-11-18 21:25 - LSW read-only D1b baseline probe implemented (patch 021) and integrated | `mem-entries.md:24631` |
 | 2026-11-18 |  | 2026-11-18 21:40 - Review-form series extended to 001-021; curated public repo synced (port + inventory docs) | `mem-entries.md:24673` |
 | 2026-11-18 |  | 2026-11-18 21:50 - Curated repo review form synced to 001-021; publication and driver surfaces all current | `mem-entries.md:24707` |
+| 2026-11-19 |  | 2026-11-19 13:45 - MILESTONE: our kernel 6.18.60 + our OpenWrt rootfs BOOTED TO USERSPACE on the WR3000 v2 (attended) | `mem-entries.md:24731` |

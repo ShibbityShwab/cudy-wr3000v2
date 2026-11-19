@@ -24727,3 +24727,49 @@ gaps (binding split, MAINTAINERS entry, 0014->0004 fold, DCO identity, second-bo
 Box stock; bench idle; no writes performed at any point during this session.
 
 LEDGER
+
+## 2026-11-19 13:45 - MILESTONE: our kernel 6.18.60 + our OpenWrt rootfs BOOTED TO USERSPACE on the WR3000 v2 (attended)
+
+Boot chain (UART evidence, build/evidence-firstboot/uart-boot8-SUCCESS.log + SUCCESS.md):
+U-Boot failover "bootflag a bootreg 11 -> boot from kernela failed, change to kernelb" ->
+Image Name Linux-6.18.60 -> our kernel banner, 2 CPUs (SMP release) -> UBI attached mtd14
+"rootfsb" -> block ubiblock0_0 created from the static squashfs volume -> VFS mounted root
+(squashfs, read-only) -> /sbin/init -> init console/watchdog/preinit -> procd early/watchdog/
+ubus/init -> kmodloader -> urngd -> overlayfs (tmpfs fallback) -> "Please press Enter to
+activate this console." FIRST FULL BOOT OF OUR OWN OS ON THIS HARDWARE.
+
+The five bugs between the first kernel banner and userspace (all fixed in the target tree):
+1. Stock U-Boot supplies NO kernel command line for our uImage (first boot: empty cmdline ->
+   VFS root panic). A /chosen/bootargs DTB property made U-Boot itself crash (data abort before
+   hand-off). Working fix: CONFIG_CMDLINE + CONFIG_CMDLINE_FORCE with the root/ubi args.
+2. ubiblock rounds a UBI volume down to 512 B, so the squashfs payload must be padded before
+   ubinize. luofu-image.py rootfs-ubi gained --pad-align; the recipe pads to 4096 B.
+3. OpenWrt's squashfs is XZ with the ARM BCJ filter ("Filters selected: arm"); the kernel
+   lacked CONFIG_XZ_DEC_ARM=y, so every compressed file block failed with "xz decompression
+   failed" while the raw FMC reads were byte-perfect (verified with per-page CRC against the
+   host image: 900/900 pages matched). Enabling CONFIG_XZ_DEC_ARM=y fixed the decompression.
+4. The first-install tool's raw full-partition hash check for the rootfs was invalid because
+   ubiformat rewrites UBI EC-header image_seq; replaced with tools/ubi-volume-check.py (parses
+   the UBI volume payload on both sides and compares used_ebs/data_pad/payload sha256).
+5. The SYSENV boot_reg sysfs write must be a single write; a tty-split printf wrote partial
+   values. echo -n "0x11" > boot_reg works and was used for the handover in the no-SSH path.
+
+Install path used: stock -> broker/telnet root shell (box-provision --telnetd) -> wget the
+kernel/rootfs from a host HTTP server -> device-side write_pair script (mtd erase/write kernelb,
+ubiformat rootfsb, read-backs; semantic UBI verify read-only via ubiattach) -> selector 0x11 ->
+warm reboot -> loader failover. The first-install tool's fail-closed logic (partition by label,
+inactive pair only, full read-backs, selector last, recovery plan) was followed manually because
+the recovered stock has no SSH/dropbear; its SSH UART-detection bug was also fixed for next time.
+
+Artifacts: clean production image rebuilt without the temporary CRC-debug patch:
+bin/targets/hisilicon/luofu/openwrt-hisilicon-luofu-cudy_wr3000-v2-squashfs-sysupgrade.bin
+6,185,262 B sha256 e893c388e4ab8be61be0f76cd00b003000516005fef3d20bef5b26ecf853c8b5 (config
+CMDLINE/XZ verified; NOT re-flashed). The image running on the box is the debug-CRC kernel
+(sha256 kernel slot 897d4926...) from image 51baf2ac..., kept running for observation.
+
+Observed remaining gaps: no network (LSW/PIE/GEMAC netdevs not wired yet), no persistent
+overlay (image has no rootfs_data volume; tmpfs fallback), /lib/functions/board.sh missing for
+board_detect. Box currently runs our image with console only; recovery door was armed and the
+stock fallback path is proven.
+
+LEDGER

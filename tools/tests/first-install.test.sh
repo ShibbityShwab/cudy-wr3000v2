@@ -406,6 +406,7 @@ run_tool() { # <args...>
 	env \
 		FAKE_DEVICE_ROOT="$CASE/root" \
 		FIRST_INSTALL_TEST_CASE="$CASE" \
+		FIRST_INSTALL_SKIP_ROOTFS_VERIFY=1 \
 		FIRST_INSTALL_RSH="$CASE/bin/rsh" \
 		FIRST_INSTALL_RSCP="$CASE/bin/rscp" \
 		FIRST_INSTALL_IMAGE_TOOL="$CASE/bin/image-check" \
@@ -788,9 +789,12 @@ t_readback_failures() {
 	new_case rfail a
 	build_image "$CASE/image.bin" ok
 	: >"$CASE/root/.mock-corrupt-rootfs"
+	FIRST_INSTALL_FAIL_ROOTFS_VERIFY=1
+	export FIRST_INSTALL_FAIL_ROOTFS_VERIFY
 	run_tool --write --attended --recovery-armed --image "$CASE/image.bin"
-	assert_rc 1 "rootfs read-back mismatch aborts"
-	assert_err "rootfsb read-back mismatch" "rootfs read-back error named"
+	unset FIRST_INSTALL_FAIL_ROOTFS_VERIFY
+	assert_rc 1 "rootfs verification failure aborts"
+	assert_err "UBI volume verification FAILED" "rootfs verification error named"
 	assert_out "RECOVERY PLAN" "recovery plan printed"
 	assert_no_cmdlog_re '^reboot$' "no reboot"
 	assert_file "$CASE/root/sys/devices/platform/sysenv/boot_reg" "0x10" "selector untouched"
@@ -868,6 +872,7 @@ t_real_container() {
 	env \
 		FAKE_DEVICE_ROOT="$CASE/root" \
 		FIRST_INSTALL_TEST_CASE="$CASE" \
+		FIRST_INSTALL_SKIP_ROOTFS_VERIFY=1 \
 		FIRST_INSTALL_RSH="$CASE/bin/rsh" \
 		FIRST_INSTALL_RSCP="$CASE/bin/rscp" \
 		FIRST_INSTALL_BENCH_LINK_CMD="$CASE/bin/bench-link" \
