@@ -25002,3 +25002,26 @@ them until the attended decode/egress/nvmem gates run. Remaining review items un
 (MAINTAINERS/binding-split/long lines, 0008 offsets, 0014 not folded, no CI tested).
 
 LEDGER
+
+## 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean
+
+Curated public repo cudy-wr3000v2-openwrt synced from opensource HEAD 7475fc5 and pushed
+1b53485..f74ce61 (3 commits: target 81d330c, series 3c2a5c2, docs f74ce61):
+- patches 024/025/026 (PIE RX/TX decode, gated LSW W4 egress, bdinfo MAC nvmem), hisilicon,port +
+  nvmem DTS, luofu-netdev.sh + board.d, test-mac-nvmem.sh, durable port notes pie-decode/
+  lsw-egress/mac-nvmem, synced PIE-DATAPATH/LSW-SPEC/MISC-SOC-BLOCKS/TARGET-DESIGN/SKELETON-SMOKE
+- 26-patch review form (cover/mapping/MAINTAINERS/rationale/validation, 52/52 hashes)
+- README/NOTICE/docs index/PUBLISHING at 001-026 with final image facts 6,205,742 B sha256
+  26dde6fe..., kernel slice 3,307,134 B, rootfs 2,883,584 B (squashfs + dynamic rootfs_data),
+  harnesses 144/100/103/82, NOT-flashed caveat, Group-4 RFC gates and remaining [U]s.
+Independent verification: gen-series --check (26), 52/52 hashes, MAC 103/103, abinstall 94/94,
+mac-nvmem 82/82 (96/96 with compiled DTS checks); GitHub API/fresh clone: tip f74ce61, 168 files,
+no binaries, expected files, links clean, all harnesses pass.
+
+Final project state: root notebook public, submodule 7475fc5, curated port repo f74ce61, curated
+CVE repo 9b1e7d1; legacy -open-firmware superseded. All repos committed and pushed; no work in
+flight. Box runs the proven 001-017 image (console-only); the final 001-026 image 26dde6fe is
+host-validated and staged for the next attended session (SMP/CPU1 + persistent overlay + gated
+W3/W4/W5/PIE path + carrier/DHCP).
+
+LEDGER

@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 15:45 +07
+**Updated:** 2026-11-19 15:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -470,6 +470,12 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   identical trees (63 files, +10,276/-4), checkpatch 0 errors/58 warnings/6 strict checks,
   52/52 hashes OK. All three are RFC/do-not-merge drafts; attended decode/egress/nvmem gates
   unexecuted.
+
+- **All surfaces final and clean (2026-11-19).** Curated cudy-wr3000v2-openwrt pushed to f74ce61
+  (001-026 series, patches 024-026, final image facts 26dde6fe..., gates/[U]s, independently
+  verified 26-patch/52-hash/harnesses clean). All repos committed and pushed; no work in flight.
+  Box runs the proven 001-017 image (console-only); final 001-026 image 26dde6fe is host-validated
+  and staged for the next attended session (SMP/CPU1 + persistent overlay + gated LSW/PIE path).
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
