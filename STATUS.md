@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 18:45 +07
+**Updated:** 2026-11-19 18:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -512,6 +512,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   prints MPIDR+“P” then branches to secondary_startup (proves consumption), SCU power-mode,
   all-bits/force-pen/retries, with vendor two-bit release semantics + explicit ordering. Validate
   001-033 host-side only; next boot makes the failure measurable. SMP still 1 CPU until then.
+
+- **W7 queue-manager init integrated; combined W7+SMP-probe image built (2026-11-19).** Patch 032
+  (submodule 32f16b7) decodes the EQM indirect engine and the full queue-manager init set (tables
+  19/32/35/17/16/34, 169 entries/845 words for qids 1..72) and adds luofu_lsw.qminit=1: EQM-idle
+  refusal, two-read snapshot, write via the decoded engine, readback of all 845 words, full restore
+  on mismatch; ready() requires the complete W3-W7 set. Host-validated 001-032 apply/prepare/compile
+  RC=0 zero warnings. Combined bench image 6,205,742 B sha256 14791958... bakes all five switch
+  gates + PIE arm + SMP diag/probe into the cmdline (patches 001-033); NOT flashed yet (box still
+  on the EPS image 1db10314). Next attended boot: W7 verified + pen-probe "1P" + one ping/tcpdump.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

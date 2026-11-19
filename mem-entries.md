@@ -25140,3 +25140,35 @@ unchanged (secondary_startup 0xc070a000), probe stub bytes verified, checkpatch 
 executed on hardware. Shared docs updated via incoming smp-decode package; port notes smp-decode/.
 
 LEDGER
+
+## 2026-11-19 18:50 - W7 queue-manager init integrated; combined W7+SMP-probe bench image built (14791958...)
+
+Queue-manager lane (submodule 32f16b7, patch 032 sha c8e4c7a3...) decoded the last missing data-path
+layer from the pinned vendor hi_lsw_dp.ko (read-only):
+- EQM indirect engine: command word at eqm+0x48 = index[15:0] | table[26:20] | bit30 write |
+  bit31 start, poll busy, bit29 error, five data words at +0x5c..+0x70/+0x4c..; corroborated by the
+  measured idle word 0x41100012 = completed table-17/index-18 write with rate data 3000.
+- Queue-manager init set recovered from hi_queue_init + helpers: tables 19 (cell record), 32
+  (per-queue-port priorities), 35, 17 (5-word scheduler profile), 16 (tag byte), 34 (deque map
+  queue-port bits 5:0 = LSW port, slot 17:14, valid bit 18), with per-port constants; qid =
+  1+port_index*8+slot over the model patches 021/022 validate -> 169 entries / 845 words for
+  qids 1..72. MAC TX egress answer: the PIE descriptor carries only the egress port tag + its
+  1<<port bitmap and vport - no qid and no queue handle; the vendor init programs tables 32/34 for
+  every populated port, so the deque side is now populated; table 38/VP remains excluded [U].
+- Patch 032 adds luofu_lsw.qminit=1 (requires arm/egress/qidmap/eps): EQM-idle refusal, two-read
+  stability snapshot of all 169 entries, compute from vendor formulas, write via the decoded engine,
+  read back all, restore the whole snapshot on any mismatch; ready() now requires the complete
+  W3-W7 set; fixes patch 025's error-bit record (bit29, not bit5) and makes W6 EPS snapshot
+  restorable.
+Validated: 001-032 apply 32/32 no rejects, prepare+compile RC=0 zero warnings under WERROR
+(vmlinux 687cf391...), checkpatch 0 errors, bindings/DTS/config idempotent; never executed.
+
+Combined bench image built in the image clone with all gates and diagnostics baked into the cmdline:
+luofu_switch.arm=1 egress=1 qidmap=1 eps=1 qminit=1 + luofu_pie.arm=1 + luofu_smp_diag=1
+luofu_smp_probe=1. Image 6,205,742 B sha256
+147919588bd31f0cb1d69bf18e5a1fddca4ec2e912b8a15aa64f94d046906d4e (kernel slice includes
+patches 001-033). Not flashed; the box still runs the EPS gate image 1db10314. Next attended boot
+tests W7 (169 entries/845 words programmed and verified) + the SMP pen-probe stub ("1P" evidence)
+and then one ping/tcpdump over the bench link.
+
+LEDGER
