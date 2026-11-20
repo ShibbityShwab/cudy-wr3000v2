@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 22:00 +07
+**Updated:** 2026-11-20 22:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -855,6 +855,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   the kernel side; root cause is loader-side (U-Boot/hboot CPU1 start trigger and its inputs). Next:
   locate U-Boot runtime base (0x80040000 reads 0, it relocates), decode the secondary-core start
   condition, compare flashinfo windows (done), and decode image-type/header/boot-flag inputs.
+
+- **SMP SOLVED: 2 CPUs online and persistent (2026-11-20).** Root cause: the stock U-Boot bootfip
+  handoff staging was aborted because our DTB lacked the vendor base DTB's aliases/console and
+  reserved-memory/flashinfo node; CPU1 was therefore never set up to poll the pen, and no kernel-side
+  release variant could work (sentinel probe 061 proved CPU1 never entered the stubs even though
+  U-Boot's in-place poll loop at 0x80040000 is intact). Adding aliases/console and the
+  reserved-memory/flashinfo@80600000 node (reg 0x80600000+0x4000, atag-offset 0x1000) to the DTS
+  fixed it: U-Boot now prints the stock handoff lines (alias console, serialnr, atag_addr), the
+  kernel reports SCU bit5 set, smp: Brought up 1 node, 2 CPUs, CPU1 mpidr 80000001, 2 processors in
+  /proc/cpuinfo, CPU0/CPU1 in /proc/interrupts. Reboot persists (pair recorder, 2 CPUs again, ping
+  0% loss). Image d61c09e6 is the first 2-CPU image; the canonical post-fix image is being built
+  next. Evidence smp-2cpu.log, smp-reboot.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

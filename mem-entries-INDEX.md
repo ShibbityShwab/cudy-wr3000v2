@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
 | 2026-11-19 |  | 2026-11-19 18:15 - W6 EPS channel-map gate: accepted/verified, but still no wire egress and zero RX interrupts; queue-manager init is the next layer | `mem-entries.md:25095` |
 | 2026-11-19 |  | 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement | `mem-entries.md:25121` |
 | 2026-11-19 |  | 2026-11-19 18:50 - W7 queue-manager init integrated; combined W7+SMP-probe bench image built (14791958...) | `mem-entries.md:25144` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
 | 2026-11-20 |  | 2026-11-20 21:50 - SMP HANDOFF PROBE: CPU1 IS ALIVE - it consumed the kernel-stext stub (B=0x66cc66cc) but not the decompressor-entry stub (A=0). Stock reads captured (DT/handoff facts, flashinfo window, kernel-slot size). | `mem-entries.md:25996` |
 | 2026-11-20 |  | 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause | `mem-entries.md:26036` |
+| 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |
 
 ## All dated entries
 
@@ -706,3 +706,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
 | 2026-11-20 |  | 2026-11-20 21:50 - SMP HANDOFF PROBE: CPU1 IS ALIVE - it consumed the kernel-stext stub (B=0x66cc66cc) but not the decompressor-entry stub (A=0). Stock reads captured (DT/handoff facts, flashinfo window, kernel-slot size). | `mem-entries.md:25996` |
 | 2026-11-20 |  | 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause | `mem-entries.md:26036` |
+| 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |

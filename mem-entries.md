@@ -26063,3 +26063,35 @@ and decode the image-type/header/boot-flag inputs that make the vendor image rel
 Evidence 2026-11-20-sentinel-061.log, -sentinel-flashinfo.txt, -stock-flashinfo.txt.
 
 LEDGER
+
+## 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path.
+
+After the sentinel probe proved CPU1 never enters the kernel stubs even though U-Boot's in-place CPU1
+poll loop (0x80040000, e5967000/0afffffc) is intact in RAM on our image, the load moved to the loader
+side. The U-Boot boot path is bootcmd="mtd read kernel${bootflag} 0x83200000; bootfip 0x83200000"
+(loadaddr 0x83200000); the custom bootfip does the pre-kernel handoff staging and prints, on stock:
+  alias console=/uart1@0x1010f000
+  serialnr->high=0x8250, serialnr->low=0x1010f000, atag_addr=0x80601000
+Our boot printed "alias console not found" and skipped the serialnr/atag line.
+DT fix: our DTS lacked the vendor base DTB's aliases/console property and the
+reserved-memory/flashinfo node (compatible hsan,flashinfo_reserved, reg 0x80600000+0x4000,
+atag-offset 0x1000). Added both (skeleton DTS + build clone).
+Image d61c09e6 booted:
+  alias console=/serial@1010f000
+  serialnr->high=0x8250, serialnr->low=0x1010f000, atag_addr=0x80601000
+  luofu-smp: handoff post-release cpu1-ran monitor scu_cfg=00000531 bit5=set
+  smp: Brought up 1 node, 2 CPUs
+  SMP: Total of 2 processors activated (3974.75 BogoMIPS)
+  CPU1: thread -1, cpu 1, socket 0, mpidr 80000001
+  /proc/cpuinfo = 2; online = 0-1; /proc/interrupts has CPU0/CPU1 columns (TWD active on both)
+Reboot persistence: rebooted with the pair recorder active -> came back on rootfsb (pair b recorded),
+2 CPUs again (Brought up 2 CPUs, 3987.86 BogoMIPS), ping 20/20 0% loss, SSH fine.
+CONCLUSION: the kernel-side SMP release path (pen=secondary_startup + CRG resume + wakeup IPI) was
+correct all along; the blocker was that the stock U-Boot bootfip handoff staging was aborted because
+our DTB lacked the loader's expected console alias and flashinfo reserved-memory node, so CPU1 was
+never set up to poll the pen. Adding those two DT items fixed SMP completely (060/061 probes remain
+useful diagnostics; with the fix CPU1 consumes the real secondary_startup, so the sentinels stay
+untouched exactly as observed).
+Evidence 2026-11-20-smp-2cpu.log, smp-reboot capture, stock U-Boot preamble comparisons.
+
+LEDGER
