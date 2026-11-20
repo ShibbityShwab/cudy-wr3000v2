@@ -25701,3 +25701,30 @@ needed to get host frames forwarded to the CPU (CFE L2/VLAN/port config), then a
 targeted test (e.g., unicast probe to the box MAC) to confirm. Evidence 2026-11-20-rxtrace.log.
 
 LEDGER
+
+## 2026-11-20 15:30 - FIRST REAL TRAFFIC: box accepts a punted ARP exception on eth2 and sends an ARP reply on the wire
+
+Image e924f8a6 (patches 001-053; full W3-W16 + luofu_pie.rxdiag=1 accepterr=1; heartbeat) installed
+from stock and booted; W16 verified; heartbeat continuous.
+Host traffic test (ping 192.168.1.1 from the bench link):
+- PIE RX ch0 polled and produced ONE exception completion (the host's ARP request):
+  RXDIAG ch=0 idx=0 len=60 status=37 err=1 port=11 vport=0 vlan=0
+  desc=04000000 82e500c2 (32-byte descriptor captured)
+  -> RXERR ACCEPTED (accepterr=1, vendor would drop) status=37 port=11 vport=0 len=60
+  -> pie-trace RX port=11 len=60 status=37 (delivered to eth2's netdev)
+- Host AF_PACKET sniff then saw the box's ARP REPLY on the wire:
+  ARP src d4:0d:ab:64:1c:73 -> dst 00:e0:4c:63:17:58 len 60.
+  This is the first bidirectional frame exchange on our own OpenWrt/6.18 stack: wire -> PIE RX ->
+  CPU (exception accepted) -> kernel ARP reply -> PIE TX -> wire.
+- The host then sent its ICMP echo requests (sniff saw 6x IPv4 host->box len 98), but the box
+  produced ZERO further RX completions and ping still shows 100% loss. So unicast frames to the
+  box's MAC are not being punted/forwarded to the CPU - exactly the missing CFE L2/VLAN/CPU-port
+  forwarding state (the vendor modules cannot load on 6.18). Broadcast/exception frames reach the
+  CPU; normal unicast does not.
+So the complete hardware path is proven for punted frames (RX+TX+netdev), and the only remaining
+piece is the switch's L2/VLAN/CPU-port state that would let normal host unicast frames reach the
+CPU (and later be forwarded). Next: QM lane to decode hi_kcara/hi_swa L2/VLAN/CPU-port init and
+deliver a gated W17 stage, or an experiment to force punt/copy-to-CPU of unicast frames.
+Evidence 2026-11-20-first-traffic.log.
+
+LEDGER

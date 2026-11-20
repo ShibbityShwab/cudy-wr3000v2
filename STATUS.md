@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 15:05 +07
+**Updated:** 2026-11-20 15:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -736,6 +736,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   forwarding host ingress frames to the CPU - L2/VLAN/port state (CFE runtime tables) or completion
   status/port semantics. QM lane reopened to decode and plan the next stage. Evidence
   2026-11-20-rxtrace.log.
+
+- **FIRST REAL TRAFFIC (2026-11-20): the box accepted a punted ARP exception on eth2 and sent an ARP
+  reply on the wire.** Image e924f8a6 (001-053, full W3-W16 + rxdiag/accepterr + heartbeat): one
+  RX exception completion (len=60 status=37 port=11) was accepted and delivered; the host sniff
+  saw the box's ARP reply (d4:0d:ab:64:1c:73 -> 00:e0:4c:63:17:58, len 60). So the full
+  wire->PIE RX->CPU->kernel->PIE TX->wire loop works for punted frames. The host's follow-up
+  unicast ICMP (98 B, seen on the wire) produced zero further RX completions and ping still fails:
+  normal unicast frames are not punted/forwarded to the CPU - the missing CFE L2/VLAN/CPU-port
+  forwarding state. Heartbeat stable. Next: QM lane to decode hi_kcara/hi_swa L2/VLAN/CPU-port init
+  for a gated W17 stage or a copy-to-CPU experiment. Evidence 2026-11-20-first-traffic.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
