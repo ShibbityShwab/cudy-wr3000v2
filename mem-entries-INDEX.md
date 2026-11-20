@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean | `mem-entries.md:25006` |
 | 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
 | 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
 | 2026-11-19 |  | 2026-11-19 18:15 - W6 EPS channel-map gate: accepted/verified, but still no wire egress and zero RX interrupts; queue-manager init is the next layer | `mem-entries.md:25095` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed | `mem-entries.md:25900` |
 | 2026-11-20 |  | 2026-11-20 21:05 - live-MMIO round 2: native forwarding conclusion (NAPT carveout unsafe/absent -> mirror stays), CPU1 late-bring-up trigger (patch 059), all live CPU1 variants consumed=no | `mem-entries.md:25923` |
 | 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
+| 2026-11-20 |  | 2026-11-20 21:50 - SMP HANDOFF PROBE: CPU1 IS ALIVE - it consumed the kernel-stext stub (B=0x66cc66cc) but not the decompressor-entry stub (A=0). Stock reads captured (DT/handoff facts, flashinfo window, kernel-slot size). | `mem-entries.md:25996` |
 
 ## All dated entries
 
@@ -704,3 +704,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed | `mem-entries.md:25900` |
 | 2026-11-20 |  | 2026-11-20 21:05 - live-MMIO round 2: native forwarding conclusion (NAPT carveout unsafe/absent -> mirror stays), CPU1 late-bring-up trigger (patch 059), all live CPU1 variants consumed=no | `mem-entries.md:25923` |
 | 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
+| 2026-11-20 |  | 2026-11-20 21:50 - SMP HANDOFF PROBE: CPU1 IS ALIVE - it consumed the kernel-stext stub (B=0x66cc66cc) but not the decompressor-entry stub (A=0). Stock reads captured (DT/handoff facts, flashinfo window, kernel-slot size). | `mem-entries.md:25996` |

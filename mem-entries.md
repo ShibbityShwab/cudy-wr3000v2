@@ -25992,3 +25992,43 @@ cmdline, dmesg, the 0x80600000 16 KiB flashinfo window, 0x80500000 64 KiB low wi
 loader-signature scan the lane asked for.
 
 LEDGER
+
+## 2026-11-20 21:50 - SMP HANDOFF PROBE: CPU1 IS ALIVE - it consumed the kernel-stext stub (B=0x66cc66cc) but not the decompressor-entry stub (A=0). Stock reads captured (DT/handoff facts, flashinfo window, kernel-slot size).
+
+Patch 060 handoff probe result on hardware (image 202832a2, cmdline luofu_smp_handoff_probe=1):
+  [0.000000] luofu-smp: handoff A=00000000 B=66cc66cc pen=80600080 scu_cfg=00000511
+  [0.000000] luofu-smp: handoff verdict decompressor-entry=no kernel-stext=CONSUMED
+  [0.000000] luofu-smp: handoff cpu1-ran monitor scu_cfg bit5=clear
+  [0.353868] luofu-smp: handoff markers at prep A=00000000 B=66cc66cc
+  [0.360252] luofu-smp: handoff cpu1-ran monitor at prep scu_cfg=00000511 bit5=clear
+  [0.580545] luofu-smp: handoff cpu1-ran monitor post-release scu_cfg=00000511 bit5=clear
+Interpretation: the decompressor-entry stub A was NOT consumed (CPU1 not polling yet at that instant),
+but the kernel-stext stub B WAS consumed (marker nonzero, 0x66cc66cc) - CPU1 becomes active during the
+decompressor window and executes our head.S stub. So CPU1 is alive and responsive; our normal
+release path misses it (it probably starts polling after our early release attempt, and the pen is
+then stale/already overwritten; later add_cpu(1) attempts found it spinning/consumed elsewhere).
+The obvious next design: make the stext stub a re-polling trampoline - loop reading the pen and
+jump when it changes - so platsmp/__cpu_up can later point the pen at the real secondary_startup
+(with secondary_data set up) and CPU1 enters the normal SMP path. That would explain and likely fix
+the 1-CPU limitation.
+Stock-side facts captured in the same cycle (evidence 2026-11-20-stock-reads-{1,2}.txt):
+- /proc/device-tree/cpus/enable-method = "hisilicon,hsan_smp" (vendor string); cpu@0/cpu@1 nodes.
+- system-controller@10100000: compatible "hsan,sysctrl","syscon", reg 0x10100000+0x1000,
+  smp-offset = 0xc00 (pen).
+- crg@14880000: compatible "hsan,crg", reg 0x14880000+0x1000, core-info = 0x16,0x18,0x17,0x19
+  (CPU0/CPU1 core gate/reset indices), resume-offset = 0x38, set-wdg-offset 0x50, clr-wdg 0x70,
+  reboot-offset 0, reboot-base-index 0.
+- reserved-memory/flashinfo node: reg = 0x80600000 size 0x4000, atag-offset = 0x1000 (ATAG at
+  0x80601000), compatible "hsan,flashinfo_reserved" - the probe markers live in the first bytes of
+  this window (0x80600010/0x80600020/0x80600040/0x80600080), which the vendor loader reserves.
+- /proc/mtd: kernel slots kernela/kernelb = 0x00840000 = 8,650,752 bytes - the loader's image read
+  bound is the slot size, so an uncompressed Image (~12 MiB) will NOT fit without a reduced config.
+- Risky loader reads: 0x80040000 = 0x00000000, 0x800405e0 = 0xE2066007 (not the e5967000
+  signature); top-2MiB signature scan found nothing (dd /dev/mem reads returned no data on stock;
+  use devmem for windows there).
+- GICD ITARGETSR8 (0x10181820) = 0x01010101 (IRQ32-35 target CPU0), so the enabled IRQ32/34 are not
+  a CPU1 wakeup path.
+Next: patch 061 (re-polling trampoline at stext + later release from platsmp/__cpu_up, marker
+protocol to prove the handoff), then boot and check 2 CPUs.
+
+LEDGER

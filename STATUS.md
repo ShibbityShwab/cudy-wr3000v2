@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 21:30 +07
+**Updated:** 2026-11-20 21:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -832,6 +832,19 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   marker stubs before/after decompression (compressed head.S entry + kernel stext) read at
   early_param, plus parallel uncompressed-Image experiment. Next stock boot (for install) will also
   capture DT/interrupts/iomem/flashinfo/low-mem/loader-signature reads per lane.
+
+- **SMP HANDOFF BREAKTHROUGH: CPU1 consumed the kernel-stext stub (B=0x66cc66cc) but not the
+  decompressor-entry stub (A=0) (2026-11-20).** Image 202832a2 with patch 060 printed
+  'handoff A=00000000 B=66cc66cc pen=80600080 scu_cfg=00000511' and 'verdict decompressor-entry=no
+  kernel-stext=CONSUMED'. So CPU1 is alive and responsive during the decompressor window and
+  executes our head.S stub; our normal release path simply misses it. Next: patch 061 re-polling
+  trampoline at stext (loop on pen) so platsmp/__cpu_up can later hand CPU1 to the real
+  secondary_startup with secondary_data set - likely the SMP unlock. Also captured stock DT/handoff
+  facts: cpus enable-method 'hisilicon,hsan_smp'; sysctrl smp-offset 0xc00; CRG core-info
+  0x16,0x18,0x17,0x19 / resume-offset 0x38; reserved-memory flashinfo reg 0x80600000+0x4000
+  atag-offset 0x1000; kernel slot 0x00840000=8,650,752 bytes (uncompressed Image ~12MiB will not
+  fit); ITARGETSR8=0x01010101; risky loader reads 0/0xE2066007. Evidence handoff-probe.log,
+  stock-reads-{1,2}.txt.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
