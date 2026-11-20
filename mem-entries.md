@@ -25866,3 +25866,33 @@ marked blocked on boot-selector support, and add that support as a follow-up tas
 Evidence 2026-11-20-reboot-fallback.log.
 
 LEDGER
+
+## 2026-11-20 20:20 - development acceleration base: live /dev/mem MMIO over SSH, baked boot-pair recorder (reboot+overlay persistence [V]), automated install path; plus one incident (slot-A kernel push -> silent box -> recovery)
+
+1) INCIDENT (honest): after the working image 39424b94, we tried a "fast kernel push" that flashed the
+   inactive kernela slot from userspace and set pair a, then rebooted. The box went completely
+   silent (UART dead, both IPs down) and needed a physical RESET-hold TFTP recovery. Root cause not
+   proven; the restart driver's plain reboot does not reset on this image and the pair/push timing
+   is suspect. Lesson: no slot-A (cross-slot) kernel flashing until the boot handover is proven;
+   the stock- mediated install path stays the default.
+2) After recovery, stock came back; we reinstalled the known-good canonical image af777742 on B and
+   verified ping 30/30 0% loss and SSH.
+3) REBOOT + OVERLAY PERSISTENCE [V]: discovered the live A/B selector sysfs
+   (/sys/devices/platform/boot-selector/current_pair, next_pair, raw). After re-recording the
+   running pair b, a forced reboot returned to our 6.18 image (rootfsb), /proc/uptime reset, and the
+   /root/persist-test marker survived -> overlay persistence across reboot confirmed.
+4) ACCELERATION IMAGE c6ede30c (patches 001-058 + DEVMEM): CONFIG_DEVMEM=y (via top-level
+   CONFIG_KERNEL_DEVMEM=y plus the local generic config edit), a static /usr/bin/devmem built with
+   the OpenWrt toolchain (tools/devmem.c), and the boot-pair recorder baked into rootfs
+   (/etc/init.d/luofu-pair-record, S01/K99) so every boot re-records its pair. Installed via the
+   stock path and verified: /dev/mem present, devmem reads SYSCTRL cell 0x11, PIE 0x3404=0x1b04,
+   PIE 0x1000=0x000a01c8, OPP 0xd8=0x800; ping 20/20 0% loss; SSH up.
+5) CONSEQUENCE: register experiments no longer need a kernel rebuild+reflash. We can read/write
+   MMIO live over SSH (attended risk policy still applies) and read the same windows on a stock boot
+   via telnet devmem, so stock-vs-ours diffs become live operations. The install path is
+   documented/automated in tools/bench-install.sh (reboot to stock pair a -> provision ->
+   kernelb/rootfsb -> pair b -> verify), needing no physical recovery.
+Next: use live MMIO to test native CFE L2/VLAN forwarding hypotheses and the SMP CPU1 release
+sequence in minutes instead of patch/build cycles; keep writes gated and evidence-captured.
+
+LEDGER
