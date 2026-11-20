@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-19 21:20 +07
+**Updated:** 2026-11-20 09:45 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -576,6 +576,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   PEN! after a bounded UART poll, marker read via linear map + cache maintenance, probe on by
   default. Image 6,205,742 B sha256 75868fe0... (check-container PASS), NOT flashed. Next attended
   boot tests W7 + SMP + traffic; box on previous image, recovery proven.
+
+- **W7 rev3 arms the data path: queue-manager accepted, GEMAC netdevs + 1G carrier, br-lan
+  forwarding (2026-11-20).** First boot where the whole switch/PIE init chain is accepted: W4/W5/W6
+  verified, W7 169 entries/845 words programmed (168 diag/1 write-only ack; strict count printed 0
+  vs expected 91 - tier-count bug, no vendor-read field differed), "connectivity path armed",
+  GEMAC registered, eth2 1Gbps/Full, br-lan forwarding. **Traffic still does not move**: host
+  sniff sees only its own ARP; PIE TX descriptors consumed but no wire frame and no RX polls ->
+  missing MAC<->switch forwarding (LSW port/MAC enable, EPS deque, IFC/L2/VLAN or PIE egress queue
+  handle). **SMP definitive: consumed=no** (markers zero, pen 0x81195000 untouched, SCU NORMAL) ->
+  CPU1 never consumes the pen on warm boot; next variable is cold power-on, then probe=0/clear_mask.
+  Box on the armed image (recovery 9x); evidence uart-r3-armed.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

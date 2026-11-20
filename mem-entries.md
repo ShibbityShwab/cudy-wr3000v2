@@ -25298,3 +25298,32 @@ Next attended boot: W7 verified + GEMAC registration/carrier expected (first rea
 chance), SMP consumed=yes|no, then ping/sniff. Box is on the previous image; recovery proven.
 
 LEDGER
+
+## 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no
+
+Image 75868fe0 (001-035, W7 rev3 tiered verification, SMP 035 marker) installed via the verified
+B-pair path. This is the first boot where the whole switch/PIE init chain is accepted:
+- W4 verified, W5 qid maps verified, W6 16 EPS words verified, W7: 169 EQM entries/845 words
+  programmed - "168 acknowledged with diagnostics (tables 16/34; 0 differed on a vendor-read
+  field), 1 write-only acknowledged (table 19); queue ports 9, qids 72, scheduler profiles 10"
+  (note: strict count printed 0 rather than the expected 91 - tier-count bug to check, but no
+  vendor-read field differed and the stage armed).
+- "connectivity path armed: R1/R3/R5 probe configuration, the W2 qid maps, the EPS channel map and
+  the EQM queue-manager init tables are programmed and verified; the GEMAC netdev front end may
+  register" [V first time]
+- GEMAC registered all netdevs; eth2 link Up 1Gbps/Full, later link Down then Up again, and
+  br-lan port eth2 entered forwarding.
+- Traffic: still nothing. Host AF_PACKET sniff sees only the host's own ARP requests; PIE TX
+  descriptors are consumed (doorbells, TX read pointer advancing), but no box frame reaches the
+  wire and there are no PIE RX poll/interrupt traces. So the switch queue init is accepted but the
+  MAC<->switch forwarding path (LSW port/MAC enable, EPS deque, IFC/L2/VLAN tables or PIE egress
+  queue handle) is still missing.
+- SMP 035 marker works: prep markers zero, pen write 0x81195000, SCU NORMAL, +1ms/+21ms and
+  late_initcall all marker0=0 marker1=0 consumed=no - CPU1 definitively does NOT consume the pen on
+  this warm/failover boot. Next SMP variable: cold power-on (no RESET), then probe=0, then
+  clear_mask experiments.
+Box left on the armed image (br-lan up but no traffic); recovery proven 9x; next: cold boot test
+(user power-cycle) and decode the remaining MAC/switch forwarding layer.
+Evidence uart-r3-armed.log under build/evidence-bench-gates/2026-11-19/.
+
+LEDGER
