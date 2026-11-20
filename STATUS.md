@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 18:30 +07
+**Updated:** 2026-11-20 18:40 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -774,6 +774,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   is wrong; the W17 burst caught the right destination briefly. Next: W19 dwell sweep 20 s per
   destination 0..15 with the host pinging, one boot identifies the true CPU port. Evidence
   w19-postlink.log/ping-w19b/sniff-w19b.
+
+- **DWELL SWEEP FINDS THE CPU PORT: mirror dst 4; host ICMP then reaches the PIE RX ring as
+  normal completions (status=0, port=0) but our driver drops port 0 (2026-11-20).** Image 4a38b497
+  (001-056 + W19 dwell 20 s/dst 0..15 + rxdiag/accepterr/rxstroke): dwell steps logged for all
+  destinations; 7 len=60 status=37 ARP exceptions (port 11) and 13 len=98 status=0 err=0 port=0
+  completions whose timestamps are ALL inside the dst=4 window (69.1-87.5 s); later steps show no
+  len=98. Ping: 220 sent, 0 received - because normal-path port=0 has no netdev so the CPU copies
+  are dropped. Heartbeat stable through the 6-minute run. Last missing piece is our delivery
+  mapping, not the switch: patch 057/W20 = static mirror dst=4 + deliver port-0 CPU copies to the
+  mirror source netdev (eth2/11), then sustained ping should work. Evidence dwell-cpuport4.log,
+  ping-dwell.txt.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

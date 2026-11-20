@@ -25798,3 +25798,27 @@ completions and ping replies.
 Evidence 2026-11-20-w19-postlink.log, -ping-w19b.txt, -sniff-w19b.txt.
 
 LEDGER
+
+## 2026-11-20 18:40 - DWELL SWEEP IDENTIFIES THE CPU PORT: mirror destination 4. Host ICMP then arrives as NORMAL-path completions (status=0, port=0) which our driver drops because port 0 has no netdev
+
+Image 4a38b497 (patches 001-056 + W19 dwell: luofu_switch.mirror=1 mirror_dwell=1
+mirror_dwell_ms=20000, no static cpu_mirror; rxdiag/accepterr/rxstroke; heartbeat) installed from
+stock and booted; 220-packet timestamped ping ran through all 16 dwell windows:
+- dwell log: step1 dst=0 (4.3 s), step2 dst=1 (8.0), step3 dst=2 (27.2), step4 dst=3 (47.3),
+  step5 dst=4 (67.7), step6 dst=5 (88.2), step7 dst=6 (108.7), step8 dst=7 (129.2),
+  step9 dst=8 (149.7), step10 dst=9 (170.1), step11 dst=10 (190.6), step12 dst=11 (211.1), etc.
+- RXDIAG: 7 completions len=60 status=37 err=1 port=11 (ARP exceptions, as before) and **13
+  completions len=98 status=0 err=0 port=0 vport=0 vlan=0** whose timestamps are ALL inside the
+  dst=4 window (69.1-87.5 s). The steps after dst=4 produce NO len=98 deliveries. So CPU-copy
+  destination = 4, and the host's ICMP requests DO reach the PIE RX ring during that window.
+- Despite that, host ping: 220 transmitted, 0 received (100% loss, +2 errors). Reason visible in
+  the completions: normal-path frames have port=0, and our driver's normal path only delivers to
+  netdevs registered for the port tag (8..12); port 0 has no netdev, so the frames are dropped
+  instead of being handed to eth2/br-lan and answered.
+Heartbeat stable through the whole 6-minute run (HB ..213), no Oops. So the last missing piece is
+NOT the switch state anymore: it is our RX normal-path port-0 (CPU/mirror copy) delivery mapping.
+Next: patch 057/W20 = static cpu-mirror to dst=4 (post-link reapply as W19) + deliver normal-path
+port-0 completions to the mirror source port's netdev (eth2/11), gated and logged; then sustained
+ping should finally work. Evidence 2026-11-20-dwell-cpuport4.log, -ping-dwell.txt, -sniff-dwell.txt.
+
+LEDGER
