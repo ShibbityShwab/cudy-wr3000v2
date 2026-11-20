@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 18:55 +07
+**Updated:** 2026-11-20 19:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -795,6 +795,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   This is the first fully working LAN on our own kernel/rootfs; the working path is the attended
   CPU-copy workaround (mirror dst 4 + port-0 delivery), native CFE L2/VLAN forwarding remains the
   clean long-term fix. Evidence w20-working.log, ping-w20.txt, sniff-w20.txt, w20-ssh.txt.
+
+- **Canonical 001-058 image verified working (2026-11-20).** Image af777742 (patches 001-058,
+  canonical attended cmdline: full W3-W20 chain incl. cpu_mirror dst=4 + cpucopy_deliver port 11,
+  heartbeat): ping 30/30 received 0% loss, SSH to OpenWrt 6.18.60 SMP, br-lan 192.168.1.1/24,
+  /dev/ubi0_1 on /overlay ubifs rw; W19 link-up reapply logged; heartbeat stable. (dmesg Oops
+  count 1 is the benign "panic=0" string in the kernel cmdline, not a crash.)
+- **KNOWN LIMITATION: reboot from our image falls back to the vendor slot A (2026-11-20).**
+  Reboot from working image 39424b94 brought the box back on the vendor 5.10 stack (stock reachable
+  at 192.168.10.1), i.e. our userspace does not maintain the bootloader selector/env the vendor
+  userspace writes; loader failover picked A. Overlay persistence across reboot is therefore
+  untestable until boot-selector handover is implemented in our userspace (follow-up task). The
+  image itself is fine and reinstall from stock needs no recovery. Evidence reboot-fallback.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

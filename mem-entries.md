@@ -25846,3 +25846,23 @@ instead of the vendor CFE L2/VLAN forwarding, which remains the clean long-term 
 Evidence 2026-11-20-w20-working.log, -ping-w20.txt, -sniff-w20.txt, -w20-ssh.txt.
 
 LEDGER
+
+## 2026-11-20 19:15 - reboot from our working image falls back to stock slot A: boot-selector/env handling is not implemented in our 6.18 userspace (overlay persistence across reboot untestable until fixed)
+
+After the working W20 image 39424b94 passed ping/SSH and the overlay was rw, we wrote a persistence
+marker (/root/persist-test) and rebooted from our own image (/sbin/reboot -f). The box came back
+on the VENDOR 5.10 stack: the UART log shows the vendor modules (swa_netdevice_event, vap
+interfaces) and stock is reachable at 192.168.10.1. So the reboot from our image selected slot A
+(vendor) instead of returning to our slot B.
+Implication: our own userspace does not maintain the bootloader selector/env that the vendor
+userspace writes (sysenv boot_reg cell / ubi env), and the loader's failover logic chose the
+vendor slot. The working image itself is fine; this is a boot-handover gap (the same class of
+state the install path handles from stock via sysenv boot_reg=0x11). Overlay persistence across
+reboot remains untestable until our userspace keeps the selector across reboot.
+No physical recovery was needed: stock came up and is reachable, so we can reinstall the next
+image from stock. Next: rebuild the canonical 001-058 image (canonical attended cmdline +
+heartbeat) and reinstall from stock; then continue the verification matrix with the reboot item
+marked blocked on boot-selector support, and add that support as a follow-up task.
+Evidence 2026-11-20-reboot-fallback.log.
+
+LEDGER

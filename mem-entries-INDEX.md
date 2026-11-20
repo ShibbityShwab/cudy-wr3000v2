@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 14:45 - Review-form series finalized at [PATCH 00/23] (022/023 added and revalidated) | `mem-entries.md:24869` |
 | 2026-11-19 |  | 2026-11-19 14:50 - Curated public repo synced to the final state (001-023 + overlay image + series); all surfaces current | `mem-entries.md:24890` |
 | 2026-11-19 |  | 2026-11-19 15:20 - Egress (025) and bdinfo-MAC nvmem (026) integrated; final image rebuilt to 001-026 (aa642862...) | `mem-entries.md:24915` |
 | 2026-11-19 |  | 2026-11-19 15:35 - PIE completion decode (024) integrated; final image rebuilt to 001-026 with hisilicon,port DTS (26dde6fe...) | `mem-entries.md:24954` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 18:30 - W19 post-link mirror works mechanically (applied every 2 s, pre/post stable) but dst 8 is NOT the CPU port: ARP answered, ICMP 98 B never reaches the CPU | `mem-entries.md:25778` |
 | 2026-11-20 |  | 2026-11-20 18:40 - DWELL SWEEP IDENTIFIES THE CPU PORT: mirror destination 4. Host ICMP then arrives as NORMAL-path completions (status=0, port=0) which our driver drops because port 0 has no netdev | `mem-entries.md:25802` |
 | 2026-11-20 |  | 2026-11-20 18:55 - WORKING DATA PATH: our OpenWrt 6.18 image passes SSH and sustained ping with a persistent UBIFS overlay (mirror dst=4 + port-0 CPU-copy delivery) | `mem-entries.md:25826` |
+| 2026-11-20 |  | 2026-11-20 19:15 - reboot from our working image falls back to stock slot A: boot-selector/env handling is not implemented in our 6.18 userspace (overlay persistence across reboot untestable until fixed) | `mem-entries.md:25850` |
 
 ## All dated entries
 
@@ -699,3 +699,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 18:30 - W19 post-link mirror works mechanically (applied every 2 s, pre/post stable) but dst 8 is NOT the CPU port: ARP answered, ICMP 98 B never reaches the CPU | `mem-entries.md:25778` |
 | 2026-11-20 |  | 2026-11-20 18:40 - DWELL SWEEP IDENTIFIES THE CPU PORT: mirror destination 4. Host ICMP then arrives as NORMAL-path completions (status=0, port=0) which our driver drops because port 0 has no netdev | `mem-entries.md:25802` |
 | 2026-11-20 |  | 2026-11-20 18:55 - WORKING DATA PATH: our OpenWrt 6.18 image passes SSH and sustained ping with a persistent UBIFS overlay (mirror dst=4 + port-0 CPU-copy delivery) | `mem-entries.md:25826` |
+| 2026-11-20 |  | 2026-11-20 19:15 - reboot from our working image falls back to stock slot A: boot-selector/env handling is not implemented in our 6.18 userspace (overlay persistence across reboot untestable until fixed) | `mem-entries.md:25850` |
