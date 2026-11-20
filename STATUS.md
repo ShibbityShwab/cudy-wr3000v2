@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 22:20 +07
+**Updated:** 2026-11-20 22:40 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -867,6 +867,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   /proc/cpuinfo, CPU0/CPU1 in /proc/interrupts. Reboot persists (pair recorder, 2 CPUs again, ping
   0% loss). Image d61c09e6 is the first 2-CPU image; the canonical post-fix image is being built
   next. Evidence smp-2cpu.log, smp-reboot.log.
+
+- **2-CPU image hung silently after ~23 min; stability debugging next (2026-11-20).** Post-DT-fix
+  image d61c09e6 ran ~1395 s with 2 CPUs, 0% loss ping/SSH, then went completely silent (last UART:
+  link up 1379.9 s, HB 1394; no Oops/panic output; both IPs down). With oops=panic panic=0 the
+  no-output signature points at a hard SMP deadlock (likely our driver concurrency: the W19 mirror
+  2 s re-latch workqueue and/or switch/PIE paths racing with CPU1). Physical recovery needed. A
+  clean canonical post-fix image was built: 974e6ca6 (DT handoff fix + canonical cmdline + DEVMEM/
+  devmem/recorder; no probe tokens). Stability plan: reinstall, soak maxcpus=1 vs 2, then bisect the
+  2-CPU hang via existing driver gates; fix locking and re-verify. Evidence smp-hang.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

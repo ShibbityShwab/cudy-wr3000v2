@@ -26095,3 +26095,29 @@ untouched exactly as observed).
 Evidence 2026-11-20-smp-2cpu.log, smp-reboot capture, stock U-Boot preamble comparisons.
 
 LEDGER
+
+## 2026-11-20 22:40 - 2-CPU image hung after ~23 minutes (silent, no Oops output); stability debugging needed. Canonical post-fix image built (974e6ca6).
+
+After the DT handoff fix produced 2 CPUs (image d61c09e6, probes enabled), the box ran ~1395 s with
+2 CPUs, 0% loss ping and SSH; then it went completely silent:
+- UART tail: eth2 link up at 1379.9 s, br-lan forwarding, HB 1379/1384/1389/1394, then nothing.
+- No Oops/panic/printk after that; both 192.168.1.1 and stock IP down; UART capture file stopped
+  growing. With oops=panic panic=0 a panic would hang silently only after printk, so a hard
+  SMP-time deadlock is the working hypothesis (likely our own driver concurrency, e.g. the W19
+  CPU-mirror 2-second re-latch workqueue and/or the switch/PIE paths racing with CPU1, or a
+  watchdog/servicing interaction).
+- Physical recovery required (RESET-hold).
+Canonical post-fix image built after cleaning the probe tokens: 974e6ca6 (DTS aliases/console +
+reserved-memory/flashinfo, canonical cmdline, DEVMEM+devmem+pair recorder, SMP works).
+STABILITY PLAN after recovery:
+1. Reinstall canonical image 974e6ca6 and confirm 2 CPUs + network + SSH again.
+2. Soak with maxcpus=1 (same image + cmdline token) to separate SMP-only races from generic ones.
+3. If 1 CPU is stable, bisect the 2-CPU hang by disabling driver features one at a time via existing
+   gates (cpu_mirror/mirror_dst relatch, cpucopy_deliver/accepterr, rxdiag/rxstroke; keep network
+   only if needed), looking for the deadlock source in the switch/PIE code (locking, workqueue,
+   per-CPU structures). Capture UART continuously and use the userspace heartbeat as the liveness
+   signal; a hang with no panic print supports a lockup/deadlock rather than an Oops.
+4. Once stable, update canonical docs/STATUS and feed the stability fixes back into the series.
+Evidence 2026-11-20-smp-hang.log; hang happened after the 2-CPU success evidence.
+
+LEDGER
