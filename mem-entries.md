@@ -25606,3 +25606,24 @@ direct RX-enable lead so far.
 Evidence: build/evidence-bench-gates/2026-11-20-pie-dump-ours.txt (eee35eaf...).
 
 LEDGER
+
+## 2026-11-20 14:25 - W13 RXCFG written and verified (pie+0x3404 0x0 -> 0x1b04) but RX STILL never fires
+
+Image 28034919 (patches 001-048; heartbeat; full W3-W12 + luofu_pie.rxcfg=1 dump=1 gmac.dump=1)
+installed from stock and booted:
+- W13_RXCFG: "pie+0x3404 pre=0x0 -> stock 0x1b04 (decoded rx_init_chan 2-bit/channel field);
+  ring-size>9600 bitmap would be 0x0 (0x3408 currently 0x0, not written)" -> "programmed and
+  verified = 0x1b04 (was 0x0)"; PIE armed 2 RX/2 TX/4 interrupts.
+- gmac.dump fix works now (W13_MACSTATE_DUMP printed at both link-ups; gmac-dump lines captured).
+- Full chain armed W3-W13, GEMAC netdevs, eth2 1Gbps/Full, br-lan forwarding; heartbeat continuous
+  HB 38..113 through the host traffic test, no Oops.
+- Traffic STILL dead: host sniff sees only its own ARP requests, ping fails, ZERO PIE RX polls
+  and no box frames. So the stock 0x3404 value alone does not open RX.
+At this point every programmable state we have compared matches stock: PIE registers (except the
+no-writer 0x3400/0x340c), LSW W3-W12 windows (now including the corrected classifier and EPS/DP),
+MAC link words, and W13. The remaining target is state outside all dumped windows - LSW flow/port
+state and the CFE/rootif tables installed at runtime by the vendor kernel modules - plus the GEMAC
+window stock comparison (our gmac dump is captured for it). QM lane reopened for that decode.
+Evidence: 2026-11-20-w13.log, 2026-11-20-gmac-dump-ours.txt.
+
+LEDGER

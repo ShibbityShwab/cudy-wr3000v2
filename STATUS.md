@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 14:05 +07
+**Updated:** 2026-11-20 14:25 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -697,6 +697,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   stock comparison is still pending. Next: patch 048 W13 gated write of the 0x3400 RX-config block
   (stock values; 0x3400/0x340c still to be measured) + traffic test. Box stable running the dump
   image with heartbeat (HB 82+); recovery needed for the next install.
+
+- **W13 RXCFG written+verified (pie+0x3404 0->0x1b04); RX still never fires (2026-11-20).** Image
+  28034919: W13_RXCFG programmed/verified the stock value, PIE armed, gmac.dump fix works, full
+  W3-W13 chain armed, GEMAC/eth2/br-lan up, heartbeat HB 38..113 through traffic with no Oops.
+  But no PIE RX polls and no frames: the 0x3404 value alone does not open RX. Every state we have
+  compared now matches stock (PIE except no-writer 0x3400/0x340c, LSW W3-W12 incl corrected
+  classifier, MAC link words, W13). Remaining: LSW flow/port state and CFE/rootif runtime tables
+  outside the dump windows, plus the pending GEMAC-window stock comparison (ours captured).
+  Evidence 2026-11-20-w13.log + gmac-dump-ours.txt; lane reopened.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
