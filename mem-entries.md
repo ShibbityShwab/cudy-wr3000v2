@@ -25822,3 +25822,27 @@ port-0 completions to the mirror source port's netdev (eth2/11), gated and logge
 ping should finally work. Evidence 2026-11-20-dwell-cpuport4.log, -ping-dwell.txt, -sniff-dwell.txt.
 
 LEDGER
+
+## 2026-11-20 18:55 - WORKING DATA PATH: our OpenWrt 6.18 image passes SSH and sustained ping with a persistent UBIFS overlay (mirror dst=4 + port-0 CPU-copy delivery)
+
+Image 39424b94 (patches 001-057; full W3-W20 chain; heartbeat) installed from stock and booted.
+Console: W19_CPU_MIRROR static CPU-copy applied dst=4 after each MAC link-up and every ~2 s
+(pre==post d8=0x800 dc=0x6400000 c0=0x40); PIE RXCPUCOPY lines deliver port=0 mirror copies to
+port 11 (eth2): "RXCPUCOPY port=0 -> port 11 len=98 status=0"; heartbeat continuous.
+Host side, first run:
+- ping -c50 192.168.1.1: 50 transmitted, 50 received, 0% packet loss, rtt avg 13.3 ms.
+- AF_PACKET sniff: bidirectional ICMP 98 B (host->box and box->host) plus ARP replies.
+Second verification run:
+- ping -c25: 25/25 received, 0% loss, rtt min/avg/max 0.368/0.680/5.683 ms.
+- SSH works: "Linux OpenWrt 6.18.60 #0 SMP armv7l GNU/Linux", DISTRIB SNAPSHOT r0-27663a0,
+  br-lan inet 192.168.1.1/24 UP, 112 MB RAM, uptime 2 min, load 0.16.
+- Persistent overlay: /dev/ubi0_1 on /overlay type ubifs (rw) 14 MB, overlayfs:/overlay on /
+  rw - the persistent rootfs_data overlay from the custom UBI image is working.
+- /proc/cpuinfo: 1 online CPU (SMP kernel; CPU1 bring-up remains the separate known open issue).
+So for the first time our own kernel + rootfs boot to a fully working LAN: packets flow both
+directions, the box answers ARP and ICMP, SSH is reachable, and the overlay is writable/persistent.
+The working path uses the attended workaround (CPU-copy mirror to dst 4 + port-0 delivery to eth2)
+instead of the vendor CFE L2/VLAN forwarding, which remains the clean long-term fix.
+Evidence 2026-11-20-w20-working.log, -ping-w20.txt, -sniff-w20.txt, -w20-ssh.txt.
+
+LEDGER

@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 18:40 +07
+**Updated:** 2026-11-20 18:55 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -785,6 +785,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   mapping, not the switch: patch 057/W20 = static mirror dst=4 + deliver port-0 CPU copies to the
   mirror source netdev (eth2/11), then sustained ping should work. Evidence dwell-cpuport4.log,
   ping-dwell.txt.
+
+- **WORKING DATA PATH + SSH (2026-11-20): our OpenWrt 6.18 image passes ping at 0% loss and SSH,
+  with a persistent UBIFS overlay.** Image 39424b94 (001-057): static CPU-copy mirror dst=4
+  (post-link reapply + re-latch) plus port-0 CPU-copy delivery to eth2. Host ping -c50: 50/50
+  received, 0% loss; second run 25/25, avg 0.68 ms; sniff shows bidirectional ICMP. SSH:
+  OpenWrt 6.18.60 SMP, br-lan 192.168.1.1/24 UP, 112 MB RAM; /dev/ubi0_1 on /overlay ubifs rw
+  (14 MB) - persistent overlay works. /proc/cpuinfo: 1 CPU online (SMP bring-up still open).
+  This is the first fully working LAN on our own kernel/rootfs; the working path is the attended
+  CPU-copy workaround (mirror dst 4 + port-0 delivery), native CFE L2/VLAN forwarding remains the
+  clean long-term fix. Evidence w20-working.log, ping-w20.txt, sniff-w20.txt, w20-ssh.txt.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
