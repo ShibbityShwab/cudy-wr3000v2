@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 15:30 +07
+**Updated:** 2026-11-20 15:25 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -746,6 +746,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   normal unicast frames are not punted/forwarded to the CPU - the missing CFE L2/VLAN/CPU-port
   forwarding state. Heartbeat stable. Next: QM lane to decode hi_kcara/hi_swa L2/VLAN/CPU-port init
   for a gated W17 stage or a copy-to-CPU experiment. Evidence 2026-11-20-first-traffic.log.
+
+- **PARTIAL SUCCESS: first ICMP echo replies (4/18) during W17 mirror sweep; sweep covered only
+  dst 4-8, 40-43 missing (2026-11-20).** Image e9de3f80 (001-054, full W3-W16 + rxdiag/accepterr
+  + mirror/sweep + heartbeat): mirror dst 4,5,6,7,8 at 2 s intervals then "sweep complete" (40..43
+  not tried - bug); host ping got seq4 reply 1024 ms and seq5-7 at 0.15 ms (4/18, 77.8% loss) and
+  the sniff shows the box (MAC 96:18:f3:8b:d8:71) sending ARP + ICMP echo replies during the sweep.
+  No RXDIAG/RXERR lines this run (normal RX path delivered; instrumentation gap). Heartbeat stable,
+  no Oops. So the mirror/copy path can make traffic work; next: fix sweep (40-43) + correlate dst
+  with replies, then make the CPU-port mirror/config stable. Evidence mirror-sweep.log,
+  ping-mirror.txt, sniff-mirror.txt.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

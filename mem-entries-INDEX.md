@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 21:50 - Curated repo review form synced to 001-021; publication and driver surfaces all current | `mem-entries.md:24707` |
 | 2026-11-19 |  | 2026-11-19 13:45 - MILESTONE: our kernel 6.18.60 + our OpenWrt rootfs BOOTED TO USERSPACE on the WR3000 v2 (attended) | `mem-entries.md:24731` |
 | 2026-11-19 |  | 2026-11-19 14:10 - Correction to the 2026-11-19 milestone entry: the booted kernel was UP (1 CPU), not SMP (2 CPUs) | `mem-entries.md:24777` |
 | 2026-11-19 |  | 2026-11-19 14:20 - Minimum connectivity path implemented (022/023): gated LSW W2/W3/W4/W5 write stages + GEMAC netdev readiness | `mem-entries.md:24797` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 14:50 - GEMAC stock-vs-ours diff: four un-decoded MAC config words differ plus max-frame 1536 vs our 1518 | `mem-entries.md:25656` |
 | 2026-11-20 |  | 2026-11-20 15:05 - RX path is functionally alive after W16: PIE RX completions arrive, but our decoder drops them (status 0x25, port 0) and host traffic still is not forwarded to the CPU | `mem-entries.md:25679` |
 | 2026-11-20 |  | 2026-11-20 15:30 - FIRST REAL TRAFFIC: box accepts a punted ARP exception on eth2 and sends an ARP reply on the wire | `mem-entries.md:25705` |
+| 2026-11-20 |  | 2026-11-20 15:25 - PARTIAL SUCCESS: first ICMP echo replies received (4/18 ping) during the W17 mirror sweep; sweep bug only covered dst 4-8 | `mem-entries.md:25732` |
 
 ## All dated entries
 
@@ -694,3 +694,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 14:50 - GEMAC stock-vs-ours diff: four un-decoded MAC config words differ plus max-frame 1536 vs our 1518 | `mem-entries.md:25656` |
 | 2026-11-20 |  | 2026-11-20 15:05 - RX path is functionally alive after W16: PIE RX completions arrive, but our decoder drops them (status 0x25, port 0) and host traffic still is not forwarded to the CPU | `mem-entries.md:25679` |
 | 2026-11-20 |  | 2026-11-20 15:30 - FIRST REAL TRAFFIC: box accepts a punted ARP exception on eth2 and sends an ARP reply on the wire | `mem-entries.md:25705` |
+| 2026-11-20 |  | 2026-11-20 15:25 - PARTIAL SUCCESS: first ICMP echo replies received (4/18 ping) during the W17 mirror sweep; sweep bug only covered dst 4-8 | `mem-entries.md:25732` |

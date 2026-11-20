@@ -25728,3 +25728,28 @@ deliver a gated W17 stage, or an experiment to force punt/copy-to-CPU of unicast
 Evidence 2026-11-20-first-traffic.log.
 
 LEDGER
+
+## 2026-11-20 15:25 - PARTIAL SUCCESS: first ICMP echo replies received (4/18 ping) during the W17 mirror sweep; sweep bug only covered dst 4-8
+
+Image e9de3f80 (patches 001-054; full W3-W16 + rxdiag/accepterr + mirror=1 mirror_sweep=1;
+heartbeat) installed from stock and booted; W17 mirror sweep ran:
+- log: mirror programmed to dst 4 (3.2s), 5 (5.2), 6 (7.2), 7 (9.3), 8 (11.3), then "sweep complete
+  (last destination left programmed until remove/driver restore)" at 13.3s. NOTE: candidates 40..43
+  were NOT attempted - the sweep covered only 4..8 (bug to fix).
+- host ping started ~7s after reboot: seq1-3 "Destination Host Unreachable", then seq4 reply
+  1024 ms, seq5-7 replies 0.15 ms (4/18 received, 77.8% loss). AF_PACKET sniff confirms the box
+  (MAC 96:18:f3:8b:d8:71 this boot) sent an ARP reply and ICMP echo replies (IPv4 98 B) to the
+  host while the sweep was on dst 6-8.
+- console side: NO RXDIAG/RXERR lines at all this run (unlike the accepterr-only run where the ARP
+  exception was logged); the only pie-trace lines are TX. So the frames that produced the replies
+  were delivered through the normal RX path (status 0) - or the RXDIAG instrumentation does not
+  cover this path/boot. Heartbeat stayed continuous (HB 43..68+), no Oops.
+So traffic actually worked briefly: ARP + ICMP echo reply reached the host, i.e. the mirror/copy
+approach can make the data path function. The loss afterwards may be the mirror destination (last
+dst 8) not being the CPU port, or the sweep ending/restoring. Next: fix the sweep to include
+40..43 and log which destination correlates with RX completions/replies (fix RXDIAG for the
+normal path too), then either program the discovered CPU port statically or keep the mirror as
+the workaround and make it stable.
+Evidence: 2026-11-20-mirror-sweep.log, -ping-mirror.txt, -sniff-mirror.txt.
+
+LEDGER
