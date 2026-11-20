@@ -25959,3 +25959,36 @@ boot path at all, so the next work is loader-side decode (flashinfo window, load
 Evidence: 2026-11-20-pha-{ours,stock,diff}.txt, live-mmi-dump.txt, UART capture artifacts.
 
 LEDGER
+
+## 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060)
+
+Stock boot (5.10, 2 CPUs) reads via telnet devmem, 48 registers saved (2026-11-20-stock-smp-dump.txt):
+- SCU 0x10180000/04/08 = 0x3 / 0x531 / 0x03030000. Stock CONFIG has bit5 set, ours 0x511; the
+  SMP lane decoded bits[4:5] as plausibly per-core "SMP participation" status, i.e. bit5 indicates
+  CPU1 actually ran. It is not directly writable from userspace (our 0x531 write reads back 0x511),
+  so treat it as a monitor in future attempts, not a lever.
+- CRG 0x14880020/0x28 stock 0x02F8300B vs ours 0x02F8000B (bit 0x3000) and +0x34 stock 0x000FF309
+  vs ours 0x00000309 (bits 12-19). The lane decoded these as PCIe0/PCIe1 clock gates and PCIe reset
+  lines (vendor stack brings up PCIe WiFi; our image does not) - not CPU1 clock/power. We had
+  already applied these exact stock values live as a no-op control together with GICD ISENABLER1
+  |= 0x5 (stock enables IRQ32/34), triggered add_cpu(1): consumed=no, 1 CPU; all restored and box
+  healthy. Consistent with the PCIe interpretation.
+- GICD ITARGETSR0 stock 0x02020202 vs ours 0x01010101: banked view of the reading CPU (vendor
+  stock read executed on CPU1), not routing; SGIs are routed via SGIR target list, already tested.
+- SYSCTRL pen stock 0x80609680 (vendor kernel's own secondary_startup) vs ours 0x81295000 (our
+  probe stub); selector cell stock 0x10 (A). /proc/interrupts etc. remain to be captured.
+
+Live CPU1 attempts on our DEVMEM image (patches 001-059): late add_cpu(1) x3, targeted/broadcast
+IPI storms, CRG resume clear, CRG/GIC stock-delta apply, raw pen/IPI - every variant ends with
+markers 0 / consumed=no and 1 CPU. The SMP lane's conclusion: CPU1 is not polling the pen at all
+on our boot path; the untested window is BEFORE our kernel decompressor (stock boots an
+uncompressed Image; ours is a zImage whose decompression/cache/MMU transitions may destroy the
+loader's CPU1 state). Patch 060 requested: marker-only stubs in the compressed head.S (entry, MMU/
+caches off, marker at 0x80600040 + pen set) and kernel head.S stext (marker 0x80600080), read via
+early_ioremap(0x80600000) by an early_param before allocation, printing handoff A/B/pen, plus SCU
+CONFIG bit5 after the attempt; parallel experiment: build the kernel as an uncompressed Image. The
+next stock boot (needed to install 060 anyway) will capture the DT tar, /proc/interrupts, iomem,
+cmdline, dmesg, the 0x80600000 16 KiB flashinfo window, 0x80500000 64 KiB low window, and the
+loader-signature scan the lane asked for.
+
+LEDGER

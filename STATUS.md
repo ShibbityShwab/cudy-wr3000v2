@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 21:05 +07
+**Updated:** 2026-11-20 21:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -820,6 +820,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   variants (late add_cpu, IPI storm targeted/broadcast, CRG resume clear, raw pen/IPI, SCU bit5)
   leave consumed=no and 1 CPU -> CPU1 is not polling the pen; next is loader-side decode per lane.
   Automated installer hung once in stock-wait (experimental); manual path used.
+
+- **Stock SMP reference captured; CRG deltas = PCIe (no CPU1 effect); SCU CONFIG bit5 = CPU1-ran
+  monitor; next is pre-decompressor handoff probe (2026-11-20).** Stock (2 CPUs) reads saved as
+  2026-11-20-stock-smp-dump.txt: SCU 0x3/0x531/0x03030000 vs ours 0x3/0x511/0x03030000; CRG
+  +0x20/+0x28 and +0x34 differences decoded as PCIe clock gates/resets (vendor WiFi), not CPU1.
+  Live no-op control applying those exact stock values + GICD ISENABLER1 |= 0x5 then add_cpu(1)
+  left consumed=no (restored, box healthy). ITARGETSR0 difference is banked-view (stock read ran on
+  CPU1), not routing. All release-path variants (late add_cpu, IPI storms, CRG resume clear, raw
+  pen) leave consumed=no -> CPU1 never polls the pen on our zImage boot path; patch 060 requested:
+  marker stubs before/after decompression (compressed head.S entry + kernel stext) read at
+  early_param, plus parallel uncompressed-Image experiment. Next stock boot (for install) will also
+  capture DT/interrupts/iomem/flashinfo/low-mem/loader-signature reads per lane.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

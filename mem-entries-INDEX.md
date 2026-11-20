@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 15:45 - Review-form series finalized at [PATCH 00/26] | `mem-entries.md:24982` |
 | 2026-11-19 |  | 2026-11-19 15:50 - Final curated sync (001-026 + image 26dde6fe); all surfaces current and clean | `mem-entries.md:25006` |
 | 2026-11-19 |  | 2026-11-19 17:10 - BENCH MILESTONE: full 001-027 gate image boots with overlay; W3/W4/W5 accepted; PIE armed; GEMAC netdevs up with 1G carrier; ARP still fails; SMP 1 CPU | `mem-entries.md:25029` |
 | 2026-11-19 |  | 2026-11-19 17:40 - PIE trace: TX descriptors consumed by the engine, but no egress frame and no RX delivery; EPS channel map/EQM tables are the remaining blockers | `mem-entries.md:25067` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 20:20 - development acceleration base: live /dev/mem MMIO over SSH, baked boot-pair recorder (reboot+overlay persistence [V]), automated install path; plus one incident (slot-A kernel push -> silent box -> recovery) | `mem-entries.md:25870` |
 | 2026-11-20 |  | 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed | `mem-entries.md:25900` |
 | 2026-11-20 |  | 2026-11-20 21:05 - live-MMIO round 2: native forwarding conclusion (NAPT carveout unsafe/absent -> mirror stays), CPU1 late-bring-up trigger (patch 059), all live CPU1 variants consumed=no | `mem-entries.md:25923` |
+| 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
 
 ## All dated entries
 
@@ -703,3 +703,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 20:20 - development acceleration base: live /dev/mem MMIO over SSH, baked boot-pair recorder (reboot+overlay persistence [V]), automated install path; plus one incident (slot-A kernel push -> silent box -> recovery) | `mem-entries.md:25870` |
 | 2026-11-20 |  | 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed | `mem-entries.md:25900` |
 | 2026-11-20 |  | 2026-11-20 21:05 - live-MMIO round 2: native forwarding conclusion (NAPT carveout unsafe/absent -> mirror stays), CPU1 late-bring-up trigger (patch 059), all live CPU1 variants consumed=no | `mem-entries.md:25923` |
+| 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
