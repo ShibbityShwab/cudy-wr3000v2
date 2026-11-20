@@ -25753,3 +25753,24 @@ the workaround and make it stable.
 Evidence: 2026-11-20-mirror-sweep.log, -ping-mirror.txt, -sniff-mirror.txt.
 
 LEDGER
+
+## 2026-11-20 17:55 - static CPU-copy dst 8 alone: ARP still answered but 50/50 ping lost; RXSTROKE shows only one RX completion - the mirror is programmed before eth2 link-up, so it is likely lost/reset
+
+Image 851b3721 (patches 001-055; full W3-W16 + W18 static luofu_switch.cpu_mirror=1 mirror_dst=8
++ rxdiag/accepterr/rxstroke; heartbeat) installed from stock and booted:
+- W18_CPU_MIRROR logged "static CPU-copy destination 8 kept for the whole run" at 3.2 s, before
+  eth2 link-up (link at 7.7 s and 35.0 s, br-lan forwarding at 35.2 s).
+- 60 s host ping: 50/50 transmitted, 0 received (100% loss). Sniff still shows the box's ARP reply
+  (d4:0d:ab:64:1c:73 -> host) and host->box ICMP 98 B frames, so ARP still works, but no ICMP
+  replies and no follow-up RX deliveries.
+- RXSTROKE: ch0 hw_rptr=1 sw_rptr=1 (a single completion - the accepted ARP exception), mask/status
+  0, fsm=0x2001; ch1 idle. Heartbeat continuous (HB 66..96), no Oops.
+So a static mirror applied at boot does NOT sustain traffic, while the earlier W17 sweep run (which
+was still writing mirror destinations at 5.2/7.2/9.3/11.3 s, i.e. after eth2 link-up) DID produce
+4/18 ping replies. The most likely explanation: the mirror/OPP programming is reset or ignored when
+the port comes up, so the static write at 3.2 s is lost; the sweep's later writes survived. Next:
+re-apply the CPU-copy mirror after link-up (on carrier/port-up or a delayed workqueue), and/or hold
+each destination long enough (20 s) during a sweep with the host pinging to identify the working
+destination reliably. Evidence 2026-11-20-cpumirror-static.log/-ping-cpumirror.txt/-sniff-cpumirror.txt.
+
+LEDGER

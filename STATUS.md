@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 15:25 +07
+**Updated:** 2026-11-20 17:55 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -756,6 +756,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   no Oops. So the mirror/copy path can make traffic work; next: fix sweep (40-43) + correlate dst
   with replies, then make the CPU-port mirror/config stable. Evidence mirror-sweep.log,
   ping-mirror.txt, sniff-mirror.txt.
+
+- **Static CPU-copy dst 8 alone fails (50/50 ping loss) though ARP is answered; mirror was written
+  before eth2 link-up and is likely reset (2026-11-20).** Image 851b3721 (001-055, W18 static
+  cpu_mirror=1 dst=8 + rxdiag/accepterr/rxstroke): W18 line at 3.2 s, eth2 link 7.7/35.0 s, br-lan
+  35.2 s. 60 s ping: 50 sent 0 received; sniff shows box ARP reply + host ICMP frames; RXSTROKE
+  shows only one ch0 completion (the ARP), no ICMP deliveries. Heartbeat stable. The earlier sweep
+  run got 4/18 replies because its writes landed after link-up; next: re-apply the mirror after
+  link-up (or dwell 20 s per destination while pinging). Evidence cpumirror-static.log,
+  ping-cpumirror.txt, sniff-cpumirror.txt.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
