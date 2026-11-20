@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 18:45 - SMP CPU1 release diagnosed offline; patch 033 turns it into a one-boot measurement | `mem-entries.md:25121` |
 | 2026-11-19 |  | 2026-11-19 18:50 - W7 queue-manager init integrated; combined W7+SMP-probe bench image built (14791958...) | `mem-entries.md:25144` |
 | 2026-11-19 |  | 2026-11-19 19:10 - W7 queue-manager init exercised: snapshot+idle gates pass, first EQM readback mismatch -> restore/refuse (fail-closed); SMP probe shows no pen consumption, SCU status 00 | `mem-entries.md:25176` |
 | 2026-11-19 |  | 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on | `mem-entries.md:25200` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause | `mem-entries.md:26036` |
 | 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |
 | 2026-11-20 |  | 2026-11-20 22:40 - 2-CPU image hung after ~23 minutes (silent, no Oops output); stability debugging needed. Canonical post-fix image built (974e6ca6). | `mem-entries.md:26099` |
+| 2026-11-20 |  | 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d | `mem-entries.md:26125` |
 
 ## All dated entries
 
@@ -708,3 +708,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause | `mem-entries.md:26036` |
 | 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |
 | 2026-11-20 |  | 2026-11-20 22:40 - 2-CPU image hung after ~23 minutes (silent, no Oops output); stability debugging needed. Canonical post-fix image built (974e6ca6). | `mem-entries.md:26099` |
+| 2026-11-20 |  | 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d | `mem-entries.md:26125` |

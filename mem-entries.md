@@ -26121,3 +26121,24 @@ STABILITY PLAN after recovery:
 Evidence 2026-11-20-smp-hang.log; hang happened after the 2-CPU success evidence.
 
 LEDGER
+
+## 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d
+
+The 2-CPU image hung silently after ~23 min, so three images are staged in
+/home/shibbityshwab/staging-fi/ for the post-recovery stability campaign:
+- img-canonical.bin sha256 974e6ca6 (patches 001-061 + DTS handoff fix, canonical cmdline
+  maxcpus=2, DEVMEM + static devmem + boot-pair recorder; no probe tokens).
+- img-maxcpu1.bin sha256 d101f96b (identical but cmdline maxcpus=1) - baseline to separate
+  SMP-only races from generic ones.
+- img-lockdep.bin sha256 18b3cb1d (identical to canonical but with CONFIG_PROVE_LOCKING,
+  CONFIG_DEBUG_SPINLOCK, CONFIG_DEBUG_ATOMIC_SLEEP, CONFIG_DEBUG_MUTEXES via the top-level
+  CONFIG_KERNEL_* overrides; image 6.99 MB, still inside the 8,650,752 B kernel slot) - to turn a
+  silent deadlock into a lockdep/atomic-sleep splat on the UART.
+Plan once the box is recovered (stock path):
+1. install img-maxcpu1.bin, soak with UART + heartbeat (expect stable; if not, the hang is not SMP).
+2. install img-canonical.bin, soak and capture the hang signature to reproduce.
+3. install img-lockdep.bin, run the same workload/soak and capture any lockdep/atomic-sleep report;
+   fix the reported locking (likely our switch/PIE workqueue or per-CPU state) and retest.
+The recovery door is still the physical RESET-hold TFTP; box is currently down from the hang.
+
+LEDGER
