@@ -25404,3 +25404,28 @@ sniff while watching RX poll trace; SMP: expect either 'E'/EARLY marker (CPU1 co
 parks in our stub) or silence (no window reservation can help; stock reads next).
 
 LEDGER
+
+## 2026-11-20 11:05 - W9 clean run: boot stable, W9 verified on all GEMACs, but the first traffic attempt reset the box to stock; W9/TX hang regression under analysis
+
+Image 45d248ff (001-038, seven gates incl W9, stable 1-CPU, no early_probe) installed directly
+from stock A (no recovery needed) and booted cleanly:
+- W7 counters correct; W8 PFE verified; all four GEMACs logged "W9: MAC maximum-frame register
+  programmed and verified (0x100 = 0x334005e0, mtu 1500 + 4, snapshot 0x334005ee)"; GEMAC netdevs
+  registered, eth2 link 1Gbps/Full, br-lan port eth2 forwarding.
+- The traffic test (host ping 192.168.1.1 + AF_PACKET sniff) produced no frames, and then the box
+  RESET and fell back to stock (192.168.10.1 reachable again; watchdog-style reset, no clean Oops
+  captured in the polluted UART stream).
+- The earlier W9 image a6b57361 (with early_probe/2 CPUs) also reset around its traffic test.
+- Contrast: image 6cb3d908 (W8 PFE + reserve_low1m, NO W9) survived the same traffic test (no
+  frames, no reset). So the reset correlates with W9/traffic rather than boot, and W9 is the prime
+  suspect (MAC 0x100 max-frame write arming a TX path that wedges, or missing MAC config words /
+  egress path when a frame is actually queued).
+Evidence: build/evidence-bench-gates/2026-11-20-w9.log (sha 20e66b11..., 2-CPU run) and
+...-w9clean.log (sha 02f58c42..., 1-CPU run) + SHA256SUMS-w9. Note UART pollution: stock-boot
+segments interleave with our 6.18 segments; attributions above use only 6.18.60 lines.
+SMP side note: the 2-CPU early-probe image did reach "Brought up 2 CPUs" with CPU1 mpidr 80000001,
+but also logged "EARLY mode 1 marker0=00000000 consumed=no"; the crash correlation with traffic
+means the early-probe 2-CPU result is not yet cleanly separated from the W9/TX reset.
+QM and SMP lanes reopened with the exact logs. Box is stock and reachable (no recovery needed).
+
+LEDGER

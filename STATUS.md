@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 10:45 +07
+**Updated:** 2026-11-20 11:05 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -624,6 +624,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   apply/prepare/compile RC=0; image 6,205,742 B sha256 a6b57361... check-container PASS; NOT
   flashed. Next boot: W9 verified -> GEMAC/eth2/br-lan -> ping/sniff (RX poll trace), and EARLY
   probe 'E'/marker for CPU1 pen consumption (or silence -> stock reads next).
+
+- **W9 clean run: W9 verified on all GEMACs, boot stable, but the first traffic attempt reset the
+  box to stock (2026-11-20).** Image 45d248ff (001-038, seven gates incl W9, 1 CPU): W7 counters,
+  W8 PFE, W9 (0x100 = 0x334005e0 on all four GEMACs), GEMAC netdevs, eth2 1Gbps/Full, br-lan
+  forwarding all good. Sending host traffic produced no frames and then a reset/fallback to stock;
+  the W9 2-CPU image also reset around its traffic test, while the W8-only image survived the same
+  test. So W9/TX is the likely hang trigger (MAC max-frame write arming a TX path that wedges, or
+  missing MAC config/egress when a frame is queued). UART captures saved
+  (build/evidence-bench-gates/2026-11-20-w9*.log, sha 20e66b11.../02f58c42...) with stock segments
+  interleaved. QM/SMP lanes reopened; box is stock and reachable (no recovery needed).
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

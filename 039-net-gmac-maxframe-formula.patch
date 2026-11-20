@@ -1,0 +1,59 @@
+--- a/drivers/net/ethernet/hisilicon/luofu-gmac.c
++++ b/drivers/net/ethernet/hisilicon/luofu-gmac.c
+@@ -103,7 +103,19 @@
+  */
+ #define LUOFU_GMAC_MAX_FRAME	0x0100
+ #define LUOFU_GMAC_MAX_FRAME_MASK	GENMASK(13, 0)
+-#define LUOFU_GMAC_MAX_FRAME_SLACK	4	/* [V] hi_mac_hw_mtu: mtu + 4 */
++/*
++ * hi_mac_hw_mtu(ctx, arg) stores (arg + 4) in the low 14 bits.  The vendor's
++ * default on this board is 1518 = 1500 (MTU) + 14 (Ethernet header) + 4 (the
++ * helper's own +4): the argument is the frame length without FCS, i.e.
++ * MTU + 14, and the register value MTU + 18 [I, cross-checked against the
++ * 1518 found default].  Patch 038 used MTU + 4 and wrote 1504 over the 1518
++ * default, which would mark every full-size frame as over-max in both
++ * directions; patch 039 fixes the formula and, additionally, never lowers the
++ * found limit (only raises it when the MTU needs more), so a hardware default
++ * larger than our formula cannot be clipped by mistake.
++ */
++#define LUOFU_GMAC_FRAME_OVERHEAD	14	/* [I] Ethernet header without FCS */
++#define LUOFU_GMAC_MAX_FRAME_SLACK	18	/* [V] header + hi_mac_hw_mtu +4 */
+ 
+ #define LUOFU_GMAC_CTRL		0x0000
+ #define LUOFU_GMAC_PORT_MODE	0x0040
+@@ -187,9 +199,15 @@
+ 				     "MAC max-frame register changed between two reads (%#x -> %#x); refusing to write it\n",
+ 				     pre, check);
+ 
++	/*
++	 * Correct frame limit: MTU + 18.  Never lower the found limit below the
++	 * value the MAC already has (the bench found 1518 = the correct default
++	 * for MTU 1500), so only an MTU that needs a larger limit changes it.
++	 */
+ 	want = (pre & ~LUOFU_GMAC_MAX_FRAME_MASK) |
+-	       ((ndev->mtu + LUOFU_GMAC_MAX_FRAME_SLACK) &
+-		LUOFU_GMAC_MAX_FRAME_MASK);
++	       max_t(u32, pre & LUOFU_GMAC_MAX_FRAME_MASK,
++		     ((ndev->mtu + LUOFU_GMAC_MAX_FRAME_SLACK) &
++		      LUOFU_GMAC_MAX_FRAME_MASK));
+ 	writel(want, g->base + LUOFU_GMAC_MAX_FRAME);
+ 	got = readl(g->base + LUOFU_GMAC_MAX_FRAME);
+ 	if (got != want) {
+--- a/drivers/net/ethernet/hisilicon/luofu-switch.c
++++ b/drivers/net/ethernet/hisilicon/luofu-switch.c
+@@ -2469,8 +2469,14 @@
+ 			const char *where = in_mask ?
+ 				"differs on a vendor-read field" :
+ 				"differs outside the vendor-read fields";
++			/*
++			 * Outside-mask differences never fail a STRICT entry (only
++			 * its bench-proven fields are compared); the wording must
++			 * say so - patch 036 printed "failing closed" here, which
++			 * misled the round-4 console reading.
++			 */
+ 			const char *then = kind->strict ?
+-				"failing closed" :
++				"outside the bench-proven fields, accepted" :
+ 				"not bench-proven yet, acknowledged with diagnostics";
+ 
+ 			dev_warn(lsw->dev,
