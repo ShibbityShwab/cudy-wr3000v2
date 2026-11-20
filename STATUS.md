@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 14:35 +07
+**Updated:** 2026-11-20 14:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -716,6 +716,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   before replay. These are the CFE-installed runtime tables absent because the vendor modules cannot
   load on 6.18. Next: patch 050 W15 replay/instrumentation for the classified pages. Evidence
   stock-pages/our-pages (SHA256SUMS-pages); box stable on the scan image with heartbeat.
+
+- **GEMAC stock-vs-ours diff: 4 un-decoded MAC config words differ + max-frame 1536 vs our 1518
+  (2026-11-20).** Comparing our gmac.dump (eth2/port 11) with a stock devmem read of 0x14480000
+  (144 words): 0x1c ours 0 vs stock 1 (macconf was off this image); 0xa4 0x40000 vs 0x30000;
+  0xac 0x5800002 vs 0x1c00002; 0xb0 0xc043006 vs 0x1608006; 0xb8 0x210021 vs 0x690069;
+  0x100 0x334005ee (limit 1518) vs 0x33400600 (1536). The four config words are MAC data-path
+  settings our front end never writes - prime candidates for the dead wire direction. QM lane
+  reopened for patch 051 (gated W16 MAC config write). Our gmac dump covered 0x0..0x2fc vs stock
+  0x0..0x23c; remaining stock words can be read. Evidence gmac-dump-ours.txt + stock gemac raw.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

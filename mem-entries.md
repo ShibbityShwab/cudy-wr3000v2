@@ -25652,3 +25652,26 @@ Also captured: our GEMAC dump (160 lines) and a stock GEMAC read (4 windows x 14
 Evidence: 2026-11-20-stock-pages.txt, 2026-11-20-our-pages.txt (SHA256SUMS-pages).
 
 LEDGER
+
+## 2026-11-20 14:50 - GEMAC stock-vs-ours diff: four un-decoded MAC config words differ plus max-frame 1536 vs our 1518
+
+GEMAC comparison from the existing captures (our luofu_gmac.dump eth2/port 11 window vs the stock
+devmem read of 0x14480000, common offsets 0x0..0x23c): 144 words compared, 6 differences:
+- 0x1c: ours 0x0, stock 0x1 (vendor macconf 0x1c=1; this image had macconf off)
+- 0xa4: ours 0x40000, stock 0x30000
+- 0xac: ours 0x5800002, stock 0x1c00002
+- 0xb0: ours 0xc043006, stock 0x1608006
+- 0xb8: ours 0x210021, stock 0x690069
+- 0x100: ours 0x334005ee (max-frame limit 1518, our W9 value MTU+18) vs stock 0x33400600
+  (limit 1536)
+The 0xa4/0xac/0xb0/0xb8 words are MAC data-path configuration the vendor sets but our front end
+never writes; they are prime candidates for the dead wire direction. The max-frame difference means
+our limit is 18 bytes smaller than the stock runtime value (not an RX-enable issue by itself but
+worth correcting). Note the vendor hi_mac_hw_config decode earlier covered only 0x14/0x18/0x1c/0x40;
+these four offsets come from another vendor init path still undecoded.
+Also: our gmac dump covers 0x0..0x2fc (192 words) while the stock read covered 0x0..0x23c (144);
+the remaining 0x240..0x2fc stock values can be read if needed.
+Next: QM lane to decode the 0xa4/0xac/0xb0/0xb8 writers from hi_kmac and deliver a gated W16 MAC
+config write stage in patch 051, then retest. Box stable on the scan image with heartbeat.
+
+LEDGER
