@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 14:50 +07
+**Updated:** 2026-11-20 15:05 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -725,6 +725,17 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   settings our front end never writes - prime candidates for the dead wire direction. QM lane
   reopened for patch 051 (gated W16 MAC config write). Our gmac dump covered 0x0..0x2fc vs stock
   0x0..0x23c; remaining stock words can be read. Evidence gmac-dump-ours.txt + stock gemac raw.
+
+- **RX path functionally alive after W16: PIE RX completions arrive (first ever), but decoder drops
+  them (status 0x25, port 0) and host frames are still not forwarded to the CPU (2026-11-20).**
+  Image 437a0766 (001-052, full W3-W16 + rxtrace): W16 verified (0x1c=1, gmac+0x100=0x33400600),
+  heartbeat stable; after traffic the PIE RX ch0 polled and completed 60-byte frames every ~1 s
+  with desc 6000003c 824600c2 0100b125 00000380 00000000, ret=-EIO because status=0x25 nonzero and
+  port=0 has no netdev. These look like switch control/management frames (CPU port 0), not the host
+  ARPs; host ping still fails. So RX works for CPU-generated frames; the remaining gap is
+  forwarding host ingress frames to the CPU - L2/VLAN/port state (CFE runtime tables) or completion
+  status/port semantics. QM lane reopened to decode and plan the next stage. Evidence
+  2026-11-20-rxtrace.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

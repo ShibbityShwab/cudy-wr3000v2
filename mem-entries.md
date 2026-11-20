@@ -25675,3 +25675,29 @@ Next: QM lane to decode the 0xa4/0xac/0xb0/0xb8 writers from hi_kmac and deliver
 config write stage in patch 051, then retest. Box stable on the scan image with heartbeat.
 
 LEDGER
+
+## 2026-11-20 15:05 - RX path is functionally alive after W16: PIE RX completions arrive, but our decoder drops them (status 0x25, port 0) and host traffic still is not forwarded to the CPU
+
+Image 437a0766 (patches 001-052; heartbeat; full W3-W16 + luofu_pie.rxtrace=1) installed from stock
+and booted; W16 static GEMAC config verified (0x1c=1, 0x100=0x33400600); heartbeat continuous.
+With the RX completion trace, after the host traffic test the PIE RX channel 0 fired and completed
+frames:
+  pie-trace RXpoll ch=0 hw_rptr=1..6 sw_rptr=0..6 delta=1
+  pie-trace RXCOMP ch=0 idx=0..5 hw_rptr=1..6 ret=-5 len=60 status=37 port=0 vlan=0
+    desc=6000003c 824600c2 0100b125 00000380 00000000  (DMA address increments by 0x800 per frame)
+So the PIE RX ring and interrupt path DO work after the W16 GEMAC config - first RX activity ever.
+But:
+- our decoder rejects every completion because status=0x25 (37) is nonzero (the decoder treats any
+  nonzero status as an error) and because port=0 has no registered netdev (we expect 8..12);
+- the frames are ~60-byte periodic one-per-second control/management frames, not the host's ARP
+  requests; host ping still fails and the sniff sees only host ARPs.
+Interpretation: RX is functioning for switch-generated/control frames (CPU port 0), while host
+ingress frames are still not forwarded to the CPU - likely the L2/VLAN/port-forwarding state
+(the CFE-installed runtime tables absent because the vendor modules cannot load on 6.18), or the
+RX completion status/port semantics differ from the decoded model (0x25 may include valid tags/class
+bits, and port 0 may be the CPU port that should map to a netdev).
+Next: QM lane to decode the RX completion status/port fields properly and determine what state is
+needed to get host frames forwarded to the CPU (CFE L2/VLAN/port config), then a gated stage or a
+targeted test (e.g., unicast probe to the box MAC) to confirm. Evidence 2026-11-20-rxtrace.log.
+
+LEDGER
