@@ -25347,3 +25347,20 @@ handle) and to fix the '0 verified' strict-count bug. Box runs the armed image; 
 evidence uart-coldboot.log.
 
 LEDGER
+
+## 2026-11-20 10:20 - Image 6cb3d908 built: PFE forwarding-engine base init W8 (036) + SMP loader-window reserve test (037)
+
+Combined bench image with patches 001-037: switch gates arm/egress/qidmap/eps/qminit/pfe + PIE
+arm; SMP highest-value variable luofu_smp_reserve_low1m=1 (reserve 0x80500000+1MiB before first
+memblock allocation, testing whether the loader parked CPU1 in RAM our kernel treats as free).
+036 delivers the missing forwarding-engine layer after W7 armed (PFE base init: pe+0x400=2,
+pfe_glb+0x2c RMW keep bits15..0, pfe_glb+0x204=1, opp+0x110=0, snapshot/readback/restore,
+readiness requiring W3-W8) and fixes the W7 tier counter (91 strict/77 diag/1 ack). 037 adds
+early_param reserves, setup_arch early probe modes with 'E' marker and read-only loader-window
+dumps/park-signature scan; the lane's evidence points at the vendor kernel's effective memory map
+starting at 0x80600000 (reserving 0x80600000+16KiB) while ours starts at 0x80500000.
+Validated host-side: 001-037 apply RC=0, prepare+compile zero warnings. Image 6,205,742 B sha256
+6cb3d908... check-container PASS. Next attended boot: W8 programmed/verified + (if the hypothesis
+holds) CPU1 consumed=yes 'E'/1P and online, then ping/sniff for the first forwarded frame.
+
+LEDGER

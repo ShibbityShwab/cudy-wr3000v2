@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 10:00 +07
+**Updated:** 2026-11-20 10:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -597,6 +597,14 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   move; QM lane is decoding the remaining MAC<->switch forwarding layer (port/MAC enable, EPS
   deque, IFC/L2/VLAN, table 38, egress queue handle) and the strict-count bug. Box runs the armed
   image (console-only, recovery 9x); evidence uart-coldboot.log.
+
+- **Image 6cb3d908 built (2026-11-20): PFE W8 forwarding-engine init + SMP loader-window test.**
+  Patches 001-037; switch gates arm/egress/qidmap/eps/qminit/pfe + PIE arm; SMP cmdline
+  luofu_smp_reserve_low1m=1 (reserve the 0x80500000 window before first allocation - the leading
+  hypothesis is the loader parked CPU1 in RAM our kernel treats as free; vendor kernel starts at
+  0x80600000 and reserves 0x80600000+16KiB, ours starts at 0x80500000). 036 also fixes the W7
+  tier count (91 strict/77 diag/1 ack) and adds the PFE base init after W7 armed. Host-validated;
+  NOT flashed. Next boot: W8 verified + CPU1 consumption test + ping/sniff (first forwarded frame).
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

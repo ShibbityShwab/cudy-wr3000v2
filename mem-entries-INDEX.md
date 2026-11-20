@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 15:55 - A/B selector driver (017) and install path implemented; final 001-017 image build RC=0 with 58/58 mocked install assertions on the real container | `mem-entries.md:24006` |
 | 2026-11-18 |  | 2026-11-18 16:20 - Consolidated reversal report and review-form upstream submission series (001-017) delivered and integrated | `mem-entries.md:24078` |
 | 2026-11-18 |  | 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100 | `mem-entries.md:24117` |
 | 2026-11-18 |  | 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved | `mem-entries.md:24181` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 21:20 - Image 75868fe0 built: W7 tiered verification (032 rev3) + SMP marker fix (035) | `mem-entries.md:25287` |
 | 2026-11-20 |  | 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no | `mem-entries.md:25302` |
 | 2026-11-20 |  | 2026-11-20 10:00 - Cold-boot SMP test: same consumed=no; CPU1 does not consume the pen on cold or warm boot | `mem-entries.md:25331` |
+| 2026-11-20 |  | 2026-11-20 10:20 - Image 6cb3d908 built: PFE forwarding-engine base init W8 (036) + SMP loader-window reserve test (037) | `mem-entries.md:25351` |
 
 ## All dated entries
 
@@ -678,3 +678,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-19 |  | 2026-11-19 21:20 - Image 75868fe0 built: W7 tiered verification (032 rev3) + SMP marker fix (035) | `mem-entries.md:25287` |
 | 2026-11-20 |  | 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no | `mem-entries.md:25302` |
 | 2026-11-20 |  | 2026-11-20 10:00 - Cold-boot SMP test: same consumed=no; CPU1 does not consume the pen on cold or warm boot | `mem-entries.md:25331` |
+| 2026-11-20 |  | 2026-11-20 10:20 - Image 6cb3d908 built: PFE forwarding-engine base init W8 (036) + SMP loader-window reserve test (037) | `mem-entries.md:25351` |
