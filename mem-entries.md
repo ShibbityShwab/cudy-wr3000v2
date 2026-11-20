@@ -25554,3 +25554,28 @@ Evidence: build/evidence-bench-gates/2026-11-20-lsw-dump-ours.txt (b80d8f2a...),
 (859c3346...), -lsw-diff.txt (ea815b0c...). Box is stock/reachable.
 
 LEDGER
+
+## 2026-11-20 13:50 - W12 verified: corrected W10 tab128 slots/allocator id + stock EPS/DP words; full W3-W12 chain armed; heartbeat stable; traffic STILL dead
+
+Image 0a6849ed (patches 001-046; heartbeat; all gates incl luofu_switch.ifc=1 ext=1 dump=1)
+installed directly from stock (no recovery needed) and booted:
+- W10 ran and the in-run W11 dump now shows the corrected tab128 entries exactly as stock:
+  ifc+0x50020=0x00100800, ifc+0x50030..0x50070=0x00001d01 (matches the stock-observed values;
+  the previous build had them one slot low with 0x1d00).
+- W12 ran: "extended EPS/DP runtime words: 16 EPS words + dp+0x1c, snapshotting..." then
+  "programmed and verified: 16 EPS words + dp+0x1c=0x18000".
+- "connectivity path armed: ... the IFC default-classification table and the W12 extended EPS/DP
+  runtime words are programmed and verified" - W3-W12 all accepted on silicon.
+- GEMAC netdevs registered, eth2 1Gbps/Full, br-lan forwarding; heartbeat continuous HB 35..110
+  through the host traffic test - box stable, no Oops.
+- Traffic STILL dead: host sniff sees only its own ARP requests, ping fails, zero PIE RX traces,
+  no box frames.
+So the classifier fix and the stock-observed EPS/DP words are now exactly as measured, yet no
+frame crosses. The stock-vs-ours differences in the dumped windows are exhausted (only the eqm
+indirect mirrors remain, which are not configuration). The remaining unknown is outside the W11
+dump windows or is an enable path we haven't compared: e.g., the PIE/MAC RX-enable state
+(no RX interrupt has ever fired), L2/VLAN runtime entries in address space not covered by the W11
+dump, or a CFE/rootif table. QM lane reopened to decode/compare those.
+Evidence 2026-11-20-w12.log.
+
+LEDGER

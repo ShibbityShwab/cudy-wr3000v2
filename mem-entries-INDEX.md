@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 19:35 - Publication pivot integrated: curated repos live, root notebook policy/redaction committed locally, first-install tooling integrated; push awaits owner approval | `mem-entries.md:24426` |
 | 2026-11-18 |  | 2026-11-18 19:55 - Notebook and legacy submodule pushed (fast-forward); public trees verified clean | `mem-entries.md:24473` |
 | 2026-11-18 |  | 2026-11-18 20:05 - Read-only bench inventory tool completed and integrated (145/145 mocked tests); host-side backlog finished | `mem-entries.md:24501` |
 | 2026-11-18 |  | 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed | `mem-entries.md:24543` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead | `mem-entries.md:25485` |
 | 2026-11-20 |  | 2026-11-20 13:10 - W10 IFC default-classification table programmed and verified on hardware; full W3-W10 chain armed; heartbeat stable; traffic still dead | `mem-entries.md:25505` |
 | 2026-11-20 |  | 2026-11-20 13:35 - W11 stock-vs-ours LSW diff: found a wrong W10 tab128 value set + 16 unprogrammed EPS channel-map words + dp+0x1c difference | `mem-entries.md:25532` |
+| 2026-11-20 |  | 2026-11-20 13:50 - W12 verified: corrected W10 tab128 slots/allocator id + stock EPS/DP words; full W3-W12 chain armed; heartbeat stable; traffic STILL dead | `mem-entries.md:25558` |
 
 ## All dated entries
 
@@ -687,3 +687,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead | `mem-entries.md:25485` |
 | 2026-11-20 |  | 2026-11-20 13:10 - W10 IFC default-classification table programmed and verified on hardware; full W3-W10 chain armed; heartbeat stable; traffic still dead | `mem-entries.md:25505` |
 | 2026-11-20 |  | 2026-11-20 13:35 - W11 stock-vs-ours LSW diff: found a wrong W10 tab128 value set + 16 unprogrammed EPS channel-map words + dp+0x1c difference | `mem-entries.md:25532` |
+| 2026-11-20 |  | 2026-11-20 13:50 - W12 verified: corrected W10 tab128 slots/allocator id + stock EPS/DP words; full W3-W12 chain armed; heartbeat stable; traffic STILL dead | `mem-entries.md:25558` |

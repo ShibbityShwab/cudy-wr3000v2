@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 13:35 +07
+**Updated:** 2026-11-20 13:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -679,6 +679,14 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   0x10000 vs stock 0x18000; eqm 0x48/0x4c/0x50..0x70 are indirect/data mirrors. Patch 046 will
   correct W10 tab128 + add the missing EPS writes, then traffic-test. Evidence: lsw-dump-ours.txt
   b80d8f2a, stock-lsw.txt 859c3346, lsw-diff.txt ea815b0c.
+
+- **W12 verified: corrected W10 classifier + stock EPS/DP words; full W3-W12 armed; heartbeat
+  stable; traffic still dead (2026-11-20).** Image 0a6849ed: in-run W11 dump shows tab128 now
+  exactly as stock (0x00100800 at +0x50020, 0x1d01 at +0x50030..70); W12 programmed/verified 16
+  EPS words + dp+0x1c=0x18000; connectivity-armed covers all stages through W12; GEMAC/eth2/
+  br-lan up; HB 35..110 through traffic, no Oops. Still no frames or RX traces. The dumped-window
+  differences are exhausted; remaining candidates are outside them (PIE/MAC RX-enable state - no
+  RX interrupt has ever fired - or L2/VLAN runtime tables not in the W11 dump). QM lane reopened.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
