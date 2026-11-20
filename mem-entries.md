@@ -25327,3 +25327,23 @@ Box left on the armed image (br-lan up but no traffic); recovery proven 9x; next
 Evidence uart-r3-armed.log under build/evidence-bench-gates/2026-11-19/.
 
 LEDGER
+
+## 2026-11-20 10:00 - Cold-boot SMP test: same consumed=no; CPU1 does not consume the pen on cold or warm boot
+
+Image 75868fe0 (035 marker fix) booted by a normal power-cycle (no RESET, cold boot): prep markers
+zero, pen write 0x81195000, SCU ctrl=3 config=0x511 status=0x03030000 (CPU0/CPU1 NORMAL), +1ms and
++21ms marker0/marker1 still zero and consumed=no, late_initcall consumed=no, pen still 0x81195000,
+CPU1 failed to come online. Only visible difference vs the warm boot: SYSCTRL word at 0x10100c10 was
+0x02000000 (cold) vs 0x42000000 (warm) - reset-source marker, everything else identical. So the
+"cold power-on" variable is eliminated: CPU1 never consumes the pen on either boot path. Combined
+with the 035 marker working, the negative is now solid [V]. Next hypotheses for the SMP lane:
+(a) CPU1 is not parked by this loader path for our image (decode U-Boot secondary start conditions
+vs stock), (b) our early boot stops/resets CPU1 (early drivers before W3; CRG reset words), (c) pen
+address/value/consumer expectations differ from the decode, (d) a reset bit must be cleared before
+the pen write (SCU reads NORMAL though), (e) our kernel overwrites the loader park loop/stub memory.
+The armed image still has no traffic (W7 accepted but MAC<->switch forwarding missing) - QM lane
+reopened for the next layer (LSW port/MAC enable, EPS deque, IFC/L2/VLAN, table 38, egress queue
+handle) and to fix the '0 verified' strict-count bug. Box runs the armed image; recovery proven;
+evidence uart-coldboot.log.
+
+LEDGER

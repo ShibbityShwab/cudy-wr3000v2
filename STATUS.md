@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 09:45 +07
+**Updated:** 2026-11-20 10:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -587,6 +587,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   handle). **SMP definitive: consumed=no** (markers zero, pen 0x81195000 untouched, SCU NORMAL) ->
   CPU1 never consumes the pen on warm boot; next variable is cold power-on, then probe=0/clear_mask.
   Box on the armed image (recovery 9x); evidence uart-r3-armed.log.
+
+- **Cold-boot SMP test (2026-11-20): same consumed=no.** Normal power-cycle boot of the armed image:
+  markers stay zero, pen 0x81195000 untouched, SCU CPU0/1 NORMAL, CPU1 offline, late_initcall
+  consumed=no. Only difference vs warm boot is SYSCTRL 0x10100c10 (0x02000000 cold vs 0x42000000
+  warm, reset-source marker). So CPU1 never consumes the pen on either path; the SMP lane is now
+  investigating loader parking vs early-boot resets vs pen semantics, and can use read-only stock
+  /sbin/devmem measurements. Network: W7 accepted and the path arms, but traffic still does not
+  move; QM lane is decoding the remaining MAC<->switch forwarding layer (port/MAC enable, EPS
+  deque, IFC/L2/VLAN, table 38, egress queue handle) and the strict-count bug. Box runs the armed
+  image (console-only, recovery 9x); evidence uart-coldboot.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
