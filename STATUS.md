@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 13:10 +07
+**Updated:** 2026-11-20 13:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -669,6 +669,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   W10 attempt used wrong token luofu_lsw.ifc - patch 044 fixes the spellings to luofu_switch.*.)
   Remaining: L2/VLAN/CFE-rootif contract, PIE per-port queue handle/egress mapping, LSW port/MAC
   enable; QM lane reopened for patch 045. Box stable, running W10 image (heartbeat, no network).
+
+- **W11 stock-vs-ours LSW diff produced the missing state list (2026-11-20).** Our post-W3-W10 dump
+  (248 lines/61 windows) was compared against the same stock addresses read with devmem: 35
+  differences. Key: IFC tab128 word0 entries 1-7 differ - stock 0x0/0x100800/0x1d01 vs our
+  0x100800/0x1d00 (our W10 classifier values are wrong at runtime, the likely reason frames are
+  not classified); 16 EPS words at eps+0xb20..0xb3c and eps+0xba0..0xbbc that W6 never wrote
+  (0xa0/0x810a0/0x820a0/0x830a0, 0xb0/0x810b0/..., 0x8004ffff/0x8105ffff/...); dp+0x1c ours
+  0x10000 vs stock 0x18000; eqm 0x48/0x4c/0x50..0x70 are indirect/data mirrors. Patch 046 will
+  correct W10 tab128 + add the missing EPS writes, then traffic-test. Evidence: lsw-dump-ours.txt
+  b80d8f2a, stock-lsw.txt 859c3346, lsw-diff.txt ea815b0c.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

@@ -25528,3 +25528,29 @@ the W10 image with heartbeat; no network; recovery needed only for another insta
 Evidence 2026-11-20-w10.log.
 
 LEDGER
+
+## 2026-11-20 13:35 - W11 stock-vs-ours LSW diff: found a wrong W10 tab128 value set + 16 unprogrammed EPS channel-map words + dp+0x1c difference
+
+Image 1bcea3d0 (full W3-W10 armed + read-only luofu_switch.dump=1 + heartbeat) installed from
+stock; captured 248 dump lines / 61 windows (l2, ifc, dp, eps, pe, eqm, opp, fam, ips) after
+W3-W10. Then recovered to stock and read the same window/offset addresses with /sbin/devmem
+(991 words read, saved). Diff (ours vs stock), 35 differences, 24 stock-nonzero/ours-zero, 860
+both zero, 8 nonzero on both sides but differing:
+- IFC tab128 word0 (ifc+0x50010..0x50070 = entries 1-7): ours wrote 0x100800/0x1d00 values from
+  the emulated table-manager allocation id; stock has 0x0, 0x100800, and 0x1d01 for entries 3-7.
+  -> our W10 classifier entries are WRONG at runtime; this is the most likely reason frames are
+  not classified/forwarded.
+- EPS channel-map space: stock has 16 nonzero words our W6 never programmed:
+  eps+0xb20..0xb3c = 0xa0 0x810a0 0x820a0 0x830a0 0xb0 0x810b0 0x820b0 0x830b0 and
+  eps+0xba0..0xbbc = 0x8004ffff 0x8105ffff 0x8106ffff 0x8107ffff (twice).
+- dp+0x1c: ours 0x10000, stock 0x18000 (queue-base|BIT16 vs stock including BIT15); to decode.
+- eqm+0x50..0x70 and 0x48/0x4c/0x5c: indirect-interface/data-register views (ours reflect our last
+  W7 command; stock reflects the vendor's last); likely volatile mirrors, not persistent config,
+  but included for the lane to classify.
+The tab128 and EPS differences are real missing/wrong state; patch 046 should correct W10's tab128
+values from the stock observation and program the missing EPS words (with snapshot/readback and
+attended gating), then re-run the traffic test.
+Evidence: build/evidence-bench-gates/2026-11-20-lsw-dump-ours.txt (b80d8f2a...), -stock-lsw.txt
+(859c3346...), -lsw-diff.txt (ea815b0c...). Box is stock/reachable.
+
+LEDGER
