@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 17:55 +07
+**Updated:** 2026-11-20 18:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -765,6 +765,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   run got 4/18 replies because its writes landed after link-up; next: re-apply the mirror after
   link-up (or dwell 20 s per destination while pinging). Evidence cpumirror-static.log,
   ping-cpumirror.txt, sniff-cpumirror.txt.
+
+- **W19 post-link mirror verified mechanically but dst 8 is not the CPU port (2026-11-20).** Image
+  4e7cab94 (001-056, static cpu_mirror dst=8 + post-link reapply every 2 s + rxdiag/accepterr/
+  rxstroke): W19 reapply lines show pre==post stable (d8=0x800 dc=0x6800000 c0=0x40); ping 0/50
+  and 0/28 on retry after userspace up; box answers ARP but RXDIAG shows only len=60 status=37
+  ARP exceptions - the host's 98-byte ICMP frames never reach the CPU. Heartbeat stable. So dst 8
+  is wrong; the W17 burst caught the right destination briefly. Next: W19 dwell sweep 20 s per
+  destination 0..15 with the host pinging, one boot identifies the true CPU port. Evidence
+  w19-postlink.log/ping-w19b/sniff-w19b.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

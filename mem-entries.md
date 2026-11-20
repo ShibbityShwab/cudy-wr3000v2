@@ -25774,3 +25774,27 @@ each destination long enough (20 s) during a sweep with the host pinging to iden
 destination reliably. Evidence 2026-11-20-cpumirror-static.log/-ping-cpumirror.txt/-sniff-cpumirror.txt.
 
 LEDGER
+
+## 2026-11-20 18:30 - W19 post-link mirror works mechanically (applied every 2 s, pre/post stable) but dst 8 is NOT the CPU port: ARP answered, ICMP 98 B never reaches the CPU
+
+Image 4e7cab94 (patches 001-056; full W3-W16 + W18 static cpu_mirror=1 dst=8 + W19 post-link
+reapply/re-latch + rxdiag/accepterr/rxstroke; heartbeat) installed from stock and booted:
+- W19 lines: static cpu-copy applied dst=8 repeatedly (4.3 s, 6.4 s, after MAC link-up 7.8 s +200 ms
+  at 8.0 s, then every ~2 s through the run); pre==post each time (d8=0x800 dc=0x6800000 c0=0x40),
+  so the mirror registers persist; the post-link reapply mechanism works.
+- First 50-packet ping (started ~40 s after boot, right after br-lan came up at 34.5 s): 0/50
+  received, +12 errors; sniff showed only host ARP requests (host ARP cache was still resolving).
+- Retry after userspace fully up (28 packets, 32 s): 0/28 received; sniff shows the box ARP reply
+  (d4:0d:ab:64:1c:73 -> host) and 13 host->box ICMP 98 B frames, but no box ICMP replies.
+- RXDIAG: 13-14 completions, ALL len=60 status=37 err=1 port=11 - i.e. only the ARP-size
+  exception frames are punted to the CPU; the host's 98-byte ICMP frames are NOT delivered to the
+  box's RX ring at all. RXERR ACCEPTED 8, RXSTROKE ch0 hw_rptr settles 13 -> no further deliveries.
+  Heartbeat continuous HB 65..115, no Oops.
+Conclusion: static dst 8 is not the CPU/PIE-receiving port. The W17 sweep burst got ICMP replies
+only briefly, consistent with one of its destinations (6/7/8 written around link-up) being the real
+CPU port. The dwell sweep (W19 mirror_dwell=1, 20 s per destination 0..15, host pinging) is now the
+decisive experiment: one attended boot identifies the destination that delivers len=98 ICMP
+completions and ping replies.
+Evidence 2026-11-20-w19-postlink.log, -ping-w19b.txt, -sniff-w19b.txt.
+
+LEDGER
