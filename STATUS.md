@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 12:05 +07
+**Updated:** 2026-11-20 12:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -653,6 +653,13 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   crashes. Traffic is still dead (host sniff sees only its own ARP; ping fails). Next: macconf
   vendor-MAC-sequence test, corrected W9 single-port write, then IFC table decode; every future
   test has the heartbeat detector.
+
+- **macconf vendor MAC link sequence executed cleanly; box stable; traffic still dead (2026-11-20).**
+  Image f58c516e (six gates + PFE, W9 inert, heartbeat, macconf=1): link-up replays the vendor
+  sequence (0x14=0x6 speed code, 0x18=0x0, 0x1c 0->1, 0x40=0x10c0008 unchanged; ctrl 0x0 reads 0
+  and is not the control word). Heartbeats HB 37..107 through traffic, no Oops; still no frames/RX.
+  Next: IFC default-classification table decode (needs vendor table-manager ID sequence), then
+  L2/VLAN/CFE; W9 corrected write still untested with heartbeat. Evidence 2026-11-20-macconf.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

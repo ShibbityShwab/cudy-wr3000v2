@@ -25481,3 +25481,23 @@ Next tests (each needs an image + stock recovery since the running image has no 
 vendor MAC link sequence with heartbeat; then corrected W9 single-port write; then IFC table decode.
 
 LEDGER
+
+## 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead
+
+Image f58c516e (six gates + PFE, W9 inert, heartbeat, luofu_gmac.macconf=1) installed from stock:
+- macconf replay ran at both eth2 link-ups: before 0x14=0x6 0x18=0x0 0x1c=0x0 0x40=0x10c0008
+  0x0=0x0 (speed 1000 duplex 1 code 0x6); after 0x14=0x6 0x18=0x0 0x1c=0x1 0x40=0x10c0008
+  0x0=0x0 (wrote 0x14=0x6, 0x40=0x10c0008). So the vendor speed code and 0x40 RMW match our
+  existing link words; the only change was 0x1c 0->1; ctrl 0x0 is confirmed not to be the control
+  word (still reads 0).
+- heartbeat continuous HB 37..107 through boot, link, and the host traffic test; zero Oops in the
+  current segment (the single 'errors=1' grep count is from an older polluted segment) - box stable.
+- traffic STILL dead: host sniff sees only its own ARP requests, ping fails, no RX traces, no box
+  frames. So the vendor MAC link sequence alone does not unlock the data path.
+Next layers per the lane's ordered gap list: IFC default-classification table (needs the vendor
+table-manager ID sequence decoded first), L2/VLAN/CFE/rootif contract, remaining MAC config, NAPT/MCC,
+table 38/VP, PIE per-port queue handle. W9 corrected single-port write remains untested with the
+heartbeat liveness detector (earlier W9 write runs lacked it).
+Evidence 2026-11-20-macconf.log.
+
+LEDGER

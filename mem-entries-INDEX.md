@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 18:55 - Factory-MAC provisioning from bdinfo 0xde00 implemented and image-validated (mock 103/103) | `mem-entries.md:24288` |
 | 2026-11-18 |  | 2026-11-18 19:10 - CRG clock tree completed (019): real gate parents, fixed clocks, read-only PLL/mux providers; duplicate SKELETON-SMOKE session fixed | `mem-entries.md:24326` |
 | 2026-11-18 |  | 2026-11-18 19:23 - PUBLISH POLICY: the root notebook goes intentionally public; lab web-admin credential and per-unit MACs redacted in HEAD (history not rewritten) | `mem-entries.md:24370` |
 | 2026-11-18 |  | 2026-11-18 19:35 - Publication pivot integrated: curated repos live, root notebook policy/redaction committed locally, first-install tooling integrated; push awaits owner approval | `mem-entries.md:24426` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 11:05 - W9 clean run: boot stable, W9 verified on all GEMACs, but the first traffic attempt reset the box to stock; W9/TX hang regression under analysis | `mem-entries.md:25408` |
 | 2026-11-20 |  | 2026-11-20 11:30 - W9 read-only diag + early_probe=2 run: no W9 write, TX still wedges the box after one frame; stock reference registers captured | `mem-entries.md:25433` |
 | 2026-11-20 |  | 2026-11-20 12:05 - Heartbeat added: the "idle hang" and several "hung box" conclusions were false alarms; the box was alive but silent | `mem-entries.md:25461` |
+| 2026-11-20 |  | 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead | `mem-entries.md:25485` |
 
 ## All dated entries
 
@@ -684,3 +684,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 11:05 - W9 clean run: boot stable, W9 verified on all GEMACs, but the first traffic attempt reset the box to stock; W9/TX hang regression under analysis | `mem-entries.md:25408` |
 | 2026-11-20 |  | 2026-11-20 11:30 - W9 read-only diag + early_probe=2 run: no W9 write, TX still wedges the box after one frame; stock reference registers captured | `mem-entries.md:25433` |
 | 2026-11-20 |  | 2026-11-20 12:05 - Heartbeat added: the "idle hang" and several "hung box" conclusions were false alarms; the box was alive but silent | `mem-entries.md:25461` |
+| 2026-11-20 |  | 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead | `mem-entries.md:25485` |
