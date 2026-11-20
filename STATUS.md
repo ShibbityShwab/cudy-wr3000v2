@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 21:50 +07
+**Updated:** 2026-11-20 22:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -845,6 +845,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   atag-offset 0x1000; kernel slot 0x00840000=8,650,752 bytes (uncompressed Image ~12MiB will not
   fit); ITARGETSR8=0x01010101; risky loader reads 0/0xE2066007. Evidence handoff-probe.log,
   stock-reads-{1,2}.txt.
+
+- **Sentinel probe 061: CPU1 never entered either stub -> definitively not polling the pen; loader-side
+  root cause (2026-11-20).** Image 83a7ad08 (001-061, handoff_probe=1 trampoline=1): sentinels stayed
+  0x600d1a88 at early_param/prep/post-release/late, jump=no, SCU bit5 clear; our flashinfo window shows
+  the probe A stub at 0x80600040 and the 17-word trampoline at 0x80600080 installed correctly, while
+  stock has loader data + the 66CC66CC pattern. The earlier 060 "B consumed" reading was that pattern,
+  now corrected. CPU1 does not execute any kernel-side stub, so the release path cannot fix SMP from
+  the kernel side; root cause is loader-side (U-Boot/hboot CPU1 start trigger and its inputs). Next:
+  locate U-Boot runtime base (0x80040000 reads 0, it relocates), decode the secondary-core start
+  condition, compare flashinfo windows (done), and decode image-type/header/boot-flag inputs.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

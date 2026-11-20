@@ -26032,3 +26032,34 @@ Next: patch 061 (re-polling trampoline at stext + later release from platsmp/__c
 protocol to prove the handoff), then boot and check 2 CPUs.
 
 LEDGER
+
+## 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause
+
+Patch 060's nonzero B reading was a false positive: the lane identified 0x66cc66cc as the loader's DDR
+test pattern, and our own stock devmem dump of the flashinfo window (0x80600000, 61 words) shows the
+same 0x66CC66CC pattern at 0x80600014.. - not consumption. Patch 061 replaced the ambiguous markers
+with sentinels (0x600D1A88) and a re-polling trampoline, plus the memblock-reserved page and a
+trampoline token that releases CPU1 to __pa_symbol(secondary_startup).
+
+Sentinel run on image 83a7ad08 (cmdline luofu_smp_handoff_probe=1 luofu_smp_trampoline=1):
+  [0.000000] luofu-smp: handoff A=600d1a88 B0=600d1a88 B1=600d1a88 B2=00000000 pen=80600080 scu_cfg=00000511
+  [0.000000] luofu-smp: handoff verdict A=not-entered B(trampoline)=not-entered jump=no target=00000000
+  [0.000000] luofu-smp: trampoline page 0x80600000-0x80600fff reserved; release pen = secondary_startup
+  [0.400710] luofu-smp: release cpu=1 logical=1 pen=0x8070b000 entry=8070b000 probe=1 tramp=1 force=0
+  prep / post-release / late all: A=600d1a88 B0=600d1a88 B1=600d1a88 B2=0, jump=no, scu bit5 clear
+Our flashinfo window confirms the code is installed exactly where intended: 0x80600040 holds the probe
+A stub (e3004010 e3484060 ee103fb0 e5843000 eafffffe) and 0x80600080 the 17-word trampoline
+(e3004020 e3484060 ee103fb0 e5843000 e3005080 e3485060 e3006c00 e3416010 e5962000 e1520005
+afffffc e5842008 e3023b61 e346300d e5843004 f57ff04f e12fff12), while the stock window holds its
+loader data and the 66CC66CC pattern. Sentinels untouched in every read -> CPU1 never executed either
+stub at any point (decompressor entry, kernel stext, prep, post-release, late). The SCU CONFIG bit5
+CPU1-ran monitor stayed clear.
+CONCLUSION: CPU1 is not polling the pen on our boot/loader path at all; the release path cannot be
+fixed from the kernel side. Root cause is loader-side (U-Boot/hboot CPU1 start trigger and its inputs),
+confirmed by the lane. Next: loader-side decode - find the U-Boot runtime base (it relocates; 0x80040000
+is not the base: reads 0), locate the secondary-core spin/poll code and the condition that starts CPU1,
+compare flashinfo windows stock vs ours (done: only our stub bytes differ in 0x80600000-0x806000ff),
+and decode the image-type/header/boot-flag inputs that make the vendor image release CPU1.
+Evidence 2026-11-20-sentinel-061.log, -sentinel-flashinfo.txt, -stock-flashinfo.txt.
+
+LEDGER
