@@ -25579,3 +25579,30 @@ dump, or a CFE/rootif table. QM lane reopened to decode/compare those.
 Evidence 2026-11-20-w12.log.
 
 LEDGER
+
+## 2026-11-20 14:05 - W13 PIE/GMAC dump: the RX smoking gun is pie 0x3404 (ours 0x0 vs stock 0x1b04); everything else matches
+
+Image a24ba64e (patches 001-047; heartbeat; full W3-W12 chain + luofu_pie.dump=1 luofu_gmac.dump=1)
+installed from stock and booted; PIE dump captured (64 lines) after arming, heartbeat continuous:
+- Compared with the stored stock inventory (PIE-DATAPATH section 4.5): everything matches except the
+  per-channel RX configuration word:
+  * pie 0x1000 = 0x000a01c8 (matches stock)
+  * pie 0x2200 = 0x0045e000 (matches)
+  * pie 0x3200 = 0x00002001 (matches; bit0 global RX enable + bit13)
+  * pie 0x3700 = 0x0000ffff (matches stock, despite no gro_ring DT property)
+  * pie 0x0180/0x0200/0x0380 = 1 for all channels (match)
+  * pie 0x0300+ch*4 RX IRQ status = 0 (idle, matches)
+  * **pie 0x3404 = 0x00000000 OURS vs 0x00001b04 STOCK** - the rx_init_chan per-channel RX config
+    word (2 bits/channel per the [I] model) that our driver never writes. This matches the fact
+    that no PIE RX interrupt has ever fired.
+  * pie 0x3400 = 0x00000103 and 0x340c = 0x00500858 in ours; stock values for those two are not in
+    the stored table yet and should be measured/decoded before writing the whole block.
+- The luofu_gmac.dump=1 side printed nothing in this build (0 gmac-dump lines); needs a look (token
+  may be parsed but the link-up dump may not fire or the message prefix differs). The GEMAC window
+  comparison is still pending a stock read.
+So W13 = write pie 0x3404 = 0x1b04 (stock) - and likely the rest of the 0x3400 RX-config block - with
+the usual gated snapshot/readback/restore; then a traffic test with the heartbeat. This is the most
+direct RX-enable lead so far.
+Evidence: build/evidence-bench-gates/2026-11-20-pie-dump-ours.txt (eee35eaf...).
+
+LEDGER

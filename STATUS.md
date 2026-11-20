@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 13:50 +07
+**Updated:** 2026-11-20 14:05 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -687,6 +687,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   br-lan up; HB 35..110 through traffic, no Oops. Still no frames or RX traces. The dumped-window
   differences are exhausted; remaining candidates are outside them (PIE/MAC RX-enable state - no
   RX interrupt has ever fired - or L2/VLAN runtime tables not in the W11 dump). QM lane reopened.
+
+- **W13 dump found the RX smoking gun: pie 0x3404 ours 0x0 vs stock 0x1b04 (2026-11-20).** Image
+  a24ba64e (001-047, heartbeat, W3-W12 chain + read-only PIE/GMAC dumps): the whole PIE state matches
+  the stored stock inventory (0x1000 0x000a01c8, 0x2200 0x0045e000, 0x3200 0x00002001, 0x3700
+  0xffff, per-channel 0x0180/0x0200/0x0380=1, RX IRQ status 0) EXCEPT pie 0x3404 = 0x0 vs stock
+  0x00001b04 - the rx_init_chan per-channel RX-config word our driver never writes; this explains
+  why no PIE RX interrupt has ever fired. gmac.dump printed nothing (needs fix) and the GEMAC window
+  stock comparison is still pending. Next: patch 048 W13 gated write of the 0x3400 RX-config block
+  (stock values; 0x3400/0x340c still to be measured) + traffic test. Box stable running the dump
+  image with heartbeat (HB 82+); recovery needed for the next install.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
