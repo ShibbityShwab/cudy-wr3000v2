@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 11:30 +07
+**Updated:** 2026-11-20 12:05 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -644,6 +644,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   reference registers captured (SCU config 0x531 vs ours 0x511, GIC words, SYSCTRL c10=0x0A000000,
   CRG 0x38=0x00200000; evidence 2026-11-20-stock-reads.txt sha dc791481...). Box stock/reachable;
   QM lane pursuing MAC ctrl + no-doorbell diagnostics, SMP lane has the stock reads.
+
+- **Heartbeat liveness probe added; "idle hang"/several "hung box" conclusions were false alarms
+  (2026-11-20).** A userspace heartbeat (HB <uptime> to kmsg every ~10 s) now runs in the target
+  base-files. Image 5bd06925 (six gates + PFE, W9 inert, heartbeat) ran stable from HB 68 to
+  HB 338 (5.6 min) through a traffic test with zero Oops/panic - the box was alive, and silent
+  images without a data path had looked "hung". Only the runs with an actual Oops were real
+  crashes. Traffic is still dead (host sniff sees only its own ARP; ping fails). Next: macconf
+  vendor-MAC-sequence test, corrected W9 single-port write, then IFC table decode; every future
+  test has the heartbeat detector.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

@@ -25457,3 +25457,27 @@ stock reads. Box is stock and reachable (no recovery); the diag image falls back
 hang, so further iterations need no physical action unless a hang leaves it unresponsive.
 
 LEDGER
+
+## 2026-11-20 12:05 - Heartbeat added: the "idle hang" and several "hung box" conclusions were false alarms; the box was alive but silent
+
+Added a lab-only userspace heartbeat to the target base-files (init.d/heartbeat + S99 symlink) that
+prints "HB <uptime-seconds>" to /dev/kmsg every ~10 s, giving the UART capture a liveness signal.
+Installed image 5bd06925 (six gates + PFE, W9 inert, heartbeat, no traffic tokens) from stock
+without recovery and left it running:
+- heartbeats continuous from HB 68 through HB 338 (~5.6 min), including during and after the host
+  traffic test, ZERO Oops/panic lines: the box is STABLE and alive.
+- Therefore the earlier conclusions "idle image hung at ~51 s" (uart-idle-run) and several
+  "box hung, needs recovery" calls on images without a network/console were FALSE ALARMS: with no
+  data path and no console shell, a healthy box and a hung box both look silent. Only the runs with
+  an actual Oops in the log (w9clean 1-CPU W9 run: NULL+8, Comm netmsg) were real crashes; the W9
+  2-CPU run's Oops attribution remains the earlier one.
+- Traffic still dead on this stable image: host sniff sees only its own ARP requests, ping fails,
+  no PIE RX traces. So the network path is still the open problem, but the platform is stable and
+  we now have a reliable hang detector for every future test.
+Correction recorded: prior "needs physical recovery" events where the box looked dead were likely
+just silent; only crash/Oops runs and true bus hangs need it. Heartbeat committed in submodule
+(files under target base-files) so every future image reports liveness.
+Next tests (each needs an image + stock recovery since the running image has no network): macconf=1
+vendor MAC link sequence with heartbeat; then corrected W9 single-port write; then IFC table decode.
+
+LEDGER
