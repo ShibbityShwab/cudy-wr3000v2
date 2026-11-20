@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 19:30 +07
+**Updated:** 2026-11-20 21:05 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -807,6 +807,19 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   userspace writes; loader failover picked A. Overlay persistence across reboot is therefore
   untestable until boot-selector handover is implemented in our userspace (follow-up task). The
   image itself is fine and reinstall from stock needs no recovery. Evidence reboot-fallback.log.
+
+- **Live-MMIO round 2: native-forwarding closed (mirror stays), CPU1 late-trigger tried, all
+  consumed=no (2026-11-20).** Acceleration image 9da53b52 = patches 001-059 + DEVMEM +
+  HOTPLUG_CPU + static devmem + boot-pair recorder; SSH live register access, reboot/overlay
+  persistence verified. Phase A stock-vs-ours (4309 words) found only the NAPT block + known EQM
+  mirrors; NAPT is persistent config pointing at the vendor DDR carveout 0x80400000 that does not
+  exist on our image -> do not write 0x130-0x13c; safe non-DDR words were proven harmless and
+  restored. Native host forwarding is CFE-software/DDR-carveout state, not MMIO-replayable: the
+  CPU-copy mirror + port-0 delivery remains the bench solution. SMP: patch 059 adds a repeatable
+  late-time add_cpu(1) sysfs trigger (cpu1 sysfs online is gated by missing .cpu_die); all live
+  variants (late add_cpu, IPI storm targeted/broadcast, CRG resume clear, raw pen/IPI, SCU bit5)
+  leave consumed=no and 1 CPU -> CPU1 is not polling the pen; next is loader-side decode per lane.
+  Automated installer hung once in stock-wait (experimental); manual path used.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

@@ -25919,3 +25919,43 @@ for native CFE L2/VLAN experiments. Both lanes were asked for gated, revertible 
 Evidence 2026-11-20-live-mmi-dump.txt.
 
 LEDGER
+
+## 2026-11-20 21:05 - live-MMIO round 2: native forwarding conclusion (NAPT carveout unsafe/absent -> mirror stays), CPU1 late-bring-up trigger (patch 059), all live CPU1 variants consumed=no
+
+ACCELERATION BASE (now in use): image 9da53b52 = patches 001-059 + CONFIG_DEVMEM +
+CONFIG_HOTPLUG_CPU + static /usr/bin/devmem + baked boot-pair recorder; box reachable over SSH,
+ping 20/20, reboot returns to our image (pair recorder), overlay survives reboot. tools/devmem.c,
+tools/build-bench-devm.sh and tools/bench-install.sh added; the automated installer hung once in
+its stock-wait stage (killed; manual proven path used afterwards) - treat it as experimental.
+
+NATIVE FORWARDING (qm lane decode + live Phase A): a stock-vs-ours read of 4309 words across IFC/
+L2/PA/NAPT/MCC/PFE_GLB/PE/EQM/EPS/FAM/GEMAC shows only 10 stock-nonzero/ours-zero words: 8 in the
+NAPT block plus the already-known EQM indirect mirrors. The NAPT words are persistent init config
+from hi_pfe_napt_init and 0x130-0x13c point at the vendor reserved DDR carveout base 0x80400000
+(+0x8000/+0x48000/+0x50000) which does not exist as a carveout on our image (our /proc/iomem shows
+System RAM from 0x80600000; 0x80400000 is outside it). Do NOT write 0x130-0x13c. The safe non-DDR
+NAPT words (0x54=0x100, 0x60=0x80000, 0x170=1, 0x64=1, 0x70=0x00110138) were written live, read
+back, ping stayed 10/10 0% and dmesg stayed clean, then were restored. Conclusion: stock's "native"
+host path is the CFE software punt/bridge state in the vendor DDR carveout + modules that cannot
+load on 6.18; replaying MMIO cannot reproduce it. The CPU-copy mirror + port-0 delivery stays the
+correct bench data path; a from-scratch hardware L2/bridge is a separate project.
+
+SMP CPU1 (live experiments): discovered cpu1 sysfs has no "online" attribute because smp_ops has no
+.cpu_die and platform_can_hotplug_cpu() gates hotpluggable. Added patch 059: a late-init sysfs
+trigger /sys/kernel/luofu_cpu1/luofu_cpu1_up whose store calls add_cpu(1), giving repeatable
+late-time __cpu_up() attempts over SSH (CONFIG_HOTPLUG_CPU=y required). Results of live attempts:
+- baseline pen 0x81295000 (probe stub), CRG resume 0x00200000, SCU 0x3/0x511/0x03030000, GIC
+  enabled; 1 CPU.
+- add_cpu(1) x3 at late time: each runs the full release sequence, returns -5, CPU1 never comes
+  online, markers 0, consumed=no.
+- SGI0 targeted IPI storm during the attempt: consumed=no.
+- CRG resume word cleared (bit21 / bits21-25 -> 0) before the attempt: consumed=no, restore OK.
+- SCU CONFIG bit5 write (0x531): acknowledged by devmem but reads back 0x511 immediately -> the
+  bit is not writable; no effect.
+- raw pen release (earlier) and wake IPI alone also never consumed the pen.
+Per the SMP lane's fallback: with consumed=no in every variant, CPU1 is not polling the pen on our
+boot path at all, so the next work is loader-side decode (flashinfo window, loader region
+0x8004xxxx, GICD target/priority and deeper stock reads), not more userspace release variants.
+Evidence: 2026-11-20-pha-{ours,stock,diff}.txt, live-mmi-dump.txt, UART capture artifacts.
+
+LEDGER
