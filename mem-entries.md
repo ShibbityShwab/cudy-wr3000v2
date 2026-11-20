@@ -25429,3 +25429,31 @@ means the early-probe 2-CPU result is not yet cleanly separated from the W9/TX r
 QM and SMP lanes reopened with the exact logs. Box is stock and reachable (no recovery needed).
 
 LEDGER
+
+## 2026-11-20 11:30 - W9 read-only diag + early_probe=2 run: no W9 write, TX still wedges the box after one frame; stock reference registers captured
+
+Image 6cf5de37 (001-040; seven gates with W9 in READ-ONLY diag mode; luofu_gmac.trace=1;
+luofu_smp_early_probe=2; oops=panic panic=0) installed directly from stock A (no recovery needed):
+- boot stable; W7/W8 verified; connectivity path armed; W9 diag read every GEMAC: eth2/eth3
+  "max-frame 0x100 = 0x334005ee (limit 1518, upper 0x33400000), ctrl 0x0 = 0x0,
+  port_mode 0x40 = 0xc0408; no write" - the found default is the vendor 1518 limit, confirming the
+  MTU+18 correction.
+- SMP early_probe=2: prep pen value 0x81293440 (our early stub, i.e. the early write ran), resume
+  00200000 -> 00200000 (already clear), early markers 0/0 and consumed=no; CPU1 still failed to
+  come online -> CPU1 does NOT consume the pen even with the full early order (pen+resume clear).
+- Traffic test (host ping + sniff) -> no frames and the box hung (fell back to stock; no Oops
+  captured this time - likely watchdog hang). Trace: exactly one xmit handed down; gmac-trace pre
+  and post both show ctrl=0x0 maxframe=0x334005ee port_mode=0x10c0008; PIE descriptor built and
+  doorbell=1 written, then silence. So the hang is in the engine TX processing/DMA (or a broken
+  MAC ctrl/TX-enable config), not the W9 write.
+Stock read-only reference captured while stock was reachable (two identical rounds, boot_id
+72c87547...): SCU ctrl=3 config=0x531 status=0x03030000 (our boot reads config 0x511 - stock has
+SCU standby bit 0x20 set, our scu_enable() early-returns); GICD_CTLR=1, GICD words 0xFC25/0x0102043B,
+SGIR=0, GICC_CTLR CPU0=1, CPU1 banked read 0; SYSCTRL c00=0x80609680 (vendor kernel pen), c08=0x10,
+c10=0x0A000000 (ours 0x42000000/0x02000000), c14=0xDFDF0781; CRG 0x38=0x00200000.
+Evidence: build/evidence-bench-gates/2026-11-20-stock-reads.txt (sha dc791481...).
+QM lane reopened for MAC ctrl/TX-enable offset+value and a no-doorbell diagnostic; SMP lane has the
+stock reads. Box is stock and reachable (no recovery); the diag image falls back to stock after a
+hang, so further iterations need no physical action unless a hang leaves it unresponsive.
+
+LEDGER

@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 11:05 +07
+**Updated:** 2026-11-20 11:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -634,6 +634,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   missing MAC config/egress when a frame is queued). UART captures saved
   (build/evidence-bench-gates/2026-11-20-w9*.log, sha 20e66b11.../02f58c42...) with stock segments
   interleaved. QM/SMP lanes reopened; box is stock and reachable (no recovery needed).
+
+- **W9 read-only diag + early_probe=2 run (2026-11-20).** Image 6cf5de37 (001-040, W9 read-only,
+  gmac trace, oops=panic): boot stable, seven gates armed; W9 diag reads 0x334005ee (limit 1518) on
+  every GEMAC; early_probe=2 leaves pen 0x81293440, markers 0, consumed=no -> CPU1 never consumes
+  the pen even with pen+resume-clear. Traffic test: one xmit (ctrl reads 0x0, maxframe 1518,
+  port_mode 0x10c0008), descriptor+doorbell written, then box hangs/falls back to stock with no
+  Oops. So the TX wedge is in engine processing/DMA or MAC TX-enable config, not W9. Stock
+  reference registers captured (SCU config 0x531 vs ours 0x511, GIC words, SYSCTRL c10=0x0A000000,
+  CRG 0x38=0x00200000; evidence 2026-11-20-stock-reads.txt sha dc791481...). Box stock/reachable;
+  QM lane pursuing MAC ctrl + no-doorbell diagnostics, SMP lane has the stock reads.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
