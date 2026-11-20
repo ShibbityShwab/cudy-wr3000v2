@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 12:35 +07
+**Updated:** 2026-11-20 13:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -660,6 +660,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   and is not the control word). Heartbeats HB 37..107 through traffic, no Oops; still no frames/RX.
   Next: IFC default-classification table decode (needs vendor table-manager ID sequence), then
   L2/VLAN/CFE; W9 corrected write still untested with heartbeat. Evidence 2026-11-20-macconf.log.
+
+- **W10 IFC classifier programmed and verified on silicon; full W3-W10 chain armed; box stable via
+  heartbeat; traffic still dead (2026-11-20).** Image 24794d64: W10 logged 8 entries (command
+  engine acknowledged, tab128 readback exact); connectivity-armed line now lists R1/R3/R5, qid
+  maps, EPS, EQM, PFE and IFC; GEMAC netdevs/eth2 1Gbps/br-lan forwarding; heartbeat HB 48..103
+  through traffic, no Oops. But still no frames/RX: host sniff sees only its own ARP. (The first
+  W10 attempt used wrong token luofu_lsw.ifc - patch 044 fixes the spellings to luofu_switch.*.)
+  Remaining: L2/VLAN/CFE-rootif contract, PIE per-port queue handle/egress mapping, LSW port/MAC
+  enable; QM lane reopened for patch 045. Box stable, running W10 image (heartbeat, no network).
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

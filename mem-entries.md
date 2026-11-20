@@ -25501,3 +25501,30 @@ heartbeat liveness detector (earlier W9 write runs lacked it).
 Evidence 2026-11-20-macconf.log.
 
 LEDGER
+
+## 2026-11-20 13:10 - W10 IFC default-classification table programmed and verified on hardware; full W3-W10 chain armed; heartbeat stable; traffic still dead
+
+Image 24794d64 (patches 001-044; heartbeat; seven switch gates incl luofu_switch.ifc=1; PIE arm)
+installed from stock and booted:
+- W10 ran: "IFC default-classification table: 8 entries, command-engine pre-state 0x0 (busy 0,
+  error 0), tab128 base 0x50000" -> "IFC default-classification table programmed and verified:
+  8 entries (5-word command-engine descriptors acknowledged, 4-word tab128 entries read back
+  exactly)".
+- "connectivity path armed: R1/R3/R5 probe configuration, the W2 qid maps, the EPS channel map,
+  the EQM queue-manager init tables, the PFE forwarding-engine base init and the IFC
+  default-classification table are programmed and verified; the GEMAC netdev front end may
+  register" - the entire W3-W10 chain is now accepted on silicon.
+- GEMAC netdevs registered, eth2 link 1Gbps/Full (twice), br-lan port eth2 forwarding; heartbeat
+  continuous HB 48..103 through the host traffic test - box stable, no Oops.
+- Traffic STILL dead: host AF_PACKET sniff sees only its own ARP requests, ping fails, no PIE RX
+  traces, no box-originated frames.
+Correction of an earlier own-goal: the first W10 run used the wrong token spelling luofu_lsw.ifc=1
+(the drivers are built-in as luofu_switch); the gate was rejected and the path refused. Patch 044
+normalizes all gate spellings to luofu_switch.* and the corrected run above is the real result.
+So W3-W10 (switch/DP/EQM/EPS/PFE/IFC) are all programmed and verified, yet no frame crosses.
+Remaining layer(s): L2/VLAN/CFE-rootif contract, PIE per-port queue handle/egress mapping, LSW
+port/MAC-specific enable. QM lane reopened for that decode (patch 045). Box is stable and running
+the W10 image with heartbeat; no network; recovery needed only for another install.
+Evidence 2026-11-20-w10.log.
+
+LEDGER
