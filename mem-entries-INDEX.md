@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 20:15 - First read-only silicon inventory COMPLETE (600/600 reads); PIE/LSW/CRG/SYSCTRL unknowns closed; tool context-capture bug fixed | `mem-entries.md:24543` |
 | 2026-11-18 |  | 2026-11-18 21:10 - PIE datapath ring engine + GEMAC front end implemented (patch 020), built from the measured 2026-11-18 baseline | `mem-entries.md:24592` |
 | 2026-11-18 |  | 2026-11-18 21:25 - LSW read-only D1b baseline probe implemented (patch 021) and integrated | `mem-entries.md:24631` |
 | 2026-11-18 |  | 2026-11-18 21:40 - Review-form series extended to 001-021; curated public repo synced (port + inventory docs) | `mem-entries.md:24673` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 13:50 - W12 verified: corrected W10 tab128 slots/allocator id + stock EPS/DP words; full W3-W12 chain armed; heartbeat stable; traffic STILL dead | `mem-entries.md:25558` |
 | 2026-11-20 |  | 2026-11-20 14:05 - W13 PIE/GMAC dump: the RX smoking gun is pie 0x3404 (ours 0x0 vs stock 0x1b04); everything else matches | `mem-entries.md:25583` |
 | 2026-11-20 |  | 2026-11-20 14:25 - W13 RXCFG written and verified (pie+0x3404 0x0 -> 0x1b04) but RX STILL never fires | `mem-entries.md:25610` |
+| 2026-11-20 |  | 2026-11-20 14:35 - W14 all-window page scan: stock has many runtime table pages that our armed image leaves zero (pe/eqm/eps/ifc/mcc/opp), and fam+0x1000/0x41000 values differ | `mem-entries.md:25631` |
 
 ## All dated entries
 
@@ -690,3 +690,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 13:50 - W12 verified: corrected W10 tab128 slots/allocator id + stock EPS/DP words; full W3-W12 chain armed; heartbeat stable; traffic STILL dead | `mem-entries.md:25558` |
 | 2026-11-20 |  | 2026-11-20 14:05 - W13 PIE/GMAC dump: the RX smoking gun is pie 0x3404 (ours 0x0 vs stock 0x1b04); everything else matches | `mem-entries.md:25583` |
 | 2026-11-20 |  | 2026-11-20 14:25 - W13 RXCFG written and verified (pie+0x3404 0x0 -> 0x1b04) but RX STILL never fires | `mem-entries.md:25610` |
+| 2026-11-20 |  | 2026-11-20 14:35 - W14 all-window page scan: stock has many runtime table pages that our armed image leaves zero (pe/eqm/eps/ifc/mcc/opp), and fam+0x1000/0x41000 values differ | `mem-entries.md:25631` |

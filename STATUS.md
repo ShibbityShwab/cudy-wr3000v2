@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 14:25 +07
+**Updated:** 2026-11-20 14:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -706,6 +706,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   classifier, MAC link words, W13). Remaining: LSW flow/port state and CFE/rootif runtime tables
   outside the dump windows, plus the pending GEMAC-window stock comparison (ours captured).
   Evidence 2026-11-20-w13.log + gmac-dump-ours.txt; lane reopened.
+
+- **W14 page scan found the missing runtime table pages (2026-11-20).** Image 603fcded (full
+  W3-W13 + switch/pie scan + heartbeat) vs a stock devmem page scan: stock has non-zero 4 KiB pages
+  at pe+0x1000/0x41000, eqm+0x2000/0x6000/0x42000/0x46000, eps+0x6000, ifc+0x1000 (two windows)
+  and ifc+0x40000, opp+0x1000 (x2), mcc+0x1000/0x6000 that our armed image leaves zero; fam+0x1000
+  and fam+0x41000 values differ (stock 0x2f9/0x2fa vs ours 0x11). Values like 0x1b6/0x1d1/0x1f1/
+  0x3958/0x1110 are [U] (table bases vs counters) and must be classified against the vendor modules
+  before replay. These are the CFE-installed runtime tables absent because the vendor modules cannot
+  load on 6.18. Next: patch 050 W15 replay/instrumentation for the classified pages. Evidence
+  stock-pages/our-pages (SHA256SUMS-pages); box stable on the scan image with heartbeat.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

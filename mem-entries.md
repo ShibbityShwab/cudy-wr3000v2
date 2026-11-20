@@ -25627,3 +25627,28 @@ window stock comparison (our gmac dump is captured for it). QM lane reopened for
 Evidence: 2026-11-20-w13.log, 2026-11-20-gmac-dump-ours.txt.
 
 LEDGER
+
+## 2026-11-20 14:35 - W14 all-window page scan: stock has many runtime table pages that our armed image leaves zero (pe/eqm/eps/ifc/mcc/opp), and fam+0x1000/0x41000 values differ
+
+Image 603fcded (patches 001-049; heartbeat; full W3-W13 chain + luofu_switch.scan=1 luofu_pie.scan=1)
+installed from stock; page scan captured after arming (one 32-bit word per 4 KiB page of all 15 MMIO
+windows, non-zero pages only). Stock side: same scan run on a stock boot with /sbin/devmem (15
+windows x 128 pages, plus PIE pages). Comparison (window bases: fam 0x11100000, pe 0x11180000,
+eqm 0x11200000, eps 0x11280000, pfe_glb 0x12000000, ifc? 0x12080000/0x12100000/0x12180000,
+opp? 0x12280000, mcc 0x12380000, opp 0x12400000, pub 0x12480000):
+- pages present on STOCK and ZERO on OURS: pe+0x1000=0x1b6, pe+0x41000=0x1b6, eqm+0x2000=0x1b6,
+  eqm+0x6000=0x3958, eqm+0x42000=0x1b6, eqm+0x46000=0x3958, eps+0x6000=0x1b6,
+  ifc-window+0x1000=0x1d1 (both instances/windows), ifc+0x40000=0x1d1, opp+0x1000=0xcb,
+  mcc+0x1000=0x1f1, mcc+0x6000=0x1110, opp+0x1000=0x1f1.
+- values DIFFER: fam+0x1000 stock 0x2f9 vs ours 0x11; fam+0x41000 stock 0x2fa vs ours 0x11.
+- match both: fam+0x0/0x6000/0x40000/0x46000, pe+0x2000/0x42000, eqm+0x0/0x40000, eps+0x0,
+  pfe_glb 0x7af both, mcc+0x0=0x201410, pub+0x57000=0x10001.
+Many values look like table-base/config or large counters (0x3958, 0x1110) whose meaning is [U];
+the lane must classify each page (table pointer vs counter vs port-state) against the vendor
+modules before any write. This is the missing runtime state identified by W14: the vendor CFE
+kernel modules install it on netdev/port events and cannot load on our 6.18 kernel.
+Also captured: our GEMAC dump (160 lines) and a stock GEMAC read (4 windows x 144 words, partial
+524/576 captured) for the MAC-side comparison; to finish if needed.
+Evidence: 2026-11-20-stock-pages.txt, 2026-11-20-our-pages.txt (SHA256SUMS-pages).
+
+LEDGER
