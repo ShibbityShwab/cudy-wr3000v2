@@ -25388,3 +25388,19 @@ Both lanes reopened with the exact logs. Box runs the armed image (console-only)
 10x; evidence uart-pfe-run.log.
 
 LEDGER
+
+## 2026-11-20 10:45 - Image a6b57361 built: seven-gate chain incl. W9 MAC max-frame init + SMP early probe
+
+Patches 001-038; switch gates arm/egress/qidmap/eps/qminit/pfe + PIE arm + luofu_gmac.hwinit=1
+(seventh gate: MAC reg 0x100 = (pre & ~GENMASK(13,0)) | ((mtu+4) & GENMASK(13,0)), snapshot/
+stable/readback/restore, netdev registration refused until W9 verified) + SMP
+luofu_smp_early_probe=1 (setup_arch early pen probe with 'E' marker, mode 1 = pen only).
+W9 rationale: hi_mac_hw_mtu writes MAC 0x100 with MTU+4 and the MAC drops over-limit frames in
+both directions (rx/tx overmax stats); our front end never wrote this register, matching the dead
+wire direction. Host-validated: 001-038 apply 38/38, prepare+compile RC=0 zero warnings (vmlinux
+1c62c968...), checkpatch clean. Image 6,205,742 B sha256 a6b57361... check-container PASS.
+Next attended boot: W7 counters -> W8 PFE -> W9 MAC max-frame -> GEMAC/eth2/br-lan, then ping/
+sniff while watching RX poll trace; SMP: expect either 'E'/EARLY marker (CPU1 consumes pen and
+parks in our stub) or silence (no window reservation can help; stock reads next).
+
+LEDGER

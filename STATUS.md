@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 10:35 +07
+**Updated:** 2026-11-20 10:45 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -615,6 +615,15 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   luofu_smp_reserve_low1m=1 reserved the window but CPU1 still consumed=no; next variable is
   reserve_flashinfo or early_probe modes. Both lanes reopened; box runs the armed image (recovery
   10x); evidence uart-pfe-run.log.
+
+- **Image a6b57361 built (2026-11-20): seven-gate chain incl. W9 MAC max-frame init + SMP early
+  probe.** Patches 001-038; gates arm/egress/qidmap/eps/qminit/pfe + PIE + luofu_gmac.hwinit=1 (MAC
+  reg 0x100 low14 = MTU+4 with snapshot/readback/restore; the MAC drops over-limit frames both
+  ways and our front end never wrote it - prime remaining wire-direction suspect) + SMP
+  luofu_smp_early_probe=1 ('E' marker from setup_arch, mode 1 pen only). Host-validated 001-038
+  apply/prepare/compile RC=0; image 6,205,742 B sha256 a6b57361... check-container PASS; NOT
+  flashed. Next boot: W9 verified -> GEMAC/eth2/br-lan -> ping/sniff (RX poll trace), and EARLY
+  probe 'E'/marker for CPU1 pen consumption (or silence -> stock reads next).
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
