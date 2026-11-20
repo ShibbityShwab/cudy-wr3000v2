@@ -25896,3 +25896,26 @@ Next: use live MMIO to test native CFE L2/VLAN forwarding hypotheses and the SMP
 sequence in minutes instead of patch/build cycles; keep writes gated and evidence-captured.
 
 LEDGER
+
+## 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed
+
+Live reads (devmem over SSH, box healthy, ping 20/20) fill in the SMP picture without a rebuild:
+- SCU 0x10180000: CTRL=0x00000003, CONFIG=0x00000511, CPU_STATUS=0x03030000 (both cores report
+  the NORMAL/normal-state bytes), 0x1018000c=0.
+- GICD 0x10181000: CTLR=1, TYPER=0x0000fc25, IIDR=0x0102043b, 0x10181010=0, SGIR=0.
+- GICC 0x10180100: CTLR=1, PMR=0xf8; GICC CPU1 banked view 0x10180200/04 = 0 (not visible from CPU0).
+- SYSCTRL+0xc00 pen = 0x81295000; System.map: _text=c0608000, secondary_startup=c070b000 ->
+  physical 0x8070b000, so the pen does NOT point at secondary_startup (a concrete CPU1 lead).
+  SYSCTRL+0xc08 selector = 0x11 (B); +0xc10=0x42000000, +0xc14=0xdfdf0781, others 0.
+- CRG 0x14880000: +0x14/0x1c=0x01360ef1, +0x20/0x28=0x02f8000b, +0x2c=0x0d300e01 (reset0),
+  +0x30=0xfe7fe05b (reset1), +0x34=0x00000309, +0x38 resume=0x00200000, +0x3c=0.
+- PIE rings live: RX base ch0 0x10a73000 -> dma 0x82414000, idx/ptr words 8, 0x00e800e7,
+  0x000000e9; TX base 0x10a72000 -> dma 0x82420000, count 0x0c, 0x000000ef.
+- dmesg: 'luofu-smp: late marker0=00000000 marker1=00000000 consumed=no early_mode=0 ...' and
+  /proc/cpuinfo still 1 CPU.
+This is the data the SMP lane needs for a live userspace CPU1-release attempt (pen value, CRG
+resume bits, SCU config, GICD SGIR target) and the network lane gets the same live-MMIO workflow
+for native CFE L2/VLAN experiments. Both lanes were asked for gated, revertible write sequences.
+Evidence 2026-11-20-live-mmi-dump.txt.
+
+LEDGER
