@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 10:20 +07
+**Updated:** 2026-11-20 10:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -605,6 +605,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   0x80600000 and reserves 0x80600000+16KiB, ours starts at 0x80500000). 036 also fixes the W7
   tier count (91 strict/77 diag/1 ack) and adds the PFE base init after W7 armed. Host-validated;
   NOT flashed. Next boot: W8 verified + CPU1 consumption test + ping/sniff (first forwarded frame).
+
+- **W8 PFE base init verified; traffic still dead; reserve_low1m does not revive CPU1 (2026-11-20).**
+  Image 6cb3d908 (001-037): W7 tier counters fixed (91 verified/77 diag/1 ack), W8 PFE base init
+  programmed+verified (pe+0x400=2, pfe_glb+0x2c=0x34, pfe_glb+0x204=1, opp+0x110=0), connectivity
+  path armed, GEMAC netdevs + 1G carrier + br-lan forwarding. Traffic still does not move (sniff
+  only host ARP, zero RX polls, TX descriptors consumed) -> next layer is IFC default-classification
+  table / per-port MAC config (hi_mac_hw_config full write set) / L2/VLAN/CFE. SMP
+  luofu_smp_reserve_low1m=1 reserved the window but CPU1 still consumed=no; next variable is
+  reserve_flashinfo or early_probe modes. Both lanes reopened; box runs the armed image (recovery
+  10x); evidence uart-pfe-run.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

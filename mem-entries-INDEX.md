@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-18 |  | 2026-11-18 16:20 - Consolidated reversal report and review-form upstream submission series (001-017) delivered and integrated | `mem-entries.md:24078` |
 | 2026-11-18 |  | 2026-11-18 16:55 - 0x21 selector semantics integrated, patch 017 corrected, boot-time pair recorder added, final image rebuilt (362ca4ec) and install harness 100/100 | `mem-entries.md:24117` |
 | 2026-11-18 |  | 2026-11-18 17:40 - GPL request de-scoped as a project action (optional accelerator only); own-RE continuation approved | `mem-entries.md:24181` |
 | 2026-11-18 |  | 2026-11-18 18:05 - Remaining SoC blocks decoded: MAC source resolved (bdinfo 0xde00); efuse/RNG/LED-PWM/PMU-PWM/CRG-parents decisions recorded | `mem-entries.md:24199` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no | `mem-entries.md:25302` |
 | 2026-11-20 |  | 2026-11-20 10:00 - Cold-boot SMP test: same consumed=no; CPU1 does not consume the pen on cold or warm boot | `mem-entries.md:25331` |
 | 2026-11-20 |  | 2026-11-20 10:20 - Image 6cb3d908 built: PFE forwarding-engine base init W8 (036) + SMP loader-window reserve test (037) | `mem-entries.md:25351` |
+| 2026-11-20 |  | 2026-11-20 10:35 - W8 PFE base init verified; tier counters fixed; traffic still dead; reserve_low1m does not revive CPU1 | `mem-entries.md:25368` |
 
 ## All dated entries
 
@@ -679,3 +679,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no | `mem-entries.md:25302` |
 | 2026-11-20 |  | 2026-11-20 10:00 - Cold-boot SMP test: same consumed=no; CPU1 does not consume the pen on cold or warm boot | `mem-entries.md:25331` |
 | 2026-11-20 |  | 2026-11-20 10:20 - Image 6cb3d908 built: PFE forwarding-engine base init W8 (036) + SMP loader-window reserve test (037) | `mem-entries.md:25351` |
+| 2026-11-20 |  | 2026-11-20 10:35 - W8 PFE base init verified; tier counters fixed; traffic still dead; reserve_low1m does not revive CPU1 | `mem-entries.md:25368` |

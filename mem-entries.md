@@ -25364,3 +25364,27 @@ Validated host-side: 001-037 apply RC=0, prepare+compile zero warnings. Image 6,
 holds) CPU1 consumed=yes 'E'/1P and online, then ping/sniff for the first forwarded frame.
 
 LEDGER
+
+## 2026-11-20 10:35 - W8 PFE base init verified; tier counters fixed; traffic still dead; reserve_low1m does not revive CPU1
+
+Image 6cb3d908 (001-037, six switch gates + PIE + luofu_smp_reserve_low1m=1):
+- W7 tier-counter fix confirmed: "91 verified on bench-proven vendor-read fields (tables 32/35/17),
+  77 acknowledged with diagnostics (tables 16/34; 0 differed on a vendor-read field), 1 write-only
+  acknowledged (table 19)".
+- W8 PFE base init programmed and verified: pe+0x400=0x2, pfe_glb+0x2c=0x34, pfe_glb+0x204=0x1,
+  opp+0x110=0x0; "connectivity path armed ... the PFE forwarding-engine base init are programmed
+  and verified; the GEMAC netdev front end may register". GEMAC netdevs registered, eth2 link
+  1Gbps/Full, br-lan port eth2 forwarding. [V first time W8]
+- Traffic STILL does not move: host AF_PACKET sniff sees only its own ARP requests; PIE RX poll
+  trace silent; PIE TX descriptors consumed with TX read pointer advancing. So W8 base init is
+  necessary but not sufficient; next layer per the lane's list: IFC default-classification table,
+  per-port MAC config (hi_mac_hw_config full write set), L2/VLAN/CFE-rootif, NAPT/MCC, table 38/VP,
+  PIE queue handle.
+- SMP reserve_low1m=1: the memblock reserve ran (dumps show reserved ranges) but CPU1 still
+  consumed=no (markers 0 at +1/+21ms and late, early=00000000, pen 0x81195000 untouched, SCU
+  status 03030000, CPU1 offline). Low-1MiB parking hypothesis not supported; next single variable
+  is reserve_flashinfo=1 or early_probe=1/2/3 (lane asked which to try first).
+Both lanes reopened with the exact logs. Box runs the armed image (console-only); recovery proven
+10x; evidence uart-pfe-run.log.
+
+LEDGER
