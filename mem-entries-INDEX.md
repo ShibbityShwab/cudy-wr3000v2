@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 21:30 - stock SMP reference captured; CRG deltas proven PCIe (no CPU1 effect); SCU CONFIG bit5 is a CPU1-ran monitor; next decisive probe is pre-decompressor handoff (patch 060) | `mem-entries.md:25963` |
 | 2026-11-20 |  | 2026-11-20 21:50 - SMP HANDOFF PROBE: CPU1 IS ALIVE - it consumed the kernel-stext stub (B=0x66cc66cc) but not the decompressor-entry stub (A=0). Stock reads captured (DT/handoff facts, flashinfo window, kernel-slot size). | `mem-entries.md:25996` |
 | 2026-11-20 |  | 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause | `mem-entries.md:26036` |
 | 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 20:45 - CPU-punt mechanism resolved: IFC->NAPT path; our NAPT is uninitialized (all config words 0), so unicast dies inside the flow engine before PIE. Vendor hi_pfe_napt_init decoded as a register-only sequence and prepared as a fail-closed replay. | `mem-entries.md:26827` |
 | 2026-11-21 |  | 2026-11-21 21:00 - BREAKTHROUGH: replaying the decoded hi_pfe_napt_init sequence makes the flow engine punt unicast to the CPU. With the mirror still on, eth2 RX delta was 1122 for 500 pings (~2x) and napt up_tocpu rose from 0x2e to 0x261 (+563) while ping stayed 0% loss - the native CPU-delivery signal M1a was looking for. | `mem-entries.md:26859` |
 | 2026-11-21 |  | 2026-11-21 21:20 - M1a PROVEN: native CPU delivery with the CPU-copy mirror OFF. Proof image 5800c9ab (canonical adopted tree + cmdline cpu_mirror=0/luofu_napt_init=1/rxdiag=1 + probe boot-time NAPT-init script) boots, applies NAPT init, and SSH/ping work with no mirror; native RXDIAG status=77 frames are delivered. | `mem-entries.md:26884` |
+| 2026-11-21 |  | 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented. | `mem-entries.md:26906` |
 
 ## All dated entries
 
@@ -743,3 +743,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 20:45 - CPU-punt mechanism resolved: IFC->NAPT path; our NAPT is uninitialized (all config words 0), so unicast dies inside the flow engine before PIE. Vendor hi_pfe_napt_init decoded as a register-only sequence and prepared as a fail-closed replay. | `mem-entries.md:26827` |
 | 2026-11-21 |  | 2026-11-21 21:00 - BREAKTHROUGH: replaying the decoded hi_pfe_napt_init sequence makes the flow engine punt unicast to the CPU. With the mirror still on, eth2 RX delta was 1122 for 500 pings (~2x) and napt up_tocpu rose from 0x2e to 0x261 (+563) while ping stayed 0% loss - the native CPU-delivery signal M1a was looking for. | `mem-entries.md:26859` |
 | 2026-11-21 |  | 2026-11-21 21:20 - M1a PROVEN: native CPU delivery with the CPU-copy mirror OFF. Proof image 5800c9ab (canonical adopted tree + cmdline cpu_mirror=0/luofu_napt_init=1/rxdiag=1 + probe boot-time NAPT-init script) boots, applies NAPT init, and SSH/ping work with no mirror; native RXDIAG status=77 frames are delivered. | `mem-entries.md:26884` |
+| 2026-11-21 |  | 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented. | `mem-entries.md:26906` |

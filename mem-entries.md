@@ -26902,3 +26902,28 @@ LEDGER
   (stable, mirror off). Curated repos resync after release-side changes.
 
 LEDGER
+
+## 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented.
+
+- w22/: 0001-net-lsw-napt-init.patch (luofu-switch.c/.h/regs.h: new W22 stage after W8/before W10,
+  naptinit param default 1, idempotent signature guard, snapshot/restore on failure, clear/poll
+  helpers, carveout safety: flow_base 0x80400000/1 MiB, below Linux RAM 0x80500000, up_port from
+  variant BIT(12) with low16 preserved); 0002-net-pie-exception-delivery.patch (deliver the native
+  exception/CPU-delivery class by default - 77 observed on the proof boot - and remove
+  luofu_pie.accepterr). Both apply cleanly, compile (luofu-switch.o, luofu-pie.o RC=0), checkpatch
+  0 errors/0 warnings/0 checks; sha256 0001 cfd7debc..., 0002 8c748061...
+- Design decisions: always run (refuse READY if disabled/failed); mirror patches 054-057 stay as
+  documented fallback default-off, canonical cmdline drops mirror/accepterr/cpucopy tokens; mirror
+  code retired only after a W22-only soak. Release impact list (patch numbering 059/060, manifest
+  include lines, L0 62->64 / L1 51->53, INCLUDED/05 docs, config cmdline + fallback variant,
+  README/RELEASE-NOTES truth updates, validator, build, install/test, curated sync) is in
+  w22/RELEASE-INTEGRATION.md.
+- M1b plan (m1b/M1B-PLAN.md): per-port delivery test (one jack at a time, counters must land on the
+  matching netdev), LAN-to-LAN single-host FDB/class probe, true LAN-to-LAN needs a second host/NIC,
+  persistence across link flap/reboot, decision rule: all ports native + punted unknown-unicast ->
+  software bridge is enough (no hardware L2/VLAN bridge for D1); otherwise M2 hardware bridge.
+- Docs updated across lsw-forwarding (E0B-ANALYSIS §12/§13, RESULTS, IMPLEMENTATION-PLAN, UNKNOWNS
+  U20-U25, m1a SESSION, NAPT-INIT-PROPOSAL PROVEN, README). Everything host-only; release series
+  and curated repos untouched by the lane. Lead now stages/validates/builds/bench-tests W22.
+
+LEDGER
