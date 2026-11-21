@@ -26602,3 +26602,24 @@ LEDGER
 - Native-forwarding plan lane (lsw-re-spec) is still running; its report will be integrated next.
 
 LEDGER
+
+## 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50.
+
+- Image c3ef2a50 (sha256 c3ef2a507e6e0fc3d8991139b9668eeccae8f59995db4d17eaa5e71f68ea5879) built
+  from the adopted TWD DTS plus the three active-DTS drafts from docs/incoming/upstream-blockers
+  (02: drop bdinfo nvmem-layout/mac-base cell and gmac nvmem-cells; 03: switch reg/reg-names
+  MMIO-first with DDR queue/flow last; 04: compatible = cudy,wr3000-v2 first + luofu.mk
+  SUPPORTED_DEVICES += cudy,wr3000-v2). Installed via the verified telnet installer (PASS).
+- Boot verified: 6.18.60, 2 CPUs, /proc/interrupts "GIC-0 29 Level twd", board_name
+  cudy,wr3000-v2 (/tmp/sysinfo/board_name), compatible order cudy/hisilicon-r116/hisilicon-luofu;
+  MAC provisioning still correct WITHOUT kernel nvmem: eth0/1/2 share d4:0d:ab:xx:xx:73 (LAN base)
+  and eth3 = ...74 (WAN base+1) from userspace/vendor board.d; br-lan 192.168.1.1/24 up, ping
+  15/15 0% loss (switch data path works after the reg reorder), no Oops/BUG/panic/RCU stall,
+  selector 0x11. Evidence: build/evidence-bench-gates/blockers-345/blockers-345-boot-verify.txt.
+- Conclusion: all three deltas are safe and adopted; upstream blocker list drops from five to two
+  (draft drivers/YAMLs, hsan,flashinfo-binding). The upstream lane has been tasked to commit the
+  adopted target changes, regenerate DTS-0001/DTB/validation/submission artifacts and refresh docs.
+- Current hardware baseline becomes image c3ef2a50 (supersedes f6685b80; 7421bb7a remains the
+  original verified baseline). Board is running c3ef2a50, selector 0x11, stock pair A intact.
+
+LEDGER

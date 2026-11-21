@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 14:35 - W14 all-window page scan: stock has many runtime table pages that our armed image leaves zero (pe/eqm/eps/ifc/mcc/opp), and fam+0x1000/0x41000 values differ | `mem-entries.md:25631` |
 | 2026-11-20 |  | 2026-11-20 14:50 - GEMAC stock-vs-ours diff: four un-decoded MAC config words differ plus max-frame 1536 vs our 1518 | `mem-entries.md:25656` |
 | 2026-11-20 |  | 2026-11-20 15:05 - RX path is functionally alive after W16: PIE RX completions arrive, but our decoder drops them (status 0x25, port 0) and host traffic still is not forwarded to the CPU | `mem-entries.md:25679` |
 | 2026-11-20 |  | 2026-11-20 15:30 - FIRST REAL TRAFFIC: box accepts a punted ARP exception on eth2 and sends an ARP reply on the wire | `mem-entries.md:25705` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 17:10 - Upstream blocker #6 (TWD timer IRQ flags): hardware read done on the unit - GICD_ICFGR1 for TWD PPI13/ID29 reads 0b11 (read-only SoC-fixed); standard A9 DTs use LEVEL_HIGH. | `mem-entries.md:26544` |
 | 2026-11-21 |  | 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls. | `mem-entries.md:26561` |
 | 2026-11-21 |  | 2026-11-21 17:40 - TWD adoption artifacts verified independently; publish runbook committed; notebook publication hygiene fixed with a checker gate. | `mem-entries.md:26580` |
+| 2026-11-21 |  | 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50. | `mem-entries.md:26606` |
 
 ## All dated entries
 
@@ -730,3 +730,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 17:10 - Upstream blocker #6 (TWD timer IRQ flags): hardware read done on the unit - GICD_ICFGR1 for TWD PPI13/ID29 reads 0b11 (read-only SoC-fixed); standard A9 DTs use LEVEL_HIGH. | `mem-entries.md:26544` |
 | 2026-11-21 |  | 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls. | `mem-entries.md:26561` |
 | 2026-11-21 |  | 2026-11-21 17:40 - TWD adoption artifacts verified independently; publish runbook committed; notebook publication hygiene fixed with a checker gate. | `mem-entries.md:26580` |
+| 2026-11-21 |  | 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50. | `mem-entries.md:26606` |
