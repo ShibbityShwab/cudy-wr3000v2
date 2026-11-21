@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-21 12:00 +07
+**Updated:** 2026-11-21 12:25 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -896,6 +896,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   CPUs and pair b recorded. The earlier "2-CPU hang" is retracted (host bench-link carrier/IP loss
   overnight; UART proved the box alive). 060/061 probes are bench diagnostics only; the release SMP
   fix is the DTS change. Evidence 2026-11-21-soak-2cpu.log, -final-reboot-2cpu.log.
+
+- **6.18 release line consolidated + independently validated (2026-11-21).** Submodule commit adds
+  upstream/series-6.18/05-release-line.md, release-line/manifest.tsv (62 patches: 51 include,
+  11 bench diagnostics excluded, sha256 checked) and tools/check-release-line.sh. The loader hand-off
+  DTS contract is recorded as THE SMP fix; canonical 2-CPU baseline is image 974e6ca6. Independent
+  validator run: patch(1) 51/51 RC=0, 0 rejects; DTS cpp+dtc RC=0, DTB 12296 B sha256 50daf3d0...,
+  console/flashinfo/enable-method contract present. 0018 regenerated to state the DTS dependency;
+  RELEASE-NOTES + TARGET-DESIGN/ROADMAP/SKELETON docs updated; curated repos untouched. Remaining:
+  052/053 pair regeneration, duplicate 042 renumber, upstream DTS series with the two nodes,
+  install path on a device, Wi-Fi, native CFE forwarding, upstream review.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

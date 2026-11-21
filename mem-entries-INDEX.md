@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 19:25 - SMP W7-run diagnostic corrected: probe knobs were rejected; patch 034 makes dumps unconditional and probe default-on | `mem-entries.md:25200` |
 | 2026-11-19 |  | 2026-11-19 19:40 - W7 verification contract fixed (table 19 write-only); final combined image 5d2c5476 built (001-034) | `mem-entries.md:25222` |
 | 2026-11-19 |  | 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P | `mem-entries.md:25241` |
 | 2026-11-19 |  | 2026-11-19 21:15 - SMP probe marker fixed (035); pen-0 explained; probe still unrun but now measurable | `mem-entries.md:25264` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d | `mem-entries.md:26125` |
 | 2026-11-21 |  | 2026-11-21 11:45 - RETRACTION: the "2-CPU hang" was a host bench-link outage, not a kernel hang. The canonical 2-CPU image is stable and verified (soak in progress). | `mem-entries.md:26146` |
 | 2026-11-21 |  | 2026-11-21 12:00 - FINAL: canonical 2-CPU image 974e6ca6 stable (15-min soak, 0 failures) and persistent across reboot; SMP task closed. | `mem-entries.md:26171` |
+| 2026-11-21 |  | 2026-11-21 12:25 - 6.18 RELEASE LINE consolidated and independently validated: 51 included patches (11 bench diagnostics excluded), loader hand-off DTS contract checked as release-critical; canonical 2-CPU baseline 974e6ca6. | `mem-entries.md:26194` |
 
 ## All dated entries
 
@@ -711,3 +711,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-20 |  | 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d | `mem-entries.md:26125` |
 | 2026-11-21 |  | 2026-11-21 11:45 - RETRACTION: the "2-CPU hang" was a host bench-link outage, not a kernel hang. The canonical 2-CPU image is stable and verified (soak in progress). | `mem-entries.md:26146` |
 | 2026-11-21 |  | 2026-11-21 12:00 - FINAL: canonical 2-CPU image 974e6ca6 stable (15-min soak, 0 failures) and persistent across reboot; SMP task closed. | `mem-entries.md:26171` |
+| 2026-11-21 |  | 2026-11-21 12:25 - 6.18 RELEASE LINE consolidated and independently validated: 51 included patches (11 bench diagnostics excluded), loader hand-off DTS contract checked as release-critical; canonical 2-CPU baseline 974e6ca6. | `mem-entries.md:26194` |

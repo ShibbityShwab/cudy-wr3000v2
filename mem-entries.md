@@ -26190,3 +26190,30 @@ correct; 060/061 sentinel/trampoline patches are bench diagnostics only. The can
 Evidence 2026-11-21-soak-2cpu.log, -final-reboot-2cpu.log, smp-2cpu/smp-reboot logs, UART captures.
 
 LEDGER
+
+## 2026-11-21 12:25 - 6.18 RELEASE LINE consolidated and independently validated: 51 included patches (11 bench diagnostics excluded), loader hand-off DTS contract checked as release-critical; canonical 2-CPU baseline 974e6ca6.
+
+The upstream lane delivered the release-line consolidation (submodule commit):
+- upstream/series-6.18/05-release-line.md defines L0/L1/L2 and records the loader hand-off contract
+  (/aliases/console + /reserved-memory/flashinfo@80600000 with reg 0x80600000+0x4000 and
+  atag-offset 0x1000) as THE SMP fix, the verified 2-CPU baseline image 974e6ca6, the canonical
+  config, the working-LAN CPU-copy mirror workaround, the excluded diagnostics and the false
+  2-CPU-hang retraction (host bench-link outage).
+- release-line/manifest.tsv classifies 62 patches: 51 include, 11 exclude (028, 029, 033, 034,
+  035, 037, 039, 042-arm, 059, 060, 061), sha256 verified.
+- tools/check-release-line.sh applies the release line on a pristine linux-6.18.60 and compiles the
+  board DTS to check the contract. Independent run 2026-11-21: patch(1) 51/51 RC=0, 146 file
+  events, 6 offset hunks, 1 fuzz hunk (052/053 shared anchor, documented cleanup item), 0 rejects;
+  strict git apply diverges only at 053 as documented; DTS cpp+dtc RC=0, 0 stderr, DTB 12296 B
+  sha256 50daf3d0d50929aaa3af35fa40fae69a73428fd5b1c5bcc686795e89cb92d8eb; contract present
+  (console=/serial@1010f000, flashinfo compatible/reg/atag-offset, enable-method
+  hisilicon,luofu-smp).
+- 0018 was regenerated to state the DTS contract dependency; RELEASE-NOTES.md and the design docs
+  were updated; curated repos untouched, no vendor binaries/secrets.
+Remaining cleanup before a clean publish: regenerate 052/053 as one pair (fuzz/strict divergence),
+renumber the duplicate 042 pair, and carry the two loader hand-off nodes in an upstream DTS series
+with 0018 (or after it). Install path still never run on a device; Wi-Fi [X]; native CFE forwarding
+a separate project; no upstream review yet.
+Evidence: upstream/series-6.18/validation/release-line/*, /tmp validator log, DTS sha above.
+
+LEDGER
