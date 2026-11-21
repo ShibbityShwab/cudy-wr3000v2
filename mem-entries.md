@@ -27240,3 +27240,17 @@ LEDGER
 - Next: CFE lane decode, final curated resync, close-out.
 
 LEDGER
+
+## 2026-11-22 04:00 - CFE forwarded-phase decode complete: vendor L3/neighbour/tag tables decoded (l3intf[1] LAN MAC d4:0d:ab:64:1c:73 sip 0.0.0.0 tagact_id 2 mtu 1500, l3intf[2] sip 192.168.50.115 WAN, nhp[1] 192.168.10.44 host MAC, nhp[2] second host NIC, tagact[2]=0x0000b000 selector 3; layout from l3intf_write/nhp_write disassembly). NAPT DDR v4/v6 arenas EMPTY even with true forwarded NAT traffic (0 bytes changed; match counters non-zero: dn_match 134, up_match 91) -> M2-A hardware flow cache CLOSED (do not implement; vendor doesn't use the DDR cache in this config), M2-B data-backed documentation only. Release path unchanged: W22/M1b; nothing blocks.
+
+- Forwarded phase decoded files/docs committed in the submodule as a0aa6b1: cfe/FWD-PHASE-ANALYSIS.md,
+  updates to FLOW-MODEL/M2-DESIGN/STOCK-DUMP-ANALYSIS/DUMP-REQUEST/UNKNOWNS. No device writes.
+- Conclusion: the full-reversal program reaches its accessible ceiling: boot/loader/recovery/upgrade
+  fully decoded; switch forwarding engine decoded and W22 vendor-stock-byte-identical; vendor
+  userspace fully decompiled; thermal fixed and bench-proven (W23); Wi-Fi blocked on closed firmware;
+  M2 hardware offload closed as unused-by-vendor; remaining opaque items documented (libhi_* handlers,
+  HSLINK wire, cloud server side, crypt KDF, eFuse secure-boot state).
+- Box final: W23 image on pair b (6.18.60, 2 CPUs, naptinit=1, thermal gate 0, 0 errors); stock pair a
+  intact; recovery door armed.
+
+LEDGER
