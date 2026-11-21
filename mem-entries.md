@@ -27231,3 +27231,12 @@ LEDGER
   check-repo PASS.  Remaining external items: history purge, curated resync, upstream submission.
 
 LEDGER
+
+## 2026-11-22 03:40 - TRUE forwarded-traffic stock phase captured (netns split: root LAN 192.168.10.44, netns wan 192.168.50.1; box WAN DHCP 192.168.50.115; host->box->WAN ping 5/5 + curl 200). First time the vendor pub window changed vs p0 (tagact/l3intf bank populated): fwd-win15-pub sha 32ca3d39 vs p0 f3b58f7b; sent to the CFE lane for the final slot-format/M2 decode. Box returned to W23 (6.18.60, 2 CPUs, thermal gate 0, W22 init once, 0 errors); host netns/route cleaned up.
+
+- Files in build/evidence-bench-gates/cfe-stock/ (FWD.SHA256SUMS): fwd-carveout-a f65dc2f9..., fwd-carveout-b 64496b73... (25 s later), fwd-win10-ifc 8955425e..., fwd-win12-napt-a a01f5abf..., fwd-win12-napt-b 771cd9f0..., fwd-win11-l2 7718e543..., fwd-win13-mcc b26c71a9..., fwd-win15-pub 32ca3d39... (CHANGED vs p0), fwd-win16-pie 58b39fb8....
+- Method: second adapter in netns 'wan' (DHCP+HTTP), root route 192.168.50.0/24 via box, stock box WAN lease, host ping/curl through the box (true LAN->WAN NAT); dumps via broker wget physdump + nc before/after 25 s.
+- Box restored to W23 image (6.18.60, 2 CPUs, naptinit=1, thermal gate 0, 0 errors). Host NIC2 flushed/managed, netns and route removed.
+- Next: CFE lane decode, final curated resync, close-out.
+
+LEDGER
