@@ -26337,3 +26337,26 @@ LEDGER
   without GPL source.
 
 LEDGER
+
+## 2026-11-21 14:30 - Automated install path CLOSED: new telnet installer verified end-to-end on the data (stock pair A -> our image pair B).
+
+- tools/first-install-stock.sh could not run on this unit (vendor image has no dropbear/opkg; our
+  target dropbear pushed to /tmp fails host-key generation with "Early exit: Bad buf_getptr"; the
+  tool also needs an SSH transport for its binary rootfs readback). Finding is recorded in the
+  feature-inventory update and RELEASE-NOTES.
+- New bench tools: tools/telnet-exec.py (command runner over the stock root telnet shell with the
+  __ALL_DONE__ sentinel and CR stripping) and tools/stock-telnet-install.sh (read-only --inspect by
+  default; --apply requires --attended --recovery-armed plus bench-link/recovery-card gates). It
+  splits the sysupgrade container, uploads members over the bench HTTP server, sha256-verifies them
+  on device, writes ONLY the inactive pair, verifies the active pair is unchanged, moves and
+  verifies the SYSCTRL selector cell, reboots and polls for our image (SSH + kernel version).
+- End-to-end verified on image 7421bb7a: stock cell 0x10/active a -> wrote pair b (kernel slot sha
+  5632ccdb..., ubiformat rootfsb OK), active a kernel sha 04d1228a... unchanged, selector 0x11
+  verified, reboot, ping after 12 s; SSH: Linux 6.18.60, 2 CPUs online 0-1, six oem:green LEDs,
+  /dev/input/event0, selector 0x00000011, no Oops/BUG/panic.
+- The post-boot check was hardened after that run (SSH retries, requires a 6.18 kernel before PASS);
+  the recorded run's PASS was followed by the manual SSH verification above.
+- tools/AGENTS.md gained a row for the new tool; release notes and the feature-inventory update note
+  the closure; next: multi-port/WAN cable tests (user), watchdog arm test, upstream DTS cleanup.
+
+LEDGER
