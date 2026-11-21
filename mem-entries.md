@@ -27026,3 +27026,26 @@ LEDGER
 - Box now mixed; stock pair a vendor/intact; recovery door armed.
 
 LEDGER
+
+## 2026-11-22 00:05 - W22 canonical image re-installed successfully with the corrected two-stage procedure: stock switched to pair a first, then the image written to the inactive pair b via the broker with atomic env+reboot. Boot verified, link-flap recovers, 15-min soak started.
+
+- Recovery #4 (RESET-hold) produced a consistent vendor state (wizard valid, no invalid-board
+  message, broker root channel available: uid=0, 5.10.201, bootflag=a after the pair switch).
+- Two-stage install: (1) on the recovered stock, set fw_setenv bootflag=a + boot_reg 0x10 and
+  reboot so stock boots pair a (verified UART bootflag a bootreg 10); (2) broker root command
+  wrote kernelb (sha 63ae2c55...) + ubiformat rootfsb (mtd14 genuinely inactive, full ubiformat
+  output observed), fw_setenv bootflag=b read back, boot_reg 0x11 read back, sync + reboot in the
+  same command. The installer tool now refuses the previous failure mode (active pair b / rootfsb
+  in cmdline) - commit f188360.
+- Boot verify: UART bootflag b bootreg 11 -> Linux-6.18.60; 2 CPUs, selector 0x11, cmdline has
+  luofu_switch.naptinit=1 and NO cpu_mirror/accepterr/cpucopy tokens; dmesg W22 NAPT/flow engine
+  initialized and verified once; TWD GIC-0 29 Level; 0 Oops/BUG/panic; SSH works.
+- Link-flap test: 3x ip link set eth2 down/up during a 150-packet ping (20% loss only during the
+  down windows), then 30/30 0% loss with normal RTT -> native delivery recovers after link events.
+- Evidence: build/evidence-bench-gates/w22-final/ (verify.txt, ping-after-flap.txt) plus the UART
+  recover5 log; 15-min soak started (/tmp/soak-w22-final.log, 900 pings).
+- Box now runs the W22 canonical image natively (no mirror), stock pair a vendor/intact, recovery
+  door armed. Remaining: soak result, fallback-image test (redo with two-stage procedure or
+  document), M1b per-port/LAN-to-LAN with cable moves, final curated resync + STATUS/release note.
+
+LEDGER

@@ -7,6 +7,23 @@ is history and must not be used for kernel work.
 only source of a delivery plan), `LESSONS.md`. If `STATUS.md` does not name a delivery
 plan, there is no fire; only preparation and reading.
 
+
+## Post-recovery install: two-stage pair rule (2026-11-21)
+
+A RESET-hold recovery can leave the vendor stock booting from pair b. The bench image must be
+written to the INACTIVE pair (its cmdline uses ubi.mtd=rootfsb), so always:
+
+1. On the recovered consistent stock, switch it to pair a first:
+   fw_setenv bootflag a (via the multi-call /bin/fw_printenv symlinked to fw_setenv),
+   echo 0x10 > /sys/devices/platform/sysenv/boot_reg, sync, reboot. Verify U-Boot logs
+   "bootflag a bootreg 10".
+2. Then write kernelb/rootfsb and set bootflag=b + boot_reg=0x11, sync and reboot in the SAME
+   command (no window for the vendor pair recorder).
+
+Writing while stock runs from pair b makes ubiformat target the mounted rootfsb and silently fail,
+leaving our kernel with the vendor filesystem (mixed: no management IP, wizard invalid board info,
+broker silent). tools/stock-telnet-install.sh refuses that case since commit f188360.
+
 ## 0. Preconditions and gate
 
 - Bench link PASS: `tools/bench-link.sh` (adapter unmanaged, both addresses, carrier up).
