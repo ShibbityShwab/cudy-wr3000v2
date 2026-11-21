@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 22:00 - sentinel probe 061: CPU1 never entered either stub - definitively NOT polling the pen on our loader path; loader-side is the root cause | `mem-entries.md:26036` |
 | 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |
 | 2026-11-20 |  | 2026-11-20 22:40 - 2-CPU image hung after ~23 minutes (silent, no Oops output); stability debugging needed. Canonical post-fix image built (974e6ca6). | `mem-entries.md:26099` |
 | 2026-11-20 |  | 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d | `mem-entries.md:26125` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 21:20 - M1a PROVEN: native CPU delivery with the CPU-copy mirror OFF. Proof image 5800c9ab (canonical adopted tree + cmdline cpu_mirror=0/luofu_napt_init=1/rxdiag=1 + probe boot-time NAPT-init script) boots, applies NAPT init, and SSH/ping work with no mirror; native RXDIAG status=77 frames are delivered. | `mem-entries.md:26884` |
 | 2026-11-21 |  | 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented. | `mem-entries.md:26906` |
 | 2026-11-21 |  | 2026-11-21 22:00 - W22 kernel implementation landed in the release line and verified on hardware: canonical image 50023446 boots with the driver NAPT init (no mirror tokens), ping/SSH work, reboot determinism passes. | `mem-entries.md:26931` |
+| 2026-11-21 |  | 2026-11-21 22:15 - Curated openwrt repo synced to the W22 release state (214c893, fresh-clone verified, all checks green); fallback-image build/test and soak are the remaining bench steps. | `mem-entries.md:26965` |
 
 ## All dated entries
 
@@ -745,3 +745,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 21:20 - M1a PROVEN: native CPU delivery with the CPU-copy mirror OFF. Proof image 5800c9ab (canonical adopted tree + cmdline cpu_mirror=0/luofu_napt_init=1/rxdiag=1 + probe boot-time NAPT-init script) boots, applies NAPT init, and SSH/ping work with no mirror; native RXDIAG status=77 frames are delivered. | `mem-entries.md:26884` |
 | 2026-11-21 |  | 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented. | `mem-entries.md:26906` |
 | 2026-11-21 |  | 2026-11-21 22:00 - W22 kernel implementation landed in the release line and verified on hardware: canonical image 50023446 boots with the driver NAPT init (no mirror tokens), ping/SSH work, reboot determinism passes. | `mem-entries.md:26931` |
+| 2026-11-21 |  | 2026-11-21 22:15 - Curated openwrt repo synced to the W22 release state (214c893, fresh-clone verified, all checks green); fallback-image build/test and soak are the remaining bench steps. | `mem-entries.md:26965` |

@@ -26961,3 +26961,21 @@ LEDGER
   W22 canonical image (mirror off/native), stock pair A untouched, recovery door armed.
 
 LEDGER
+
+## 2026-11-21 22:15 - Curated openwrt repo synced to the W22 release state (214c893, fresh-clone verified, all checks green); fallback-image build/test and soak are the remaining bench steps.
+
+- Curated repo cudy-wr3000v2-openwrt: 6056398 -> 214c893 (4 commits; 297 files; 0 binary blobs):
+  60ce5e4 target W22 patches 059/060 + L0 64 + canonical naptinit cmdline + truth updates,
+  bc07bfe upstream bookkeeping (L1 53, manifest 619eb15a, 00-cover/04 §29/05/06, validation logs
+  with host paths sanitized), 8ef30f8 retained M1a/W22/M1b records and mirror-supersession note,
+  214c893 README/NOTICE/PUBLISHING fourteenth-sync incl. release-line-only scope.
+- Checks: check-release-line PASS 53/53 (0 fuzz, DTS contract unchanged, DTS-0001 identical),
+  gen-series 26/26 PASS, sha256sums 89/89, submission MANIFEST 102/102 (curated sha 08662421),
+  mocked tests 94/94 + 103/103 + 77/77, link check 256 links (8 documented notebook-only), hygiene
+  clean; fresh clone at 214c893 verified. Scope stated: W22 is release-line only, NOT in the L2
+  upstream review form; M1b/fallback-image/soak pending; multi-port not claimed.
+- Notebook pins unchanged (parent 8558465 / submodule 5a6d29d); next resync after M1b/fallback
+  results land. Now building the fallback image (naptinit=0 + mirror tokens) for the rollback test,
+  then a reboot + 15-min ping soak on the W22 canonical image.
+
+LEDGER
