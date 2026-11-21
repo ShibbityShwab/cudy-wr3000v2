@@ -26469,3 +26469,28 @@ LEDGER
   host; hardware work resumes when it is moved back to the eth2 jack.
 
 LEDGER
+
+## 2026-11-21 16:20 - Multi-port source-port experiment RESULT: no source identifier in CPU-copy completions -> native L2/VLAN bridge is required for multi-port LAN/WAN.
+
+- Setup: probe image a91ebcf0 (mirror_src_mask=0x1e00 covering ports 9-12, rxdiag=1) installed on
+  the unit via the verified telnet installer (selector 0x11, active stock pair unchanged). Cable
+  was moved to the far-right LAN jack, host ping loop ran, router was power-cycled so the probe
+  image booted with only that jack connected. The UART capture missed the boot window, but the
+  fresh-boot dmesg retained the 24 capped RXDIAG lines (boot_id
+  45df3d10-72ad-43a4-bc2a-88df40710639), which is what the analysis uses.
+- Evidence: build/evidence-bench-gates/multi-port-probe/{eth2-baseline-rxdiag.txt,
+  far-right-jack-rxdiag.txt}. The unique field tuples (ch,len,status,err,port,vport,vlan) are
+  IDENTICAL for both jacks: (1,74,0,0,0,0,0), (1,66,0,0,0,0,0), (1,88,0,0,0,0,0),
+  (0,60,0,0,0,0,0), (0,60,37,1,11,0,0). Descriptor words: only word0=0x04000000 and word1=DMA|0xc2
+  are nonzero; words 2..7 are zero for every mirrored completion. No source-port/vport field.
+- Conclusions: (1) the extended mirror mask does mirror the other jacks to CPU dst 4; (2) the
+  CPU-copy completion cannot identify the source jack, so per-port delivery is impossible with
+  this workaround; (3) multi-port LAN/WAN requires the native L2/VLAN hardware bridge
+  (LSW-SPEC, separate project). Do not ship a mirror-mask multi-port hack.
+- Recorded in opensource/docs/MULTI-PORT-PLAN.md (measured result + decision) and RELEASE-NOTES.
+  The board was switched back to stock and the known-good image 7421bb7a reinstalled afterwards;
+  probe artifacts (patch 066, image a91ebcf0) remain bench-only.
+- Also during this round: submission package verified (MANIFEST 102/102) and parent bumped to
+  fa76c97 (submodule c931c74); curated-sync lane re-dispatched with /home-based workdirs.
+
+LEDGER
