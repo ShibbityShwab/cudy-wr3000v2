@@ -26297,3 +26297,23 @@ and multi-port tests, regenerate DTS-0001 with the new board nodes, Wi-Fi decisi
 unsupported on 6.18 without vendor source).
 
 LEDGER
+
+## 2026-11-21 13:50 - Quiet canonical image 7421bb7a: periodic W17/W19/HB dmesg spam removed; thermal ENODATA root-caused; LEDs/keys/watchdog verified.
+
+- dmesg spam: patches 054 (W17 success) and 056 (W19 periodic reapply) changed dev_info/dev_warn -> dev_dbg;
+  the base-files heartbeat interval 5 s -> 60 s.  Measured before/after on hardware: at ~52 s uptime the
+  quiet image has 471 dmesg lines with W17=0, W19=3 (boot only), HB=1 vs the old image 876 lines with
+  W17=162, W19=165, HB=61.  The remaining pie-trace lines are boot-capped diagnostics (RXIRQ cap 64 per
+  IRQ line, RX/TX trace caps 12/24) and stop growing once the caps are hit.
+- thermal ENODATA root-caused: the tvsensor temp register at 0x14900500+0x24 reads 0x00000000 on this
+  board (block otherwise zero except +0x10=3), the vendor formula turns raw 0 into -368000 mC, which is
+  <= THERMAL_TEMP_INVALID and the thermal core returns -ENODATA.  The vendor devicetree marks the
+  tvsensor disabled and no enable/trim sequence is decoded, so thermal telemetry is NOT usable on 6.18
+  with the current evidence; the driver stays bound but the zone reports no data.  Decision: keep as
+  [X] unsupported (not a bring-up target) unless an enable/trim model is found.
+- quiet image 7421bb7a verified: 2 CPUs online 0-1, 6 LEDs, /dev/input/event0, watchdog0 sysfs,
+  ping 0% loss, DTB totalsize 13048 (pad-dtb guard active).
+Next: user physical confirmation of LED light + reset/WPS button events; multi-port cable tests;
+regenerate DTS-0001 with the board nodes (lane); Wi-Fi stays unsupported on 6.18 (lane report).
+
+LEDGER
