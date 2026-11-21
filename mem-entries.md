@@ -26576,3 +26576,29 @@ LEDGER
   staging-fi/img-twd-level.bin.
 
 LEDGER
+
+## 2026-11-21 17:40 - TWD adoption artifacts verified independently; publish runbook committed; notebook publication hygiene fixed with a checker gate.
+
+- Upstream lane commit b59b7c8 adopted the boot-tested TWD level-high delta and refreshed artifacts;
+  I verified the hashes independently: target DTS sha256 13427d8e2bf7624b77fc6735932f79b9b25bf40dff1a0c859fc5cc3515b54de4,
+  DTS-0001 e9c9ed58b1a198bad16283d048a0498ee02297a8e1645f194df3f713c5d236b1, built DTB pad sha256
+  4b50de73bebf6241ccb1ac62907c1de9b49a7ec7bcc6f18286f638541456e890, submission MANIFEST sha256
+  3bf82943cfadf4125f8fe57e7640c3d1643a19ff6dc383e50bac91fb60f7ecbf (102 entries verify),
+  release-line validator PASS. Blocker list is now five (TWD closed).
+- Publish lane delivered the owner-only history-purge runbook (committed 95c4502): throwaway-clone
+  dry-run kept 795 commits, removed the eleven binary blobs (ten vendor objects + the accidental
+  target-skeleton/tools/__pycache__/fip-slice zip pyc), verified old blob ids unreachable after
+  reflog/gc, tree ids unchanged, and validated the simulated force-with-lease push and branch
+  operations against local bare remotes (GitHub untouched). PUBLISH-READINESS item 1 remains
+  unchecked - the remaining steps are owner-only (approval, offline backup, live force-push,
+  GitHub Support cache purge).
+- Notebook publication hygiene regression fixed: 8 tracked files had /home/<user> paths or the
+  per-unit d4:0d:ab:64:1c:7x MAC (EVIDENCE-INDEX, STATUS, REVERSAL-REPORT, archive start page,
+  ledger, tools/bench-install.sh, tools/build-bench-devm.sh, tools/stock-telnet-install.sh); paths
+  are now ~-relative (tools default to $HOME) and MACs are xx-redacted. check-repo.sh now FAILS on
+  either pattern in tracked text (HOSTPAT/MACPAT gate); check-repo PASS after the fix.
+- The board runs the new DTS baseline image f6685b80 (Level twd, 2 CPUs, 0 errors, selector 0x11);
+  curated openwrt repo resync to this state has been requested (it still has the pre-TWD DTS).
+- Native-forwarding plan lane (lsw-re-spec) is still running; its report will be integrated next.
+
+LEDGER
