@@ -26408,3 +26408,23 @@ LEDGER
   kernel link message and settle it.
 
 LEDGER
+
+## 2026-11-21 15:05 - Far-right port identified as a non-eth2 LAN port: box alive (UART heartbeat, IPv6 RAs reach the host) but host-to-box frames are not delivered because the CPU-copy mirror workaround covers eth2/switch-port 11 only.
+
+- After the user moved the bench cable to the far-right port, the box stays up: UART heartbeat
+  continues (HB 328/388/448/508), so no link-up crash. The host link is up at 1 Gbps.
+- Host-to-box IPv4 fails at 192.168.1.1 and 192.168.10.1 (expected for this topology), and a host
+  DHCP server on the link saw no DHCP request (so it is not WAN eth3 either).
+- Decisive evidence: the host interface received IPv6 router advertisements and dynamic global
+  addresses (proto kernel_ra) on the moved link - that is our image's LAN bridge/odhcpd sending
+  RAs, i.e. the port is a LAN port in br-lan (eth0/eth1/eth2), not WAN. Box->host egress works on
+  any port, but host->box ingress needs CPU delivery, and the W17/W19 CPU-copy mirror workaround
+  is programmed only for eth2 (switch port 11, dst 4).
+- Therefore multi-port LAN support needs the mirror/cpucopy workaround extended to the other
+  GEMAC switch ports (9/10/11/12 per the vendor port map): mirror each source port to the CPU
+  destination AND deliver the RX completion to the matching netdev (current cpucopy_port=11
+  hardcodes eth2). That is the next net-driver task; native CFE-equivalent forwarding remains the
+  separate long-term track. Until then the bench LAN port is the previously working eth2 port.
+- UART capture (label wan-port) remains running for a replug identification if wanted.
+
+LEDGER
