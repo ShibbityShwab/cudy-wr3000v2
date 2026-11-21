@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-20 22:40 +07
+**Updated:** 2026-11-21 11:45 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -876,6 +876,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   clean canonical post-fix image was built: 974e6ca6 (DT handoff fix + canonical cmdline + DEVMEM/
   devmem/recorder; no probe tokens). Stability plan: reinstall, soak maxcpus=1 vs 2, then bisect the
   2-CPU hang via existing driver gates; fix locking and re-verify. Evidence smp-hang.log.
+
+- **RETRACTION + 2-CPU stability: the "hang" was a host bench-link outage, not a kernel hang
+  (2026-11-21).** Overnight the USB-Ethernet adapter lost carrier/IPs (both pings failed, UART
+  capture had ended), which looked like a dead box; after power-cycle it booted normally with
+  heartbeat running, and tools/bench-link.sh --apply restored the host link. No Oops/panic/BUG/
+  WARNING in the log (only the literal panic=0 cmdline). Canonical image 974e6ca6 installed from
+  stock and verified: 2 CPUs (online 0-1, Brought up 2 CPUs, 4000.97 BogoMIPS, CPU1 mpidr
+  80000001), br-lan 192.168.1.1/24, ping 20/20 0% loss, SSH, /overlay ubifs rw, clean boot log.
+  15-minute soak running. Lesson: check bench-link.sh/box-side vs host-side before declaring a hang.
+  maxcpus=1/lockdep images retained as diagnostics only.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

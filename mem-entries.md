@@ -26142,3 +26142,28 @@ Plan once the box is recovered (stock path):
 The recovery door is still the physical RESET-hold TFTP; box is currently down from the hang.
 
 LEDGER
+
+## 2026-11-21 11:45 - RETRACTION: the "2-CPU hang" was a host bench-link outage, not a kernel hang. The canonical 2-CPU image is stable and verified (soak in progress).
+
+Overnight the bench host lost the USB-Ethernet link state: enp195s0f3u1 came up without carrier/IPs
+(NetworkManager state changed), so both 192.168.1.1 and 192.168.10.1 pings failed and the UART
+capture (timeout 1200 s) had already ended - the box looked dead. After the user power-cycled it, the
+box booted its existing image and UART showed the 6.18 kernel + heartbeat still running (HB 297+),
+and the host carrier returned once tools/bench-link.sh --apply restored the addresses. There is NO
+evidence of a kernel hang: no Oops/panic/BUG/WARNING in the boot log (the only grep hit is the
+literal "panic=0" in the cmdline), heartbeats continuous, and the box had been running normally.
+Corrected status: the 2-CPU bring-up is stable; the maxcpus=1/lockdep images built for the false
+hang remain available as diagnostics but are not needed for a stability bug.
+Canonical image 974e6ca6 (patches 001-061 + DTS handoff fix + canonical cmdline + DEVMEM/devmem/pair
+recorder) was installed from stock and verified:
+- /proc/cpuinfo = 2, online 0-1, smp: Brought up 2 CPUs, Total of 2 processors (4000.97 BogoMIPS),
+  CPU1 mpidr 80000001;
+- br-lan 192.168.1.1/24 up, ping 20/20 0% loss, SSH fine, /overlay ubifs rw;
+- boot log clean (no Oops/panic/BUG/WARNING).
+A 15-minute continuous-ping soak is running to confirm; bench-link stability must be watched
+overnight (add a carrier/IP check to the session start practice).
+Lesson: "box unreachable" must be split into box-side and host-side checks before declaring a hang;
+use bench-link.sh first, and only then UART/heartbeat evidence. The userspace heartbeat remains the
+reliable liveness probe when the console log is available.
+
+LEDGER
