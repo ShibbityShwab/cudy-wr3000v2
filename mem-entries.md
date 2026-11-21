@@ -26268,3 +26268,32 @@ Next: verify LEDs/keys on hardware, quiet the periodic mirror/heartbeat dmesg sp
 MACs, thermal ENODATA and multi-port tests, then Wi-Fi decision from the recon lane.
 
 LEDGER
+
+## 2026-11-21 13:35 - LEDs + buttons + watchdog sysfs brought up on hardware (image 7f270b8c); unaligned-DTB gate-word bug found and fixed.
+
+- Board DTS now carries the stock board_id=3 overlay map: gpio-keys-polled (reset GPIO22, WPS
+  GPIO23, active-low, 20 ms poll, KEY_RESTART/KEY_WPS_BUTTON) and gpio-leds (oem:green:status=GPIO24,
+  wan=25, lan=3, internet=2, wifi=0, wifi5g=1).  Source: the stock kernel slot's
+  kernela_overlay_board3.dtbo (4920 B, sha256 17fd44ed...; its 4592 B sibling is board_id 0).
+- Kernel config additions (target config-6.18, NEW symbols resolved via olddefconfig):
+  CONFIG_LEDS_GPIO, CONFIG_INPUT, CONFIG_INPUT_EVDEV, CONFIG_INPUT_KEYBOARD,
+  CONFIG_KEYBOARD_GPIO_POLLED, CONFIG_WATCHDOG_SYSFS; CONFIG_INPUT_HISI_POWERKEY off.
+- First boot with the new nodes FAILED inside U-Boot: dtc produced a base DTB with totalsize 13041
+  (odd), bootfip reads the gate word as a 32-bit BE load at base_dtb+totalsize, the unaligned load
+  data-aborted (r1=0x83200040), the CPU reset and the loader fell back to stock (UART: Linux-5.10.201).
+  Fix recorded in TRAILER-FORMAT.md section 11: new scripts/pad-dtb.py pads the base DTB to an 8-byte
+  boundary and folds padding into the FDT totalsize; Build/luofu-pad-dtb runs it before append-dtb
+  and asserts len==totalsize and %8==0.  With totalsize 13048 the image boots.
+- Hardware now exposes six /sys/class/leds/oem:green:* devices (brightness writes/reads work,
+  active-low), /dev/input/event0 gpio-keys-polled, and /sys/class/watchdog/watchdog0 (identity
+  HiSilicon luofu watchdog, timeout 30 s, state active).  2 CPUs online 0-1, ping 10/10 0% loss.
+  Physical LED light and a button press still need one human confirmation.
+- MAC plan correction: eth0/eth1/eth2 sharing the LAN base MAC and eth3=base+1 is the vendor rule
+  (rootfs board.d 02_network + 99_fixwan; DTS address-plan comment), not a bug; the inventory's
+  MAC-duplication blocker is withdrawn.  Multi-port link tests and native switch forwarding remain.
+- New verified image baseline: 7f270b8c (LEDs/keys/watchdog + DTB alignment fix).
+Next: quiet the periodic W17/W19 + HB dmesg spam, thermal ENODATA debug, attended button/watchdog
+and multi-port tests, regenerate DTS-0001 with the new board nodes, Wi-Fi decision (recon says
+unsupported on 6.18 without vendor source).
+
+LEDGER
