@@ -86,11 +86,33 @@ case "$cellraw" in
 11|0x11|0x00000011) cell=0x11 ;;
 *) die "cannot read the selector cell from stock (got: $cellraw)" ;;
 esac
+eflag=$(printf '%s\n' "$out" | sed -n 's/^bootflag=//p' | head -1)
+case "$eflag" in
+a|b) ;;
+*) eflag="" ;;
+esac
+if [ -n "$eflag" ]; then
+	case "$cell" in
+	0x10) cellpair=a ;;
+	0x11) cellpair=b ;;
+	esac
+	if [ "$eflag" != "$cellpair" ]; then
+		die "U-Boot env bootflag=$eflag disagrees with selector cell $cell (cell says pair $cellpair) - the loader would mix kernel and rootfs pairs; recover the stock pair first"
+	fi
+fi
 case "$cell" in
 0x10) ap=a; tp=b ;;
 0x11) ap=b; tp=a ;;
 *) die "unexpected selector cell $cell" ;;
 esac
+# Our image's baked cmdline uses ubi.mtd=rootfsb, so it can only be written
+# consistently to pair b (kernelb + rootfsb). Writing pair a (which the old
+# installer did after a recovery) produces a mixed our-kernel/stock-rootfs
+# system in which the stock userland's bdinfo checkuuid fails (no vendor
+# /proc/sys/dev/flash_uuid) and neither the web wizard nor cmagent works.
+if [ "$tp" != b ]; then
+	die "active pair is b (stock is booting from kernelb/rootfsb); this image can only be written to pair b because its cmdline expects rootfsb - recover the stock pair first"
+fi
 say "stock selector cell $cell -> active pair $ap, write pair $tp (active untouched)"
 case "$tp" in
 a) kdev=/dev/mtd11; rdev=/dev/mtd13 ;;
@@ -138,6 +160,12 @@ act_after=$(printf '%s\n' "$out" | grep -E '^[0-9a-f]{64}$' | head -1)
 [ "$act_before" = "$act_after" ] || die "ACTIVE kernel slot changed"
 say "  active kernel slot unchanged"
 say ""
+say "== handover: U-Boot env bootflag -> $tp =="
+out=$(t 'ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag '"$tp"'; echo SET=\$?' 'fw_printenv bootflag 2>/dev/null')
+printf '%s\n' "$out" | grep -q 'SET=0' || die "could not set the U-Boot env bootflag"
+printf '%s\n' "$out" | grep -q "bootflag=$tp" || die "U-Boot env bootflag read-back is not $tp"
+say "  env bootflag=$tp verified"
+say ""
 say "== handover: selector -> $(pair_value $tp) =="
 target_val=$(pair_value "$tp")
 out=$(t "echo -n $target_val > /sys/devices/platform/sysenv/boot_reg" 'cat /sys/devices/platform/sysenv/boot_reg; echo')
@@ -176,7 +204,16 @@ if [ "$up" = 1 ]; then
 	cpus=$(timeout 12 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=8 root@192.168.1.1 'grep -c ^processor /proc/cpuinfo' 2>/dev/null | tail -1)
 	case "$un" in
 	6.18*)
-		say "  image: $un CPUs: $cpus"
+		cmd=$(timeout 12 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=8 root@192.168.1.1 'cat /proc/cmdline' 2>/dev/null | tail -1)
+		case "$cmd" in
+		*ubi.mtd=rootfsb*) ;;
+		*) die "booted kernel cmdline does not use rootfsb - the handover mixed the pair; verify the env bootflag and selector" ;;
+		esac
+		case "$cmd" in
+		*luofu_switch*) ;;
+		*) die "booted kernel cmdline lacks the project marker - not our image?" ;;
+		esac
+		say "  image: $un CPUs: $cpus (cmdline: ubi.mtd=rootfsb + project marker verified)"
 		say ""
 		say "PASS: wrote pair $tp, handover verified, our image booted."
 		exit 0
