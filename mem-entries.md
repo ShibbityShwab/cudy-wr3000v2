@@ -26855,3 +26855,28 @@ LEDGER
   recoverable; the script auto-reverts after 90 s.
 
 LEDGER
+
+## 2026-11-21 21:00 - BREAKTHROUGH: replaying the decoded hi_pfe_napt_init sequence makes the flow engine punt unicast to the CPU. With the mirror still on, eth2 RX delta was 1122 for 500 pings (~2x) and napt up_tocpu rose from 0x2e to 0x261 (+563) while ping stayed 0% loss - the native CPU-delivery signal M1a was looking for.
+
+- Applied the prepared m1a/napt-init replay on the baseline image (6.18.60, 2 CPUs, selector 0x11,
+  mirror on, recovery door armed): all 12 register/command steps read back (pfe_glb+0x2c
+  0x10000034, napt+0x70 0x00110138, +0x64 1, +0x54 0x100, flow bases 0x80400000/0x80408000/
+  0x80448000/0x80450000, +0x68 0x00020303, both clear commands polled complete, +0x50 0x00f00b69).
+  RAM safety re-verified live: /proc/iomem System RAM = 0x80600000-0x87ffffff, so the NAPT table
+  bases in the 0x80400000 switch carveout are outside Linux memory.
+- Observed deltas over a 500-ping window: eth2_rx_packets 625->1747 (+1122, ~2x = mirror + native
+  copy), eth2_tx +1077, napt up_tocpu 0x2e->0x261 (+563), napt tx_total/rx_total/rx_napt +~563,
+  ifccnt_1000/1008/1024 advancing; ping 0% loss; dmesg 0 Oops/BUG/panic. This resolves the
+  IFC->NAPT CPU-punt decode empirically: the W10 IFC defaults already route unicast into NAPT and
+  the missing hi_pfe_napt_init made the up-direction CPU punt possible.
+- The 90 s auto-revert did not fire because busybox nohup is absent in the image (log says
+  "nohup: not found"); the state was left applied deliberately for the next step. The script's
+  explicit --revert remains available; rollback file
+  apply-napt-init.sh.rollback.20261117T205205 is on the box (/tmp, lost on reboot).
+- Evidence: build/evidence-bench-gates/napt-init/ (plan, apply log with readbacks, before/after
+  counter snapshots, ping, diag-before/after, safety-map). NEXT: build a test image with
+  luofu_switch.cpu_mirror=0 plus a boot-time NAPT-init script (cmdline-gated), install over the
+  broker, and verify ping/SSH on eth2 with NO mirror - that is the M1a proof; then turn the
+  sequence into a proper driver patch (W22) instead of an init script.
+
+LEDGER
