@@ -134,6 +134,24 @@ and the active pair are never written. It has never run on hardware. Read the do
 `--reboot` is fire-class and still needs the recovery door armed, a read-only UART
 capture and a human at the bench.
 
+### First install over the stock telnet shell (verified 2026-11-21)
+
+The bench transport that actually ran is `tools/stock-telnet-install.sh` (fixed in `6e69aa3`):
+read-only inspect by default; `--apply --attended --recovery-armed` writes pair **b** only
+(kernelb + rootfsb), verifies uploads/read-backs/active-pair-unchanged, sets and reads back the
+U-Boot env `bootflag`, moves the selector cell, reboots, and requires the booted cmdline to
+contain `ubi.mtd=rootfsb` and the project marker.  Rules learned on the unit:
+
+- after a RESET-hold recovery, set the U-Boot env `bootflag` **together with** the selector
+  cell - the loader reads the kernel slot named by the env bootflag, and a cell-only handover can
+  mix kernel and rootfs pairs;
+- our image's cmdline hardcodes `ubi.mtd=rootfsb`, so it may only be written to pair b;
+  pair-a writes after recovery create a mixed our-kernel/stock-rootfs state;
+- the broker channel (CVE-2026-71961) only works on a consistent vendor kernel+rootfs pair
+  (vendor `/proc/sys/dev/flash_uuid` for bdinfo checkuuid); the mixed state disables both
+  the vendor web wizard and cmagent.  Recovery from it is physical RESET-hold + TFTP stock
+  image, then a consistent env-bootflag + selector handover.
+
 ### Validity (read this before interpreting a capture)
 
 - Ours is an **uncompressed uImage**: U-Boot prints `Image Name: Linux-5.10.201` and our

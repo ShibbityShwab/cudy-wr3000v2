@@ -76,12 +76,15 @@ physically. Do not guess and do not act on memory.
   rootfsa/rootfsb`, `mtd15 rootfs_data`, `mtd16 upgrade`.
 - U-Boot: `bootcmd=mtd read kernel${bootflag} ${loadaddr}; bootfip ${loadaddr}`.
   `bootfip` accepts a full slice (`uImage + the fixed 40,732-byte trailer`).
-- Selector facts measured (2026-11-17 capture audit): the sysctrl cell `0x10100C08` reads 0 on a
-  true POR and U-Boot then prints `bootreg init, set 10` (A pair) or `set 11` (B pair); a manual
-  slot-B fire writes `0x21`; `0x10` is the A pair and `0x11` the B pair. A manual slot-A
-  handover value (`0x20`?) is **not established**. The env `bootflag` appears in the loader
-  console, but the fires' `fw_setenv` is a symlink to `/bin/fw_printenv` and an earlier plain
-  `fw_setenv` was a no-op, so treat the cell/console pair as the measured state, not the env edit.
+- Slot/pair selection facts (updated 2026-11-21): U-Boot reads the **env bootflag** to name the
+  kernel slot (`mtd read kernel` + bootflag + `bootfip`); the sysctrl cell
+  `0x10100C08`/boot_reg is the handover/fallback record (`0x10` = A pair, `0x11` = B
+  pair; a manual slot-B fire writes `0x21`; a manual slot-A handover value is not
+  established).  A RESET-hold recovery restores the stock A pair, so a consistent handover must
+  set the env bootflag together with the cell; a cell-only edit can mix kernel and rootfs pairs.
+  Our image's cmdline hardcodes `ubi.mtd=rootfsb`, so it may only be written to pair b.  The
+  failed plain `fw_setenv` was a multi-call symlink issue: it works via a tmp symlink to
+  `/bin/fw_printenv` and the verified installer reads it back after setting it.
 - A failed handover is followed by a failover read of the other slot; the captures show the same
   slot content re-read on later boots. The older "bootfip rejects the slot until reflashed" claim
   is not supported by the 2026-11-16 captures.

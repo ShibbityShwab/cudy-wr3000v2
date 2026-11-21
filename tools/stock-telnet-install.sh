@@ -5,7 +5,16 @@
 # firmware over its root telnet shell (the transport this bench actually has).
 #
 # STATUS: bench tool, fail-closed.  Nothing is written without
-# --apply --attended --recovery-armed, and --apply writes ONLY the inactive pair.
+# --apply --attended --recovery-armed.  --apply writes ONLY pair b
+# (kernelb + rootfsb): our image's baked cmdline hardcodes ubi.mtd=rootfsb, so
+# pair a after a RESET-hold recovery would mix our kernel with the stock rootfs.
+# It also refuses when the U-Boot env bootflag disagrees with the selector cell
+# (the loader reads the kernel slot named by the env bootflag), sets and reads
+# back the env bootflag together with the selector, and after boot requires
+# /proc/cmdline to contain ubi.mtd=rootfsb and the project marker.  The broker
+# channel (CVE-2026-71961) only works on a consistent vendor kernel+rootfs pair
+# (vendor /proc/sys/dev/flash_uuid for the bdinfo checkuuid); the mixed state
+# disables the vendor web wizard and cmagent, so recover the stock pair first.
 # Why: tools/first-install-stock.sh needs SSH, but the vendor image has no
 # dropbear/opkg, so that transport cannot be provisioned on this unit (probed
 # 2026-11-21).  This tool performs the same measured install path over telnet.
