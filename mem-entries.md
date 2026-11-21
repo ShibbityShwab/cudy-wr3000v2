@@ -26509,3 +26509,16 @@ LEDGER
   stock pair A intact, recovery armed).
 
 LEDGER
+
+## 2026-11-21 16:45 - WPS button verified: EV_KEY KEY_WPS_BUTTON press/release captured. Both board buttons and all six LEDs are now physically verified.
+
+- WPS: /dev/input/event0 capture decoded as EV_KEY KEY_WPS_BUTTON (code 0x211) press (value=1) +
+  SYNC + release (value=0) + SYNC (64 bytes). Evidence:
+  build/evidence-bench-gates/buttons/wps-button-events.bin (sha256
+  78e48f74961a64d80b3aad556a387588d0644aebae0304e1251206e3bbbed265) and -decode.txt.
+- RESET was captured earlier in the same way (KEY_RESTART 0x198, sha256 ca63db90...). Board inputs
+  (gpio-keys-polled, active-low GPIO22/23) are [V] end to end; LEDs all six [V] visually.
+- Next: attended watchdog arming/reset test (watchdog0, timeout 30 s, state active; test will reset
+  the box if the hardware fire works, and it reboots the known-good image from pair b).
+
+LEDGER
