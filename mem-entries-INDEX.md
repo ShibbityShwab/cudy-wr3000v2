@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 22:20 - SMP SOLVED: 2 CPUs online and persistent. Root cause was the U-Boot handoff staging being aborted by missing DT nodes (console alias + flashinfo reserved-memory), not the kernel release path. | `mem-entries.md:26067` |
 | 2026-11-20 |  | 2026-11-20 22:40 - 2-CPU image hung after ~23 minutes (silent, no Oops output); stability debugging needed. Canonical post-fix image built (974e6ca6). | `mem-entries.md:26099` |
 | 2026-11-20 |  | 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d | `mem-entries.md:26125` |
 | 2026-11-21 |  | 2026-11-21 11:45 - RETRACTION: the "2-CPU hang" was a host bench-link outage, not a kernel hang. The canonical 2-CPU image is stable and verified (soak in progress). | `mem-entries.md:26146` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented. | `mem-entries.md:26906` |
 | 2026-11-21 |  | 2026-11-21 22:00 - W22 kernel implementation landed in the release line and verified on hardware: canonical image 50023446 boots with the driver NAPT init (no mirror tokens), ping/SSH work, reboot determinism passes. | `mem-entries.md:26931` |
 | 2026-11-21 |  | 2026-11-21 22:15 - Curated openwrt repo synced to the W22 release state (214c893, fresh-clone verified, all checks green); fallback-image build/test and soak are the remaining bench steps. | `mem-entries.md:26965` |
+| 2026-11-21 |  | 2026-11-21 22:45 - Fallback-image test hit an env handover race: the broker write of bootflag=b/selector 0x11 did not survive to the next boot (U-Boot booted stock pair a, bootflag a/bootreg 10), and the vendor userspace then re-normalised the selector; the box is now running vendor userspace with no management IP (stock LAN unreachable). Needs one physical RESET-hold recovery. | `mem-entries.md:26983` |
 
 ## All dated entries
 
@@ -746,3 +746,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 21:40 - W22 kernel drafts + M1b plan delivered: NAPT-init as a driver stage (patch 0001) + native exception/status-class delivery in PIE (patch 0002), compiled/checkpatch-clean; exact release-integration and M1b per-port plan documented. | `mem-entries.md:26906` |
 | 2026-11-21 |  | 2026-11-21 22:00 - W22 kernel implementation landed in the release line and verified on hardware: canonical image 50023446 boots with the driver NAPT init (no mirror tokens), ping/SSH work, reboot determinism passes. | `mem-entries.md:26931` |
 | 2026-11-21 |  | 2026-11-21 22:15 - Curated openwrt repo synced to the W22 release state (214c893, fresh-clone verified, all checks green); fallback-image build/test and soak are the remaining bench steps. | `mem-entries.md:26965` |
+| 2026-11-21 |  | 2026-11-21 22:45 - Fallback-image test hit an env handover race: the broker write of bootflag=b/selector 0x11 did not survive to the next boot (U-Boot booted stock pair a, bootflag a/bootreg 10), and the vendor userspace then re-normalised the selector; the box is now running vendor userspace with no management IP (stock LAN unreachable). Needs one physical RESET-hold recovery. | `mem-entries.md:26983` |

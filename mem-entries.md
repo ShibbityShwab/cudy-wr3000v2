@@ -26979,3 +26979,27 @@ LEDGER
   then a reboot + 15-min ping soak on the W22 canonical image.
 
 LEDGER
+
+## 2026-11-21 22:45 - Fallback-image test hit an env handover race: the broker write of bootflag=b/selector 0x11 did not survive to the next boot (U-Boot booted stock pair a, bootflag a/bootreg 10), and the vendor userspace then re-normalised the selector; the box is now running vendor userspace with no management IP (stock LAN unreachable). Needs one physical RESET-hold recovery.
+
+- Fallback image built (159058779b947135df6d1cfda291610b19e2d8dd16cb1013e6d6ad7622aea8c7;
+  cmdline naptinit=0 + cpu_mirror=1/mirror_dst=4/cpucopy_deliver=1/cpucopy_port=11) and broker
+  flashed to pair b with bootflag=b/selector 0x11 read back, FIRE_OK. On reboot U-Boot logged
+  "bootflag a bootreg 10" and loaded the vendor 5.10.201 kernel from pair a (stock); vendor
+  userspace then logged "show boot_reg: 11" early and "store boot_reg: 10/11" later, i.e. the
+  vendor pair recorder actively manages the selector. After that neither 192.168.10.1 nor
+  192.168.1.1 answers (vendor userspace up per UART: br-lan/vap11/hyfi logs, but no management IP).
+- This is a handover-timing/ordering issue (env write + reboot not atomic wrt the vendor pair
+  recorder), not a W22 regression: the W22 canonical image had already booted and passed ping/SSH +
+  reboot determinism earlier. The fallback boot itself was never reached.
+- Recovery plan: physical RESET-hold recovery restores a consistent vendor pair; then reinstall the
+  W22 canonical image (img-w22.bin, sha 50023446...) over the broker with the env write and reboot
+  issued in the SAME broker command (no window for the vendor recorder), verify the U-Boot
+  "bootflag b bootreg 11" line, and re-run the 15-min soak/link-flap. The fallback-image test can
+  be redone later with the same atomic handover, or documented as a known limitation of the
+  broker-time env switch.
+- Current box state: stock vendor kernel/userspace, no management IP (recovery needed). Stock pair
+  a is intact; our image lives in pair b. Evidence of the fallback build/test attempt:
+  build/evidence-bench-gates/w22-fallback/ (partial), /tmp/build-fallback.log, img-fallback.bin.
+
+LEDGER
