@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 14:50 - GEMAC stock-vs-ours diff: four un-decoded MAC config words differ plus max-frame 1536 vs our 1518 | `mem-entries.md:25656` |
 | 2026-11-20 |  | 2026-11-20 15:05 - RX path is functionally alive after W16: PIE RX completions arrive, but our decoder drops them (status 0x25, port 0) and host traffic still is not forwarded to the CPU | `mem-entries.md:25679` |
 | 2026-11-20 |  | 2026-11-20 15:30 - FIRST REAL TRAFFIC: box accepts a punted ARP exception on eth2 and sends an ARP reply on the wire | `mem-entries.md:25705` |
 | 2026-11-20 |  | 2026-11-20 15:25 - PARTIAL SUCCESS: first ICMP echo replies received (4/18 ping) during the W17 mirror sweep; sweep bug only covered dst 4-8 | `mem-entries.md:25732` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls. | `mem-entries.md:26561` |
 | 2026-11-21 |  | 2026-11-21 17:40 - TWD adoption artifacts verified independently; publish runbook committed; notebook publication hygiene fixed with a checker gate. | `mem-entries.md:26580` |
 | 2026-11-21 |  | 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50. | `mem-entries.md:26606` |
+| 2026-11-21 |  | 2026-11-21 18:10 - E0-a native-delivery experiment: with the CPU mirror disabled the unit boots and receives native-path completions on port 11, but every frame is status=37 err=1 and IP is dead -> native CPU delivery is error-flagged/misconfigured; mirror workaround still required. | `mem-entries.md:26627` |
 
 ## All dated entries
 
@@ -731,3 +731,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls. | `mem-entries.md:26561` |
 | 2026-11-21 |  | 2026-11-21 17:40 - TWD adoption artifacts verified independently; publish runbook committed; notebook publication hygiene fixed with a checker gate. | `mem-entries.md:26580` |
 | 2026-11-21 |  | 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50. | `mem-entries.md:26606` |
+| 2026-11-21 |  | 2026-11-21 18:10 - E0-a native-delivery experiment: with the CPU mirror disabled the unit boots and receives native-path completions on port 11, but every frame is status=37 err=1 and IP is dead -> native CPU delivery is error-flagged/misconfigured; mirror workaround still required. | `mem-entries.md:26627` |

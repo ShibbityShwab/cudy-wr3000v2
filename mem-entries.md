@@ -26623,3 +26623,28 @@ LEDGER
   original verified baseline). Board is running c3ef2a50, selector 0x11, stock pair A intact.
 
 LEDGER
+
+## 2026-11-21 18:10 - E0-a native-delivery experiment: with the CPU mirror disabled the unit boots and receives native-path completions on port 11, but every frame is status=37 err=1 and IP is dead -> native CPU delivery is error-flagged/misconfigured; mirror workaround still required.
+
+- Image 990c5cab (current adopted target DTS + cmdline luofu_switch.cpu_mirror=0,
+  luofu_pie.rxdiag=1 luofu_pie.accepterr=1) installed on pair b (selector 0x11). Boot: 6.18.60,
+  SMP 2 CPUs, LEDs/event0 present; host link 1 Gbps but 192.168.1.1 unreachable and ICMP never
+  completes. UART: eth2 Link Down at 12.9 s then Link Up 1 Gbps at 38.9 s; repeated
+  pie-trace RXDIAG ch=0 port=11 len=60 status=37 err=1 (native path, not mirror copies),
+  no useful RX delivery to the stack.
+- Reading: the switch does send some frames to the CPU natively on port 11, but they carry an
+  error status (37) - the stock CPU-punt/IFC/tagact classification is not in our init, so the
+  frames are dropped. This refines the native-forwarding plan (M1 needs the classifier/punt
+  configuration, not just per-port netdevs) and confirms the mirror workaround remains the only
+  working data path for now.
+- Evidence: build/evidence-bench-gates/e0a-mirroroff/e0a-boot-excerpt.txt (sha256
+  90cde170e5ca713e3dd7673257e260c704d7b59f0de780259f98fad2e71fc3bd); result appended to
+  opensource/docs/incoming/lsw-forwarding/MINIMAL-EXPERIMENT.md.
+- The unit needs one physical power cycle (power-on clears the SYSCTRL selector cell and boots
+  stock pair A) before the baseline image c3ef2a50 can be reinstalled; the recovery door stays armed.
+- Also in this round: upstream lane adopted blockers 3/4/5 (DTS 681 lines 9d96ac31, DTS-0001
+  c029fd44, DTB 12650/pad 12656, validator PASS, submission MANIFEST f4849baf, two blockers
+  remain) and the parent was bumped to bd4ab3e; curated openwrt repo resync to this state was
+  requested.
+
+LEDGER
