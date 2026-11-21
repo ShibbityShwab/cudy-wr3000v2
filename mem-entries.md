@@ -26662,3 +26662,59 @@ LEDGER
   curated repo recorded and keeps the target test suite consistent with boot-tested image c3ef2a50.
 
 LEDGER
+
+## 2026-11-21 18:35 - Upstream: switch binding MMIO-first adopted into the series, review form rerun PASS, ONE blocker left (flashinfo loader acceptance); flashinfo test image pre-built. Native-forwarding refined: E0-a status=37 is the exception/punt class, IP death is missing unicast-to-CPU coverage.
+
+- Upstream lane (commit c85f96e): the in-series switch binding YAML now lists the 15 MMIO windows
+  first and queue/flow DDR last, matching the boot-tested DTS (driver looks resources up by name,
+  no code change). Patch 021 sha 86f6f020..., review-form 0021 d249a83a..., release-line manifest
+  1e00b568...; review form rerun 26/26 patch(1)+git am, identical trees, 0 fuzz; checkpatch
+  default/strict 0 errors/58 warnings; release-line validator PASS; DTS unchanged (9d96ac31),
+  DTB 12650 a0af2899/pad 12656 01b74561; submission MANIFEST de24c449... 102/102.
+  Flashinfo: final recommended binding is documented hisilicon,luofu-flashinfo first with vendor
+  hsan,flashinfo_reserved fallback; the ONLY remaining blocker is the one-variable loader boot-test
+  of that compatible list. I pre-built the test image: img-flashinfo-test.bin sha256
+  6e9c54d082029bc3865a73c28a433c928a4252946d5aeb318bb4dd060728b5e2 (DTS = adopted 9d96ac31 with
+  only the flashinfo compatible list changed; build tree restored afterwards). Test when stock is
+  back: install, UART must show the stock bootfip staging lines (alias console, serialnr,
+  atag_addr=0x80601000), 2 CPUs, no data abort/stock fallback -> adopt; FAIL -> revert/vendor-first.
+- LSW lane (still host-only): E0-a analysis shows status=37 err=1 is the vendor exception/punt
+  class marker (summary bit set when status==0; err is derived, not a hardware error), the E0-a
+  frames were 60-byte ARP retries already proven deliverable earlier, and IP death is due to
+  COVERAGE: the host's 98-byte unicast IPv4/ICMP frames never enter the ring. Missing piece is the
+  unicast-to-CPU/bridge-MAC state (L2/FDB or equivalent copy-to-CPU rule), not the error flag/tag.
+  Plan revised to M1a (unicast-to-CPU on eth2 with mirror off) then M1b (per port); new
+  E0A-ANALYSIS.md, updated plan/experiment/unknowns, capture-runtime-state.sh --profile punt,
+  plan-writes.sh hard-refuses the NAPT/L2 windows. New read-only SSH/devmem read list ready for
+  when the box is back on c3ef2a50.
+- Box status: still running the mirror-off E0-a image (network dead by design) and awaiting one
+  physical power cycle to clear the selector cell and boot stock A; the baseline image c3ef2a50 and
+  the flashinfo test image are staged.
+
+LEDGER
+
+## 2026-11-21 18:55 - Recovery succeeded but the subsequent handover left a MIXED kernel/userland system: our 6.18 kernel (cmdline luofu_switch.*) booted with the stock 5.10 rootfs (rootfsb). Stock LuCI then refuses the wizard ("Invalid board info!", bdinfo checkuuid needs the vendor kernel's /proc/sys/dev/flash_uuid) and the MQTT broker path is silent.
+
+- Timeline: RESET-hold recovery restored stock (U-Boot RESET counter 2 s, RRQ recovery.bin from
+  192.168.1.88, 20,975,775 B) and stock answered at 192.168.10.1. The telnet installer then ran and
+  reported "stock selector cell 0x11 -> active pair b, write pair a": it wrote our flashinfo-test
+  image kernel to /dev/mtd11 and rootfs to /dev/mtd13 and set selector 0x10. U-Boot on the next
+  boot logged "bootflag b bootreg 10" and loaded the KERNEL from kernelb (an older 6.18 image;
+  cmdline ubi.mtd=rootfsb ... luofu_switch.* luofu_pie.accepterr=1) while the ROOTFS attached was
+  mtd14 "rootfsb" - the stock 5.10 squashfs. So the running system is 6.18 kernel + stock userland.
+- Consequences: the stock web UI serves the first-run wizard but renders "Invalid board info!"
+  because bdinfo checkuuid compares the signed bdinfo against /proc/sys/dev/flash_uuid, which only
+  the vendor 5.10 kernel exposes; the wizard POST therefore 403s (tried single/double hash, page
+  and constant salt, all variants). The MQTT broker accepts the forged JWT (CONNACK rc=0) but
+  cmagent never answers (same missing board-info/kernel contract), so the CVE command chain is dead
+  in this mixed state. Stock admin password is unset, so no authenticated route either.
+- Lesson for the installer: after a recovery, the U-Boot env bootflag can override the slot the
+  installer wrote; the installer must set/verify the env bootflag and the rootfs pair together, and
+  verify the booted kernel cmdline/rootfs pair after reboot (not just ping+SSH+2 CPUs). This mixed
+  state must never be presented as a successful install (the tool's PASS/FAIL did catch the SSH
+  failure, but the handover itself was wrong).
+- Next: one more RESET-hold recovery (physical) restores a consistent stock kernel+rootfs pair; then
+  verify the broker channel with box-provision --cmd id BEFORE any flash, and only then install
+  our image with both env bootflag and selector set consistently (or via the broker channel).
+
+LEDGER

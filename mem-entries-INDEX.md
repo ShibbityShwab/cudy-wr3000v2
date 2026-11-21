@@ -8,8 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 15:30 - FIRST REAL TRAFFIC: box accepts a punted ARP exception on eth2 and sends an ARP reply on the wire | `mem-entries.md:25705` |
-| 2026-11-20 |  | 2026-11-20 15:25 - PARTIAL SUCCESS: first ICMP echo replies received (4/18 ping) during the W17 mirror sweep; sweep bug only covered dst 4-8 | `mem-entries.md:25732` |
 | 2026-11-20 |  | 2026-11-20 17:55 - static CPU-copy dst 8 alone: ARP still answered but 50/50 ping lost; RXSTROKE shows only one RX completion - the mirror is programmed before eth2 link-up, so it is likely lost/reset | `mem-entries.md:25757` |
 | 2026-11-20 |  | 2026-11-20 18:30 - W19 post-link mirror works mechanically (applied every 2 s, pre/post stable) but dst 8 is NOT the CPU port: ARP answered, ICMP 98 B never reaches the CPU | `mem-entries.md:25778` |
 | 2026-11-20 |  | 2026-11-20 18:40 - DWELL SWEEP IDENTIFIES THE CPU PORT: mirror destination 4. Host ICMP then arrives as NORMAL-path completions (status=0, port=0) which our driver drops because port 0 has no netdev | `mem-entries.md:25802` |
@@ -48,6 +46,8 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50. | `mem-entries.md:26606` |
 | 2026-11-21 |  | 2026-11-21 18:10 - E0-a native-delivery experiment: with the CPU mirror disabled the unit boots and receives native-path completions on port 11, but every frame is status=37 err=1 and IP is dead -> native CPU delivery is error-flagged/misconfigured; mirror workaround still required. | `mem-entries.md:26627` |
 | 2026-11-21 |  | 2026-11-21 18:20 - test-mac-nvmem.sh updated to the adopted 6.18 MAC path: 77/77 pass (was 64/82 after the nvmem-cell removal). | `mem-entries.md:26652` |
+| 2026-11-21 |  | 2026-11-21 18:35 - Upstream: switch binding MMIO-first adopted into the series, review form rerun PASS, ONE blocker left (flashinfo loader acceptance); flashinfo test image pre-built. Native-forwarding refined: E0-a status=37 is the exception/punt class, IP death is missing unicast-to-CPU coverage. | `mem-entries.md:26666` |
+| 2026-11-21 |  | 2026-11-21 18:55 - Recovery succeeded but the subsequent handover left a MIXED kernel/userland system: our 6.18 kernel (cmdline luofu_switch.*) booted with the stock 5.10 rootfs (rootfsb). Stock LuCI then refuses the wizard ("Invalid board info!", bdinfo checkuuid needs the vendor kernel's /proc/sys/dev/flash_uuid) and the MQTT broker path is silent. | `mem-entries.md:26696` |
 
 ## All dated entries
 
@@ -733,3 +733,5 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 17:55 - Upstream blockers 3/4/5 boot-tested PASS in one image (MAC nvmem removal, switch MMIO-first reg order, compatible order): image c3ef2a50. | `mem-entries.md:26606` |
 | 2026-11-21 |  | 2026-11-21 18:10 - E0-a native-delivery experiment: with the CPU mirror disabled the unit boots and receives native-path completions on port 11, but every frame is status=37 err=1 and IP is dead -> native CPU delivery is error-flagged/misconfigured; mirror workaround still required. | `mem-entries.md:26627` |
 | 2026-11-21 |  | 2026-11-21 18:20 - test-mac-nvmem.sh updated to the adopted 6.18 MAC path: 77/77 pass (was 64/82 after the nvmem-cell removal). | `mem-entries.md:26652` |
+| 2026-11-21 |  | 2026-11-21 18:35 - Upstream: switch binding MMIO-first adopted into the series, review form rerun PASS, ONE blocker left (flashinfo loader acceptance); flashinfo test image pre-built. Native-forwarding refined: E0-a status=37 is the exception/punt class, IP death is missing unicast-to-CPU coverage. | `mem-entries.md:26666` |
+| 2026-11-21 |  | 2026-11-21 18:55 - Recovery succeeded but the subsequent handover left a MIXED kernel/userland system: our 6.18 kernel (cmdline luofu_switch.*) booted with the stock 5.10 rootfs (rootfsb). Stock LuCI then refuses the wizard ("Invalid board info!", bdinfo checkuuid needs the vendor kernel's /proc/sys/dev/flash_uuid) and the MQTT broker path is silent. | `mem-entries.md:26696` |
