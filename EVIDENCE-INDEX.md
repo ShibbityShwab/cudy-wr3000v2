@@ -144,3 +144,5 @@ commit a small reproducible artifact or write the regeneration command into this
   variables in the vendor bridge, not functions.
 - RE reports: subagent sessions held the disassembly results; the committed ledger entries
   2026-11-17 18:00/18:55, 2026-11-17 20:40 and 2026-11-18 06:50 summarize them.
+
+| W22 native forwarding (driver NAPT init) | release-line patched kernel image 50023446 booted with no mirror tokens: 2 CPUs, TWD Level, dmesg W22 NAPT init verified, ping/SSH, reboot determinism | build/evidence-bench-gates/w22/ (gitignored); opensource/docs/incoming/lsw-forwarding/w22/, .../m1a/napt-init/proof-image/RESULT.md | rebuild: make world from the staged release line + new cmdline; reinstall over broker; see w22/RELEASE-INTEGRATION.md |

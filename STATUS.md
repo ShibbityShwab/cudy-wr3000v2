@@ -920,29 +920,16 @@ submission-ready.
 
 ## 4. Next action
 
-**Current phase (2026-11-21): baseline complete; three high-impact tracks running in parallel.**
-Verified working baseline: image 7421bb7a - 2 CPUs, single-port LAN (documented CPU-copy mirror
-workaround), SSH, persistent overlay, FMC NAND/UBI, all six LEDs (visual), RESET+WPS buttons
-(event-captured), watchdog armed/serviced by procd, automated stock-telnet install verified.
-Inventory decisions: thermal unsupported (sensor reads 0, vendor DT disables it), Wi-Fi
-unsupported on 6.18 without vendor source (option C), RTC/I2C/USB absent, SPI NAND-only.
-Multi-port LAN/WAN: the CPU-copy source-port experiment was NEGATIVE (completions port=0/vport=0,
-no source id) -> native L2/VLAN hardware bridge is the only path.
-
-Parallel tracks now:
-1. **Native L2/VLAN forwarding** (largest functional gap; lane lsw-re-spec): design + first
-   artifacts for hardware bridging (port VLAN/forwarding tables, CPU tagging, bring-up plan);
-   blockers documented in MULTI-PORT-PLAN.md / LSW-SPEC.md.
-2. **Upstream blocker reduction** (lane upstream-series): flashinfo binding, 6.18-compatible MAC
-   provisioning (replace v6.19 nvmem cells), switch reg-names reorder, compatible ordering/board
-   metadata, draft-driver sanity list; TWD PPI29 GIC measurement done (ICFGR1 field 0b11 read-only;
-   LEVEL_HIGH convention recommended; flag flip is a boot-tested delta). Submission package exists
-   under upstream/series-6.18/submission/ but is intentionally NOT sent (no Tested-by claims).
-3. **History-purge preparation** (lane publish-prep): owner-safe runbook + dry-run for the legacy
-   public repo (10 vendor .o blobs in history + second branch); owner-only force-push/cache purge.
-
-Backlog after the tracks: install/watchdog/LED/button evidence is recorded; remaining actions are
-owner-physical only if the native-bridge bring-up needs cable moves on other jacks.
+**Current phase (2026-11-21): W22 native forwarding landed and bench-verified; M1b next.**
+Release line now has 059/060 (driver NAPT/flow-engine init + PIE native exception-class
+delivery): L0 64 files / L1 53, manifest sha256 619eb15a...; canonical image
+50023446 boots with no mirror tokens (2 CPUs, TWD Level, dmesg "W22: NAPT/flow engine
+initialized and verified", ping/SSH OK, reboot determinism PASS). The CPU-copy mirror is now
+only the documented fallback (patches 054-057, naptinit=0 + mirror tokens). M1a (native CPU
+delivery) is proven; next bench step is M1b (per-port native delivery, LAN-to-LAN) which needs
+one cable move per jack, then fallback-image test + soak, curated sync and release-note
+finalization. Upstream: ZERO blockers (submission package complete, not sent). History purge
+remains owner-only. Wi-Fi/thermal unsupported by design.
 
 ## 5. Reading the console (read-only)
 

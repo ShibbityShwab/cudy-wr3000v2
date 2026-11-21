@@ -26927,3 +26927,37 @@ LEDGER
   and curated repos untouched by the lane. Lead now stages/validates/builds/bench-tests W22.
 
 LEDGER
+
+## 2026-11-21 22:00 - W22 kernel implementation landed in the release line and verified on hardware: canonical image 50023446 boots with the driver NAPT init (no mirror tokens), ping/SSH work, reboot determinism passes.
+
+- Release line: staged patches 059-net-lsw-napt-init.patch (cfd7debc...) and
+  060-net-pie-exception-delivery.patch (8c748061...) into patches-6.18 (L0 64 files: 001-060 +
+  062-065); manifest.tsv/INCLUDED.txt updated -> L1 53 files, manifest sha256
+  619eb15a8561deb6cd7ccc67709930cffa454b82c49d5305491e1d4ca5c128c7; 05/04/00-cover/06 docs
+  refreshed (counts, W22 record, manifest sha); target README/RELEASE-NOTES/port-notes/
+  feature-inventory truth updated (native forwarding canonical, mirror = documented fallback);
+  canonical config-6.18 cmdline now has luofu_switch.naptinit=1 and no cpu_mirror/accepterr/
+  cpucopy tokens.
+- Host validation: release-line validator PASS - 53/53 include patches apply, 0 fuzz/0 rejects,
+  strict git apply 53/53; DTS contract + DTS-0001 identity unchanged (DTB 12,678 B 62574b11,
+  pad 12,680 B 8d79794e); validation/release-line logs refreshed from the W22 run.
+- Target build: canonical image sha256
+  500234462bdc2e62d963067f00ba580e639a82c10b05323533684f8536ca8c9f (kernel rebuilt with the two
+  patches + new cmdline). Installed over the broker to pair b (bootflag=b/boot_reg=0x11 verified,
+  FIRE_OK) from a consistent stock boot.
+- Hardware PASS: 6.18.60, 2 CPUs, TWD GIC-0 29 Level, selector 0x11, 0 Oops/BUG/panic; dmesg
+  "W22: NAPT/flow engine init: flow carveout 0x80400000+0x100000 ... up_port 0x1000" and
+  "W22: NAPT/flow engine initialized and verified ... v4+v6 tables cleared" then "connectivity
+  path armed"; /proc/cmdline has no cpu_mirror/accepterr/cpucopy tokens; host ping 200/200 0%
+  loss and SSH work; counters read back stock values (glb+0x2c 0x10000034, napt+0x64 1,
+  +0x70 0x00110138, +0x130 0x80400000, +0x50 0x00f00b69); dmesg shows native RXEXC deliveries
+  (W22 class); reboot once -> same result (ping 200/200, W22 init log once, no errors).
+- Evidence: build/evidence-bench-gates/w22/ (identity/determinism, ping, counters) plus the
+  earlier m1a-proof capture; proof artifacts in docs/incoming/lsw-forwarding/m1a/napt-init/
+  proof-image/ and the W22 drafts/design under docs/incoming/lsw-forwarding/w22/.
+- Remaining W22 follow-ups (documented in w22/RELEASE-INTEGRATION.md): fallback image
+  (naptinit=0 + mirror) build/boot test, 15-min soak + link flap, M1b per-port/LAN-to-LAN bench
+  (needs cable moves), then curated sync and release-note/STATUS finalization. Box now runs the
+  W22 canonical image (mirror off/native), stock pair A untouched, recovery door armed.
+
+LEDGER
