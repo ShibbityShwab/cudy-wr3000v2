@@ -26823,3 +26823,35 @@ LEDGER
   mirror copies only). Box returned to our image (6.18.60, 2 CPUs, selector 0x11, bootflag b).
 
 LEDGER
+
+## 2026-11-21 20:45 - CPU-punt mechanism resolved: IFC->NAPT path; our NAPT is uninitialized (all config words 0), so unicast dies inside the flow engine before PIE. Vendor hi_pfe_napt_init decoded as a register-only sequence and prepared as a fail-closed replay.
+
+- Counter decomposition from the stock decoded procfs (host pinging): IFC rx_total=992/hit=992,
+  ifc_tocpu=104 (~bc), ifc_napt=170; NAPT tx_total=170, up_tocpu=129 (~uc),
+  sip_chk_tocpu=4, mc_fail_tocpu=37; DP port4 CPU queue in/out 274/274 = eth2 rx 274
+  (uc130/mc41/bc103); PIE ch0/ch1 = 191/83. Reading: the eight W10 IFC defaults already
+  installed on our image punt broadcast/ARP to CPU and route UNICAST to the NAPT/flow engine; the
+  NAPT up-direction punt (up_tocpu) sends it to CPU on stock. Our image has IFC defaults but NAPT
+  uninitialized, so unicast is dropped inside the engine before PIE - exactly the observed
+  "ARP arrives, 98-byte unicast never does". M1a probe A null is a write-path fact (pub tagact RAM
+  has no usable CPU write path: wrote 0xc000, read 0); probe B confirmed pfe_glb+0x2c up_port is
+  the flow-engine uplink attribute. The tagact entry is a CFE rootif/L3 tag action, not this path.
+- Missing init is hi_pfe_napt_init (vendor order, register-only, engine clears its own tables):
+  pfe_glb+0x2c=0x10000034; napt+0x70=0x00110138; +0x64=1; +0x54=0x100;
+  +0x130=0x80400000; +0x138=0x80408000; +0x134=0x80448000; +0x13c=0x80450000;
+  +0x68=0x00020303; command +0x60=0x000a0001 (poll bit0); +0x60=0x00080001 (poll bit0);
+  +0x50=0x00f00b69. Table bases are in the switch flow carveout 0x80400000/1 MiB (queue
+  0x80000000/4 MiB in the switch DT node); the Linux memory node starts at 0x80500000, so no
+  Linux page is reachable from the engine DMA (to be re-verified from the live DT before writing).
+- No proc node dumps the hardware IFC/L3/flow rows (the table files show the empty software shadow;
+  counters prove 992 hardware hits), so there is no IFC replay needed: the IFC defaults are already
+  there and the missing piece is the NAPT init. Prepared next step: m1a/napt-init/ with
+  check-napt-path.sh (read-only), apply-napt-init.sh (11-word allow-list, env gates, cpu_mirror=1
+  management check, snapshot/readback/poll/partial-rollback/--revert, refuses if flow bases already
+  configured) and observe-napt-init.sh; expected signal: eth2 rx delta ~2x ping count (mirror +
+  native NAPT punt), napt up_tocpu incrementing; then the cpu_mirror=0 proof boot.
+- I am running the read-only diagnosis and the NAPT replay in this round on the baseline image
+  (6.18.60, 2 CPUs, selector 0x11, mirror on, recovery door armed, UART capture armed). Box is
+  recoverable; the script auto-reverts after 90 s.
+
+LEDGER
