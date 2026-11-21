@@ -27275,3 +27275,32 @@ LEDGER
   blockers, intentionally not sent), normal next-session hygiene.
 
 LEDGER
+
+## 2026-11-22 06:40 - Wi-Fi TRY concluded with a QUANTIFIED NO-GO for the 6.18 binary port; the full swarm is complete. Wi-Fi works on this box only via the vendor 5.10 stack; the interface contract is now fully documented and the GPL follow-up is the single remaining unlock.
+
+- wifi-shim-port verdict (submodule 47f80e5/c07203a, 26 text files under
+  docs/incoming/wifi-shim-port/): import closure = 367 distinct UND symbols = 174 satisfied by our
+  6.18 kernel (148+26 risk, parsed from vmlinux __ksymtab; Module.symvers stale) + 177 by the
+  vendor-module closure (order hi_basic->hi_kpie->ksecurec->compat->cfg80211->hi_pcie->plat->wifi)
+  + 16 shim symbols + 1 stub (done_path_create). Vermagic: no MODVERSIONS/SIG/FORCE_LOAD, so a
+  local .modinfo patch tool was written (PATCH OK 4/4 modules; 6.18 vermagic string pinned).
+  DECISIVE struct-layout audit: 97/153 probed offsets drifted (wifi.ko 21 / vendor cfg80211.ko 20 /
+  plat.ko 4 kernel-owned hits); hand-verified corruption hits: ndo_set_mac reads netdev->state@0x28,
+  mtu write@0x148, skb head/tail/end/mac_header/users/mark, vendor cfg80211 nl80211 doit WRITES
+  genl_info.genlhdr@0x0c (corruption on the first nl80211 command); netdev_ops vtable 80->92
+  partially tolerated; hrtimer rework + mem_section (SPARSEMEM->FLATMEM). => NO-GO with an 8-blocker
+  list; shim draft (wifi_shim.c) compiles; REPORT.md M5 records a 3-checkpoint falsifiable bench
+  plan if anyone ever wants to spend box time proving it live.
+- Companion lanes: wifi-host-driver-re (53297c1) = complete interface contract (39/112 cfg80211_ops
+  slots mapped, H2D/D2H header+dispatch, doorbell sequence, D2H catalog corrected to 5 boot
+  messages); wifi-firmware-re (52101ac) = closed firmware black-box map (entry, vectors, smac_msg_proc
+  catalog, 0x5a5a/0xcece gates, mailbox/ETE); opaque-binaries-re (b488630) = libhi_*/hi_ipc/hi_appm,
+  HSLINK/HyFi, crypt KDF (exact; -g uses secret), bdinfo layout, TR-069 all decoded; fleet-wide
+  bdinfo secret finding reconciled in vendor-userspace docs (21cd936).
+- Wi-Fi status now: vendor 5.10 stack works (stock pair a) - a bench fact, not a claim gap; our
+  6.18 image cannot run Wi-Fi (proven NO-GO above); the only unlocks are the vendor GPL source
+  (request sent 2026-10-01, no reply; a follow-up would cite this now-complete contract) or a
+  vendor-5.10-kernel hybrid image (our userspace on the vendor kernel).
+- Next: parent gitlink bump; optional GPL follow-up draft or hybrid image build per owner choice.
+
+LEDGER
