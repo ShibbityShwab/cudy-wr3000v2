@@ -26648,3 +26648,17 @@ LEDGER
   requested.
 
 LEDGER
+
+## 2026-11-21 18:20 - test-mac-nvmem.sh updated to the adopted 6.18 MAC path: 77/77 pass (was 64/82 after the nvmem-cell removal).
+
+- The curated lane flagged the notebook-side test delta: tools/test-mac-nvmem.sh still asserted the
+  obsolete bdinfo fixed-layout/mac-base cells and gmac nvmem-cells that the adopted final DTS
+  removes by design. Updated the static, compiled-DTS and synthetic-nvmem sections to assert the
+  adopted path instead: bdinfo partition read-only with no nvmem layout/cells, no gmac nvmem
+  properties, factory copy read at the documented bdinfo+0xde00 offset by the userspace provisioner,
+  LAN = factory base and WAN = base+1 via luofu_mac_add, plus the unchanged wrap/OUI/validation
+  checks and the 103-assertion provisioner integration test.
+- Result: tools/test-mac-nvmem.sh -> 77 pass / 0 fail. This resolves the known-check delta the
+  curated repo recorded and keeps the target test suite consistent with boot-tested image c3ef2a50.
+
+LEDGER
