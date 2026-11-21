@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-21 |  | 2026-11-21 12:25 - 6.18 RELEASE LINE consolidated and independently validated: 51 included patches (11 bench diagnostics excluded), loader hand-off DTS contract checked as release-critical; canonical 2-CPU baseline 974e6ca6. | `mem-entries.md:26194` |
 | 2026-11-21 |  | 2026-11-21 12:40 - release-line cleanup complete: 052/053 pair fixed (0 fuzz, strict-clean), monotonic 062-065, DTS-0001 companion validated | `mem-entries.md:26221` |
 | 2026-11-21 |  | 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress. | `mem-entries.md:26246` |
 | 2026-11-21 |  | 2026-11-21 13:35 - LEDs + buttons + watchdog sysfs brought up on hardware (image 7f270b8c); unaligned-DTB gate-word bug found and fixed. | `mem-entries.md:26272` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-22 |  | 2026-11-22 00:05 - W22 canonical image re-installed successfully with the corrected two-stage procedure: stock switched to pair a first, then the image written to the inactive pair b via the broker with atomic env+reboot. Boot verified, link-flap recovers, 15-min soak started. | `mem-entries.md:27030` |
 | 2026-11-22 |  | 2026-11-22 00:35 - 15-min W22 soak PASS (900/900, 0% loss, 0 errors). Fallback-image test went wrong again (build/cmdline caching suspected, then no management IP); box needs one more physical RESET-hold recovery. The fallback path will be documented as a known limitation rather than a formal bench step. | `mem-entries.md:27054` |
 | 2026-11-22 |  | 2026-11-22 00:55 - W22 canonical re-installed and verified after recovery #5 using the two-stage procedure (stock pair a -> broker write inactive pair b atomic). Box healthy: 6.18.60, 2 CPUs, naptinit=1, no mirror tokens, W22 init verified, 0 errors. M1b per-port native delivery test starting with cable moves. | `mem-entries.md:27076` |
+| 2026-11-22 |  | 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror. | `mem-entries.md:27091` |
 
 ## All dated entries
 
@@ -751,3 +751,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-22 |  | 2026-11-22 00:05 - W22 canonical image re-installed successfully with the corrected two-stage procedure: stock switched to pair a first, then the image written to the inactive pair b via the broker with atomic env+reboot. Boot verified, link-flap recovers, 15-min soak started. | `mem-entries.md:27030` |
 | 2026-11-22 |  | 2026-11-22 00:35 - 15-min W22 soak PASS (900/900, 0% loss, 0 errors). Fallback-image test went wrong again (build/cmdline caching suspected, then no management IP); box needs one more physical RESET-hold recovery. The fallback path will be documented as a known limitation rather than a formal bench step. | `mem-entries.md:27054` |
 | 2026-11-22 |  | 2026-11-22 00:55 - W22 canonical re-installed and verified after recovery #5 using the two-stage procedure (stock pair a -> broker write inactive pair b atomic). Box healthy: 6.18.60, 2 CPUs, naptinit=1, no mirror tokens, W22 init verified, 0 errors. M1b per-port native delivery test starting with cable moves. | `mem-entries.md:27076` |
+| 2026-11-22 |  | 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror. | `mem-entries.md:27091` |

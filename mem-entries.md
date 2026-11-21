@@ -27087,3 +27087,19 @@ LEDGER
   (may stay open). UART capture label m1b armed; evidence dir build/evidence-bench-gates/m1b/.
 
 LEDGER
+
+## 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror.
+
+- Jack map established by cable moves: far-right=eth0, second-from-right=eth1, second-from-left=eth2
+  (bench), leftmost=eth3 (WAN). Ping+SSH worked over eth0 and eth1 (200/200 0% each) with their
+  counters advancing; eth3 linked up (UART: link up 1000 Mbps, down on removal) and its rx/tx
+  counters advanced (DHCP attempts) - ping N/A because eth3 is the WAN zone, not in br-lan.
+  Back on eth2: 20/20 0% loss. All four netdevs show non-zero rx/tx from their sessions
+  (eth0 261/224, eth1 262/225, eth2 228/112, eth3 77/44).
+- Conclusion: native per-port delivery works on every switch port with W22 (no mirror); no
+  port-specific work needed for delivery. Remaining: true LAN-to-LAN (needs a second host/NIC) and
+  optional WAN L3 validation (host DHCP server on the leftmost jack). Written up in
+  opensource/docs/incoming/lsw-forwarding/m1b/M1B-RESULTS.md; evidence build/evidence-bench-gates/m1b/.
+- Box left on eth2, W22 native, healthy; UART capture m1b still armed; recovery door READY.
+
+LEDGER
