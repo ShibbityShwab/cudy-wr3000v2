@@ -26718,3 +26718,13 @@ LEDGER
   our image with both env bootflag and selector set consistently (or via the broker channel).
 
 LEDGER
+
+## 2026-11-21 19:05 - FLASHINFO LOADER TEST PASSED over the broker channel: the loader accepts hisilicon,luofu-flashinfo first, performs the full staging handoff and boots our image with 2 CPUs - the last upstream blocker is closed (zero blockers).
+
+- Clean-stock state before the test: RESET-hold recovery #2 restored a CONSISTENT vendor pair (UART Linux-5.10.201, bootflag=a bootreg 10, web 200, MQTT open). The broker channel (CVE-2026-71961) was verified FIRST: box-provision --cmd id returned uid=0(root), kernel 5.10.201, bootflag=a, boot_reg=0x10, full /proc/mtd (kernelb=mtd12, rootfsb=mtd14). This is the first time since the recovery that the broker path worked - it depends on the consistent vendor kernel/rootfs pair (vendor /proc/sys/dev/flash_uuid for bdinfo).
+- Flash over the broker (no telnet needed): wget kernel.bin + rootfs.ubi from 192.168.10.44:8000, sha256-verified, mtd erase/write/verify kernelb, ubiformat /dev/mtd14, tmp symlink /tmp/fw_setenv -> /bin/fw_printenv to set env bootflag=b (read-back b), echo 0x11 > boot_reg, sync, FIRE_OK. Rebooted; U-Boot logged bootflag b bootreg 11 and loaded Image Name: Linux-6.18.60.
+- PASS evidence (build/evidence-bench-gates/flashinfo-loader/): UART staging lines for the new compatible order - alias console=/serial@1010f000, serialnr->high=0x8250 low=0x1010f000 atag_addr=0x80601000 (stock/vendor boot prints alias console=/uart1@...); booted 6.18.60, 2 CPUs, /proc/cmdline ubi.mtd=rootfsb + full luofu_switch marker set, TWD GIC-0 29 Level, selector 0x11, no Oops/BUG/panic/RCU stall. The test image was 6e9c54d0 (current adopted DTS + only the flashinfo compatible list changed).
+- Adopted the change in the target DTS (repo + build clone): compatible = hisilicon,luofu-flashinfo first with hsan,flashinfo_reserved fallback; the upstream lane has been asked to regenerate DTS-0001/DTB/validation/docs/submission with ZERO blockers and the 6e9c54d0 baseline. The installer handover fix (6e69aa3) and the broker path are the new recovery-to-image procedure; the mixed-pair failure mode is documented and guarded.
+- Board now runs image 6e9c54d0 (6.18.60, 2 CPUs, TWD Level, selector 0x11); stock pair a remains intact (bootflag a / boot_reg 0x10, vendor 5.10.201). Next: E0-b read-only classifier capture on this baseline, then reinstall the final adopted baseline once the upstream artifacts are regenerated.
+
+LEDGER
