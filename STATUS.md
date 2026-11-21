@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-21 11:45 +07
+**Updated:** 2026-11-21 12:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -886,6 +886,16 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   80000001), br-lan 192.168.1.1/24, ping 20/20 0% loss, SSH, /overlay ubifs rw, clean boot log.
   15-minute soak running. Lesson: check bench-link.sh/box-side vs host-side before declaring a hang.
   maxcpus=1/lockdep images retained as diagnostics only.
+
+- **FINAL SMP VERIFIED: canonical image 974e6ca6 stable with 2 CPUs, network, SSH, rw overlay;
+  15-min soak 0 failures, reboot persistent (2026-11-21).** Root cause (closed): U-Boot bootfip
+  handoff staging is gated by the DTB's aliases/console and reserved-memory/flashinfo nodes; adding
+  them (DTS-only) makes U-Boot complete staging, SCU bit5 sets, CPU1 comes online (mpidr 80000001,
+  Brought up 2 CPUs, 4000.97 BogoMIPS). Canonical image verified: /proc/cpuinfo 2, online 0-1, br-lan
+  up, ping 20/20 0% loss, SSH, ubifs rw, clean dmesg; 15-min soak 0 failures; reboot returns with 2
+  CPUs and pair b recorded. The earlier "2-CPU hang" is retracted (host bench-link carrier/IP loss
+  overnight; UART proved the box alive). 060/061 probes are bench diagnostics only; the release SMP
+  fix is the DTS change. Evidence 2026-11-21-soak-2cpu.log, -final-reboot-2cpu.log.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as

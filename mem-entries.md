@@ -26167,3 +26167,26 @@ use bench-link.sh first, and only then UART/heartbeat evidence. The userspace he
 reliable liveness probe when the console log is available.
 
 LEDGER
+
+## 2026-11-21 12:00 - FINAL: canonical 2-CPU image 974e6ca6 stable (15-min soak, 0 failures) and persistent across reboot; SMP task closed.
+
+Verification matrix on the canonical post-fix image 974e6ca6 (patches 001-061 + DTS handoff fix +
+canonical cmdline + DEVMEM/devmem/pair recorder):
+- boot: U-Boot completes the stock handoff staging (alias console/serialnr/atag_addr), kernel shows
+  "handoff post-release cpu1-ran monitor scu_cfg=00000531 bit5=set", "smp: Brought up 1 node, 2 CPUs",
+  "Total of 2 processors activated (4000.97 BogoMIPS)", CPU1 mpidr 80000001.
+- /proc/cpuinfo = 2, online = 0-1, both CPUs accumulate in /proc/stat; /proc/interrupts has CPU0/CPU1.
+- network: br-lan 192.168.1.1/24, ping 20/20 0% loss, SSH works.
+- overlay: /dev/ubi0_1 on /overlay ubifs rw.
+- stability: 15-minute continuous-ping soak completed with 0 failures; no Oops/panic/BUG/WARNING in
+  dmesg (the only grep hit is the literal "panic=0" cmdline). The earlier "2-CPU hang" is retracted:
+  it was the host USB-Ethernet bench link losing carrier/IPs overnight; UART showed the box alive.
+- reboot persistence: rebooted with the pair recorder active -> fresh boot 110 s, rootfsb, pair b
+  recorded, 2 CPUs online 0-1, "Brought up 2 CPUs" (3987.86 BogoMIPS), ubifs overlay mounted.
+SMP is closed: root cause = U-Boot bootfip handoff staging gated by /aliases/console and
+/reserved-memory/flashinfo (DTS-only fix); the kernel SMP driver/enable-method in the series is
+correct; 060/061 sentinel/trampoline patches are bench diagnostics only. The canonical image
+974e6ca6 is the stable, fully working baseline: 2 CPUs, network, SSH, persistent overlay.
+Evidence 2026-11-21-soak-2cpu.log, -final-reboot-2cpu.log, smp-2cpu/smp-reboot logs, UART captures.
+
+LEDGER
