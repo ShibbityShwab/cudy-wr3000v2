@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-21 17:15 +07
+**Updated:** 2026-11-22 00:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -920,16 +920,17 @@ submission-ready.
 
 ## 4. Next action
 
-**Current phase (2026-11-21): W22 native forwarding landed and bench-verified; M1b next.**
-Release line now has 059/060 (driver NAPT/flow-engine init + PIE native exception-class
-delivery): L0 64 files / L1 53, manifest sha256 619eb15a...; canonical image
-50023446 boots with no mirror tokens (2 CPUs, TWD Level, dmesg "W22: NAPT/flow engine
-initialized and verified", ping/SSH OK, reboot determinism PASS). The CPU-copy mirror is now
-only the documented fallback (patches 054-057, naptinit=0 + mirror tokens). M1a (native CPU
-delivery) is proven; next bench step is M1b (per-port native delivery, LAN-to-LAN) which needs
-one cable move per jack, then fallback-image test + soak, curated sync and release-note
-finalization. Upstream: ZERO blockers (submission package complete, not sent). History purge
-remains owner-only. Wi-Fi/thermal unsupported by design.
+**Current phase (2026-11-22): W22 native forwarding installed and verified on the bench; M1b next.**
+Canonical image 50023446 (release line 059/060: driver NAPT/flow-engine init + PIE native
+exception-class delivery) is running on the box with NO CPU-copy mirror: 2 CPUs, dmesg
+"W22: NAPT/flow engine initialized and verified", SSH/ping work, link-flap recovers, and a
+reboot determinism check passed earlier. It was re-installed with the corrected two-stage pair
+procedure (switch stock to pair a first, then write inactive pair b; installer guard f188360;
+RUNBOOK section added) after a self-inflicted mixed-pair failure during the fallback test.
+15-min soak running. Remaining: soak result, fallback-image test (redo atomically or document as a
+broker-switch limitation), M1b per-port/LAN-to-LAN (needs one cable move per jack), final curated
+resync + STATUS/release-note close-out. Upstream: ZERO blockers (submission package complete, not
+sent). History purge owner-only; Wi-Fi/thermal unsupported by design.
 
 ## 5. Reading the console (read-only)
 
