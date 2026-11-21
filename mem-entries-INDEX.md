@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 19:15 - reboot from our working image falls back to stock slot A: boot-selector/env handling is not implemented in our 6.18 userspace (overlay persistence across reboot untestable until fixed) | `mem-entries.md:25850` |
 | 2026-11-20 |  | 2026-11-20 20:20 - development acceleration base: live /dev/mem MMIO over SSH, baked boot-pair recorder (reboot+overlay persistence [V]), automated install path; plus one incident (slot-A kernel push -> silent box -> recovery) | `mem-entries.md:25870` |
 | 2026-11-20 |  | 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed | `mem-entries.md:25900` |
 | 2026-11-20 |  | 2026-11-20 21:05 - live-MMIO round 2: native forwarding conclusion (NAPT carveout unsafe/absent -> mirror stays), CPU1 late-bring-up trigger (patch 059), all live CPU1 variants consumed=no | `mem-entries.md:25923` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11. | `mem-entries.md:26732` |
 | 2026-11-21 |  | 2026-11-21 19:55 - E0-b decode + reviewed M1a probes: tagact entry 1 is a tag-DELETE action (not CPU-punt), L2 diffs are DFX counters, pfe_glb+0x2c is a flow-engine uplink attribute - write replays expected null; the decisive next step is the read-only stock decoded procfs capture. | `mem-entries.md:26759` |
 | 2026-11-21 |  | 2026-11-21 20:10 - M1a replay probes both NULL: tagact entry write is ignored by the hardware (readback mismatch, auto-reverted) and the pfe_glb up_port write succeeds but changes no CPU delivery (eth2 delta stays 531 = mirror copies only). Write experiments stop; the decisive next step is the read-only stock procfs decoded-table capture. | `mem-entries.md:26783` |
+| 2026-11-21 |  | 2026-11-21 20:25 - Stock decoded procfs captured (137 files): the CPU-punt path is IFC->tocpu (ifc_hit=992, ifc_tocpu=104, cpu_spec_send=718) but the readable IFC/L3/flow shadow tables are empty - the rules live in the CFE/flow-engine state; M1a write probes closed (both null). | `mem-entries.md:26804` |
 
 ## All dated entries
 
@@ -739,3 +739,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11. | `mem-entries.md:26732` |
 | 2026-11-21 |  | 2026-11-21 19:55 - E0-b decode + reviewed M1a probes: tagact entry 1 is a tag-DELETE action (not CPU-punt), L2 diffs are DFX counters, pfe_glb+0x2c is a flow-engine uplink attribute - write replays expected null; the decisive next step is the read-only stock decoded procfs capture. | `mem-entries.md:26759` |
 | 2026-11-21 |  | 2026-11-21 20:10 - M1a replay probes both NULL: tagact entry write is ignored by the hardware (readback mismatch, auto-reverted) and the pfe_glb up_port write succeeds but changes no CPU delivery (eth2 delta stays 531 = mirror copies only). Write experiments stop; the decisive next step is the read-only stock procfs decoded-table capture. | `mem-entries.md:26783` |
+| 2026-11-21 |  | 2026-11-21 20:25 - Stock decoded procfs captured (137 files): the CPU-punt path is IFC->tocpu (ifc_hit=992, ifc_tocpu=104, cpu_spec_send=718) but the readable IFC/L3/flow shadow tables are empty - the rules live in the CFE/flow-engine state; M1a write probes closed (both null). | `mem-entries.md:26804` |

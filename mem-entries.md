@@ -26800,3 +26800,26 @@ LEDGER
   box is switched to stock for that capture and returned to our image afterwards.
 
 LEDGER
+
+## 2026-11-21 20:25 - Stock decoded procfs captured (137 files): the CPU-punt path is IFC->tocpu (ifc_hit=992, ifc_tocpu=104, cpu_spec_send=718) but the readable IFC/L3/flow shadow tables are empty - the rules live in the CFE/flow-engine state; M1a write probes closed (both null).
+
+- Captured on the consistent stock pair (vendor 5.10.201, bootflag a, boot_reg 0x10) via broker+telnet:
+  every readable /proc/hsan file (137 files, 516 KiB) into build/evidence-bench-gates/hsan-stock/
+  (hsan-full.tar.gz sha256 11f15257d846e57be964dbc45612180551480fe53dda0a7418de828af54ce97e).
+- PFE counters: ifc rx_total=992 ifc_hit=992 ifc_tocpu=104 ifc_napt=170; pa rx/tx=992,
+  cpu_spec_send=718; napt tx=170 up_tocpu=129; dp: port11 ingress rx=274, dp tx port4(pie0)=274,
+  port11=718, pie ch0=191/ch1=83; net/pie_config eth0..eth3 -> ports 9..12, vport 0,
+  send_type=spec; eth2 rx 274 (uc 130, mc 41, bc 103), tx 718.
+- Shadow dumps: tagact alloc=1 entry id=1 ref=1 del=2; l3intf/ifc/flow shadow alloc=0 (no entries);
+  glb_attr up_port=0x1000 flow_age_en=1; cfe/intf/dump_intf eth2 attr type 0 vid 65535
+  vlan_filter_en 1, eth3 type 1; cfe/lrn/dump_lib lists learning protocols; mac_stats has host
+  smac/dmac entries with pkts=0.
+- Implication: the missing unicast-to-CPU rule is IFC/CFE-programmed hardware/DDR state, not a
+  readable-window value. Next: host-side decode of the vendor ifc/l3intf/flow write paths plus
+  command-based dump invocations (e.g. lsw/dp/diag expects echo args before cat), then a targeted
+  IFC replay. The lsw lane has the dump and this list.
+- M1a write probes are closed: tagact entry write is ignored by the mapped window (readback
+  mismatch, auto-reverted) and pfe_glb up_port write changes no CPU delivery (eth2 delta 531 =
+  mirror copies only). Box returned to our image (6.18.60, 2 CPUs, selector 0x11, bootflag b).
+
+LEDGER
