@@ -122,6 +122,16 @@ esac
 if [ "$tp" != b ]; then
 	die "active pair is b (stock is booting from kernelb/rootfsb); this image can only be written to pair b because its cmdline expects rootfsb - recover the stock pair first"
 fi
+# The target pair must be fully inactive: if the stock kernel command line already
+# uses rootfsb (or the env bootflag is b), the UBI device is attached while stock runs
+# and ubiformat /dev/mtd14 fails -> the flash leaves our kernel with the stock rootfs
+# (mixed system: no vendor flash_uuid, wizard/broker dead, no management IP).
+case "$(cat /proc/cmdline)" in
+*rootfsb*) die "stock is running from rootfsb (cmdline uses ubi.mtd=rootfsb); switch stock to pair a first: fw_setenv bootflag a, write 0x10 to /sys/devices/platform/sysenv/boot_reg, reboot, then rerun" ;;
+esac
+if [ "$eflag" = b ]; then
+	die "U-Boot env bootflag=b (stock boots pair b); switch stock to pair a first: fw_setenv bootflag a, write 0x10 to /sys/devices/platform/sysenv/boot_reg, reboot, then rerun"
+fi
 say "stock selector cell $cell -> active pair $ap, write pair $tp (active untouched)"
 case "$tp" in
 a) kdev=/dev/mtd11; rdev=/dev/mtd13 ;;

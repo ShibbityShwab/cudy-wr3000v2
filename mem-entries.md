@@ -27003,3 +27003,26 @@ LEDGER
   build/evidence-bench-gates/w22-fallback/ (partial), /tmp/build-fallback.log, img-fallback.bin.
 
 LEDGER
+
+
+## 2026-11-21 23:00 - Telnet install flashed the ACTIVE pair and failed: after recovery the stock booted from pair b (env bootflag=b), so ubiformat /dev/mtd14 targeted the mounted rootfsb, failed, and the result was again our 6.18 kernel with the vendor rootfs (mixed: no management IP on 192.168.1.1, vendor wizard 403 invalid board info, broker silent). One more physical RESET-hold recovery needed.
+
+- Sequence: recovery #3 restored a consistent vendor pair, but U-Boot logged bootflag b bootreg 11
+  and booted vendor 5.10/rootfsb (the recovery wrote the stock to the active pair b). The web
+  wizard path worked (wizard POST 302, login, systime RCE -> telnetd), and the telnet install
+  wrote kernelb/rootfsb + env bootflag b/cell 0x11. But /dev/mtd14 was the ACTIVE, UBI-attached
+  rootfs: the mtd write/verify succeeded (WR=0 VE=0) while ubiformat /dev/mtd14 silently failed,
+  so the next boot ran our W22 kernel with the vendor rootfsb - the known mixed state.
+- Cause: target-pair selection assumed the inactive pair was b, but after this recovery the ACTIVE
+  pair was b. Earlier successful installs had stock booting pair a.
+- Fix: tools/stock-telnet-install.sh now refuses when the stock cmdline already uses rootfsb (UBI
+  attached) or when the U-Boot env bootflag is b, with the exact two-stage instruction (switch
+  stock to pair a: fw_setenv bootflag a + boot_reg 0x10 + reboot, then rerun).
+- Recovery/install plan: physical RESET-hold -> consistent vendor -> web wizard/RCE (proven on
+  consistent vendor) -> switch stock to pair a (env a + cell 0x10 + reboot) -> web RCE again ->
+  install pair b (inactive, ubiformat clean) atomically -> boot W22 and verify. The fallback-image
+  test remains blocked behind this procedure; W22 canonical image 50023446 was verified earlier
+  and remains the intended baseline.
+- Box now mixed; stock pair a vendor/intact; recovery door armed.
+
+LEDGER
