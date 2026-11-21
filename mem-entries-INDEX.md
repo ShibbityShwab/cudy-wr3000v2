@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 18:30 - W19 post-link mirror works mechanically (applied every 2 s, pre/post stable) but dst 8 is NOT the CPU port: ARP answered, ICMP 98 B never reaches the CPU | `mem-entries.md:25778` |
 | 2026-11-20 |  | 2026-11-20 18:40 - DWELL SWEEP IDENTIFIES THE CPU PORT: mirror destination 4. Host ICMP then arrives as NORMAL-path completions (status=0, port=0) which our driver drops because port 0 has no netdev | `mem-entries.md:25802` |
 | 2026-11-20 |  | 2026-11-20 18:55 - WORKING DATA PATH: our OpenWrt 6.18 image passes SSH and sustained ping with a persistent UBIFS overlay (mirror dst=4 + port-0 CPU-copy delivery) | `mem-entries.md:25826` |
 | 2026-11-20 |  | 2026-11-20 19:15 - reboot from our working image falls back to stock slot A: boot-selector/env handling is not implemented in our 6.18 userspace (overlay persistence across reboot untestable until fixed) | `mem-entries.md:25850` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 18:35 - Upstream: switch binding MMIO-first adopted into the series, review form rerun PASS, ONE blocker left (flashinfo loader acceptance); flashinfo test image pre-built. Native-forwarding refined: E0-a status=37 is the exception/punt class, IP death is missing unicast-to-CPU coverage. | `mem-entries.md:26666` |
 | 2026-11-21 |  | 2026-11-21 18:55 - Recovery succeeded but the subsequent handover left a MIXED kernel/userland system: our 6.18 kernel (cmdline luofu_switch.*) booted with the stock 5.10 rootfs (rootfsb). Stock LuCI then refuses the wizard ("Invalid board info!", bdinfo checkuuid needs the vendor kernel's /proc/sys/dev/flash_uuid) and the MQTT broker path is silent. | `mem-entries.md:26696` |
 | 2026-11-21 |  | 2026-11-21 19:05 - FLASHINFO LOADER TEST PASSED over the broker channel: the loader accepts hisilicon,luofu-flashinfo first, performs the full staging handoff and boots our image with 2 CPUs - the last upstream blocker is closed (zero blockers). | `mem-entries.md:26722` |
+| 2026-11-21 |  | 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11. | `mem-entries.md:26732` |
 
 ## All dated entries
 
@@ -736,3 +736,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 18:35 - Upstream: switch binding MMIO-first adopted into the series, review form rerun PASS, ONE blocker left (flashinfo loader acceptance); flashinfo test image pre-built. Native-forwarding refined: E0-a status=37 is the exception/punt class, IP death is missing unicast-to-CPU coverage. | `mem-entries.md:26666` |
 | 2026-11-21 |  | 2026-11-21 18:55 - Recovery succeeded but the subsequent handover left a MIXED kernel/userland system: our 6.18 kernel (cmdline luofu_switch.*) booted with the stock 5.10 rootfs (rootfsb). Stock LuCI then refuses the wizard ("Invalid board info!", bdinfo checkuuid needs the vendor kernel's /proc/sys/dev/flash_uuid) and the MQTT broker path is silent. | `mem-entries.md:26696` |
 | 2026-11-21 |  | 2026-11-21 19:05 - FLASHINFO LOADER TEST PASSED over the broker channel: the loader accepts hisilicon,luofu-flashinfo first, performs the full staging handoff and boots our image with 2 CPUs - the last upstream blocker is closed (zero blockers). | `mem-entries.md:26722` |
+| 2026-11-21 |  | 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11. | `mem-entries.md:26732` |

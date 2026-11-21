@@ -26728,3 +26728,30 @@ LEDGER
 - Board now runs image 6e9c54d0 (6.18.60, 2 CPUs, TWD Level, selector 0x11); stock pair a remains intact (bootflag a / boot_reg 0x10, vendor 5.10.201). Next: E0-b read-only classifier capture on this baseline, then reinstall the final adopted baseline once the upstream artifacts are regenerated.
 
 LEDGER
+
+## 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11.
+
+- Ours: image 6e9c54d0, 6.18.60 2 CPUs, cmdline ubi.mtd=rootfsb, selector 0x11, capture in
+  build/evidence-bench-gates/e0b-ours/ (9488 words, 0 read failures). Stock: vendor 5.10.201 on
+  pair a (bootflag a, boot_reg 0x10) - reached by writing env bootflag=a + selector 0x10 from our
+  image (installed stock fw_printenv into /tmp with /etc/fw_env.config for enva/envb) and rebooting;
+  capture pulled back over the bench LAN (port 8000, capture.tar.gz sha256 2e2475db..., regs.txt
+  sha256 f1b62767..., 9488 words, 0 failures) and the box returned to our image (env bootflag b,
+  selector 0x11).
+- diff-captures.py: 30 candidates, 72 counter rows, 1 note. Key stock-only state we lack:
+  tagact entry 1 at 0x124d4010 w1=0x0000c000 (strongest CPU-punt candidate; ours has no nonzero
+  tagact entries); pfe_glb+0x2c high16 0x1000 (exact justified write, matches the decoded
+  write_glb_attr(0)); EQM 0x11200048..0x70 config; NAPT 0x12280050..0x12280170 config (planner
+  refuses NAPT/DDR by name); large L2 0x121c0000.. differences (stock CFE-programmed state, no
+  Linux writer - the expected home of the unicast-to-CPU/bridge-MAC mapping, still read-only);
+  PIE config words also differ.
+- Results written up in opensource/docs/incoming/lsw-forwarding/E0B-RESULTS.md. Next hardware step
+  (M1a): reviewed fail-closed write of ONLY pfe_glb+0x2c high16 0x1000 + tagact entry 1, then a
+  host ping with the mirror kept for management, looking for an extra native 98-byte completion on
+  port 11; EQM/NAPT/L2 replay stays blocked until decoded. The lsw lane has been asked for the
+  analysis/write-review using these captures.
+- Upstream: zero blockers (submodule 123ca0a; DTS 381b2e8, DTS-0001 886f3ad0, DTB 12678/pad 12680,
+  validator PASS, submission MANIFEST a70d7cc7); parent pointer bump + curated resync pending in
+  this round.
+
+LEDGER
