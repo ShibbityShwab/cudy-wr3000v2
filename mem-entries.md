@@ -27049,3 +27049,26 @@ LEDGER
   document), M1b per-port/LAN-to-LAN with cable moves, final curated resync + STATUS/release note.
 
 LEDGER
+
+
+## 2026-11-22 00:35 - 15-min W22 soak PASS (900/900, 0% loss, 0 errors). Fallback-image test went wrong again (build/cmdline caching suspected, then no management IP); box needs one more physical RESET-hold recovery. The fallback path will be documented as a known limitation rather than a formal bench step.
+
+- Soak: 900 pings at 1 s, 900/900 received, 0% loss, 0 errors, W22 init logged once; box was healthy
+  before the fallback test.
+- Fallback test procedure: switched the W22 box to stock pair a (env a/cell 0x10, verified), then
+  broker-flashed img-fallback.bin (15905877) to the inactive pair b with atomic env+reboot.
+  ubiformat and FIRE_OK appeared, but the boot cmdline was the W22 canonical one (naptinit=1, no
+  mirror tokens) -> the "fallback" build did not actually embed the fallback command line
+  (OpenWrt kernel config cache: removing build_dir/linux-* is not enough; prepare stamp reuses the
+  generated config). Worse, the resulting boot had no management IP on 192.168.1.1 or
+  192.168.10.1 despite br-lan/link-up (UART shows pie-trace RX status=37 but no RXEXC deliveries),
+  so the box is unreachable remotely again.
+- Lesson: (a) the fallback image must be validated by extracting the kernel cmdline from the built
+  kernel/FIP before flashing (string check), not just the config file; (b) the fallback test is NOT
+  worth another recovery cycle - W22 canonical is the verified baseline and the fallback remains a
+  source-level option documented with naptinit=0; record it as untested-by-design.
+- Next: one physical RESET-hold recovery; then reinstall W22 canonical once via the proven
+  two-stage procedure (stock -> pair a -> broker write pair b atomic), and move on to M1b with the
+  user at the bench (cable moves). No further fallback cycles.
+
+LEDGER
