@@ -26317,3 +26317,23 @@ Next: user physical confirmation of LED light + reset/WPS button events; multi-p
 regenerate DTS-0001 with the board nodes (lane); Wi-Fi stays unsupported on 6.18 (lane report).
 
 LEDGER
+
+## 2026-11-21 14:05 - Install-path finding: stock vendor image has no SSH/dropbear/opkg, so the automated first-install tool cannot run as written; manual path re-verified with quiet image 7421bb7a.
+
+- Re-verified the manual stock-mediated install end to end today: stock telnet -> mtd write kernelb
+  (sha 5632ccdb...), ubiformat rootfsb (part sha 52977160...), selector cell 0x11, reboot -> our
+  6.18 quiet image with 2 CPUs online 0-1, six oem:green LEDs and /dev/input/event0 present.
+- tools/first-install-stock.sh (host-side, fail-closed) requires tools/rsh.sh/rscp.sh (SSH key auth
+  to stock). The vendor image has no dropbear and no opkg (opkg: not found), and pushing our target
+  dropbear to /tmp fails at host-key generation ("Early exit: Bad buf_getptr"), so SSH cannot be
+  provisioned that way. The tool's rootfs read-back is a binary dd stream, not transportable over
+  telnet. Closing the automated install gate needs either a working SSH server on stock or a
+  telnet+base64 binary-safe transport in the tool.
+- Selector behaviour observed: writing next_pair a from OUR image works (raw cell 0x10), but the
+  boot-pair recorder re-records the running pair on the next boot, so a warm reboot can come back
+  to pair B; the reliable stock switch is the stock-side cell write + stock reboot used today.
+- Feature-inventory corrections recorded: LEDs/keys/watchdog working; MAC plan vendor-intended (not
+  a blocker); thermal unsupported (sensor reads 0, vendor DT disables it); Wi-Fi unsupported on 6.18
+  without GPL source.
+
+LEDGER

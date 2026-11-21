@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no | `mem-entries.md:25302` |
 | 2026-11-20 |  | 2026-11-20 10:00 - Cold-boot SMP test: same consumed=no; CPU1 does not consume the pen on cold or warm boot | `mem-entries.md:25331` |
 | 2026-11-20 |  | 2026-11-20 10:20 - Image 6cb3d908 built: PFE forwarding-engine base init W8 (036) + SMP loader-window reserve test (037) | `mem-entries.md:25351` |
 | 2026-11-20 |  | 2026-11-20 10:35 - W8 PFE base init verified; tier counters fixed; traffic still dead; reserve_low1m does not revive CPU1 | `mem-entries.md:25368` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress. | `mem-entries.md:26246` |
 | 2026-11-21 |  | 2026-11-21 13:35 - LEDs + buttons + watchdog sysfs brought up on hardware (image 7f270b8c); unaligned-DTB gate-word bug found and fixed. | `mem-entries.md:26272` |
 | 2026-11-21 |  | 2026-11-21 13:50 - Quiet canonical image 7421bb7a: periodic W17/W19/HB dmesg spam removed; thermal ENODATA root-caused; LEDs/keys/watchdog verified. | `mem-entries.md:26301` |
+| 2026-11-21 |  | 2026-11-21 14:05 - Install-path finding: stock vendor image has no SSH/dropbear/opkg, so the automated first-install tool cannot run as written; manual path re-verified with quiet image 7421bb7a. | `mem-entries.md:26321` |
 
 ## All dated entries
 
@@ -716,3 +716,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress. | `mem-entries.md:26246` |
 | 2026-11-21 |  | 2026-11-21 13:35 - LEDs + buttons + watchdog sysfs brought up on hardware (image 7f270b8c); unaligned-DTB gate-word bug found and fixed. | `mem-entries.md:26272` |
 | 2026-11-21 |  | 2026-11-21 13:50 - Quiet canonical image 7421bb7a: periodic W17/W19/HB dmesg spam removed; thermal ENODATA root-caused; LEDs/keys/watchdog verified. | `mem-entries.md:26301` |
+| 2026-11-21 |  | 2026-11-21 14:05 - Install-path finding: stock vendor image has no SSH/dropbear/opkg, so the automated first-install tool cannot run as written; manual path re-verified with quiet image 7421bb7a. | `mem-entries.md:26321` |
