@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-21 12:55 +07
+**Updated:** 2026-11-21 17:15 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -920,40 +920,29 @@ submission-ready.
 
 ## 4. Next action
 
-**Phase: finish the project - board feature bring-up on the working 2-CPU baseline.**
-The bring-up is no longer the gate: 2 CPUs, wired LAN (documented CPU-copy workaround), SSH,
-persistent overlay and storage are verified; the bench box runs the canonical image. Work now
-splits into host/remote tasks (no physical action needed) and attended bench tasks.
+**Current phase (2026-11-21): baseline complete; three high-impact tracks running in parallel.**
+Verified working baseline: image 7421bb7a - 2 CPUs, single-port LAN (documented CPU-copy mirror
+workaround), SSH, persistent overlay, FMC NAND/UBI, all six LEDs (visual), RESET+WPS buttons
+(event-captured), watchdog armed/serviced by procd, automated stock-telnet install verified.
+Inventory decisions: thermal unsupported (sensor reads 0, vendor DT disables it), Wi-Fi
+unsupported on 6.18 without vendor source (option C), RTC/I2C/USB absent, SPI NAND-only.
+Multi-port LAN/WAN: the CPU-copy source-port experiment was NEGATIVE (completions port=0/vport=0,
+no source id) -> native L2/VLAN hardware bridge is the only path.
 
-1. **Repo/publish consolidation (host-only).** Curated publish repos (cudy-wr3000v2-openwrt,
-   cudy-wr3000v2-cve, this notebook) are stale relative to the release line (submodule c7ffeeb).
-   Sync them, refresh public READMEs/release notes, keep vendor binaries and secrets out, and
-   record the still-open history-purge item from opensource/docs/PUBLISH-READINESS.md. No new
-   upstream submission until the DTS bindings cleanup is done.
-2. **Device feature inventory (remote, read-only over SSH).** Enumerate what the canonical image
-   exposes: /sys/class/leds, gpiochips, input devices/keys, thermal zones, watchdog, RTC,
-   I2C/SPI buses and devices, USB, PCIe, MDIO/PHYs, MTD/UBI layout, netdevs per MAC (eth0/1/2/3),
-   Wi-Fi interfaces. Produce a feature matrix with [V]/[U]/[X] per feature and the missing
-   DT/driver item for each.
-3. **Vendor-DT extraction + incremental board DTS add-ons (remote + host).** Extract the stock
-   base DTB nodes we have not modelled (LEDs/GPIO, keys, thermal zone, USB, PCIe, I2C/SPI,
-   Wi-Fi, PHY/MDIO, watchdog/NAND glue) from local vendor DTB/dump evidence, add them to
-   target-skeleton/dts/luofu-r116.dts one feature at a time, build, install (stock-mediated path)
-   and verify on hardware. Keep each change revertible and documented.
-4. **Wi-Fi (Hi5622) feasibility, then optional bring-up.** The vendor driver exists only for the
-   vendor 5.10 tree; decide between porting it to 6.18 (large), a hybrid stock-userspace path, or
-   documenting it unsupported for now. Start from the local vendor driver/DTS evidence and a
-   scoped plan; no deadline promises.
-5. **Native switch forwarding (separate project).** The bench LAN uses the documented CPU-copy
-   mirror + port-0 delivery workaround. Native CFE-equivalent L2/VLAN forwarding is the hardware
-   bridge/table work in opensource/docs/LSW-SPEC.md; keep it independent and do not block other
-   features on it.
-6. **Attended bench tasks (human at the box):** exercise all LAN ports/WAN PHY with cables,
-   LEDs/buttons, install/upgrade path end-to-end (A/B validation), and any test that can wedge
-   the box (recovery card armed first, UART capture running).
-7. **Upstream path (later):** finish the draft DTS bindings cleanup (DTS-0001 is TODO-heavy; only
-   the loader hand-off nodes are final), then rerun the release-line validator and checkpatch
-   before any submission; no upstream review exists yet.
+Parallel tracks now:
+1. **Native L2/VLAN forwarding** (largest functional gap; lane lsw-re-spec): design + first
+   artifacts for hardware bridging (port VLAN/forwarding tables, CPU tagging, bring-up plan);
+   blockers documented in MULTI-PORT-PLAN.md / LSW-SPEC.md.
+2. **Upstream blocker reduction** (lane upstream-series): flashinfo binding, 6.18-compatible MAC
+   provisioning (replace v6.19 nvmem cells), switch reg-names reorder, compatible ordering/board
+   metadata, draft-driver sanity list; TWD PPI29 GIC measurement done (ICFGR1 field 0b11 read-only;
+   LEVEL_HIGH convention recommended; flag flip is a boot-tested delta). Submission package exists
+   under upstream/series-6.18/submission/ but is intentionally NOT sent (no Tested-by claims).
+3. **History-purge preparation** (lane publish-prep): owner-safe runbook + dry-run for the legacy
+   public repo (10 vendor .o blobs in history + second branch); owner-only force-push/cache purge.
+
+Backlog after the tracks: install/watchdog/LED/button evidence is recorded; remaining actions are
+owner-physical only if the native-bridge bring-up needs cable moves on other jacks.
 
 ## 5. Reading the console (read-only)
 
