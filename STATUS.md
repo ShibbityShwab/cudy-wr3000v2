@@ -899,7 +899,7 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
 
 - **6.18 release line consolidated + independently validated (2026-11-21).** Submodule commit adds
   upstream/series-6.18/05-release-line.md, release-line/manifest.tsv (62 patches: 51 include,
-  11 bench diagnostics excluded, sha256 checked) and tools/check-release-line.sh. The loader hand-off
+  11 bench diagnostics excluded, sha256 checked) and opensource/upstream/series-6.18/tools/check-release-line.sh. The loader hand-off
   DTS contract is recorded as THE SMP fix; canonical 2-CPU baseline is image 974e6ca6. Independent
   validator run: patch(1) 51/51 RC=0, 0 rejects; DTS cpp+dtc RC=0, DTB 12296 B sha256 50daf3d0...,
   console/flashinfo/enable-method contract present. 0018 regenerated to state the DTS dependency;
