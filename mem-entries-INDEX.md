@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 18:55 - WORKING DATA PATH: our OpenWrt 6.18 image passes SSH and sustained ping with a persistent UBIFS overlay (mirror dst=4 + port-0 CPU-copy delivery) | `mem-entries.md:25826` |
 | 2026-11-20 |  | 2026-11-20 19:15 - reboot from our working image falls back to stock slot A: boot-selector/env handling is not implemented in our 6.18 userspace (overlay persistence across reboot untestable until fixed) | `mem-entries.md:25850` |
 | 2026-11-20 |  | 2026-11-20 20:20 - development acceleration base: live /dev/mem MMIO over SSH, baked boot-pair recorder (reboot+overlay persistence [V]), automated install path; plus one incident (slot-A kernel push -> silent box -> recovery) | `mem-entries.md:25870` |
 | 2026-11-20 |  | 2026-11-20 20:35 - first live-MMIO diagnostics on the DEVMEM image: full SCU/GIC/SYSCTRL/CRG/PIE state read over SSH, pen mismatch confirmed | `mem-entries.md:25900` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 19:05 - FLASHINFO LOADER TEST PASSED over the broker channel: the loader accepts hisilicon,luofu-flashinfo first, performs the full staging handoff and boots our image with 2 CPUs - the last upstream blocker is closed (zero blockers). | `mem-entries.md:26722` |
 | 2026-11-21 |  | 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11. | `mem-entries.md:26732` |
 | 2026-11-21 |  | 2026-11-21 19:55 - E0-b decode + reviewed M1a probes: tagact entry 1 is a tag-DELETE action (not CPU-punt), L2 diffs are DFX counters, pfe_glb+0x2c is a flow-engine uplink attribute - write replays expected null; the decisive next step is the read-only stock decoded procfs capture. | `mem-entries.md:26759` |
+| 2026-11-21 |  | 2026-11-21 20:10 - M1a replay probes both NULL: tagact entry write is ignored by the hardware (readback mismatch, auto-reverted) and the pfe_glb up_port write succeeds but changes no CPU delivery (eth2 delta stays 531 = mirror copies only). Write experiments stop; the decisive next step is the read-only stock procfs decoded-table capture. | `mem-entries.md:26783` |
 
 ## All dated entries
 
@@ -738,3 +738,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 19:05 - FLASHINFO LOADER TEST PASSED over the broker channel: the loader accepts hisilicon,luofu-flashinfo first, performs the full staging handoff and boots our image with 2 CPUs - the last upstream blocker is closed (zero blockers). | `mem-entries.md:26722` |
 | 2026-11-21 |  | 2026-11-21 19:35 - E0-b complete: read-only stock-vs-ours runtime captures (9,488 words each) and the classifier diff are captured; box is back on our image with env bootflag=b / selector 0x11. | `mem-entries.md:26732` |
 | 2026-11-21 |  | 2026-11-21 19:55 - E0-b decode + reviewed M1a probes: tagact entry 1 is a tag-DELETE action (not CPU-punt), L2 diffs are DFX counters, pfe_glb+0x2c is a flow-engine uplink attribute - write replays expected null; the decisive next step is the read-only stock decoded procfs capture. | `mem-entries.md:26759` |
+| 2026-11-21 |  | 2026-11-21 20:10 - M1a replay probes both NULL: tagact entry write is ignored by the hardware (readback mismatch, auto-reverted) and the pfe_glb up_port write succeeds but changes no CPU delivery (eth2 delta stays 531 = mirror copies only). Write experiments stop; the decisive next step is the read-only stock procfs decoded-table capture. | `mem-entries.md:26783` |

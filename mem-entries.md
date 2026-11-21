@@ -26779,3 +26779,24 @@ LEDGER
   consistent, env+selector procedure verified, recovery door armed).
 
 LEDGER
+
+## 2026-11-21 20:10 - M1a replay probes both NULL: tagact entry write is ignored by the hardware (readback mismatch, auto-reverted) and the pfe_glb up_port write succeeds but changes no CPU delivery (eth2 delta stays 531 = mirror copies only). Write experiments stop; the decisive next step is the read-only stock procfs decoded-table capture.
+
+- Probe A (tagact entry 1, 4 words at 0x124d4010): the planner/apply scripts ran fail-closed; word 0
+  wrote fine (same value), word 1 at 0x124d4014 wrote 0xc000 but read back 0x0 -> the table window
+  is not writable as mapped in our kernel; the script reverted immediately and the 90 s auto-revert
+  was armed. eth2_rx_packets delta over the 500-ping window = 531, identical to baseline.
+- Probe B (pfe_glb+0x2c = 0x10000034): write succeeded and read back; eth2 delta again 531 (baseline
+  531) -> no native duplicate delivery, confirming the decode (flow-engine up_port attribute, not
+  CPU delivery). Reverted; box healthy, selector 0x11, no Oops/BUG/panic.
+- Evidence: build/evidence-bench-gates/e0b-m1a/ (scripts sha, baseline/probe plans, applies,
+  observations, pings, reverts). The tagact write-ignore is itself informative: to replay vendor
+  state we either need the correct window write-enable/gating or the state is genuinely absent from
+  our readable windows (the m1a/SESSION.md decision gate says stop writing after null results).
+- NEXT (read-only, per runbook): boot the consistent stock pair and capture the vendor decoded
+  procfs tables: /proc/hsan/lsw/table/tagact, l3intf, ifc, glb_attr, flow_cnt,
+  /proc/hsan/lsw/pfe/tocpu_cnt, drop_cnt, /proc/hsan/cfe/intf/br_dump, /proc/hsan/cfe/table/flow,
+  mac_stats; then decode ifc_write/l3intf_write host-side for our own CPU-punt programming. The
+  box is switched to stock for that capture and returned to our image afterwards.
+
+LEDGER
