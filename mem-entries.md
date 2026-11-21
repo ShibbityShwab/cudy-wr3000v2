@@ -26494,3 +26494,18 @@ LEDGER
   fa76c97 (submodule c931c74); curated-sync lane re-dispatched with /home-based workdirs.
 
 LEDGER
+
+## 2026-11-21 16:35 - Physical verification: all six LEDs confirmed lit by the user; RESET button press captured as EV_KEY KEY_RESTART.
+
+- LEDs: the user confirmed visually that all six oem:green:{status,wan,lan,internet,wifi,wifi5g} LEDs
+  were lit when driven to brightness=1 (GPIO map 24/25/3/2/0/1, active-low). They were then set back
+  to brightness=0 (all off). LED output path is now [V] visually, not just sysfs.
+- RESET button: /dev/input/event0 capture decoded as EV_KEY KEY_RESTART (code 0x198) press
+  (value=1) + SYNC + release (value=0) + SYNC, 64 bytes total. Evidence:
+  build/evidence-bench-gates/buttons/reset-button-events.bin (sha256
+  ca63db90214f5f26ff5bd3a050055183d1137f7367bd910b22387c0d54dddcfa) and -decode.txt.
+- WPS button: capture armed next; a press is still needed to verify KEY_WPS_BUTTON (0x211).
+- The known-good image 7421bb7a is installed and healthy (2 CPUs, no kernel errors, selector 0x11,
+  stock pair A intact, recovery armed).
+
+LEDGER

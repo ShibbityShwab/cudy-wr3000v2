@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead | `mem-entries.md:25485` |
 | 2026-11-20 |  | 2026-11-20 13:10 - W10 IFC default-classification table programmed and verified on hardware; full W3-W10 chain armed; heartbeat stable; traffic still dead | `mem-entries.md:25505` |
 | 2026-11-20 |  | 2026-11-20 13:35 - W11 stock-vs-ours LSW diff: found a wrong W10 tab128 value set + 16 unprogrammed EPS channel-map words + dp+0x1c difference | `mem-entries.md:25532` |
 | 2026-11-20 |  | 2026-11-20 13:50 - W12 verified: corrected W10 tab128 slots/allocator id + stock EPS/DP words; full W3-W12 chain armed; heartbeat stable; traffic STILL dead | `mem-entries.md:25558` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 15:20 - Multi-port Ethernet analysis: far-right jack is a LAN port; CPU-copy path reports port 0 and has no confirmed source-port id, so a per-port delivery decision needs the documented RX-source experiment or the native bridge. | `mem-entries.md:26432` |
 | 2026-11-21 |  | 2026-11-21 15:35 - Multi-port probe image built and staged (a91ebcf0): mirror source-port mask parameter + RXDIAG cmdline tokens, ready for the source-port experiment when the cable is back on eth2. | `mem-entries.md:26454` |
 | 2026-11-21 |  | 2026-11-21 16:20 - Multi-port source-port experiment RESULT: no source identifier in CPU-copy completions -> native L2/VLAN bridge is required for multi-port LAN/WAN. | `mem-entries.md:26473` |
+| 2026-11-21 |  | 2026-11-21 16:35 - Physical verification: all six LEDs confirmed lit by the user; RESET button press captured as EV_KEY KEY_RESTART. | `mem-entries.md:26498` |
 
 ## All dated entries
 
@@ -724,3 +724,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 15:20 - Multi-port Ethernet analysis: far-right jack is a LAN port; CPU-copy path reports port 0 and has no confirmed source-port id, so a per-port delivery decision needs the documented RX-source experiment or the native bridge. | `mem-entries.md:26432` |
 | 2026-11-21 |  | 2026-11-21 15:35 - Multi-port probe image built and staged (a91ebcf0): mirror source-port mask parameter + RXDIAG cmdline tokens, ready for the source-port experiment when the cable is back on eth2. | `mem-entries.md:26454` |
 | 2026-11-21 |  | 2026-11-21 16:20 - Multi-port source-port experiment RESULT: no source identifier in CPU-copy completions -> native L2/VLAN bridge is required for multi-port LAN/WAN. | `mem-entries.md:26473` |
+| 2026-11-21 |  | 2026-11-21 16:35 - Physical verification: all six LEDs confirmed lit by the user; RESET button press captured as EV_KEY KEY_RESTART. | `mem-entries.md:26498` |
