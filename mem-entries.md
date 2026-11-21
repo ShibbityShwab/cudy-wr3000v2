@@ -27205,3 +27205,29 @@ LEDGER
 - Box returned to the W22 image (6.18.60, 2 CPUs, selector 0x11) after the stock dump; recovery door armed. Curated resync will follow once the CFE/thermal docs land.
 
 LEDGER
+
+## 2026-11-22 03:20 - W23 thermal fix integrated and bench-PROVEN: gate off raw=0/ENODATA; enable -> raw 0x25e = 59000 mC (formula exact), registers match, no IRQ, 0 warnings; CPU load 59->63 C with cooling. Release line now L0 66 / L1 55 (manifest 2bb7413e), validator PASS 55/55, target build PASS. Stock routed-phase dump captured for the CFE lane (box-terminated traffic -> flow arenas empty, explained; true forwarded-traffic recipe recorded).
+
+- W23 patches 066 (luofu_tvsensor driver: hwver-3/v1 read path, variant formulas, gated
+  enable/trim sequence, module param gate default 0) and 067 (binding 0x408 window + vendor
+  properties) staged into the release line; release DTS thermal node updated; L0 66 / L1 55,
+  manifest sha256 2bb7413e8291214fe09ccd84920166fc668ae72007dcbcc91727bb29e30eea70; validator
+  PASS (55/55 patch(1), 0 fuzz/rejects, strict git apply 55/55), DTS contract unchanged; the
+  release-line-only DTS delta is intentional (L2 review form and DTS-0001 not regenerated).
+- Built image 5aeca54801f69715a7dca7c3046f783f0745c1aeb47f9cb55c73d04577743e0f flashed to pair b
+  (env b + selector 0x11 verified).  Boot: 6.18.60, 2 CPUs, W22 naptinit intact, dmesg
+  "luofu-tvsensor ... registered: hwver=3 enable=0".  Gate off: raw=0x0, thermal zone ENODATA.
+  Enable: raw=0x25e, temp 59000 mC; regs 0x00=0x01000000 0x04=0x25e 0x08=0x3ff0039a
+  0x0c=0x0 0x10=0x3 0x400=0xffff0001; devmem cross-check equal; no IRQ registered; no
+  spurious/Oops/BUG/WARNING lines.  Load test: 59 -> 63 C under 2 CPU hogs, cooling observed.
+  Evidence build/evidence-bench-gates/w23/ (gitignored).
+- Stock CFE routed phase captured and sent to the lsw lane: the traffic was box-terminated
+  (DHCP/ICMP/HTTP to/from the box), so the flow arenas stayed empty (0 bytes changed vs p0) -
+  explained, not a failure; p0==p2==routed==W22 flow window byte-identical is the strongest W22
+  validation.  The lane's netns recipe for true LAN->WAN forwarded traffic is recorded for a
+  follow-up M2 probe.
+- Docs updated: 00-cover row 18, 04-validation section 30, 05-release-line section 7 + counts
+  (27+22+6=55, 11 excluded=66), RELEASE-NOTES/README thermal rows + W23 section, STATUS.
+  check-repo PASS.  Remaining external items: history purge, curated resync, upstream submission.
+
+LEDGER

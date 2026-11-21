@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-22 02:20 +07
+**Updated:** 2026-11-22 03:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -920,15 +920,15 @@ submission-ready.
 
 ## 4. Next action
 
-**Current phase (2026-11-22): W22 native multi-port networking fully verified - LAN, LAN-to-LAN and WAN.**
-Release line carries patches 059/060 (L0 64 / L1 53, manifest 619eb15a...); canonical image 50023446
-boots with no mirror tokens: 6.18.60, 2 CPUs, W22 NAPT init verified, ping/SSH, 15-min soak 900/900
-0% loss, link-flap recovery, per-port native delivery on all four jacks (eth0/9, eth1/10, eth2/11,
-eth3/12), LAN-to-LAN forwarding through the software bridge proven both directions on eth2<->eth0 and
-eth2<->eth1, and the WAN L3 path proven (DHCP lease 192.168.50.115 from a host server, default route,
-ICMP both ways). Remaining work is owner-only or out of scope: history purge (runbook ready; item 1
-unchecked), upstream submission package complete with ZERO blockers but intentionally not sent,
-Wi-Fi/thermal unsupported by design. No bench items remain.
+**Current phase (2026-11-22): W23 thermal fix bench-proven; W22 native networking fully verified.**
+The canonical image now carries patches 066/067 (thermal: hwver-3/v1 path, gated enable) together
+with W22 (059/060): L0 66 / L1 55, manifest 2bb7413e...; validator PASS (55/55).  Bench (image
+5aeca548): gate off -> raw 0 / ENODATA; enable -> raw 0x25e = 59000 mC, registers match, no IRQ,
+load 63 C and cooling.  W22/W23 release-line only: L2 upstream review form and DTS-0001 are
+intentionally not regenerated; the release DTS thermal delta stays release-line-only.  Remaining:
+owner-only history purge, optional M2 flow-offload probe (needs true forwarded traffic; see
+lsw-forwarding/cfe/), upstream submission package complete with ZERO blockers but intentionally
+not sent; Wi-Fi still blocked on vendor GPL source; USB/RTC/NFC absent.
 
 ## 5. Reading the console (read-only)
 
