@@ -27072,3 +27072,18 @@ LEDGER
   user at the bench (cable moves). No further fallback cycles.
 
 LEDGER
+
+## 2026-11-22 00:55 - W22 canonical re-installed and verified after recovery #5 using the two-stage procedure (stock pair a -> broker write inactive pair b atomic). Box healthy: 6.18.60, 2 CPUs, naptinit=1, no mirror tokens, W22 init verified, 0 errors. M1b per-port native delivery test starting with cable moves.
+
+- Recovery #5 (RESET-hold + TFTP) -> consistent vendor 5.10 pair b, wizard valid, broker root works.
+- Two-stage install: broker set env bootflag=a + boot_reg 0x10 + reboot (UART bootflag a bootreg 10
+  vendor kernel verified); then broker wget+sha+mtd write kernelb+ubiformat mtd14 (full output) +
+  env bootflag=b/cell 0x11 + sync+reboot in one command. Boot: bootflag b bootreg 11 -> Linux
+  6.18.60, W22 NAPT init verified, 2 CPUs, TSC/selector 0x11, no mirror tokens, 0 errors.
+- Fallback-image test is retired as untested-by-design (build-cmdline-cache mistake found; W22
+  canonical is the release baseline; fallback remains a source option).
+- M1b plan: move the bench cable from eth2 to each LAN jack one at a time (eth0/eth1/eth3), ping
+  200 from the host, read per-netdev rx counters + RXDIAG; then LAN-to-LAN needs a second host/NIC
+  (may stay open). UART capture label m1b armed; evidence dir build/evidence-bench-gates/m1b/.
+
+LEDGER
