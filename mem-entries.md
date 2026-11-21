@@ -27254,3 +27254,24 @@ LEDGER
   intact; recovery door armed.
 
 LEDGER
+
+## 2026-11-22 04:15 - SESSION CLOSE-OUT: full-reversal program at its accessible ceiling; W23 thermal bench-proven and published; M2 hardware offload closed; curated repo final at 4bd4360 (324 files, all checks PASS). Bench torn down (stale HTTP killed; no TFTP/UART writers); box final: W23 image, 6.18.60, 2 CPUs, naptinit=1, thermal gate 0, selector 0x11, 0 errors.
+
+- Published: curated /home/shibbityshwab/repos/cudy-wr3000v2-openwrt = 4bd4360 (65 commits, 324 files, 0
+  blobs in history). Checks: release-line validator PASS 55/55 (0 fuzz/rejects; DTB 12,846 B
+  296b838d, pad 12,848 B 37b58643; DTS-0001 intentionally pre-W23), gen-series --check PASS
+  (26 review-form patches unchanged), sha256sums 93/93, submission MANIFEST 102/102, mocked tests
+  94/94 + 103/103 + 77/77, fresh-clone verified. Notebook pin: parent c0dbf70 / submodule a0aa6b1
+  (this entry adds one more docs commit).
+- Reversal coverage: boot chain/loader/recovery/upgrade fully decoded (recovery.bin = signed vendor
+  image; RSA scheme reproduced; no custom recovery without vendor key); switch forwarding engine
+  decoded and W22 vendor-init byte-identical (tagact/l3intf/nhp real writes decoded; NAPT DDR flow
+  cache empty even under true forwarded NAT -> M2-A CLOSED, M2-B documentation only); vendor
+  userspace fully decompiled (323 LuaQ files); thermal fixed and bench-proven (W23); Wi-Fi blocked on
+  closed firmware/vendor ABI; USB/RTC/NFC absent; documented-opaque: some libhi_* handlers, HSLINK
+  wire format, cloud server side, crypt KDF, factory bdinfo generation, eFuse secure-boot state.
+- Owner-only remaining: history purge (PUBLISH-READINESS item 1 unchecked; legacy repo public,
+  branch omo/phase22-hccaccept still serves a vendor .o), upstream submission (complete, zero
+  blockers, intentionally not sent), normal next-session hygiene.
+
+LEDGER
