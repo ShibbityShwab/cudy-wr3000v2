@@ -26540,3 +26540,20 @@ LEDGER
   stock pair A intact, recovery armed.
 
 LEDGER
+
+## 2026-11-21 17:10 - Upstream blocker #6 (TWD timer IRQ flags): hardware read done on the unit - GICD_ICFGR1 for TWD PPI13/ID29 reads 0b11 (read-only SoC-fixed); standard A9 DTs use LEVEL_HIGH.
+
+- Read on the known-good image 7421bb7a (GICD base 0x10181000): GICD_CTLR=0x00000001,
+  GICD_TYPER=0x0000fc25, GICD_ICFGR0=0xaaaaaaaa, GICD_ICFGR1=0x7dc00000, GICD_ICFGR2=0x55555555.
+  /proc/interrupts: "GIC-0 29 Edge twd". ID 29 field (bits 27:26 of ICFGR1) = 0b11, a
+  nonstandard/reserved encoding, but GIC-400 PPI configuration is read-only/fixed by the SoC
+  integration, so the DT flag cannot change the hardware.
+- Standard Cortex-A9 platforms (e.g. vexpress-v2p-ca9) describe the TWD timer with
+  IRQ_TYPE_LEVEL_HIGH; recommendation to the upstream lane: document the measured read-only value,
+  draft the DTS as GIC_PPI 13 | CPU mask | IRQ_TYPE_LEVEL_HIGH (standard convention), and treat
+  the flag flip as a separate ACTIVE DTS delta that must be hardware-boot-tested before adoption
+  (it cannot break the fixed PPI config, but our rule is boot-test every active change).
+- Sent to the upstream-series lane for 07-dts-upstream-bindings.md and the submission blockers
+  section. No DTS change made yet; batching with the other active deltas is possible.
+
+LEDGER
