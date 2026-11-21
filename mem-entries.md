@@ -26384,3 +26384,27 @@ LEDGER
   image 7421bb7a until a conservative cleanup boots on the unit.
 
 LEDGER
+
+## 2026-11-21 14:55 - Cleaned-DTS regression RESOLVED: conservative comment-only cleanup (7ae18f2) reproduces the known-good image byte-for-byte.
+
+- The lane replaced the aggressive cleanup with a conservative one: active DTS content restored
+  exactly (all node names/unit addresses/reg/status/properties/labels), only comments removed
+  (691 lines, sha256 9d2d39db...). DTB compiles to 13041 B sha256 49fe5c47..., padded to 13048 B
+  sha256 402e4f71... - byte-identical to the known-good DTB; DTS-0001 refreshed to 072d0b8b...
+- Independent release-line validator PASS (51/51, 0 fuzz, DTS-0001 byte-identical, contract
+  preserved). Rebuilt image from the conservative DTS: sha256
+  7421bb7ace41e2e03613a0314874fabfcd16aeef60dbdd713ebc6c2b735cd4b3 - byte-identical to the
+  hardware-verified known-good image. No new hardware boot test is required (identical bytes); a
+  boot test is still the rule for any future active-DTS delta.
+- The 14 deferred active deltas (switch unit address/reg order, node renames, status removals,
+  thermal/WiFi/sp804/WOE removals, model/compatible change, macro rendering) are documented in
+  upstream/series-6.18/07-dts-upstream-bindings.md section 3 and each needs its own boot-tested
+  change; driver-facing deltas must never ride along with prose cleanup.
+- Port test note: the user moved the bench cable to the far-right port; the box stays alive
+  (UART heartbeat continues) but is unreachable from the host at 192.168.1.1/10.1. A host DHCP
+  server on the moved link saw no request, so the port is either WAN (eth3) or a LAN port other
+  than eth2, whose ingress the current CPU-copy mirror workaround does not cover (mirror is
+  programmed for eth2/port 11 only). A replug under UART capture will name the netdev in the
+  kernel link message and settle it.
+
+LEDGER

@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 10:35 - W8 PFE base init verified; tier counters fixed; traffic still dead; reserve_low1m does not revive CPU1 | `mem-entries.md:25368` |
 | 2026-11-20 |  | 2026-11-20 10:45 - Image a6b57361 built: seven-gate chain incl. W9 MAC max-frame init + SMP early probe | `mem-entries.md:25392` |
 | 2026-11-20 |  | 2026-11-20 11:05 - W9 clean run: boot stable, W9 verified on all GEMACs, but the first traffic attempt reset the box to stock; W9/TX hang regression under analysis | `mem-entries.md:25408` |
 | 2026-11-20 |  | 2026-11-20 11:30 - W9 read-only diag + early_probe=2 run: no W9 write, TX still wedges the box after one frame; stock reference registers captured | `mem-entries.md:25433` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 14:05 - Install-path finding: stock vendor image has no SSH/dropbear/opkg, so the automated first-install tool cannot run as written; manual path re-verified with quiet image 7421bb7a. | `mem-entries.md:26321` |
 | 2026-11-21 |  | 2026-11-21 14:30 - Automated install path CLOSED: new telnet installer verified end-to-end on the data (stock pair A -> our image pair B). | `mem-entries.md:26341` |
 | 2026-11-21 |  | 2026-11-21 14:45 - HARDWARE REGRESSION in the cleaned DTS (538377c): boot stalls in MTD partition registration and resets via the U-Boot watchdog; rolled back to image 7421bb7a. | `mem-entries.md:26364` |
+| 2026-11-21 |  | 2026-11-21 14:55 - Cleaned-DTS regression RESOLVED: conservative comment-only cleanup (7ae18f2) reproduces the known-good image byte-for-byte. | `mem-entries.md:26388` |
 
 ## All dated entries
 
@@ -719,3 +719,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 14:05 - Install-path finding: stock vendor image has no SSH/dropbear/opkg, so the automated first-install tool cannot run as written; manual path re-verified with quiet image 7421bb7a. | `mem-entries.md:26321` |
 | 2026-11-21 |  | 2026-11-21 14:30 - Automated install path CLOSED: new telnet installer verified end-to-end on the data (stock pair A -> our image pair B). | `mem-entries.md:26341` |
 | 2026-11-21 |  | 2026-11-21 14:45 - HARDWARE REGRESSION in the cleaned DTS (538377c): boot stalls in MTD partition registration and resets via the U-Boot watchdog; rolled back to image 7421bb7a. | `mem-entries.md:26364` |
+| 2026-11-21 |  | 2026-11-21 14:55 - Cleaned-DTS regression RESOLVED: conservative comment-only cleanup (7ae18f2) reproduces the known-good image byte-for-byte. | `mem-entries.md:26388` |
