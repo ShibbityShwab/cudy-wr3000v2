@@ -26428,3 +26428,25 @@ LEDGER
 - UART capture (label wan-port) remains running for a replug identification if wanted.
 
 LEDGER
+
+## 2026-11-21 15:20 - Multi-port Ethernet analysis: far-right jack is a LAN port; CPU-copy path reports port 0 and has no confirmed source-port id, so a per-port delivery decision needs the documented RX-source experiment or the native bridge.
+
+- The far-right jack is a LAN port, not WAN: box alive (UART HB) and its LAN bridge sent
+  IPv6 RAs to the host, but host-to-box frames were not delivered. The verified baseline
+  mirrors only eth2/switch port 11 to CPU dst 4, and PIE delivers CPU copies to the eth2
+  netdev (luofu_pie.cpucopy_port=11).
+- Completion decode (patch 053) has (port,vport) fields, but CPU-copy completions observed
+  so far report port 0; delivering mirrored frames from all jacks to one netdev would be
+  incorrect bridge behaviour (no source distinction, wrong egress/hairpin). So extending
+  the mirror mask alone is not a correct multi-port solution.
+- New note opensource/docs/MULTI-PORT-PLAN.md: attended experiment plan (add
+  luofu_switch.mirror_src_mask test parameter, enable rxdiag, compare full RXDIAG
+  descriptors for eth2 vs candidate jack traffic) and the decision gate: if a source-port
+  field exists, extend mirror mask + per-port PIE delivery; if not, multi-port LAN/WAN is
+  the native L2/VLAN hardware bridge (LSW-SPEC), not a CPU-copy hack. RELEASE-NOTES and
+  the feature-inventory update record the same status.
+- Hardware work is blocked on the bench cable: it is currently on the far-right (non-eth2)
+  jack, so the box is not reachable from the host. Move it back to the eth2 jack to resume
+  SSH/install/experiment work; UART capture remains read-only and the box is alive.
+
+LEDGER
