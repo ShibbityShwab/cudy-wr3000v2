@@ -27304,3 +27304,16 @@ LEDGER
 - Next: parent gitlink bump; optional GPL follow-up draft or hybrid image build per owner choice.
 
 LEDGER
+
+## 2026-11-22 07:20 - Wi-Fi framework census complete: GPL-2.0 hi3881 source covers 23.9% (name) / 28.5% (byte) of our 4,946-function driver pair; a 892 KB skeleton (libsec+frw+oal+oam+mac/common, 28 objects) COMPILES against 6.18.60; the hi5622 delta is mapped (3,763 unique names, 1,014,560 B): transport pcie_/bal_ ~391 fns, shuangta_ 173, hdpp_ 238, hal_ 91, alg_ 222, hmac/wal ko-only ~2,409. 33/39 cfg80211_ops and 12/44 D2H handlers name-match the framework. ROOT-CAUSE FIND: oal_util.h pins LINUX_VERSION_CODE=kernel_version(3,10,0) (the vendor driver silently ran 3.10 API branches; unpinning exposes the real 6.18 drift: timespec64, timer_delete, set_fs removal, sched_setattr_nocheck, netlink cb_mutex, fortify/strlen clash). hcc_* renamed between chips (1/87 shared - SDIO/ADMA vs PCIe mailbox/ETE).
+
+- Docs: opensource/docs/incoming/wifi-framework-port/ (REPORT/SUMMARY/census CSVs/sizecov.json/build/BUILD-NOTES),
+  commit fc3f697; source-hunt b0b330d8. License: hi3881 files GPL-2.0-or-later (verified 242 files);
+  themactep and hongmengkernel mirrors have no grant (reference-only); exact hi5622 source remains
+  unpublished (Jeton firmware-only, Cudy v1-only, Huawei request-only; Hi1152 = Hi5622 sibling).
+- Position: Wi-Fi went from impossible to a bounded engineering program - framework-from-GPL-source +
+  transport rebuild from the decoded mailbox/ETE/iATU contract + firmware-facing delta (hdpp/hal/alg/
+  shuangta) as the long tail; closed firmware keeps upstream submission impossible either way. Next
+  slice launched: PCIe transport rebuild (compile target) + bench plan.
+
+LEDGER
