@@ -26880,3 +26880,25 @@ LEDGER
   sequence into a proper driver patch (W22) instead of an init script.
 
 LEDGER
+
+## 2026-11-21 21:20 - M1a PROVEN: native CPU delivery with the CPU-copy mirror OFF. Proof image 5800c9ab (canonical adopted tree + cmdline cpu_mirror=0/luofu_napt_init=1/rxdiag=1 + probe boot-time NAPT-init script) boots, applies NAPT init, and SSH/ping work with no mirror; native RXDIAG status=77 frames are delivered.
+
+- Install: built with the exact proof artifacts saved under
+  docs/incoming/lsw-forwarding/m1a/napt-init/proof-image/ (init script + cmdline; build clone
+  restored to canonical afterwards). Flashed over the broker from a consistent stock boot to pair b
+  (kernel sha 659db935..., rootfs sha 88c6655a..., fw_setenv bootflag=b + boot_reg 0x11 verified,
+  FIRE_OK), rebooted.
+- Proof evidence (build/evidence-bench-gates/m1a-proof/): 6.18.60, 2 CPUs, TWD GIC-0 29 Level,
+  selector 0x11, no Oops/BUG/panic; cmdline has cpu_mirror=0 + luofu_napt_init=1; dmesg
+  "luofu-napt-init: applied (up_port=0x10000034 bases=0x80400000/0x80408000)"; host ping 200/200
+  0% loss with the mirror OFF and working SSH; UART RXDIAG native port=11 status=77 frames
+  delivered (E0-a status=37 error frames replaced); LEDs/event0 present.
+- Reading: the missing native-forwarding piece was the flow-engine (NAPT) init, not the readable
+  LSW windows; with NAPT initialized the IFC->NAPT->CPU punt works and the mirror workaround is no
+  longer required for eth2. This is the M1a milestone.
+- Next: (1) move the NAPT init from the probe init script into the driver (W22 design); (2) M1b
+  per-port delivery/LAN-to-LAN and the hardware bridge for multi-port; (3) re-baseline the release
+  image once W22 lands (proof image 5800c9ab is a test artifact). Box left running the proof image
+  (stable, mirror off). Curated repos resync after release-side changes.
+
+LEDGER
