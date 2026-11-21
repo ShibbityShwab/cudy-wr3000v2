@@ -1,34 +1,29 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-21 12:40 +07
+**Updated:** 2026-11-21 12:55 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
 invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
-## 1. Bench (re-verified read-only 2026-11-18 07:35 +07)
+## 1. Bench (re-verified 2026-11-21 12:50 +07)
 
-- **Box: vendor stock, healthy, idle.** Vendor OpenWrt 22.03.6, stock kernel
-  `5.10.201 #0 SMP Sat Nov 25 18:18:57 2023`, uptime ~39 min, `bootflag=a`, both kernel slots
-  restored to the stock image (md5 `b553da8ea24b38cb1e796b6a6430ccf7`), 2 wiphys, SSH on the
-  project key. Bench fires are **stopped**; UART capture is stopped after teardown.
-- **Host bench link:** `enp195s0f3u1` UP at 1 Gbps, NetworkManager-unmanaged, carrying
-  `192.168.1.88/24` and `192.168.10.44/24`. Re-applied with `tools/bench-link.sh --apply`
-  this morning after NetworkManager re-managed the adapter overnight; PASS at 07:20.
-- **Recovery door: READY host-side, physical trigger.** TFTP is listening on UDP 69 and
-  `tftp/recovery.bin` matches md5 `421114c8ea999c925b7aa79cc548af81`; the trigger remains the
-  physical RESET counter on a true power-on reset (`BENCH-FACTS.md` section 4).
-- **UART: READ-ONLY.** `/dev/ttyUSB0` (FT232R, 115200 8N1); host-to-router TX is dead (burnt
-  resistor) and must never be attempted. Capture with `tools/uart-capture.sh` only; it now
-  restarts `cat` on USB-serial EIO and kills its process group on stop.
-- **Latest fired slice (local only, NOT a release):**
-  `build/linux-kbuild/luofu-slice-phase3dq.bin` v17 = 2,906,100 B, md5
-  `8342ccb9c0167766529277719330f43c` (zImage `a08ffc66`, init `74033a38`, DTB
-  `336ba39e`, 59 patched modules staged for that run). Rebuild with
-  `build/linux-kbuild/build-3dq.sh`.
-- **Guards:** `tools/check-init-shadow.sh` PASS; `tools/check-lab-src.sh` PASS (43 modified
-  source files); `tools/check-repo.sh` PASS before this page was regenerated. These are
-  source-level guards, not artifact proofs.
+- **Box: running OUR image (canonical 2-CPU baseline 974e6ca6), healthy.** OpenWrt 6.18.60,
+  smp: Brought up 1 node, 2 CPUs (online 0-1, CPU1 mpidr 80000001), br-lan 192.168.1.1/24 up,
+  SSH works, /overlay on ubifs rw, 15-min soak 0 failures, reboot returns with 2 CPUs (pair b
+  recorded). No Oops/panic/BUG/WARNING (only the literal panic=0 cmdline text).
+- **Host bench link:** enp195s0f3u1 UP at 1 Gbps, NetworkManager-unmanaged, carrying
+  192.168.1.88/24 (TFTP) and 192.168.10.44/24 (stock LAN/broker). Re-applied 2026-11-21 after an
+  overnight carrier/IP loss looked like a box hang - the box was alive (UART heartbeat); bench
+  rule: check carrier/bench-link.sh before attributing a hang to the kernel.
+- **Recovery door: READY host-side, physical trigger.** TFTP listens on UDP 69 and
+  tftp/recovery.bin matches md5 421114c8ea999c925b7aa79cc548af81; trigger is the physical RESET
+  counter on a true power-on reset, then recovery.bin. UART capture is stopped; start it with
+  tools/uart-capture.sh for any attended boot. Stock pair A is still available if a stock boot is
+  needed (write boot selector a / cell 0x10 and reboot).
+- **Images on flash:** pair B = canonical 974e6ca6 (our 6.18 target); pair A = vendor stock. The
+  boot-pair recorder re-records the running pair so our image survives reboot. Debug builders
+  (canonical / maxcpus=1 / lockdep) are archived in staging-fi/ as diagnostics only.
 
 ## 2. Gates (bench-reversal history, 2026-11-14)
 
@@ -925,33 +920,40 @@ submission-ready.
 
 ## 4. Next action
 
-1. **GPL source: optional accelerator only - not a project gate (decision 2026-11-18).** The
-   2026-10-01 request got no reply and needs no further follow-up for this project. The record is
-   kept for provenance/optional leverage (a source drop would mainly accelerate LSW/PIE/Wi-Fi); the
-   work proceeds by our own reverse engineering. No waiting, no enforcement org.
-2. **Finish the driver/binding series** (host-side): CRG/watchdog, FMC/SPI-NAND, MDIO/PHY,
-   pinctrl, thermal, PCIe host and the provisional restart are ported (GEMAC partial); the
-   remaining blocks are the internal switch driver and the PIE data-path bring-up - the PIE half
-   has a refusing draft (`015`), spec in `opensource/docs/PIE-DATAPATH.md` and the switch spec in
-   `opensource/docs/LSW-SPEC.md`; PIE needs the attended read-only P3 inventory before arming
-   rings, and the switch needs its D1 implementation.
-   Prune the `[D-default]` other-SoC Hisilicon drivers and run `dtbs_check` per binding. After
-   that, wire the custom image chain
-   (`luofu-uimage` -> `fip-slice` with the generated trailer -> `fip-manifest` -> UBI ->
-   sysupgrade), resolve the board-compatible mismatch (`cudy,wr3000-v2` vs
-   `hisilicon,luofu-r116`), write `platform.sh`/install, then the first attended boot of a full
-   image (bench step, human-attended).
-3. **Boot/install are now the only gates for the image**: run the final 001-017 build, then an
-   attended A/B validation on a recovered unit (upgrade -> boot the written pair -> confirm the
-   other rootfs slot attaches and `current_pair` matches -> switch back), read `fw_printenv
-   bootflag` to close the env re-stamp question, and validate the first boot of a novel generated
-   trailer, rootfs/overlay mount and boot-arg hand-off. NAND writes under this FMC/ECC geometry and
-   the 0x21 manual state are also attended checks.
-4. **Consolidate the reversal evidence**: EVIDENCE-INDEX rows for the v6-v17 line, publish-readiness
-   purge plan, and the reversal report.
-4. **Optional, only if resumed:** the vendor `sk_buff`/bridge/HYFI port strictly per
-   `VENDOR-SKB-BRIDGE-PORT.md` - E0 host probe first, no bench fires before that. Bench fires stay
-   stopped until then.
+**Phase: finish the project - board feature bring-up on the working 2-CPU baseline.**
+The bring-up is no longer the gate: 2 CPUs, wired LAN (documented CPU-copy workaround), SSH,
+persistent overlay and storage are verified; the bench box runs the canonical image. Work now
+splits into host/remote tasks (no physical action needed) and attended bench tasks.
+
+1. **Repo/publish consolidation (host-only).** Curated publish repos (cudy-wr3000v2-openwrt,
+   cudy-wr3000v2-cve, this notebook) are stale relative to the release line (submodule c7ffeeb).
+   Sync them, refresh public READMEs/release notes, keep vendor binaries and secrets out, and
+   record the still-open history-purge item from opensource/docs/PUBLISH-READINESS.md. No new
+   upstream submission until the DTS bindings cleanup is done.
+2. **Device feature inventory (remote, read-only over SSH).** Enumerate what the canonical image
+   exposes: /sys/class/leds, gpiochips, input devices/keys, thermal zones, watchdog, RTC,
+   I2C/SPI buses and devices, USB, PCIe, MDIO/PHYs, MTD/UBI layout, netdevs per MAC (eth0/1/2/3),
+   Wi-Fi interfaces. Produce a feature matrix with [V]/[U]/[X] per feature and the missing
+   DT/driver item for each.
+3. **Vendor-DT extraction + incremental board DTS add-ons (remote + host).** Extract the stock
+   base DTB nodes we have not modelled (LEDs/GPIO, keys, thermal zone, USB, PCIe, I2C/SPI,
+   Wi-Fi, PHY/MDIO, watchdog/NAND glue) from local vendor DTB/dump evidence, add them to
+   target-skeleton/dts/luofu-r116.dts one feature at a time, build, install (stock-mediated path)
+   and verify on hardware. Keep each change revertible and documented.
+4. **Wi-Fi (Hi5622) feasibility, then optional bring-up.** The vendor driver exists only for the
+   vendor 5.10 tree; decide between porting it to 6.18 (large), a hybrid stock-userspace path, or
+   documenting it unsupported for now. Start from the local vendor driver/DTS evidence and a
+   scoped plan; no deadline promises.
+5. **Native switch forwarding (separate project).** The bench LAN uses the documented CPU-copy
+   mirror + port-0 delivery workaround. Native CFE-equivalent L2/VLAN forwarding is the hardware
+   bridge/table work in opensource/docs/LSW-SPEC.md; keep it independent and do not block other
+   features on it.
+6. **Attended bench tasks (human at the box):** exercise all LAN ports/WAN PHY with cables,
+   LEDs/buttons, install/upgrade path end-to-end (A/B validation), and any test that can wedge
+   the box (recovery card armed first, UART capture running).
+7. **Upstream path (later):** finish the draft DTS bindings cleanup (DTS-0001 is TODO-heavy; only
+   the loader hand-off nodes are final), then rerun the release-line validator and checkpatch
+   before any submission; no upstream review exists yet.
 
 ## 5. Reading the console (read-only)
 
