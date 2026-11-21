@@ -27317,3 +27317,7 @@ LEDGER
   slice launched: PCIe transport rebuild (compile target) + bench plan.
 
 LEDGER
+
+## 2026-11-22 08:40 - Wi-Fi transport slice REBUILT: hi5622_pciet.ko (93,468 B, GPL, vermagic 6.18.60, 0 warnings under -Werror) implements the firmware-upload/ETE-ring/mailbox contract as original clean-room code and compiles against our built 6.18.60 tree (commit 99d9c8f, docs/incoming/wifi-transport-port/). First bench milestone defined: attended sysfs-step upload -> 0x5a5a release -> 0xcece announce -> HCC ready ids 1/2 (bitmap 0x2 / 0x4 = out[1]=0x4). Findings: no MSI on luofu 6.18 (msi_init returns 0) and no INTx demux (status in never-read misc window) -> skeleton polls the D2H bitmap; host-side delta patch build/luofu-host-618-delta.patch adds dma-ranges identity to both pcie nodes (bench prerequisite); twin-word gating left [U]. Transport group (pcie+bal+shuangta+hal = 391 fns / 67,432 B) = 6.6% of the ko-only delta; next slices in size order: hdpp_ 238 (dpe_ twin in hongmengkernel hi1105) -> alg_ 222 (densest) -> hal_ 91 -> shuangta_ 173 -> hmac_ ko-only 1,503 -> wal_ ko-only 684. Framework-lane build text files force-added (bare build/ gitignore rule).
+
+LEDGER
