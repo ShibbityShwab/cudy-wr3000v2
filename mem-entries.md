@@ -26242,3 +26242,29 @@ with kernel 0018 after the bindings cleanup. Curated repos untouched.
 Next: curated publish sync; install path on a device; Wi-Fi; native CFE forwarding; upstream review.
 
 LEDGER
+
+## 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress.
+
+- Curated publish repos synced by the lane: cudy-wr3000v2-openwrt pushed to fa32c02 (5 commits, 98 files:
+  release-line tree 62 patches, DTS hand-off contract, canonical config, boot-pair recorder, release
+  notes, port-notes, DTS-0001, validation logs; checks: gen-series PASS, 89/89 checksums,
+  check-release-line PASS, mocked host tests 94/94-103/103, fresh-clone verify, no binaries/secrets);
+  cudy-wr3000v2-cve verified current at 9b1e7d1 (no change needed). Notebook untouched by the lane.
+  History-purge item stays OPEN (legacy public repo still serves vendor .o blobs in history and a
+  second branch; owner-only rewrite procedure documented in PUBLISH-READINESS/PUBLISH-PREP).
+- Device feature inventory (read-only, canonical 974e6ca6) delivered: 2 CPUs/SSH/overlay [V];
+  FMC NAND+UBI 17 MTD, 0 bad PEBs [V]; 4 luofu-gmac netdevs + 4 Luofu PHYs polling with 0 errors [V];
+  GPIO 2 chips/37 lines + pinctrl bound [V]; LEDs 0 and no input subsystem [X]; thermal zone ENODATA
+  [X]; watchdog no sysfs telemetry [X/U]; RTC/I2C/USB absent by DT+config (vendor evidence agrees);
+  PCIe disabled; multi-port Ethernet MAC plan broken (eth0/1/2 share a MAC) and only eth2 tested;
+  dmesg flooded by mirror diagnostics (~2 s) and HB (5 s), boot log evicted.
+- Root work: added the vendor board_id=3 gpio-leds (6 oem:green LEDs, GPIO 24/25/3/2/0/1) and
+  gpio-keys-polled (reset GPIO22, WPS GPIO23, active-low, 20 ms) to the board DTS, extracted from the
+  stock kernel slot overlay (kernela_overlay_board3.dtbo, 4920 B sha256 17fd44ed...). Enabled
+  CONFIG_LEDS_GPIO, CONFIG_INPUT(+EVDEV/KEYBOARD), CONFIG_KEYBOARD_GPIO_POLLED and
+  CONFIG_WATCHDOG_SYSFS in the target kernel config after resolving the new-symbol prompt with
+  olddefconfig; building and installing for hardware verification next.
+Next: verify LEDs/keys on hardware, quiet the periodic mirror/heartbeat dmesg spam, fix per-port
+MACs, thermal ENODATA and multi-port tests, then Wi-Fi decision from the recon lane.
+
+LEDGER

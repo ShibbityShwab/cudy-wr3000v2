@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-19 |  | 2026-11-19 21:00 - Final image 5d2c5476 run: W7 table-19 ack works, table-17 read-view mapping mismatch -> restore/refuse; SMP probe marker ioremap failed but pen untouched and no 1P | `mem-entries.md:25241` |
 | 2026-11-19 |  | 2026-11-19 21:15 - SMP probe marker fixed (035); pen-0 explained; probe still unrun but now measurable | `mem-entries.md:25264` |
 | 2026-11-19 |  | 2026-11-19 21:20 - Image 75868fe0 built: W7 tiered verification (032 rev3) + SMP marker fix (035) | `mem-entries.md:25287` |
 | 2026-11-20 |  | 2026-11-20 09:45 - W7 rev3 completes: queue-manager init accepted, data path ARMED, GEMAC netdevs + 1G carrier; but traffic still does not move; SMP probe definitive consumed=no | `mem-entries.md:25302` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 12:00 - FINAL: canonical 2-CPU image 974e6ca6 stable (15-min soak, 0 failures) and persistent across reboot; SMP task closed. | `mem-entries.md:26171` |
 | 2026-11-21 |  | 2026-11-21 12:25 - 6.18 RELEASE LINE consolidated and independently validated: 51 included patches (11 bench diagnostics excluded), loader hand-off DTS contract checked as release-critical; canonical 2-CPU baseline 974e6ca6. | `mem-entries.md:26194` |
 | 2026-11-21 |  | 2026-11-21 12:40 - release-line cleanup complete: 052/053 pair fixed (0 fuzz, strict-clean), monotonic 062-065, DTS-0001 companion validated | `mem-entries.md:26221` |
+| 2026-11-21 |  | 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress. | `mem-entries.md:26246` |
 
 ## All dated entries
 
@@ -713,3 +713,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 12:00 - FINAL: canonical 2-CPU image 974e6ca6 stable (15-min soak, 0 failures) and persistent across reboot; SMP task closed. | `mem-entries.md:26171` |
 | 2026-11-21 |  | 2026-11-21 12:25 - 6.18 RELEASE LINE consolidated and independently validated: 51 included patches (11 bench diagnostics excluded), loader hand-off DTS contract checked as release-critical; canonical 2-CPU baseline 974e6ca6. | `mem-entries.md:26194` |
 | 2026-11-21 |  | 2026-11-21 12:40 - release-line cleanup complete: 052/053 pair fixed (0 fuzz, strict-clean), monotonic 062-065, DTS-0001 companion validated | `mem-entries.md:26221` |
+| 2026-11-21 |  | 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress. | `mem-entries.md:26246` |
