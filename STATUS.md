@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-22 03:20 +07
+**Updated:** 2026-11-22 10:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -925,10 +925,15 @@ The canonical image now carries patches 066/067 (thermal: hwver-3/v1 path, gated
 with W22 (059/060): L0 66 / L1 55, manifest 2bb7413e...; validator PASS (55/55).  Bench (image
 5aeca548): gate off -> raw 0 / ENODATA; enable -> raw 0x25e = 59000 mC, registers match, no IRQ,
 load 63 C and cooling.  W22/W23 release-line only: L2 upstream review form and DTS-0001 are
-intentionally not regenerated; the release DTS thermal delta stays release-line-only.  Remaining:
-owner-only history purge, optional M2 flow-offload probe (needs true forwarded traffic; see
-lsw-forwarding/cfe/), upstream submission package complete with ZERO blockers but intentionally
-not sent; Wi-Fi still blocked on vendor GPL source; USB/RTC/NFC absent.
+intentionally not regenerated; the release DTS thermal delta stays release-line-only.  Remaining: owner-only history purge, upstream submission package complete with ZERO blockers but
+intentionally not sent.  M2 hardware offload is CLOSED (the vendor never populates the DDR flow
+cache even for forwarded NAT traffic; M2-B is documentation only - see
+opensource/docs/incoming/lsw-forwarding/cfe/FWD-PHASE-ANALYSIS.md).  Wi-Fi: framework port in
+progress - GPL-2.0 hi3881 source covers 23.9% (name) / 28.5% (byte), and the framework skeleton,
+the clean-room PCIe transport (hi5622_pciet.ko) and the hdpp/alg ABI scaffold (60 ksymtab exports
+pinned) all compile on 6.18.60; the attended transport bench (upload -> 0x5a5a/0xcece -> HCC ready
+ids 1/2 -> out[1]=0x4) is the next physical Wi-Fi milestone; upstream submission stays impossible
+while the firmware blob is closed.  USB/RTC/NFC absent; I2C/PWM unused/optional.
 
 ## 5. Reading the console (read-only)
 
