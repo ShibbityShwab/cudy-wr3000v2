@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-21 |  | 2026-11-21 12:40 - release-line cleanup complete: 052/053 pair fixed (0 fuzz, strict-clean), monotonic 062-065, DTS-0001 companion validated | `mem-entries.md:26221` |
 | 2026-11-21 |  | 2026-11-21 13:15 - Board feature bring-up phase started: curated repos synced, device feature inventory delivered, LEDs/keys DTS+config in progress. | `mem-entries.md:26246` |
 | 2026-11-21 |  | 2026-11-21 13:35 - LEDs + buttons + watchdog sysfs brought up on hardware (image 7f270b8c); unaligned-DTB gate-word bug found and fixed. | `mem-entries.md:26272` |
 | 2026-11-21 |  | 2026-11-21 13:50 - Quiet canonical image 7421bb7a: periodic W17/W19/HB dmesg spam removed; thermal ENODATA root-caused; LEDs/keys/watchdog verified. | `mem-entries.md:26301` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-22 |  | 2026-11-22 00:35 - 15-min W22 soak PASS (900/900, 0% loss, 0 errors). Fallback-image test went wrong again (build/cmdline caching suspected, then no management IP); box needs one more physical RESET-hold recovery. The fallback path will be documented as a known limitation rather than a formal bench step. | `mem-entries.md:27054` |
 | 2026-11-22 |  | 2026-11-22 00:55 - W22 canonical re-installed and verified after recovery #5 using the two-stage procedure (stock pair a -> broker write inactive pair b atomic). Box healthy: 6.18.60, 2 CPUs, naptinit=1, no mirror tokens, W22 init verified, 0 errors. M1b per-port native delivery test starting with cable moves. | `mem-entries.md:27076` |
 | 2026-11-22 |  | 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror. | `mem-entries.md:27091` |
+| 2026-11-22 |  | 2026-11-22 01:40 - M1b-3 LAN-to-LAN forwarding PASS: with a second USB-Ethernet adapter on eth0 and the bench adapter on eth2, the software bridge forwards broadcast and learned unicast in BOTH directions (eth0<->eth2); FDB learns both MACs on the correct ports. Native multi-port LAN forwarding works with W22 and no hardware L2 offload. | `mem-entries.md:27107` |
 
 ## All dated entries
 
@@ -752,3 +752,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-22 |  | 2026-11-22 00:35 - 15-min W22 soak PASS (900/900, 0% loss, 0 errors). Fallback-image test went wrong again (build/cmdline caching suspected, then no management IP); box needs one more physical RESET-hold recovery. The fallback path will be documented as a known limitation rather than a formal bench step. | `mem-entries.md:27054` |
 | 2026-11-22 |  | 2026-11-22 00:55 - W22 canonical re-installed and verified after recovery #5 using the two-stage procedure (stock pair a -> broker write inactive pair b atomic). Box healthy: 6.18.60, 2 CPUs, naptinit=1, no mirror tokens, W22 init verified, 0 errors. M1b per-port native delivery test starting with cable moves. | `mem-entries.md:27076` |
 | 2026-11-22 |  | 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror. | `mem-entries.md:27091` |
+| 2026-11-22 |  | 2026-11-22 01:40 - M1b-3 LAN-to-LAN forwarding PASS: with a second USB-Ethernet adapter on eth0 and the bench adapter on eth2, the software bridge forwards broadcast and learned unicast in BOTH directions (eth0<->eth2); FDB learns both MACs on the correct ports. Native multi-port LAN forwarding works with W22 and no hardware L2 offload. | `mem-entries.md:27107` |

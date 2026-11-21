@@ -27103,3 +27103,23 @@ LEDGER
 - Box left on eth2, W22 native, healthy; UART capture m1b still armed; recovery door READY.
 
 LEDGER
+
+## 2026-11-22 01:40 - M1b-3 LAN-to-LAN forwarding PASS: with a second USB-Ethernet adapter on eth0 and the bench adapter on eth2, the software bridge forwards broadcast and learned unicast in BOTH directions (eth0<->eth2); FDB learns both MACs on the correct ports. Native multi-port LAN forwarding works with W22 and no hardware L2 offload.
+
+- Setup: second host adapter enp195s0f4u1 (00:e0:4c:68:02:14, carrier 1 Gb) on the far-right jack
+  (eth0/port 9); bench adapter enp195s0f3u1 (00:e0:4c:63:17:58) on eth2/port 11; box br-lan has
+  eth0/eth1/eth2 and both ports in forwarding state (brctl showstp).
+- Test: AF_PACKET raw frames with ethertype 0x88b5 and unique markers, received with marker
+  filtering. PASS: broadcast eth0->eth2, unicast eth0->eth2, unicast eth2->eth0, broadcast
+  eth2->eth0. FDB: bench MAC on port 1 (eth2), second adapter MAC on port 3 (eth0), local MAC on
+  port 1. Counters advanced both ways (eth0 rx 588/tx 367, eth2 rx 378/tx 319).
+- The first run marked the reverse direction FAIL only because the receiver socket read stale
+  PACKET_OUTGOING copies of frames sent by that same socket; the marker-filtered rerun proves both
+  directions. (Recorded so the false negative is not repeated.)
+- Conclusion: software bridge is sufficient for multi-port LAN forwarding on the tested pair; a
+  hardware L2/VLAN offload (M2) is NOT required for this feature. WAN eth3 stays a separate zone
+  (L3 validation optional via a host DHCP server); eth1 is another bridge member already proven to
+  deliver to the CPU. Docs: m1b/M1B-RESULTS.md; evidence build/evidence-bench-gates/m1b/.
+- Box left on eth2 + W22 native, healthy; UART armed; recovery door ready.
+
+LEDGER
