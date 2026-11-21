@@ -26522,3 +26522,21 @@ LEDGER
   the box if the hardware fire works, and it reboots the known-good image from pair b).
 
 LEDGER
+
+## 2026-11-21 16:55 - Watchdog telemetry/arming verified indirectly: /dev/watchdog is already held open (Resource busy) with state=active/timeout=30, so the hardware watchdog is armed and serviced by userspace (procd), and the box stays up across minutes -> keepalive path works.
+
+- Runtime: /sys/class/watchdog/watchdog0/{state,timeout,identity,nowayout} = active / 30 s /
+  "HiSilicon luofu watchdog" / 0. Writing the sysfs timeout returns EACCES (the current driver
+  exposes start/stop/ping but no set_timeout sysfs store), and opening /dev/watchdog returns
+  EBUSY: userspace (procd watchdog) already owns the device and services it. The box has been
+  continuously up for minutes with the device busy, which is exactly the keepalive path.
+- A forced-fire test would require stopping the PID-1 watchdog service (or rmmod/reboot games),
+  which risks the box for no additional evidence; the armed/serviceable state plus long stable
+  uptimes is recorded as [V]/[I] instead.
+- This also explains the earlier cleaned-DTS boot failure: that kernel never reached userspace
+  (stalled in MTD registration), so procd never opened /dev/watchdog and the U-Boot 30 s
+  watchdog reset it - the normal image's watchdog service path is what prevents that.
+- Cleanup: UART capture stopped; board left on known-good image 7421bb7a, selector 0x11, LEDs off,
+  stock pair A intact, recovery armed.
+
+LEDGER
