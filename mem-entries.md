@@ -27160,3 +27160,48 @@ LEDGER
   bench link; the second adapter can be unplugged.
 
 LEDGER
+
+## 2026-11-22 02:40 - Four full-reversal lanes delivered: CFE/switch model + our-side dump validation (95bea9e), vendor userspace fully decompiled (42a431a), Wi-Fi/thermal feasibility (8b8ace5), loader/recovery/upgrade formats (628c4b1). Stock /dev/mem read() is blocked but mmap via a static physdump binary works, so the stock stock-runtime CFE dump is now being transferred via broker wget+physdump+nc.
+
+- lsw-forwarding/cfe: CFE table map + flow DDR geometry solved exactly from our W22 carveout
+  (v4 buckets 32 KiB at 0x80400000, v4 arena 256 KiB at 0x80408000, v6 buckets 32 KiB at
+  0x80448000, v6 arena 704 KiB at 0x80450000; 8192 slots each; poison 0x66cc66cc); IFC tab128
+  defaults and NAPT control words bit-exact vs W10/W22; status classes 0/37/77 catalogued; stock
+  runtime tables inaccessible by dd (Bad address) but a static mmap physdump works, overturning
+  the earlier stock-inaccessible conclusion - stock dump capture is in progress; M2 verdict:
+  M2-A deferred (entry layout needs one controlled insert probe), M2-B conditional, M2-C
+  not feasible without GPL CFE userspace.
+- vendor-userspace: all 323 LuaQ files decompiled (vendor header byte 0x04 + const type 9;
+  patched lundump + unluac); decoded LuCI login/CSRF/apprpc, wizard + both upgrade flows, cmagent
+  MQTT contract, cmsd cloud bootstrap, full bdinfo format (0xDE96 etc.), hdb/future/crypt,
+  upgrade image layout; new security findings documented (apprpc setclock injection,
+  router/upgrade shell injection, router/config UCI rewrite, predictable factory password,
+  derivable mesh PSK, cloud RPC gated only by client cert).
+- wifi-thermal: Wi-Fi firmware load interface decoded end-to-end (RC iATU windows, contiguous
+  memcpy via bal_write to CA 0x01240000 two chunks, 0x5a5a release write, HCC message waits);
+  port blocked on vendor GPL source (10-16 engineer-weeks after source; no realistic partial
+  path without it). Thermal premise corrected: vendor DT enables tvsensor hwver3; real formula
+  T_mC=((165*raw-20625)/797)*1000-40000 on base+0x04[9:0] with enable/trim sequence; current
+  6.18 driver reads a different register/formula and never enables it -> ~2-4 host days + 1-2
+  attended sessions to a validated thermal driver. USB/RTC/NFC absent; I2C/PWM present but
+  unused/optional.
+- loader-recovery: recovery.bin is the signed vendor sysupgrade image (hboot1tag header, U-Boot
+  code, OEM_BOOT, RSA-2048 PKCS1v1.5 SHA-1 signature at 0x80000 over [0,0x80000)+[0x80800,EOF),
+  FIT at 0x80800, hi_upgrade package); custom recovery impossible without vendor key; recovery
+  writes kernela+kernelb+rootfsa+rootfsb and erases rootfs_data, never touches U-Boot/env/
+  bdinfo/selector; bootfip handoff contract and selector semantics re-confirmed; install/
+  recovery recommendations recorded.
+- Parent is being bumped to the lanes' commits; final curated resync will follow once the stock
+  CFE dump is decoded. No release-series changes from these lanes.
+
+LEDGER
+
+## 2026-11-22 03:00 - Full-reversal phase: all four lanes delivered and integrated; stock runtime CFE tables successfully captured via an mmap dumper (vendor /dev/mem read() is blocked but mmap works). Thermal fix is now implementable from the decoded formula; tasking W23. Stock package: build/evidence-bench-gates/cfe-stock/cfe-stock-full.tar.gz (sha256 202aca42f6038245a1c994bf4b03101756ad2bc961741df1bef6b322a484b312).
+
+- Stock CFE dump captured: carveout p0+p2 (5 MiB each), ifc/napt/l2/mcc/opp/pub/pfe_glb/eps windows (512 KiB each), PIE window 64 KiB, control page 16 KiB, STOCK.SHA256SUMS, README; sent to the lsw lane for the final CFE model/M2 verdict. The mmap trick (static ARM physdump) overturns the earlier stock-inaccessible conclusion; a transfer test already confirmed the real vendor tagact entry w1=0x0000c000.
+- Lane commits integrated: 8b8ace5 (Wi-Fi/thermal feasibility), 42a431a (vendor userspace RE), 95bea9e (CFE our-side validation + flow geometry), 628c4b1 (loader/recovery/upgrade formats). Parent bumped to feaee55; check-repo PASS.
+- Thermal W23 implementation task sent to the wifi-thermal lane: correct hwver3 register/formula/enable sequence + release-integration + bench plan; then we build and test it on the box (one of the last practical features still unsupported).
+- Wi-Fi verdict confirmed blocked on vendor GPL source (10-16 engineer-weeks after source, no realistic partial path); USB/RTC/NFC absent; I2C/PWM unused/optional.
+- Box returned to the W22 image (6.18.60, 2 CPUs, selector 0x11) after the stock dump; recovery door armed. Curated resync will follow once the CFE/thermal docs land.
+
+LEDGER
