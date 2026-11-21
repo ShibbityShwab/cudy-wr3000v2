@@ -26557,3 +26557,22 @@ LEDGER
   section. No DTS change made yet; batching with the other active deltas is possible.
 
 LEDGER
+
+## 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls.
+
+- Delta: target DTS local-timer interrupts changed from <1 13 0x301> (edge) to
+  <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(2) | IRQ_TYPE_LEVEL_HIGH)> (0x304), with the standard
+  arm-gic.h/irq.h includes and a comment recording the measured read-only GICD_ICFGR1 value
+  (PPI29 field 0b11; GIC-400 PPI config is fixed by the SoC integration).
+- Hardware boot test PASS on image f6685b80 (sha256
+  f6685b809ad8979ca50937e21afcb4c773a080576843433aa89cd988f01b9341), installed via the verified
+  telnet installer: 6.18.60, 2 CPUs, /proc/interrupts "GIC-0 29 Level twd" with counts increasing
+  (~100 Hz on both CPUs), ping 20/20 0% loss, no Oops/BUG/Kernel panic/RCU stall, stable uptime.
+- This closes upstream blocker #6 (TWD IRQ flags): measured GIC data + standard LEVEL_HIGH
+  encoding + boot test. The lane has been asked to regenerate DTS-0001/validation/docs and reduce
+  the blocker list to five. New DTS-purpose baseline is image f6685b80; image 7421bb7a remains the
+  previously verified baseline (identical userspace, only TWD DTS line differs).
+- The delta was applied to the notebook target DTS and the build clone; the test image copy is
+  staging-fi/img-twd-level.bin.
+
+LEDGER

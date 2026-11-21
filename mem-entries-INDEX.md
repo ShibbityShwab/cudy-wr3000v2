@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 14:05 - W13 PIE/GMAC dump: the RX smoking gun is pie 0x3404 (ours 0x0 vs stock 0x1b04); everything else matches | `mem-entries.md:25583` |
 | 2026-11-20 |  | 2026-11-20 14:25 - W13 RXCFG written and verified (pie+0x3404 0x0 -> 0x1b04) but RX STILL never fires | `mem-entries.md:25610` |
 | 2026-11-20 |  | 2026-11-20 14:35 - W14 all-window page scan: stock has many runtime table pages that our armed image leaves zero (pe/eqm/eps/ifc/mcc/opp), and fam+0x1000/0x41000 values differ | `mem-entries.md:25631` |
 | 2026-11-20 |  | 2026-11-20 14:50 - GEMAC stock-vs-ours diff: four un-decoded MAC config words differ plus max-frame 1536 vs our 1518 | `mem-entries.md:25656` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 16:45 - WPS button verified: EV_KEY KEY_WPS_BUTTON press/release captured. Both board buttons and all six LEDs are now physically verified. | `mem-entries.md:26513` |
 | 2026-11-21 |  | 2026-11-21 16:55 - Watchdog telemetry/arming verified indirectly: /dev/watchdog is already held open (Resource busy) with state=active/timeout=30, so the hardware watchdog is armed and serviced by userspace (procd), and the box stays up across minutes -> keepalive path works. | `mem-entries.md:26526` |
 | 2026-11-21 |  | 2026-11-21 17:10 - Upstream blocker #6 (TWD timer IRQ flags): hardware read done on the unit - GICD_ICFGR1 for TWD PPI13/ID29 reads 0b11 (read-only SoC-fixed); standard A9 DTs use LEVEL_HIGH. | `mem-entries.md:26544` |
+| 2026-11-21 |  | 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls. | `mem-entries.md:26561` |
 
 ## All dated entries
 
@@ -728,3 +728,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 16:45 - WPS button verified: EV_KEY KEY_WPS_BUTTON press/release captured. Both board buttons and all six LEDs are now physically verified. | `mem-entries.md:26513` |
 | 2026-11-21 |  | 2026-11-21 16:55 - Watchdog telemetry/arming verified indirectly: /dev/watchdog is already held open (Resource busy) with state=active/timeout=30, so the hardware watchdog is armed and serviced by userspace (procd), and the box stays up across minutes -> keepalive path works. | `mem-entries.md:26526` |
 | 2026-11-21 |  | 2026-11-21 17:10 - Upstream blocker #6 (TWD timer IRQ flags): hardware read done on the unit - GICD_ICFGR1 for TWD PPI13/ID29 reads 0b11 (read-only SoC-fixed); standard A9 DTs use LEVEL_HIGH. | `mem-entries.md:26544` |
+| 2026-11-21 |  | 2026-11-21 17:25 - TWD timer level-high delta adopted after hardware boot test: /proc/interrupts now reports "GIC-0 29 Level twd", both CPUs ticking, no stalls. | `mem-entries.md:26561` |
