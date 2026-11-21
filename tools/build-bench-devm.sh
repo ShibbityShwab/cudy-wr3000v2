@@ -3,7 +3,7 @@
 # luofu image base-files (so CONFIG_DEVMEM=y images boot with it in /usr/bin).
 # usage: tools/build-bench-devm.sh [openwrt-build-clone]
 set -u
-CL=${1:-/home/shibbityshwab/openwrt-lab-selectorfix-img}
+CL=${1:-~/openwrt-lab-selectorfix-img}
 TC=$(echo "$CL"/staging_dir/toolchain-*/bin/*-gcc)
 CC=$(ls $TC 2>/dev/null | head -1)
 [ -n "$CC" ] || { echo "toolchain gcc not found under $CL/staging_dir/toolchain-*"; exit 2; }

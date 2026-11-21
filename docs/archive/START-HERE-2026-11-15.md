@@ -51,7 +51,7 @@ checkout, so `task.isolation.enabled` could never apply and DAG nodes / isolated
 From this repo they work.
 
     cd C:/Users/ShibbityShwab/Documents/GitHub/cudy-wr3000v2
-    # Linux workstation: /home/shibbityshwab/Documents/GitHub/cudy-wr3000v2
+    # Linux workstation: ~/Documents/GitHub/cudy-wr3000v2
 
 ## Layout
 

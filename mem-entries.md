@@ -22772,7 +22772,7 @@ the recovered box and gave an answer that is not the one it was meant to give.
 What was measured. `ERASE_OK`, `WRITE_OK`, `VERIFY_OK`, `bootflag=b`, `boot_reg=21`,
 then `Reading 8650752 byte(s)`, `alias console=...` (the working handover path), and then
 `enter esbc main` with `Hard Hardware watchdog reset` before any kernel output. The
-`/home/shibbityshwab/Documents/GitHub/cudy-wr3000v2/build/uart-logs/20261116T111510Z-fire-3dk.log`
+`~/Documents/GitHub/cudy-wr3000v2/build/uart-logs/20261116T111510Z-fire-3dk.log`
 holds 22 polls of `up=0 hi=0` across the whole cycle. Every kernel that compressed in that
 capture was **4,294,096 bytes**, the stock image; our 2,965,176-byte slice was read and handed
 over but never started. So `tools/fire-device.sh` wrote `kernelb` while the path that boots
@@ -23441,7 +23441,7 @@ Delivered in opensource/target-skeleton (uncommitted until this integration):
   symbols, 13 dropped (9 not 6.18 symbols, 4 hidden), PHYLINK y->m, 12 [D-default] other-SoC
   Hisilicon drivers pulled in by ARCH_HISI defaults (to prune or consciously keep).
 
-Verified in /home/shibbityshwab/openwrt-lab (shallow openwrt main 27663a0, linux-6.18.60):
+Verified in ~/openwrt-lab (shallow openwrt main 27663a0, linux-6.18.60):
 - patch -p1 --dry-run both patches PASS; make target/linux/prepare RC=0; patched tree contains
   arch/arm/mach-hisilicon/*, arch/arm/Kconfig:396, arch/arm/Makefile:175 (textofs) and :200
   (machine-).
@@ -23492,7 +23492,7 @@ mov_l macro to materialize TEXT_OFFSET instead of an immediate add/sub at the fo
 mov_l expands to movw/movt on the target (CONFIG_CPU_V7) and to an ldr literal-pool load for older
 CPUs; pristine-6.18.60 dry-run passes; no make override or WERROR workaround is used.
 
-Verified in /home/shibbityshwab/openwrt-lab (openwrt main 27663a0, linux-6.18.60, tree's
+Verified in ~/openwrt-lab (openwrt main 27663a0, linux-6.18.60, tree's
 OpenWrt GCC 14.4.0 toolchain): make target/linux/prepare RC=0 (patches 001/002/003 apply, no
 .rej), make target/linux/compile -j16 RC=0; invalid-constant errors 0; arch/arm/boot/zImage
 produced (sha256 45ad00d502ed7b2386f83db794e9015267f4f9d66de8d0deaab8aca24cf18d10).
@@ -23609,7 +23609,7 @@ Design decisions:
   zero register accesses; no restart handler (vendor sysctrl/bootreg reset path not understood -
   documented TODO; no IRQ claimed).
 
-Verified in /home/shibbityshwab/openwrt-lab (openwrt main 27663a0, linux-6.18.60,
+Verified in ~/openwrt-lab (openwrt main 27663a0, linux-6.18.60,
 OpenWrt GCC 14.4.0): pristine patch -p1 --dry-run RC=0 (9 files); make target/linux/prepare
 RC=0; make target/linux/compile V=s -j16 RC=0 (1190 s), zImage 3,222,416 B sha256 50cd07a1...,
 kernel .config has CONFIG_LUOFU_CRG/WDT/MFD_SYSCON/REGMAP/RESET_CONTROLLER/WATCHDOG_CORE=y,
@@ -24647,7 +24647,7 @@ Patch 021-net-lsw-init-luofu.patch (sha256 de69296d80f2419b574d3af4ec4a8b83c877a
   (LSW-SPEC 7.7, per-write evidence grade) but not executed; EQM indirect command word, queue
   table, IFC/L2/VLAN formats excluded as [U]. Probe always exits -EOPNOTSUPP; DTS node disabled.
 
-Validation in isolated clone (/home/shibbityshwab/openwrt-lab-lswinit + fresh pristine 6.18.60):
+Validation in isolated clone (~/openwrt-lab-lswinit + fresh pristine 6.18.60):
 series 001-021 applies in order RC=0, 82 files, 0 rejects (021 after 020: 6-line offset in the
 hisilicon ethernet Kconfig only); prepare RC=0 (1,215 patching lines); compile RC=0, 121 s, 0
 warnings/0 errors under CONFIG_WERROR=y; zImage 3,279,096 B sha 96b927d3...; TEXT_OFFSET
@@ -25713,7 +25713,7 @@ Host traffic test (ping 192.168.1.1 from the bench link):
   -> RXERR ACCEPTED (accepterr=1, vendor would drop) status=37 port=11 vport=0 len=60
   -> pie-trace RX port=11 len=60 status=37 (delivered to eth2's netdev)
 - Host AF_PACKET sniff then saw the box's ARP REPLY on the wire:
-  ARP src d4:0d:ab:64:1c:73 -> dst 00:e0:4c:63:17:58 len 60.
+  ARP src d4:0d:ab:xx:xx:xx -> dst 00:e0:4c:63:17:58 len 60.
   This is the first bidirectional frame exchange on our own OpenWrt/6.18 stack: wire -> PIE RX ->
   CPU (exception accepted) -> kernel ARP reply -> PIE TX -> wire.
 - The host then sent its ICMP echo requests (sniff saw 6x IPv4 host->box len 98), but the box
@@ -25761,7 +25761,7 @@ Image 851b3721 (patches 001-055; full W3-W16 + W18 static luofu_switch.cpu_mirro
 - W18_CPU_MIRROR logged "static CPU-copy destination 8 kept for the whole run" at 3.2 s, before
   eth2 link-up (link at 7.7 s and 35.0 s, br-lan forwarding at 35.2 s).
 - 60 s host ping: 50/50 transmitted, 0 received (100% loss). Sniff still shows the box's ARP reply
-  (d4:0d:ab:64:1c:73 -> host) and host->box ICMP 98 B frames, so ARP still works, but no ICMP
+  (d4:0d:ab:xx:xx:xx -> host) and host->box ICMP 98 B frames, so ARP still works, but no ICMP
   replies and no follow-up RX deliveries.
 - RXSTROKE: ch0 hw_rptr=1 sw_rptr=1 (a single completion - the accepted ARP exception), mask/status
   0, fsm=0x2001; ch1 idle. Heartbeat continuous (HB 66..96), no Oops.
@@ -25785,7 +25785,7 @@ reapply/re-latch + rxdiag/accepterr/rxstroke; heartbeat) installed from stock an
 - First 50-packet ping (started ~40 s after boot, right after br-lan came up at 34.5 s): 0/50
   received, +12 errors; sniff showed only host ARP requests (host ARP cache was still resolving).
 - Retry after userspace fully up (28 packets, 32 s): 0/28 received; sniff shows the box ARP reply
-  (d4:0d:ab:64:1c:73 -> host) and 13 host->box ICMP 98 B frames, but no box ICMP replies.
+  (d4:0d:ab:xx:xx:xx -> host) and 13 host->box ICMP 98 B frames, but no box ICMP replies.
 - RXDIAG: 13-14 completions, ALL len=60 status=37 err=1 port=11 - i.e. only the ARP-size
   exception frames are punted to the CPU; the host's 98-byte ICMP frames are NOT delivered to the
   box's RX ring at all. RXERR ACCEPTED 8, RXSTROKE ch0 hw_rptr settles 13 -> no further deliveries.
@@ -26125,7 +26125,7 @@ LEDGER
 ## 2026-11-20 22:50 - stability test image set built for the 2-CPU hang: canonical 974e6ca6, maxcpus=1 d101f96b, lockdep debug 18b3cb1d
 
 The 2-CPU image hung silently after ~23 min, so three images are staged in
-/home/shibbityshwab/staging-fi/ for the post-recovery stability campaign:
+~/staging-fi/ for the post-recovery stability campaign:
 - img-canonical.bin sha256 974e6ca6 (patches 001-061 + DTS handoff fix, canonical cmdline
   maxcpus=2, DEVMEM + static devmem + boot-pair recorder; no probe tokens).
 - img-maxcpu1.bin sha256 d101f96b (identical but cmdline maxcpus=1) - baseline to separate

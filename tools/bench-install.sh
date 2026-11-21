@@ -11,7 +11,7 @@ BOX_STOCK=192.168.10.1
 SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=8"
 IMG=${1:?usage: $0 <sysupgrade.bin> [--skip-stock-switch]}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-STAGE=/home/shibbityshwab/staging-fi
+STAGE=~/staging-fi
 SWITCH=1
 [ "${2:-}" = "--skip-stock-switch" ] && SWITCH=0
 

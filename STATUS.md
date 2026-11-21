@@ -735,7 +735,7 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
 - **FIRST REAL TRAFFIC (2026-11-20): the box accepted a punted ARP exception on eth2 and sent an ARP
   reply on the wire.** Image e924f8a6 (001-053, full W3-W16 + rxdiag/accepterr + heartbeat): one
   RX exception completion (len=60 status=37 port=11) was accepted and delivered; the host sniff
-  saw the box's ARP reply (d4:0d:ab:64:1c:73 -> 00:e0:4c:63:17:58, len 60). So the full
+  saw the box's ARP reply (d4:0d:ab:xx:xx:xx -> 00:e0:4c:63:17:58, len 60). So the full
   wire->PIE RX->CPU->kernel->PIE TX->wire loop works for punted frames. The host's follow-up
   unicast ICMP (98 B, seen on the wire) produced zero further RX completions and ping still fails:
   normal unicast frames are not punted/forwarded to the CPU - the missing CFE L2/VLAN/CPU-port
