@@ -26217,3 +26217,28 @@ a separate project; no upstream review yet.
 Evidence: upstream/series-6.18/validation/release-line/*, /tmp validator log, DTS sha above.
 
 LEDGER
+
+## 2026-11-21 12:40 - release-line cleanup complete: 052/053 pair fixed (0 fuzz, strict-clean), monotonic 062-065, DTS-0001 companion validated
+
+Submodule commit c7ffeeb (independently re-validated by the lead):
+- 053 regenerated as the diff from its post-052 state; the resulting luofu-pie.c is byte-identical
+  to the previous release stack. L1 now applies with 0 fuzz and strict git apply is clean.
+- 042 duplicate resolved: 042-net stays 042, 042-arm is 062; dependent excluded diagnostics
+  renumbered 059->063, 060->064, 061->065 (content/hashes unchanged). L0 = 62 files:
+  001-058 + 062-065, no duplicate numbers.
+- New DTS companion: upstream/series-6.18/dts-series/0001-arm-dts-hisilicon-luofu-r116-loader-
+  handoff.patch (sha256 73d93769c0cf5e63c17932c2a0f7285cd5fda59e4c93164c94a96e9cf24be788),
+  carrying the board DTS with the measured loader hand-off nodes, byte-identical to the
+  single-source target DTS; documented in 06-dts-series-dependency.md; generator
+  tools/gen-dts-series-patch.py; 0018 and 03-rationale name the dependency.
+- check-release-line.sh now applies/compiles DTS-0001 and verifies byte-identity and the contract.
+Independent validator run: manifest 51 included/11 excluded; patch(1) 51/51 RC=0, 146 file events,
+3 offset hunks, 0 fuzz, 0 rejects; strict git apply all 51 clean; board DTS cpp+dtc RC=0, DTB
+12296 B sha256 50daf3d0d50929aaa3af35fa40fae69a73428fd5b1c5bcc686795e89cb92d8eb; DTS-0001
+apply/cpp/dtc RC=0 with the same DTB and contract. Review form re-run: 26/26 patch(1)+git am,
+3 offsets, 0 fuzz, identical trees, checkpatch 0 errors/58 warnings. Caveat unchanged: DTS-0001 is
+a draft board DTS (TODO-heavy); only the loader hand-off nodes are final/measured, so it goes out
+with kernel 0018 after the bindings cleanup. Curated repos untouched.
+Next: curated publish sync; install path on a device; Wi-Fi; native CFE forwarding; upstream review.
+
+LEDGER

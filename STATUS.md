@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-21 12:25 +07
+**Updated:** 2026-11-21 12:40 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -906,6 +906,18 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
   RELEASE-NOTES + TARGET-DESIGN/ROADMAP/SKELETON docs updated; curated repos untouched. Remaining:
   052/053 pair regeneration, duplicate 042 renumber, upstream DTS series with the two nodes,
   install path on a device, Wi-Fi, native CFE forwarding, upstream review.
+
+- **Release-line cleanup complete and independently validated (2026-11-21).** Submodule c7ffeeb:
+  053 regenerated as the post-052 diff (final luofu-pie.c byte-identical; 0 fuzz, strict git apply
+  clean); duplicate 042 resolved (042-net stays, 042-arm -> 062; 059/060/061 -> 063/064/065);
+  L0 = 62 files 001-058 + 062-065. New DTS-0001 companion
+  (dts-series/0001-arm-dts-hisilicon-luofu-r116-loader-handoff.patch sha256 73d93769...) carries
+  the board DTS with the measured loader hand-off nodes, byte-identical to the target DTS, and is
+  documented/generated/validated (06-dts-series-dependency.md; 0018 names the dependency). Lead
+  validator run: 51/51 patch(1), 3 offsets, 0 fuzz, 0 rejects, strict git-apply clean, DTB 12296 B
+  sha256 50daf3d0..., DTS-0001 contract checked. Caveat: DTS-0001 is a draft TODO-heavy board DTS,
+  only the loader hand-off nodes are final - ships with 0018 after bindings cleanup. Next: curated
+  publish sync; install path on device; Wi-Fi; native CFE forwarding; upstream review.
 
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
