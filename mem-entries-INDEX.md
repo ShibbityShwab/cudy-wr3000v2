@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-20 |  | 2026-11-20 11:30 - W9 read-only diag + early_probe=2 run: no W9 write, TX still wedges the box after one frame; stock reference registers captured | `mem-entries.md:25433` |
 | 2026-11-20 |  | 2026-11-20 12:05 - Heartbeat added: the "idle hang" and several "hung box" conclusions were false alarms; the box was alive but silent | `mem-entries.md:25461` |
 | 2026-11-20 |  | 2026-11-20 12:35 - macconf (vendor MAC link sequence) executed cleanly; box stable via heartbeat; traffic still dead | `mem-entries.md:25485` |
 | 2026-11-20 |  | 2026-11-20 13:10 - W10 IFC default-classification table programmed and verified on hardware; full W3-W10 chain armed; heartbeat stable; traffic still dead | `mem-entries.md:25505` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 14:55 - Cleaned-DTS regression RESOLVED: conservative comment-only cleanup (7ae18f2) reproduces the known-good image byte-for-byte. | `mem-entries.md:26388` |
 | 2026-11-21 |  | 2026-11-21 15:05 - Far-right port identified as a non-eth2 LAN port: box alive (UART heartbeat, IPv6 RAs reach the host) but host-to-box frames are not delivered because the CPU-copy mirror workaround covers eth2/switch-port 11 only. | `mem-entries.md:26412` |
 | 2026-11-21 |  | 2026-11-21 15:20 - Multi-port Ethernet analysis: far-right jack is a LAN port; CPU-copy path reports port 0 and has no confirmed source-port id, so a per-port delivery decision needs the documented RX-source experiment or the native bridge. | `mem-entries.md:26432` |
+| 2026-11-21 |  | 2026-11-21 15:35 - Multi-port probe image built and staged (a91ebcf0): mirror source-port mask parameter + RXDIAG cmdline tokens, ready for the source-port experiment when the cable is back on eth2. | `mem-entries.md:26454` |
 
 ## All dated entries
 
@@ -722,3 +722,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-21 |  | 2026-11-21 14:55 - Cleaned-DTS regression RESOLVED: conservative comment-only cleanup (7ae18f2) reproduces the known-good image byte-for-byte. | `mem-entries.md:26388` |
 | 2026-11-21 |  | 2026-11-21 15:05 - Far-right port identified as a non-eth2 LAN port: box alive (UART heartbeat, IPv6 RAs reach the host) but host-to-box frames are not delivered because the CPU-copy mirror workaround covers eth2/switch-port 11 only. | `mem-entries.md:26412` |
 | 2026-11-21 |  | 2026-11-21 15:20 - Multi-port Ethernet analysis: far-right jack is a LAN port; CPU-copy path reports port 0 and has no confirmed source-port id, so a per-port delivery decision needs the documented RX-source experiment or the native bridge. | `mem-entries.md:26432` |
+| 2026-11-21 |  | 2026-11-21 15:35 - Multi-port probe image built and staged (a91ebcf0): mirror source-port mask parameter + RXDIAG cmdline tokens, ready for the source-port experiment when the cable is back on eth2. | `mem-entries.md:26454` |

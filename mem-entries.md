@@ -26450,3 +26450,22 @@ LEDGER
   SSH/install/experiment work; UART capture remains read-only and the box is alive.
 
 LEDGER
+
+## 2026-11-21 15:35 - Multi-port probe image built and staged (a91ebcf0): mirror source-port mask parameter + RXDIAG cmdline tokens, ready for the source-port experiment when the cable is back on eth2.
+
+- Added bench-only patch opensource/docs/incoming/multi-port-probe/066-net-lsw-mirror-src-mask.patch:
+  a luofu_switch.mirror_src_mask module parameter (default 0x800 = BIT(11)) used by the ingress
+  mirror program/readback instead of the hardcoded BIT(11). Built image a91ebcf0 with built-in
+  cmdline luofu_pie.rxdiag=1 luofu_switch.mirror_src_mask=0x1e00 (mirror ports 9,10,11,12 to CPU
+  dst 4, full RXDIAG descriptor dump). The image is otherwise the verified 7421bb7a baseline.
+- Experiment (documented in opensource/docs/MULTI-PORT-PLAN.md): install the probe image when the
+  cable is back on eth2, capture RXDIAG descriptors for eth2 traffic, move the cable to the
+  candidate jack, capture again, and compare descriptor bytes for a source-port identifier. If
+  found, extend mirror mask + per-port PIE delivery; if not, multi-port LAN/WAN is the native
+  L2/VLAN bridge (LSW-SPEC). Restore 7421bb7a afterwards.
+- Build tree hygiene: the clone config and patch set were restored to canonical after producing
+  the image, and the bin output was replaced with the known-good 7421bb7a container.
+- Blocker: the bench cable is on the far-right non-eth2 jack, so the box is unreachable from the
+  host; hardware work resumes when it is moved back to the eth2 jack.
+
+LEDGER
