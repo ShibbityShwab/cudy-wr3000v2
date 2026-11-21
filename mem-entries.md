@@ -27123,3 +27123,20 @@ LEDGER
 - Box left on eth2 + W22 native, healthy; UART armed; recovery door ready.
 
 LEDGER
+
+## 2026-11-22 02:00 - Multi-port LAN complete: LAN-to-LAN forwarding also PASS on the second port pair eth2<->eth1 (broadcast + learned unicast, both directions), FDB learns both host MACs on the correct ports. Native multi-port LAN (all four jacks delivery + bridge forwarding over both LAN port pairs) is now fully bench-verified with W22 and no hardware L2 offload.
+
+- Second adapter moved from eth0 to eth1 (second-from-right); box eth1 carrier=1; eth2 bench
+  carrier=1. Marker-filtered AF_PACKET test: broadcast eth1->eth2 PASS, unicast eth1->eth2 PASS,
+  unicast eth2->eth1 PASS, broadcast eth2->eth1 PASS. FDB: 00:e0:4c:63:17:58 on port 1 (eth2),
+  00:e0:4c:68:02:14 on port 2 (eth1); counters eth2 rx 421/tx 359, eth1 rx 265/tx 228.
+- Evidence: build/evidence-bench-gates/m1b/ (lan2lan-eth1.txt, lan2lan-eth1-fdb.txt) and
+  m1b/M1B-RESULTS.md updated. RELEASE-NOTES/STATUS updated: wired LAN columns now claim native
+  per-port delivery on all four jacks and LAN-to-LAN forwarding on both tested LAN port pairs
+  (eth2<->eth0, eth2<->eth1); no hardware L2/VLAN offload needed for multi-port LAN.
+- Remaining known-open items only: optional WAN L3 validation with a host DHCP server on the
+  leftmost jack; owner-only history purge (runbook ready); upstream submission package complete
+  with ZERO blockers but intentionally not sent; Wi-Fi/thermal unsupported by design. Second
+  adapter can be unplugged; box final state is W22 native image on eth2 bench link, healthy.
+
+LEDGER
