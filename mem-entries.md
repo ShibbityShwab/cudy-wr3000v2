@@ -26360,3 +26360,27 @@ LEDGER
   the closure; next: multi-port/WAN cable tests (user), watchdog arm test, upstream DTS cleanup.
 
 LEDGER
+
+## 2026-11-21 14:45 - HARDWARE REGRESSION in the cleaned DTS (538377c): boot stalls in MTD partition registration and resets via the U-Boot watchdog; rolled back to image 7421bb7a.
+
+- Built the image from the lane's cleaned DTS (commit 538377c; image 6f19c6d6, DTB 11702 B padded
+  to 11704) and installed it with the verified stock-telnet installer (pair b). It does NOT boot to
+  userspace: UART shows the 6.18 kernel starting (SMP, 2 CPUs, loader hand-off consumed, markers
+  consumed) but the 17 MTD partition registrations stretch from 0.90 s to 24.55 s (increasing
+  delays up to 5.6 s per rootfs partition), no luofu-reboot/luofu-wdt probe lines appear, and the
+  box resets at 24.55 s (U-Boot 30 s watchdog) then falls back to the stock pair A.
+- Known-good image 7421bb7a (same kernel config/userspace, DTB 13048 padded): partition scan
+  0.93-1.16 s, luofu-reboot 2.28 s, luofu-wdt 2.30 s, ubi0 attach 2.68 s, init 3.01 s.
+- Evidence: build/evidence-bench-gates/2026-11-21-cleaned-dts-regression.log (sha256 15dc3188...).
+  Semantic diff of the two decompiled DTBs shows only the lane's documented changes (model/
+  compatible, node renames, switch node 11000000->80000000 with DDR-first reg order, removal of
+  sp804/WOE/thermal/Wi-Fi-pcie/serial1, 12 status=okay removals). Host-side checks (patch apply,
+  dtc, contract, DTS-0001 identity) cannot catch this; the active DTS must be boot-tested.
+- Rolled back by reinstalling img-7421bb7a with the telnet installer: PASS, 6.18.60, 2 CPUs,
+  selector 0x11, six LEDs, event0, no kernel errors. The lane has been tasked to produce a
+  conservative cleanup (comments/prose only; no active-node renames/removals without separate
+  hardware-tested changes) and to document that 538377c is not hardware-validated.
+- Cleaned-DTS status: HOST-VALIDATED ONLY, HARDWARE-REGRESSED; known-good hardware baseline stays
+  image 7421bb7a until a conservative cleanup boots on the unit.
+
+LEDGER
