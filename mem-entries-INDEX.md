@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-21 |  | 2026-11-21 13:35 - LEDs + buttons + watchdog sysfs brought up on hardware (image 7f270b8c); unaligned-DTB gate-word bug found and fixed. | `mem-entries.md:26272` |
 | 2026-11-21 |  | 2026-11-21 13:50 - Quiet canonical image 7421bb7a: periodic W17/W19/HB dmesg spam removed; thermal ENODATA root-caused; LEDs/keys/watchdog verified. | `mem-entries.md:26301` |
 | 2026-11-21 |  | 2026-11-21 14:05 - Install-path finding: stock vendor image has no SSH/dropbear/opkg, so the automated first-install tool cannot run as written; manual path re-verified with quiet image 7421bb7a. | `mem-entries.md:26321` |
 | 2026-11-21 |  | 2026-11-21 14:30 - Automated install path CLOSED: new telnet installer verified end-to-end on the data (stock pair A -> our image pair B). | `mem-entries.md:26341` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-22 |  | 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror. | `mem-entries.md:27091` |
 | 2026-11-22 |  | 2026-11-22 01:40 - M1b-3 LAN-to-LAN forwarding PASS: with a second USB-Ethernet adapter on eth0 and the bench adapter on eth2, the software bridge forwards broadcast and learned unicast in BOTH directions (eth0<->eth2); FDB learns both MACs on the correct ports. Native multi-port LAN forwarding works with W22 and no hardware L2 offload. | `mem-entries.md:27107` |
 | 2026-11-22 |  | 2026-11-22 02:00 - Multi-port LAN complete: LAN-to-LAN forwarding also PASS on the second port pair eth2<->eth1 (broadcast + learned unicast, both directions), FDB learns both host MACs on the correct ports. Native multi-port LAN (all four jacks delivery + bridge forwarding over both LAN port pairs) is now fully bench-verified with W22 and no hardware L2 offload. | `mem-entries.md:27127` |
+| 2026-11-22 |  | 2026-11-22 02:20 - WAN L3 path PASS: with the second adapter on the leftmost jack (eth3/WAN), the box obtained DHCP lease 192.168.50.115/24 from a host dnsmasq, installed default via 192.168.50.1 dev eth3, pinged the gateway 5/5 and replied to host ping 4/4 - the WAN port has a complete native L2/L3 path. | `mem-entries.md:27144` |
 
 ## All dated entries
 
@@ -754,3 +754,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-22 |  | 2026-11-22 01:15 - M1b-1 PASS: per-port native CPU delivery verified on all four jacks (eth0/port9 far-right, eth1/port10 second-right, eth2/port11 bench, eth3/port12 leftmost WAN) with the W22 image and no mirror. | `mem-entries.md:27091` |
 | 2026-11-22 |  | 2026-11-22 01:40 - M1b-3 LAN-to-LAN forwarding PASS: with a second USB-Ethernet adapter on eth0 and the bench adapter on eth2, the software bridge forwards broadcast and learned unicast in BOTH directions (eth0<->eth2); FDB learns both MACs on the correct ports. Native multi-port LAN forwarding works with W22 and no hardware L2 offload. | `mem-entries.md:27107` |
 | 2026-11-22 |  | 2026-11-22 02:00 - Multi-port LAN complete: LAN-to-LAN forwarding also PASS on the second port pair eth2<->eth1 (broadcast + learned unicast, both directions), FDB learns both host MACs on the correct ports. Native multi-port LAN (all four jacks delivery + bridge forwarding over both LAN port pairs) is now fully bench-verified with W22 and no hardware L2 offload. | `mem-entries.md:27127` |
+| 2026-11-22 |  | 2026-11-22 02:20 - WAN L3 path PASS: with the second adapter on the leftmost jack (eth3/WAN), the box obtained DHCP lease 192.168.50.115/24 from a host dnsmasq, installed default via 192.168.50.1 dev eth3, pinged the gateway 5/5 and replied to host ping 4/4 - the WAN port has a complete native L2/L3 path. | `mem-entries.md:27144` |

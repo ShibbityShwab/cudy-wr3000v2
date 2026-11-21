@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-22 01:25 +07
+**Updated:** 2026-11-22 02:20 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -920,15 +920,15 @@ submission-ready.
 
 ## 4. Next action
 
-**Current phase (2026-11-22): W22 native forwarding release-installed and M1b-1 passed; LAN-to-LAN open.**
-Release line carries patches 059/060 (L0 64 / L1 53, manifest 619eb15a...), canonical image 50023446
-boots with no mirror tokens: 6.18.60, 2 CPUs, dmesg "W22: NAPT/flow engine initialized and verified",
-ping/SSH, 15-min soak 900/900 0% loss, link-flap recovery, and per-port native CPU delivery on all
-four jacks (eth0/9 far-right, eth1/10 second-right, eth2/11 bench, eth3/12 leftmost WAN). The
-fallback-image bench test was retired as untested-by-design (kept as a source option, naptinit=0).
-Open items: true LAN-to-LAN forwarding needs a second host/NIC (M1b-3); optional WAN L3 validation
-with a host DHCP server; final curated resync; upstream submission package complete with ZERO
-blockers (not sent); history purge owner-only; Wi-Fi/thermal unsupported by design.
+**Current phase (2026-11-22): W22 native multi-port networking fully verified - LAN, LAN-to-LAN and WAN.**
+Release line carries patches 059/060 (L0 64 / L1 53, manifest 619eb15a...); canonical image 50023446
+boots with no mirror tokens: 6.18.60, 2 CPUs, W22 NAPT init verified, ping/SSH, 15-min soak 900/900
+0% loss, link-flap recovery, per-port native delivery on all four jacks (eth0/9, eth1/10, eth2/11,
+eth3/12), LAN-to-LAN forwarding through the software bridge proven both directions on eth2<->eth0 and
+eth2<->eth1, and the WAN L3 path proven (DHCP lease 192.168.50.115 from a host server, default route,
+ICMP both ways). Remaining work is owner-only or out of scope: history purge (runbook ready; item 1
+unchecked), upstream submission package complete with ZERO blockers but intentionally not sent,
+Wi-Fi/thermal unsupported by design. No bench items remain.
 
 ## 5. Reading the console (read-only)
 

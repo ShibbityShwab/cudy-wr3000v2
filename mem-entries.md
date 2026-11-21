@@ -27140,3 +27140,23 @@ LEDGER
   adapter can be unplugged; box final state is W22 native image on eth2 bench link, healthy.
 
 LEDGER
+
+## 2026-11-22 02:20 - WAN L3 path PASS: with the second adapter on the leftmost jack (eth3/WAN), the box obtained DHCP lease 192.168.50.115/24 from a host dnsmasq, installed default via 192.168.50.1 dev eth3, pinged the gateway 5/5 and replied to host ping 4/4 - the WAN port has a complete native L2/L3 path.
+
+- Setup: bench adapter on eth2 (management/SSH), second USB-Ethernet adapter on the leftmost jack
+  (eth3/port12). Host dnsmasq on 192.168.50.1/24 serves DHCP; box WAN udhcpc got
+  "broadcasting select for 192.168.50.115, server 192.168.50.1" and "lease ... obtained".
+  Box eth3 UP with 192.168.50.115/24 and default route via 192.168.50.1; box->host gateway ping
+  5/5 0%, host->box WAN IP 4/4 0%.
+- Gotcha: the host ufw INPUT DROP policy silently dropped DHCP broadcasts until UDP 67/68 was
+  allowed on the test interface; recorded for future runs. Cleanup: dnsmasq stopped, iptables rules
+  removed, test IP flushed from the second adapter.
+- Docs updated: m1b/M1B-RESULTS.md WAN L3 section; RELEASE-NOTES wired-LAN row now states the WAN
+  L3 path is verified; STATUS next-action says W22 native multi-port networking (LAN, LAN-to-LAN,
+  WAN) is fully verified and no bench items remain.
+- Remaining: owner-only history purge (runbook ready, item 1 unchecked); upstream submission
+  package complete with ZERO blockers but intentionally not sent; Wi-Fi/thermal unsupported by
+  design. Box final state: W22 native image, 6.18.60, 2 CPUs, selector 0x11, healthy on the eth2
+  bench link; the second adapter can be unplugged.
+
+LEDGER
