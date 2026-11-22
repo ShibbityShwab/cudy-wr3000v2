@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-22 10:20 +07
+**Updated:** 2026-11-22 18:40 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -8,10 +8,18 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 ## 1. Bench (re-verified 2026-11-21 12:50 +07)
 
-- **Box: running OUR image (canonical 2-CPU baseline 974e6ca6), healthy.** OpenWrt 6.18.60,
-  smp: Brought up 1 node, 2 CPUs (online 0-1, CPU1 mpidr 80000001), br-lan 192.168.1.1/24 up,
-  SSH works, /overlay on ubifs rw, 15-min soak 0 failures, reboot returns with 2 CPUs (pair b
-  recorded). No Oops/panic/BUG/WARNING (only the literal panic=0 cmdline text).
+- **Box: running OUR image W26a (sha256 d03a62e5, 6.18.60 + dma-ranges), healthy.** OpenWrt
+  6.18.60, 2 CPUs, br-lan 192.168.1.1/24 up, SSH works, /overlay on ubifs rw. Pair A = vendor
+  stock. **The luofu PCIe link now trains on our kernel** (GPIO0 20/21/28 power/reset fix in
+  pcie-luofu.c) and **both Hi5622 Wi-Fi endpoints enumerate** (59e7:0005); the clean-room
+  transport module passes the bench stages A, B1 and B2: firmware upload+verify (928,920 B,
+  diffs=0), CPU release (0x5a5a), D2H gate (0xcece), DEVICE READY (D2H id 2), ETE SR0/DR0 rings
+  programmed in the DMA window (0x8360c000 / 0x83634000, depth 32), H2D doorbell smoke clean.
+  The Wi-Fi chip CPU is executing the uploaded firmware (abank_code free-running, efuse_chip_id
+  0x186, dcoldo_vset 0x260d4184 - vendor-stock values). See the 2026-11-22 ledger entries; the
+  transport lane is opensource/docs/incoming/wifi-transport-port/. **Timing lesson:** the chip
+  posts DEVICE READY about 3 s after release; start the D2H poll after that (the module now has
+  a 2 s initial poll delay; polling during chip boot can disturb it).
 - **Host bench link:** enp195s0f3u1 UP at 1 Gbps, NetworkManager-unmanaged, carrying
   192.168.1.88/24 (TFTP) and 192.168.10.44/24 (stock LAN/broker). Re-applied 2026-11-21 after an
   overnight carrier/IP loss looked like a box hang - the box was alive (UART heartbeat); bench
@@ -21,7 +29,8 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
   counter on a true power-on reset, then recovery.bin. UART capture is stopped; start it with
   tools/uart-capture.sh for any attended boot. Stock pair A is still available if a stock boot is
   needed (write boot selector a / cell 0x10 and reboot).
-- **Images on flash:** pair B = canonical 974e6ca6 (our 6.18 target); pair A = vendor stock. The
+- **Images on flash:** pair B = W26a d03a62e5 (our 6.18 target + dma-ranges); pair A = vendor
+  stock. The
   boot-pair recorder re-records the running pair so our image survives reboot. Debug builders
   (canonical / maxcpus=1 / lockdep) are archived in staging-fi/ as diagnostics only.
 
