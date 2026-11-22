@@ -27334,3 +27334,14 @@ LEDGER
   gating event for LUT/name harvesting and all behavioral slices.
 
 LEDGER
+
+## 2026-11-22 14:45 - Wi-Fi wal-glue slice: the 6.18 wal config-command front end compiles. hi5622_wal_cfg.ko (222,528 B, GPL, vermagic 6.18.60, depends cfg80211, 0 errors/0 warnings) wires the oracle-verified codec: vendor-exact entry names (wal_wlan_cfg_module_process_entry + host/device legs), hipriv-style wal_hipriv_alg_cfg*, sysfs /sys/kernel/wal_cfg/ surface, cfg80211 vendor-command provider (6.18 alloc_reply_skb; CONFIG_CFG80211=n provider symvers mirroring the vendor imports), hmac cfg dispatch stubs (22 vendor names incl. hmac_event_config_syn / hcc_msg_register_tab 12->16B merge), LUT/name-fixup loader (416x176B LUT key (type<<16)|id, 4608-pair fixup list, runtime descriptor from the algcfg offsets), 22 exports vendor-exact. Commit 422c8c9, docs/incoming/wifi-wal-glue/ (+ probes/bench-probes.md P0-P5).
+
+- Wi-Fi port now has FIVE compiling 6.18 artifacts: framework skeleton, clean-room PCIe transport,
+  hdpp/alg ABI scaffold, alg_cfg codec (17/17 oracle), wal config-command front end.
+- HOST-SIDE LIMIT REACHED: the 120 parser families now need the bench probes P0 (layout readout),
+  P1 (414-row name harvest), P2 (176-B LUT completion), P4/P5 (arities + golden outputs/oracle
+  traces) - recorded in wifi-wal-glue/probes/bench-probes.md. Next physical step: attended bench
+  (transport stage B2 + P0/P1/P2), recovery armed, UART read-only.
+
+LEDGER
