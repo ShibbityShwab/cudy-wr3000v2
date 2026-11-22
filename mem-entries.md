@@ -27362,3 +27362,7 @@ LEDGER
   pair a intact, recovery door armed. Patch 013 + DTS pcie enablement committed below.
 
 LEDGER
+
+## 2026-11-22 12:45 - PCIe adversarial round: every verifiable register on our image now matches the vendor's live state, and the link still does not train. VERIFIED (our image): misc+0x1c = 0x02200800 (both RCs; writes land - the steady state is byte-exact), ACP 0x10100174 = 0x06210321 (bits 25/26 SET), DBI PCI_COMMAND = 0x00100107 (IO|MEM|BME), LNKCAP dbi+0x7c = 0x734c12 (speed=2), dbi+0xa0 speed=2. STOCK live target captured: DEBUG0 dbi+0x728 = 0x03f4a611 (LTSSM[5:0]=0x11 L0), cfg window 0x50000000 = 0x59e7 (endpoint answering), ACP 0x06210321, misc link-status words 0x10161100=0x00808028 / 0x10161110=0x20468aa6. OUR image: DEBUG0 LTSSM=0x00, cfg=0xffffffff. Full vendor sequence (doc steps 1-20) diffed: our port covers 1-16 faithfully (17/18 are post-link irq steps; 14 skipped correctly, no aspm-enable). Ordering (host_init before framework DBI) verified in 6.18 source. LTSSM field is 6 bits (GENMASK(5,0) per sibling pcie-histb) - still 0x00 on ours. CONCLUSION: RC-side software is exhausted and register-verified; the failure is endpoint-side hardware (rail/PERST/refclk to the Hi5622). Multimeter procedure is next; recovery door armed, stock pair a healthy, box on W24n.
+
+LEDGER
