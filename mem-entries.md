@@ -27345,3 +27345,20 @@ LEDGER
   (transport stage B2 + P0/P1/P2), recovery armed, UART read-only.
 
 LEDGER
+
+## 2026-11-22 12:25 - PCIe bring-up bench (W24 series): the COMPLETE vendor RC sequence is now implemented in patch 013 and the link still does not train - the remaining difference is endpoint-side hardware. Big milestone: our 6.18 kernel now has a probing PCIe host with the full recorded vendor bring-up (pre-init words, RC mode, gated cmd/speed, LTSSM-enable with the DBI gate preserved (D1 0x2800), vendor-layout 8-word iATU viewports per RC, steady 0x02200800, stage-2 retrain moved post-link (D2), ACP gate polarity corrected to SET bits 25/26 (hi_acp.ko inverted-value semantics; live 0x06210321), framework pre-link SPEED_CHANGE neutralized, static CFG0 map_bus, 1ms reset pacing).
+
+- D3 read (user-authorized): stock 0x1016101c = 0x02200800 - no hidden bits; D4 CRG gates
+  0x02f8300b/resets 0x000ff309 match vendor live state. PHY init does not exist (full audit:
+  oal_pcie_host_init has zero register writes; phy_devid logs are noise). kwificlk.ko absent on
+  stock (shuangta branch insmod silently fails) - no userspace power step exists for this board;
+  pinctrl/DT have no pcie pins; late rebind at +74s still LTSSM 0x00 - timing ruled out.
+- Remaining: endpoint-side hardware (PERST# line state, Hi5622 rails) - hardware checklist in
+  opensource/docs/incoming/pcie-seq/addendum-2-early-module-audit-acp-polarity.md section 5.
+  Optionally more authorized misc reads on stock (0x10161100 link status / 0x10161110 LTSSM bits
+  [23:18]) to capture the vendor's live link state for comparison.
+- Images iterated: W24i da5c0e20 / W24j b97767f1 / W24k 0d907794 / W24l 82d8a947 / W24m
+  (gate fix) / W24n 31686f8b (speed-change neutralization). Box final: W24n on pair b, stock
+  pair a intact, recovery door armed. Patch 013 + DTS pcie enablement committed below.
+
+LEDGER
