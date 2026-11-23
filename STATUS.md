@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-23 11:05 +07
+**Updated:** 2026-11-23 11:50 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -945,18 +945,26 @@ submission-ready.
 
 ## 4. Next action
 
-**Current phase (2026-11-23): box recovered and back on W27b; install-from-stock path now
-hardware-validated; next physical milestone is the Wi-Fi transport/HCC bench.**
+**Current phase (2026-11-23): box recovered and back on W27b; install-from-stock path
+hardware-validated; B3 cold-boot ready-gate test DONE and NEGATIVE - next experiment is the
+vendor post-release kick of the firmware init table (see below).**
 
 The box was recovered on 2026-11-23: after the armed-TFTP incident left stock 2.5.24 on both
 pairs, the stock LuCI was provisioned, the stock backup crypt was reversed (AES-128-CBC,
 key=MD5(hostname+"@"+bdinfo secret)), a crafted restore gave root, pair A was restored to
 stock, and W27b was reflashed to pair B (verified stable across a reboot). The no-broker
 install channel is documented in opensource/docs/incoming/cudy-backup-root/REPORT.md and
-RUNBOOK section 6. Wi-Fi: transport (hi5622_pciet.ko) and the hdpp/alg ABI scaffold compile on
-6.18.60; the attended transport bench (upload -> 0x5a5a/0xcece -> HCC ready ids 1/2 -> out[1]=0x4)
-remains the next physical Wi-Fi milestone; upstream submission stays impossible while the
-firmware blob is closed. (Previous phase notes kept below.)
+RUNBOOK section 6. Wi-Fi: the attended B3 session ran on 2026-11-23 (cold chip) - P0 arm 7/7 OK,
+upload 928,920 B diffs=0, release 0x5a5a, announce 0xcece, firmware alive (out[1]=0x4, all
+channel enables re-asserted), BUT the decisive cold-boot reads show g=0, the core-0 registry
+unpopulated and the init-table vector mask 0x08 (only entry 3): the ROM/init-table path never
+runs pcie_msg_init or the boot task even on a true power-on, so the ready gate (HCC group-4
+ids 1/2) does not arrive (P1 saw only the platform-up bit, P3 g4_id1/id2=0). The cold-boot
+hypothesis is disproven - next experiment: RE the vendor host driver's post-release path for
+the external kick of the init table/boot task (H2D message or CA write), one candidate per
+attended session. Full result: opensource/docs/incoming/wifi-fw-ready-gate/REPORT.md section 14.
+Upstream submission stays impossible while the firmware blob is closed. (Previous phase notes
+kept below.)
 The canonical image now carries patches 066/067 (thermal: hwver-3/v1 path, gated enable) together
 with W22 (059/060): L0 66 / L1 55, manifest 2bb7413e...; validator PASS (55/55).  Bench (image
 5aeca548): gate off -> raw 0 / ENODATA; enable -> raw 0x25e = 59000 mC, registers match, no IRQ,
