@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-23 11:50 +07
+**Updated:** 2026-11-23 15:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -942,6 +942,40 @@ OpenWrt target, board DTS, image recipe, driver series or upstream submission**.
 The published half is **NOT READY** for publication (`opensource/docs/PUBLISH-READINESS.md`:
 vendor `.o` files remain in git history; history purge pending). Do not present it as
 submission-ready.
+
+## 3b. Wi-Fi bring-up state (2026-11-23, post-swarm)
+
+**Proven on hardware:** PCIe RC link + endpoint iATU six-viewport map; contiguous 928,920 B
+firmware upload (diffs=0); CPU release 0x5a5a; D2H announce 0xcece; ETE SR/DR rings armed.
+On a true cold boot the firmware boot chain runs: pcie_msg_init (g CA 0x172130 = BAR0 0x82A130
+= 0x0010C0F4, object sanity 0x40039014), destination registry CA 0x171B6C (BAR0 0x829B6C) is
+populated (core-0 record BAR0 0x829FB4 = 0,0x00103FB8,0x00171B70,0x00171E1C,0x00171F54,
+0x00171FA8,0,0), boot-task prelude runs (slot CA 0x17D42C = 0xC19D1, state 0x118B60 = 1),
+firmware entry A (0x46970) and entry B (0xC742C) both ran (live product reads). The mask at
+BAR0 0x6F8008 is an exception-seen bitmap (1<<r1: abort/svc/prefetch/undef) - we have seen svc
+and data-abort handlers run (mask 0x0A).
+
+**Current blocker (firmware-internal):** the firmware takes a data abort in its per-core HCC/DR
+descriptor-record bring-up path (stage S10 in wifi-rom-flow REPORT; callers 0x651xx never
+observed; abort site 0x87D64 descriptor writer). Host-side levers are exhausted and closed:
+ACP gate correct (0x10100174 = 0x06210321), no vendor SoC CRG enable for the chip IO block,
+the image PHY table at CPU 0x1059C0 is fully applied, PHY/table writes from the host stick but
+are not the fault, boot-task re-entry is impossible by construction (one-shot dispatcher slot
+overwritten with BUG stub), and the H2D mailbox dispatch is not alive in our reachable state.
+
+**Swarm corrections to prior beliefs (2026-11-23):** the loaded vendor D2H handler table is
+{1,2,3,4,5,6,7}, so bench bitmap 0x4 is an EXCP_PANIC announce, NOT "DEVICE READY" (corrects
+wifi-hcc-re); the vendor never writes 0xcece (all 60+ vendor modules scanned) - the host-side
+counterpart to the firmware vector handler is an event-driven ack (ack/drain/re-arm on observed
+out[1] bit2, then 0xcece); real ready = HCC group-4 id1 (<=2.0 s) then id2 (<=20 s). Transport
+bug fixed: pciet_msg_wait_for_clr now polls out[0] (CA 0x40039010) per the vendor, publishes the
+pending mask in out[0], kicks out[2] bit0, and never writes out[5].
+
+**Next bench action (needs a fresh power-cycle):** corrected H2D Session A - module + ringinit
+(the base module's equivalent of B3 P0) + prepare/upload/verify + h2d_arm + release + event-
+driven ack gate service + boot check (mask 0x08 / valid g / state 1) THEN inject the safe
+probes (HCC group 0 / id 0 and mailbox id 1) with out[0]/out[2]/out[5] readbacks. H2D id 5 is
+hard-refused everywhere (firmware BUG() trap). Tooling: opensource/docs/incoming/wifi-h2d-inject/.
 
 ## 4. Next action
 
