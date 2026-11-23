@@ -246,6 +246,45 @@ modules; other staged `.ko` can survive, so check the module directory. `tools/r
 copies missing stock files from `/rom` and never overwrites. Both run **on the box**; copy them
 there and run with `sh`.
 
+## 6a. Install from stock without the broker (hardware-validated 2026-11-23)
+
+When the box is on stock firmware and the MQTT broker / SSH / telnet are gone, the config-restore
+channel gives root and can reflash our image. Full format and PoC: opensource/docs/incoming/
+cudy-backup-root/REPORT.md.
+
+1. Build a crafted encrypted backup (needs the unit bdinfo secret; tool reads the local dump):
+   REPO=$(pwd); PY=$REPO/.provision-venv/bin/python
+   $PY opensource/docs/incoming/cudy-backup-root/craft_backup.py emit \
+       --bdinfo dumps/router-20261108/full/mtd6-bdinfo.bin \
+       --ssh-key .omo-secrets/router_ed25519.pub -o /tmp/crafted_backup.bin
+2. Log in to stock LuCI (automated: GET page, POST get_token, double-SHA256 password, see the
+   2026-11-22 ledger entries) and get the backup page token.
+3. Upload: multipart POST to /cgi-bin/luci/admin/system/backup with
+   cbid.backup.1.restore.upload=true, cbid.backup.1.restore=@/tmp/crafted_backup.bin,
+   token, cbi.submit=1. The response must show MD5/Size/Generate time (crypt -d succeeded).
+4. POST cbid.backup.1.proceed=1 (same page, same token) -> 302 to reboot?backup=.
+5. Trigger the restore chain with GET /cgi-bin/luci/admin/system/reboot/apply?backup=true
+   (plain /reboot/apply only reboots; the backup=true parameter is what runs
+   sysupgrade -r /tmp/backup.tar.gz && preset defaults && reboot). Both the uploaded tar in
+   /tmp and this trigger are per-boot: upload+proceed+apply in the same stock boot.
+6. During preset defaults the payload's /etc/uci-defaults/99-omo-arm starts telnetd
+   (telnet 192.168.10.1, root shell); /etc/rc.local keeps it across boots. Then flash a pair
+   from the root shell exactly as in section 4 (mtd+ubiformat), with two hard rules:
+   - the running pair's rootfs is attached to ubi0; cat /sys/class/ubi/ubi*/mtd_num tells you
+     which mtd is active - never ubiformat the active rootfs; flash the inactive pair;
+   - pair selection = env bootflag + the selector cell matched together (stock 5.10 exposes
+     /sys/devices/platform/sysenv/boot_reg; our kernel exposes
+     /sys/devices/platform/boot-selector/{raw,current_pair,next_pair}). A cell/env mismatch
+     makes the next boot flip pairs (opensource/docs/SELECTOR-0x21.md). Set bootflag and the
+     cell for the same pair, e.g. fw_setenv bootflag b; echo 0x11 > /sys/devices/platform/sysenv/boot_reg.
+7. Reboot and verify the image (192.168.1.1, SSH project key). Our image's
+   /etc/init.d/luofu-pair-record re-records the running pair, so the selection is stable.
+
+Notes: the crafted payload only ADDS files; a failed restore leaves stock intact. The restore
+reboots the box (it can hang in shutdown; a plain power cycle is safe because the payload files
+were already extracted). The stock overlay is shared with our image via rootfs_data; booting our
+image reformats it, so the stock-side payload does not survive a switch to our image.
+
 ## 7. Log, close, and commit
 
 Evidence goes under `build/linux-kbuild/waves/<phase>/` (phase writeups) and

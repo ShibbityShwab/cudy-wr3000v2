@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-22 18:40 +07
+**Updated:** 2026-11-23 11:05 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -8,7 +8,12 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 ## 1. Bench (re-verified 2026-11-21 12:50 +07)
 
-- **Box: running OUR image W26a (sha256 d03a62e5, 6.18.60 + dma-ranges), healthy.** OpenWrt
+- **Box: running OUR image W27b (sha256 4af1d1fa, 6.18.60 + dma-ranges), healthy, pair B.**
+  Recovered 2026-11-23 from the stock 2.5.24 firmware that the armed-TFTP incident had left on
+  both pairs, via the new no-broker install channel (see below): a crafted config-restore
+  backup gave root on stock, pair A was restored to stock 2.5.24 and pair B reflashed with
+  W27b; env bootflag=b + selector cell 0x11 are re-recorded by luofu-pair-record and a reboot
+  test still boots our image. OpenWrt
   6.18.60, 2 CPUs, br-lan 192.168.1.1/24 up, SSH works, /overlay on ubifs rw. Pair A = vendor
   stock. **The luofu PCIe link now trains on our kernel** (GPIO0 20/21/28 power/reset fix in
   pcie-luofu.c) and **both Hi5622 Wi-Fi endpoints enumerate** (59e7:0005); the clean-room
@@ -29,10 +34,21 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
   counter on a true power-on reset, then recovery.bin. UART capture is stopped; start it with
   tools/uart-capture.sh for any attended boot. Stock pair A is still available if a stock boot is
   needed (write boot selector a / cell 0x10 and reboot).
-- **Images on flash:** pair B = W26a d03a62e5 (our 6.18 target + dma-ranges); pair A = vendor
-  stock. The
-  boot-pair recorder re-records the running pair so our image survives reboot. Debug builders
-  (canonical / maxcpus=1 / lockdep) are archived in staging-fi/ as diagnostics only.
+- **Images on flash:** pair B = W27b 4af1d1fa/9a8e994f (our 6.18 target + dma-ranges); pair A =
+  stock 2.5.24 (vendor kernel 5.10.201 + rootfs, official image, kernel layer 4,333,112 B
+  dd16163b..., rootfs layer 16,515,072 B fb1a611e...). The boot-pair recorder re-records the
+  running pair so our image survives reboot (verified with a reboot on 2026-11-23: the box
+  came back on our image, selector current_pair=b, raw=0x11). Selector flip recipe for bench:
+  env bootflag + /sys/devices/platform/boot-selector (our kernel) or sysenv/boot_reg (stock
+  5.10 kernel) - see opensource/docs/SELECTOR-0x21.md. Debug builders (canonical / maxcpus=1 /
+  lockdep) are archived in staging-fi/ as diagnostics only.
+- **Install channel hardware-validated 2026-11-23 (no broker, no SSH needed):** the stock
+  config-backup crypt was reversed and a crafted encrypted backup (opensource/docs/incoming/
+  cudy-backup-root/) flashed through LuCI System->Backup->Restore gives a root channel on the
+  stock firmware (etc/rc.local + /etc/uci-defaults payload carry-over, sysupgrade -r extracts
+  arbitrary paths to /). Used it to recover this box end-to-end; the same channel is the new
+  documented fallback install path (RUNBOOK section 6). The stock overlay left by the payload
+  is gone now because our image reformatted rootfs_data; pair A + stock still selectable.
 
 ## 2. Gates (bench-reversal history, 2026-11-14)
 
@@ -929,7 +945,18 @@ submission-ready.
 
 ## 4. Next action
 
-**Current phase (2026-11-22): W23 thermal fix bench-proven; W22 native networking fully verified.**
+**Current phase (2026-11-23): box recovered and back on W27b; install-from-stock path now
+hardware-validated; next physical milestone is the Wi-Fi transport/HCC bench.**
+
+The box was recovered on 2026-11-23: after the armed-TFTP incident left stock 2.5.24 on both
+pairs, the stock LuCI was provisioned, the stock backup crypt was reversed (AES-128-CBC,
+key=MD5(hostname+"@"+bdinfo secret)), a crafted restore gave root, pair A was restored to
+stock, and W27b was reflashed to pair B (verified stable across a reboot). The no-broker
+install channel is documented in opensource/docs/incoming/cudy-backup-root/REPORT.md and
+RUNBOOK section 6. Wi-Fi: transport (hi5622_pciet.ko) and the hdpp/alg ABI scaffold compile on
+6.18.60; the attended transport bench (upload -> 0x5a5a/0xcece -> HCC ready ids 1/2 -> out[1]=0x4)
+remains the next physical Wi-Fi milestone; upstream submission stays impossible while the
+firmware blob is closed. (Previous phase notes kept below.)
 The canonical image now carries patches 066/067 (thermal: hwver-3/v1 path, gated enable) together
 with W22 (059/060): L0 66 / L1 55, manifest 2bb7413e...; validator PASS (55/55).  Bench (image
 5aeca548): gate off -> raw 0 / ENODATA; enable -> raw 0x25e = 59000 mC, registers match, no IRQ,
