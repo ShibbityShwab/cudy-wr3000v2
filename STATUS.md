@@ -977,6 +977,21 @@ driven ack gate service + boot check (mask 0x08 / valid g / state 1) THEN inject
 probes (HCC group 0 / id 0 and mailbox id 1) with out[0]/out[2]/out[5] readbacks. H2D id 5 is
 hard-refused everywhere (firmware BUG() trap). Tooling: opensource/docs/incoming/wifi-h2d-inject/.
 
+## 3c. GP1: endpoint reset pulse (2026-11-24, HARDWARE-VALIDATED)
+
+The missing host action was identified and implemented: our RC driver (luofu-pcie, patch 013 +
+new 013a) now performs the vendor's endpoint reset pulse at RC0 probe, before the RC clock is
+enabled: SoC GPIO0 pins 20/21/28 are driven LOW (assert) 20 ms then HIGH (release) 100 ms (RMW
+on 0x10106000 DATA/+0x04 DDR; the DTS hog keeps the released level). With this pulse the chip's
+mask-ROM runs S0/S1 and the ROM<->image handshake completes with the exact vendor values:
+CA 0x1BF000 page = 0x86807FEF / 2 / 0xABCD, engine global 0x4003A000 = 0x10A, door CA 0x4003A7C0
+becomes nonzero. Verified on every boot (dmesg "endpoint reset pulse", both links train LTSSM
+0x11). The firmware still takes svc/abort (mask 0x0A) and the ETE engine stays idle
+(status 0x4003A874 = 0, send words 0, DR fills 0x10), so GP1 was necessary but not sufficient;
+the next difference vs the vendor boot is the host-side HCC service stack. The GP1 kernel is
+installed on pair B (kernelb; rootfsb untouched, stock pair A untouched); recovery door was
+armed during the flash.
+
 ## 4. Next action
 
 **Current phase (2026-11-23): box recovered and back on W27b; install-from-stock path
