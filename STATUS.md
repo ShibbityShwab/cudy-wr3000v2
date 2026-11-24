@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-27 16:35 +07
+**Updated:** 2026-11-27 18:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1063,11 +1063,53 @@ is present but the live handler table is empty, so the mailbox dispatcher handle
 run; the working duplex and the firmware answers come through the non-mailbox
 ETE/polled direct path. PD4 remains a research artifact.
 
+## 3m. Wi-Fi close-out: live AP on a self-contained image (2026-11-27)
+
+The Wi-Fi research line reached its documented ceiling. Hardware-validated, in order:
+
+- **one-command bring-up matrix ALL PASS** - boot, C2 (six calibration, 54/54 checks), D1
+  (cfg80211 VAP add/del, 21/21), D2 (scan with real firmware results), E1 (MAC data-plane
+  setup + TXQ address sync, 37/37); re-run ALL PASS on the flashed image (local evidence
+  build/wifi-bench-phase-matrix/20261124T114034Z/).
+- **real firmware scan results decoded into cfg80211 BSS** - mode-1 VAP base -> vap_add/
+  vap_start (g0 id1 48/40 B) + scan_req (g0 id0xC 520 B) consumed in 0 polls; g1 id17
+  channel results + g1 id15 beacon frames; first full BSS decode 12 entries.
+- **first live Wi-Fi AP on our clean-room stack** - hostapd wlan0: AP-ENABLED, SSID
+  cudy-ap-test; the four AP-start frames vap_add 48 B -> vap_start 40 B -> ap_ssid 64 B ->
+  ap_cfg 184 B consumed in 0 polls; VAP pointer ctx0+0x190 = 0x01010F18; page 0x86807FEF
+  golden, mask 0; AP persists for minutes with new g1 id0x23 (24 B) firmware events.
+- **first MAC data-plane frame published to the TX ring** - POST-ONLY (completion needs the
+  vendor MAC consumer; the host publish path is proven).
+- **ABI image flashed + AP re-run on it** - container df6a78c3 (kernel slice 13e81214 /
+  slot 1794a531 + rootfs UBI 62344e80); apk query kernel = 6.18.60~6f995278 (kmod ABI
+  closed); native modprobe cfg80211 + hi5622_wifi from /lib/modules/6.18.60.
+- **self-contained final image FLASHED AND VALIDATED** - container ae5e28bf (kernel slice
+  13e81214 unchanged + rootfs UBI ff9f3e1c, 83 packages: iw 6.17, hostapd-mini v2.12,
+  wifi-scripts ucode, wireless-regdb, cfg80211.ko + combined dp-air+AP-start v7 driver
+  231,132 B sha 51608fd5). Post-flash validation with **ZERO /tmp deployment**: insmod the
+  rootfs driver with fw_path=hi_wifi/FIRMWARE.PD4.bin -> golden boot -> C2 clean -> hostapd
+  from /usr/sbin -> **AP-ENABLED, ssid cudy-ap-test, 4 hostapd processes**; all four AP-start
+  frames consumed 0 polls; page golden, mask 0.
+- **honest ceiling**: the Wi-Fi path needs the PD4-patched research firmware (vendor mailbox
+  dispatch not host-programmable; the patch is consume-only and never ships); no upstreamable
+  Wi-Fi driver; vendor GPL request unanswered; the AP is host-side AP-ENABLED - no on-air
+  beacon/association/WPA2 proof (needs an external client); MAC TX frame POST-ONLY.
+  Publication deliverables: RE report v4 (2421 lines, T1-T31, EV-001..281, verify 172/172),
+  upstream-final (75c8ed4, v2 = 30 + DTS-0001 specified), closeout (77f0157, lane index,
+  evidence refresh, host suite 48 PASS/4 FAIL explained).
+
 ## 4. Next action
 
-**Current phase (2026-11-23): box recovered and back on W27b; install-from-stock path
-hardware-validated; B3 cold-boot ready-gate test DONE and NEGATIVE - next experiment is the
-vendor post-release kick of the firmware init table (see below).**
+**Current phase (2026-11-27): the Wi-Fi research line is at its documented ceiling - live AP on a self-contained image, no upstream driver. The next work is external observation, MAC TX-engine completion, and the publication track - not new protocol reversing.**
+
+State: self-contained final image **flashed and validated** (ae5e28bf; native iw/hostapd/ucode/kmods/driver; AP-ENABLED with zero /tmp deployment); ABI-correct (kernel=6f995278); one-command matrix ALL PASS; real scan results decoded into cfg80211 BSS; first AP + persistence; combined AP+DP module; first air-TX frame POST-ONLY. Details: STATUS.md 3m, ledger 2026-11-27.
+
+Next, in order:
+
+1. **AP breadth with an external observer** (needs a second client device): beacon on air, association, WPA2 (if enabled), DHCP. This is the difference between "host-side AP" and "working AP"; the post-AP firmware event family is only indirect evidence.
+2. **MAC TX completion / RX**: the host publish is proven, the device consumer is not. Likely needs vendor TX-engine start/config (MAC/PIE/EQM port setup or a firmware TX-queue start, both [U]); then re-fire the combined-module ladder and check rptr advance / completion magic instead of POST-ONLY.
+3. **Publication track** (the real endpoint): generate the v2 review form (30 + DTS-0001; v1 is stale), land the publication fixes in opensource/docs/incoming/wifi-upstream-final/PUBLICATION-CHECKS.md (history purge, broken links, COPYING/CONTRIBUTING/DCO, Wi-Fi/LAN-switch statement), then the curated repos. The Wi-Fi driver stays research-only until the vendor GPL source or a host-clean boot path exists.
+
 
 The box was recovered on 2026-11-23: after the armed-TFTP incident left stock 2.5.24 on both
 pairs, the stock LuCI was provisioned, the stock backup crypt was reversed (AES-128-CBC,
