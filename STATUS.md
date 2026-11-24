@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-24 22:10 +07
+**Updated:** 2026-11-25 05:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1015,6 +1015,18 @@ SR frame posted and CONSUMED by the firmware (out[0] 0x8->0 in 0 polls, h2d_comp
 done=1), core phase READY_TXQ_SYNC. The next protocol step is the vendor's first post-ready H2D
 message (group-0 id-1 TXQ config sync; byte-exact builder exists) followed by the vendor startup
 sequence toward a real Wi-Fi interface.
+
+## 3j. FULL DUPLEX OPERATIONAL LOOP (2026-11-24/25)
+
+The clean-room host now runs the vendor Wi-Fi protocol as a working duplex loop. Ordered lap on the
+PD4-patched firmware: golden boot (0x86807FEF/7/2/0xABCD, state 1, mask 0) -> ready handshake ->
+ONE context-create H2D (g0 id1 key 0x64, type 1) -> the firmware allocates the context
+(ctx+0x190 = 0x01011448, ctx+0x434, table entry verified) -> ONE TXQ config sync H2D (g0 id1,
+cmd 0xd8) -> both messages consumed in 0 polls, NO exceptions (mask stays 0, no staging frame),
+and the firmware RESPONDS with new device->host frames (g1 id3 36 B, g1 id0x12 40 B) decoded by the
+direct group-A reader. h2d ok=2 timeout=0, phase ACTIVE, page/state golden, safety clean. Next: the
+remaining vendor startup sequence (calibration alg set_* -> g0 id2, then VAP/AP/scan flows) toward a
+live link and the cfg80211 interface plan.
 
 ## 4. Next action
 
