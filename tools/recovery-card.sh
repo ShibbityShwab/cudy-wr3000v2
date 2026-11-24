@@ -16,8 +16,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT" || exit 1
 export LC_ALL=C
 
-EXPECTED_MD5=421114c8ea999c925b7aa79cc548af81
-EXPECTED_SIZE=20975775
+# 2026-11-24: updated to the proven official 2.5.24 recovery image actually served on this
+# bench (the previous 20,975,775 B digest was stale; every recent recovery/fire used this one).
+EXPECTED_MD5=bc40580943e8a9865bb8288d3294f687
+EXPECTED_SIZE=22024351
 ARM=0
 STOP=0
 case "${1:-}" in
