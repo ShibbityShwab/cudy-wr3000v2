@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-25 05:10 +07
+**Updated:** 2026-11-25 15:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1027,6 +1027,19 @@ and the firmware RESPONDS with new device->host frames (g1 id3 36 B, g1 id0x12 4
 direct group-A reader. h2d ok=2 timeout=0, phase ACTIVE, page/state golden, safety clean. Next: the
 remaining vendor startup sequence (calibration alg set_* -> g0 id2, then VAP/AP/scan flows) toward a
 live link and the cfg80211 interface plan.
+
+## 3k. FIRST REAL WiFi INTERFACE ON OUR IMAGE (2026-11-25)
+
+The cfg80211 image (kernel slice 13e81214..., flashed to kernelb via stock, slot hash 1794a531...)
+boots on the box with the clean-room driver. Loading cfg80211.ko + hi5622_wifi.ko and running the
+corrected boot sequence (golden page 0x86807FEF/7/2/0xABCD, state 1, mask 0; ready pair id1+id2)
+registers the wiphy through the ready-handshake gate: both endpoints get wiphys (2.4GHz 13
+channels; 5GHz 19 LU-plan channels), and /sys/class/ieee80211/phy0 exists. With the stock iw
+binary pushed to /tmp, 'iw phy' enumerates Wiphy phy0, and 'iw phy phy0 interface add wlan0 type
+managed' creates a real netdev (ifindex 7, addr 02:00:68:69:35:01, type managed) that can be
+deleted again - the M0 wiphy + M1 VAP lifecycle are HARDWARE-VALIDATED on our own image with the
+vendor firmware running golden. Next: HCC user/vap add (g0 id7/8) and scan (g0 id0xC) payload
+builders to make the VAP/scan real firmware operations, then the MAC data-plane bring-up.
 
 ## 4. Next action
 
