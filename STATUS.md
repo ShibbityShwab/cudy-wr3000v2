@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-25 15:00 +07
+**Updated:** 2026-11-26 04:35 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1040,6 +1040,28 @@ managed' creates a real netdev (ifindex 7, addr 02:00:68:69:35:01, type managed)
 deleted again - the M0 wiphy + M1 VAP lifecycle are HARDWARE-VALIDATED on our own image with the
 vendor firmware running golden. Next: HCC user/vap add (g0 id7/8) and scan (g0 id0xC) payload
 builders to make the VAP/scan real firmware operations, then the MAC data-plane bring-up.
+
+## 3l. Automation matrix + first real firmware management message (2026-11-26)
+
+The wifi-bench-tooling phase matrix runs the bring-up per phase with fail-closed gates:
+**C2 (six-calibration boot) PASS 54/54 checks**, **D1 (cfg80211 VAP add/del via iw)
+PASS 21/21**, **E1 (MAC data-plane setup + TXQ-table address sync) PASS 37/37**, **D2
+(scan) BLOCKED-DRIVER as designed** (the fail-closed provider returns -EOPNOTSUPP until
+the scan caps are wired). Evidence: build/evidence-bench-gates/wifi-bench-phase-matrix/.
+The one-command `--phase all --reboot-between` orchestration still hangs in its
+reboot-after wait (bounded-wait fix pending with the bench-tooling lane).
+
+Real-VAP session (cfg80211 image + integrated vapscan provider module acd069e4): the
+driver posted the **first REAL firmware management frame** - `g0 id7 user_add` 180 B in
+SR0 slot 2, coalesced announce consumed in 0 polls - and the firmware VAP was committed
+(`VAP 'wlan0' firmware user_add committed (g0 id7, user_id=0 vap_id=0)`). Gaps: the
+`g0 id8` notify was refused while the announce was inflight (announce-clear wait / gap
+needed), and scan needs provider caps `0x3` while the provider registers `0x1d`.
+
+Also answered: the PD4 stub is **consume-only** (H1) - the static handler-table pointer
+is present but the live handler table is empty, so the mailbox dispatcher handlers never
+run; the working duplex and the firmware answers come through the non-mailbox
+ETE/polled direct path. PD4 remains a research artifact.
 
 ## 4. Next action
 
