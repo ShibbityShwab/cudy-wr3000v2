@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-24 01:40 +07
+**Updated:** 2026-11-24 21:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -991,6 +991,18 @@ becomes nonzero. Verified on every boot (dmesg "endpoint reset pulse", both link
 the next difference vs the vendor boot is the host-side HCC service stack. The GP1 kernel is
 installed on pair B (kernelb; rootfsb untouched, stock pair A untouched); recovery door was
 armed during the flash.
+
+## 3h. Clean driver baseline (2026-11-24)
+
+The clean-room driver (opensource/docs/incoming/wifi-driver-clean) is now the bench baseline:
+golden boot (handshake 0x86807FEF/7/2/0xABCD, state 1, mask 0), latched boot gate, direct
+group-A D2H reader primary, ready pair decoded (id1+id2 payload 0x01060850), core phase
+READY_TXQ_SYNC, and the F4 region-3 translation fix verified on hardware (the firmware's
+deferred-notify flush retires: g+0xB4/+0xB8 = 0; they had been stuck at 0x40 before). One H2D
+liveness announce posts correctly but the firmware mailbox consumer still does not ack
+(event 0x4C is not raised) - the PD3 firmware patch (init-guarded boot-task poll loop in a
+verified-dead cave) is the open target. The user-space interface scope (nl80211/cfg80211,
+~39-op full-MAC) and the first post-ready message builder (g0 id1 TXQ config sync) are ready.
 
 ## 4. Next action
 
