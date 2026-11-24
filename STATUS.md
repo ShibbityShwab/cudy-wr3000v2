@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-24 21:10 +07
+**Updated:** 2026-11-24 22:10 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1003,6 +1003,18 @@ liveness announce posts correctly but the firmware mailbox consumer still does n
 (event 0x4C is not raised) - the PD3 firmware patch (init-guarded boot-task poll loop in a
 verified-dead cave) is the open target. The user-space interface scope (nl80211/cfg80211,
 ~39-op full-MAC) and the first post-ready message builder (g0 id1 TXQ config sync) are ready.
+
+## 3i. FULL DUPLEX HCC PROTOCOL (2026-11-24)
+
+The last firmware-internal blocker is solved. The PD3 firmware patch (stub relocated to the
+image-header exception-record area CPU 0x4000C, entered from the boot-task epilogue, guarded by
+an out[0] poll) lets the firmware's own H2D dispatcher run without breaking the golden boot. On
+the clean driver the full duplex protocol now works end to end: golden boot (0x86807FEF/7/2/0xABCD,
+state 1, mask 0), device->host ready handshake (g4 id1 + g4 id2 payload 0x01060850), host->device
+SR frame posted and CONSUMED by the firmware (out[0] 0x8->0 in 0 polls, h2d_complete, h2d
+done=1), core phase READY_TXQ_SYNC. The next protocol step is the vendor's first post-ready H2D
+message (group-0 id-1 TXQ config sync; byte-exact builder exists) followed by the vendor startup
+sequence toward a real Wi-Fi interface.
 
 ## 4. Next action
 
