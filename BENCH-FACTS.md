@@ -116,3 +116,20 @@ physically. Do not guess and do not act on memory.
 - Never transmit on the UART.
 - Never commit credentials; tracked text carries placeholders, live values live in
   `.omo-secrets/` only.
+
+## Host network map (READ BEFORE ANY HOST NETWORK ACTION)
+
+The host has several network paths; confusing them drops the internet (seen twice, 2026-11-26).
+
+| iface | role | facts |
+| --- | --- | --- |
+| `wlan0` (MT7922) | **THE INTERNET** | phone hotspot "slowphone", 10.28.90.x, default route metric 600. **Never disconnect, never restart/stop NetworkManager, never `nmcli device disconnect` or `iw connect` on it.** |
+| `enp103s0u1u3` (USB-Ethernet) | **THE BOX LINK** | DHCP from the box (192.168.1.190); the box may also offer a default gateway - the NM profile is set `ipv4.never-default yes` so it can never steal the default route. Box work goes ONLY here, with scoped `ip addr ... dev enp103s0u1u3` + `ssh root@192.168.1.1`. |
+| `enp195s0f3u1` | old adapter | down/unused; do not add addresses there (route ambiguity). |
+| `tailscale0` | VPN | do not touch. |
+
+Rules:
+- **Check the map first**: `ip -br addr; ip route; nmcli -t -f DEVICE,STATE,CONNECTION device status`.
+- **Never** restart NetworkManager or wpa_supplicant for a bench action.
+- After any host-network action verify the internet: `ping -c1 1.1.1.1` and the box: `ping -c1 192.168.1.1`.
+- Client-side association tests on the host Wi-Fi NEED the Wi-Fi, which is the internet path: use a second radio/dongle for those, or accept that the internet drops - never do it silently.
