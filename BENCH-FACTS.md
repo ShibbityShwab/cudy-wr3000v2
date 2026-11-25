@@ -117,7 +117,7 @@ physically. Do not guess and do not act on memory.
 - Never commit credentials; tracked text carries placeholders, live values live in
   `.omo-secrets/` only.
 
-## Host network map (READ BEFORE ANY HOST NETWORK ACTION)
+## Host network map (READ BEFORE ANY HOST NETWORK ACTION) - SUPERSEDED by the corrected map below (the phone USB-C tether is the internet)
 
 The host has several network paths; confusing them drops the internet (seen twice, 2026-11-26).
 
@@ -133,3 +133,21 @@ Rules:
 - **Never** restart NetworkManager or wpa_supplicant for a bench action.
 - After any host-network action verify the internet: `ping -c1 1.1.1.1` and the box: `ping -c1 192.168.1.1`.
 - Client-side association tests on the host Wi-Fi NEED the Wi-Fi, which is the internet path: use a second radio/dongle for those, or accept that the internet drops - never do it silently.
+
+## Host network map - CORRECTED (2026-11-26 evening, verified live)
+
+The phone's USB-C tether is the internet (the user's intent); the Wi-Fi must stay free for box client tests.
+
+| iface | role | facts |
+| --- | --- | --- |
+| enp195s0f3u1 | THE INTERNET (phone USB-C tether, HONOR MBH-N49 RNDIS) | 10.31.72.76/24, default via 10.31.72.14 metric 100. NM-managed (the old name-based unmanaged rule was replaced by a MAC rule for the box adapter). |
+| enp103s0u1u3 | THE BOX LINK | MAC 00:e0:4c:68:02:14, NM-unmanaged (the MAC rule), static 192.168.1.88/24 (TFTP recovery + our image) + 192.168.10.44/24 (stock LAN). Box work goes here only. |
+| wlan0 (MT7922) | BOX TEST CLIENT - free | Must stay free of the phone hotspot; it joins wr3000v2-apstart (or the stock AP) for the client-side association tests. It is NOT the internet anymore. |
+| enp195s0f4u1 | (old name) | the phone's RNDIS renames across boots: identify by MAC fa:83:d9:29:58:75, never pin the name. |
+| tailscale0 | VPN | do not touch. |
+
+Rules (updated):
+- Internet check: ping -c1 1.1.1.1 must go via the tether (enp195s0f3u1 / fa:83:d9:29:58:75), never via wlan0.
+- The box tests may use wlan0 freely (it is not the internet path).
+- If the tether drops: nmcli general reload conf + nmcli device connect <tether-iface>; find the name with ip -br link (MAC fa:83:d9:29:58:75).
+- Do NOT restart NetworkManager; nmcli general reload conf re-reads conf.d without dropping connections.
