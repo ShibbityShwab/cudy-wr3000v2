@@ -177,7 +177,8 @@ Rules (updated):
 - **Capture boot:** the aid starts the sampler before the vendor stack loads; sampler args
   `-w 0x583f2000 -W 180 -t 240`. The SR ring is programmed by the `plat.ko` probe ~14.2 s
   after boot (the S08 aid starts ~9.8 s, so `-W 180` is margin). PASS = a valid `M`-message
-  list decoded by `tools/decode_h2d.py`. Procedure:
+  list decoded by the lane's `decode_h2d.py`
+  (`opensource/docs/incoming/wifi-rx-h2d-trace/tools/decode_h2d.py`). Procedure:
   `opensource/docs/incoming/wifi-rx-h2d-trace/RUNBOOK.md` + the delta in
   `opensource/docs/incoming/wifi-rx-h2d-window/RUNBOOK-DELTA.md`.
 
