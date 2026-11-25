@@ -31,11 +31,32 @@ files). See [`PUBLISH.md`](PUBLISH.md).
 
 ## The two tracks
 
-1. **Bench reversal** ([`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md)): our kernel with the
-   vendor userspace on this unit. This is the current bench work; the hybrid image is a
-   research instrument, not a release. The lab-kernel line is at its documented v17 ceiling
-   (vendor HYFI/bridge ABI; `STATUS.md` section 3) and bench fires are stopped; the upstream
-   driver/image work is a separate host-only track.
+1. **Bench reversal** ([`PLAN-FULL-REVERSAL.md`](PLAN-FULL-REVERSAL.md)): our kernel with a
+   clean-room Wi-Fi stack on this unit. The vendor-userspace hybrid line is history
+   (`STATUS.md` section 3); the live bench work is the 6.18 clean-room Wi-Fi 6 stack below,
+   bench-proven but **not an upstreamable driver** (it needs the PD4-patched research
+   firmware and the vendor GPL request is unanswered). Live state and the next action are in
+   [`STATUS.md`](STATUS.md) sections 3n/4; the current session handover is
+   [`SESSION-HANDOVER.md`](SESSION-HANDOVER.md). The upstream driver/image work is a
+   separate host-only track.
+
+## Current capability matrix (2026-11-28)
+
+Hardware-proven means on this unit, on our 6.18 image; host-verified means built and verified
+host-side only (never flashed). Receipts are in the lane directories under
+`opensource/docs/incoming/` and the newest ledger entries.
+
+| capability | state | receipt / remaining |
+| --- | --- | --- |
+| 6.18 kernel + Wi-Fi transport | **hardware-proven** | firmware upload+verify (928,920 B, diffs=0), CPU release, D2H gate, ETE SR/DR rings, full-duplex HCC |
+| 2.4 GHz AP, clean-room stack | **live on air** | AP-ENABLED and beaconing, clients hear it; persists across the session |
+| 802.11ax (Wi-Fi 6) | **live on air** | HE AP `cudy-ap-test-he`: HE Capabilities + HE Operation IEs, BSS Color 25; hostapd rebuilt with ax support |
+| 5 GHz RF | **programmed** | F2: mode 3 on band 1 + the exact ch36-64 RF image (R+0x3A8=0x01800060, R+0x3AC=0x03E6138A) |
+| 5 GHz beacon | **pending** | all per-band state present; the last gap is the band-1 MAC start arming (WAL key 0x0242) |
+| RX / live-client association | **open** | MAC receives but host frames=0; the vendor H2D trace is captured (586 messages / 18 families) and the F1-from-capture decode is in flight |
+| BA A-MPDU / rate control / AX advanced | **decoded, fail-closed** | BA skeleton `ba_enable=0` (bench-safe); rate_mode auto (corrected-C2 retry in flight); TWT/AX sends in flight; 5 GHz 160 MHz/DFS decode in flight |
+| images | **#1 flashed; #2/#3 host-verified** | #1 = self-contained `ae5e28bf` (flashed + validated); #2 = `8ba1ad22` (84/84); #3 = `4cd85b5d` 7,843,840 B (129/129, 3x reproducible, not flashed) |
+| upstream OpenWrt target | **host-only, not submitted** | target skeleton + kernel series + image build exist; Wi-Fi + switch drivers and the GPL request remain the blockers |
 2. **Upstream OpenWrt submission** ([`opensource/docs/TARGET-DESIGN.md`](opensource/docs/TARGET-DESIGN.md),
    [`ROADMAP-OPENWRT.md`](opensource/docs/ROADMAP-OPENWRT.md)): own target, clean-room drivers,
    accepted upstream. **Still not on track as a submission**: the concrete target/DTS/image design
@@ -60,6 +81,7 @@ files). See [`PUBLISH.md`](PUBLISH.md).
 | what | where |
 | --- | --- |
 | One-screen live context | `tools/session-brief.sh` |
+| Current session handover (state, open items, exact next commands, lanes) | [`SESSION-HANDOVER.md`](SESSION-HANDOVER.md) |
 | Physical invariants (UART read-only, bench link, recovery, slots) | [`BENCH-FACTS.md`](BENCH-FACTS.md) |
 | Live state, gates, blocker, next action | [`STATUS.md`](STATUS.md) |
 | Curated summary (STATUS wins) | [`CURRENT-TRUTHS.md`](CURRENT-TRUTHS.md) |
