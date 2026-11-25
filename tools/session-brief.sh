@@ -47,7 +47,20 @@ if "$ROOT/tools/check-init-shadow.sh" >/dev/null 2>&1; then GUARD_SHADOW=PASS; e
 if "$ROOT/tools/check-lab-src.sh" --manifest-only >/dev/null 2>&1; then GUARD_SNAP=PASS; else GUARD_SNAP=FAIL; warn "tracked kernel snapshot FAILED (tools/check-lab-src.sh --manifest-only)"; fi
 
 # ---- host bench link ----
-IFACE=${BENCH_IFACE:-enp195s0f3u1}
+# The box adapter is auto-detected like tools/bench-link.sh: known MAC first, then the
+# USB-Ethernet driver class; never the RNDIS phone tether (the host internet path).
+BOX_ADAPTER_MAC=00:e0:4c:68:02:14
+detect_bench_iface() {
+	for n in /sys/class/net/*; do
+		[ "$(cat "$n/address" 2>/dev/null)" = "$BOX_ADAPTER_MAC" ] && { basename "$n"; return; }
+	done
+	for n in /sys/class/net/*; do
+		d=$(basename "$(readlink -f "$n/device/driver" 2>/dev/null)" 2>/dev/null)
+		case "$d" in r8152|ax88179_178a|cdc_ncm) basename "$n"; return;; esac
+	done
+	echo enp195s0f3u1
+}
+IFACE=${BENCH_IFACE:-$(detect_bench_iface)}
 HOST_LINE=''
 if [ -d "/sys/class/net/$IFACE" ]; then
 	NMSTATE=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | awk -F: -v d="$IFACE" '$1==d {print $2; exit}')
