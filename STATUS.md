@@ -1,12 +1,16 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-28 00:30 +07
+**Updated:** 2026-11-28 04:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
 invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 ## 1. Bench (re-verified 2026-11-21 12:50 +07)
+
+> **2026-11-28 box state is section 3n.** Pair B = our Wi-Fi image #1 (ae5e28bf) with the
+> per-fire modules loaded by hand; pair A = stock 2.5.24. The W27b record below is the
+> 2026-11-23 recovery baseline (history); the current image deliverable is #3 (not yet flashed).
 
 - **Box: running OUR image W27b (sha256 4af1d1fa, 6.18.60 + dma-ranges), healthy, pair B.**
   Recovered 2026-11-23 from the stock 2.5.24 firmware that the armed-TFTP incident had left on
@@ -1098,48 +1102,101 @@ The Wi-Fi research line reached its documented ceiling. Hardware-validated, in o
   upstream-final (75c8ed4, v2 = 30 + DTS-0001 specified), closeout (77f0157, lane index,
   evidence refresh, host suite 48 PASS/4 FAIL explained).
 
+## 3n. Current state (2026-11-28): the Wi-Fi 6 research stack - 2.4 GHz + 802.11ax live, the 5 GHz RF programmed, two gates left
+
+**Hardware-proven on our 6.18 image (pair B), in order of establishment:**
+
+- **2.4 GHz AP on air.** AP-ENABLED, beaconing, clients hear it (-32 dBm with the antennas);
+  the AP persists across a session and survives a host-side stop/start in one boot (E2).
+- **802.11ax (Wi-Fi 6) live on air** (2026-11-27 04:00, re-verified 09:00): the HE AP
+  `cudy-ap-test-he` beacons with the **HE Capabilities IE** (HE MAC 0x00011a081044 / HE PHY
+  0x00200e926f09ef08110c00) and the **HE Operation IE** (params 0x003FF4, **BSS Color 25**);
+  hostapd rebuilt with `CONFIG_DRIVER_11AX_SUPPORT`. AX-1 DONE.
+- **5 GHz chain: 13 links proven.** the wiphy/regdomain (country US, 5 GHz IR); the vendor
+  message order; the channel worker; the sync wait; the VAP object; the per-band gates; the
+  vap_start band fix; the 0xF7 descriptor table (pool "US"+02, rec1 valid bit armed); the P/O/R
+  RF chain; the 0x01F7 frame/field-B dispatch; **the RF programmed** (F2: mode 3 on the band-1
+  context + the exact ch36-64 image: R+0x3A8 = 0x01800060, R+0x3AC = 0x03E6138A); and **the
+  beacon state present** (per-link +0x6C4 = 16 / +0x6C6 = 1, the band-1 MAC block 0x6101, the
+  TRX triple 0x4010E150/54/58 = 0x33/0xFF/0xFF). **No 5 GHz beacon on air yet.**
+- **The last 5 GHz gap = the band-1 MAC start (CA 0x4AF0C).** fw-band1-start (2026-11-28 04:30)
+  proved the stock arms it by **direct calls**, not through the NULL G+0x370 hook, and that the
+  missing host message is **g0-id1 key 0x0242 "set_green_ap"** (worker CA 0x4C524; subcmd
+  `body[0]` = 1 sync start / 2 forced start / 3 stop) posted with **field B = a fresh
+  band-1-bound module context** (key 0x0064: `body[4]`=N, `body[0x12]`=1) and body
+  `{01,00,01,00,00}`; our F-ladder never posts it. Caveat: the earlier R3 "band-1 start
+  unarmed" read targeted a **mis-computed phys** (0x404C8220); the correct phys for CA
+  0x4010C220 is **0x404C4220** - the R3b fire must re-probe it. Implementation lane:
+  **band1-start-send (task-206)**.
+- **The RX gate (the live-client blocker).** The stock H2D trace SUCCEEDED (2026-11-28 03:00):
+  **586 vendor messages / 18 families / 210.1 s** (1,716 M-records; the top records: g0 id29
+  x381, g2 id29 x328, g4 id0 x153 (438-B frames), g2 id0/key 0xD8 x136, **g4 id4 = the ASCII
+  "HEARTBEAT" x83 (our driver has the heartbeat off)**, g2 id9 x60, g1 id37 x28, g12 id1 x21,
+  g1 id3 x12, ...; the vendor sends 0xF7/0x01F7 x1 each - validating our implementations). The
+  diff: **our driver 108 matched / 0 drift**; the unmatched families are the RX candidates. The
+  MAC receives but writes **host frames=0** => no client associates with our AP. The v2 mmap
+  sampler + the stock EP1 window are proven (`opensource/docs/incoming/wifi-rx-h2d-window/`;
+  the access rules are BENCH-FACTS section 7); **fw-f1-capture (task-198)** decodes the missing
+  pre-RX/delivery message from the captured families and the fire.
+- **Decoded, fail-closed / parked behind the RX gate:** BA A-MPDU (skeleton `ba_enable=0`;
+  B1/B2 fired inert/safe, end-to-end needs a peer); rate control (SET rate_mode auto = a 39-B
+  g0 id2 key 0x0101 frame; the earlier fire used the wrong C2 type - **rc-impl (task-200)**
+  retries with type 1 + the ctx190!=0 readback); the AX advanced machinery (ten config-event
+  keys + the ALG text plane; TWT is the one host-testable path - **ax-twt-impl (task-199)**;
+  BSS color is firmware-side); 5 GHz 160 MHz/DFS (**dfs-160, task-205**).
+- **Images.** #1 = the **self-contained final image `ae5e28bf`** (flashed + validated
+  2026-11-27, AP-ENABLED with ZERO /tmp deployment; this is the current pair-B image - per-fire
+  modules are loaded by hand and the PD4 research firmware is pushed by hand, never packaged).
+  #2 = `8ba1ad22` (host-verified 84/84, not flashed). **#3 = `4cd85b5d`, 7,843,840 B**
+  (host-verified 129/129, selftest 102/102, three byte-identical bakes; kernel slice
+  UNCHANGED; rootfs-only install; **not flashed** - the next image deliverable; flash prep:
+  **image-flash-prep, task-201**).
+- **Bench state:** pair B = our image (page golden when healthy; a power cycle is needed after
+  an exception), pair A = stock 2.5.24; recovery is physical (RESET-hold + TFTP); the TFTP door
+  only while a man is at the bench; box link `enp103s0u1u3` (192.168.1.88 + 192.168.10.44; the
+  internet is the USB-C tether). The 2026-11-23 W27b recovery record in section 1 is history.
+
 ## 4. Next action
 
-**Current phase (2026-11-26): the Wi-Fi research line is at its documented ceiling - live AP on a self-contained image, no upstream driver. The one open bug is the device-side RX capture; the STOCK CONTROL IS DONE (the device is proven fine - the laptop authenticated+associated with the vendor AP on the same chip), so the next work is the firmware RX config/init decode (the vendor's init chain + config events) + the stock H2D trace.**
-
-State: the AP is on air and clients hear it at **-32 dBm with the antennas attached** (was -64 without); the boot ladder, C2, the 5-message AP order, RX arm 0x182, WPA3-SAE, TX COMPLETED, and the corrected mgmt-TX carrier (**HCC g0 id6**) are all hardware-proven. The RX hunt (2026-11-26): **R0 parity = the device-side RX state matches vendor stock exactly** (all five device-owned live-bank words DEVICE_OK, config 21/21); **R2 observe = the MAC receives the client's auth frames (status bit10 transition) but writes NOTHING to host memory (frames=0) and the receive path FAULTS the firmware/DMAC** (page golden-loss during the attempts). The swarm's convergent analysis: the fault is **firmware-mediated** (PPDU -> firmware/DMAC -> host write) and fits **F1: the firmware's RX ring/PPDU-descriptor state is never (re)initialised** by our minimal host message set; the vendor's pre-RX request (`enable_trx`/`rx_ring_reset` class) is not in the two decoded modules - the **full vendor module set (recovery-extract/lib/hisilicon/ko, 58 modules; plat = 118 hcc syms) + the vendor rootfs (rootfs-2.4.15/2.5.24) are now being decoded** for it. Also identified: the vendor services status bits 1+8 by forwarding HCC messages (F4) - a host write class we never do.
+**Current phase (2026-11-28 04:30): the Wi-Fi research line is two gates from a live 5 GHz AP and
+a live client - (1) the band-1 MAC start send (WAL key 0x0242), (2) the F1 RX delivery gate from
+the captured vendor H2D - plus the Lead-owned image #3 flash (a host-verified image, not yet
+flashed).**
 
 Next, in order:
 
-1. **The rx-format lane's decode (in flight)**: the exact missing pre-RX message (group/id/payload + call context, most likely from the plat driver) + the F4 forwarding implementation (fail-closed). Then a fire: laptop auth -> expect frames>0 and no page loss.
-2. **The stock control (SC-1, decisive)**: boot the vendor image with its own AP, run the same 3 auth frames, read CA 0x40050000 before/after + live +0x04 (ours 0x8000 vs stock 0). Vendor authenticates = our session config is the gap; vendor also faults = device/firmware-level (a PD4-patch interaction). Needs an attended bench session + the recovery armed.
-3. **Publication track** (the real endpoint): the v3 platform submission is advanced (DTS-0001 v3, L1 56/56 PASS, publication checker 18/6/8 with the remaining FAILs owner-only); the Wi-Fi driver stays research-only until the vendor GPL source or a host-clean boot path exists.
-
-
-The box was recovered on 2026-11-23: after the armed-TFTP incident left stock 2.5.24 on both
-pairs, the stock LuCI was provisioned, the stock backup crypt was reversed (AES-128-CBC,
-key=MD5(hostname+"@"+bdinfo secret)), a crafted restore gave root, pair A was restored to
-stock, and W27b was reflashed to pair B (verified stable across a reboot). The no-broker
-install channel is documented in opensource/docs/incoming/cudy-backup-root/REPORT.md and
-RUNBOOK section 6. Wi-Fi: the attended B3 session ran on 2026-11-23 (cold chip) - P0 arm 7/7 OK,
-upload 928,920 B diffs=0, release 0x5a5a, announce 0xcece, firmware alive (out[1]=0x4, all
-channel enables re-asserted), BUT the decisive cold-boot reads show g=0, the core-0 registry
-unpopulated and the init-table vector mask 0x08 (only entry 3): the ROM/init-table path never
-runs pcie_msg_init or the boot task even on a true power-on, so the ready gate (HCC group-4
-ids 1/2) does not arrive (P1 saw only the platform-up bit, P3 g4_id1/id2=0). The cold-boot
-hypothesis is disproven - next experiment: RE the vendor host driver's post-release path for
-the external kick of the init table/boot task (H2D message or CA write), one candidate per
-attended session. Full result: opensource/docs/incoming/wifi-fw-ready-gate/REPORT.md section 14.
-Upstream submission stays impossible while the firmware blob is closed. (Previous phase notes
-kept below.)
-The canonical image now carries patches 066/067 (thermal: hwver-3/v1 path, gated enable) together
-with W22 (059/060): L0 66 / L1 55, manifest 2bb7413e...; validator PASS (55/55).  Bench (image
-5aeca548): gate off -> raw 0 / ENODATA; enable -> raw 0x25e = 59000 mC, registers match, no IRQ,
-load 63 C and cooling.  W22/W23 release-line only: L2 upstream review form and DTS-0001 are
-intentionally not regenerated; the release DTS thermal delta stays release-line-only.  Remaining: owner-only history purge, upstream submission package complete with ZERO blockers but
-intentionally not sent.  M2 hardware offload is CLOSED (the vendor never populates the DDR flow
-cache even for forwarded NAT traffic; M2-B is documentation only - see
-opensource/docs/incoming/lsw-forwarding/cfe/FWD-PHASE-ANALYSIS.md).  Wi-Fi: framework port in
-progress - GPL-2.0 hi3881 source covers 23.9% (name) / 28.5% (byte), and the framework skeleton,
-the clean-room PCIe transport (hi5622_pciet.ko) and the hdpp/alg ABI scaffold (60 ksymtab exports
-pinned) all compile on 6.18.60; the attended transport bench (upload -> 0x5a5a/0xcece -> HCC ready
-ids 1/2 -> out[1]=0x4) is the next physical Wi-Fi milestone; upstream submission stays impossible
-while the firmware blob is closed.  USB/RTC/NFC absent; I2C/PWM unused/optional.
+1. **band1-start-send (task-206, in flight)** - build the g0-id1 **key 0x0242 "set_green_ap"**
+   post into the driver (fail-closed param + host tests + fire recipe) and then the Lead fires the
+   **R3b-extension** ladder from `opensource/docs/incoming/wifi-band1-start/FIRE-RECIPE.md`:
+   **P1 read-only probe pack first** (re-probe CA 0x4010C220 at its correct phys **0x404C4220**;
+   the 2.4 GHz AP must be beaconing as the reference), then F1 (fresh band-1 ctx bind: key
+   0x0064, `body[4]`=N, `body[0x12]`=1) -> F2 (key 0x0242, field B=N, body
+   `{01,00,01,00,00}`; fallback F3 body `{02,00,00,00,00}` / F4 key 0x0243). **PASS =
+   0x4010C220 gains 0x1029 and a 5200 MHz scan sees the beacon; page golden / mask 0.** Abort
+   rules are in the recipe.
+2. **fw-f1-capture (task-198, in flight)** - decode the unmatched captured families into the
+   missing RX-delivery/config message (the ASCII HEARTBEAT g4 id4, g0 id29, the g2 key 0xD8,
+   g4/g12 first), implement it fail-closed, then the RX fire: our AP up, the laptop auth/assoc,
+   expect **host frames>0** (and no page golden-loss), then the BA/rate-control end-to-end rungs.
+3. **Image #3 flash (Lead, attended; runbook = image-flash-prep task-201, in flight)** - the
+   strict path is **rootfs-only**: stock pair A active -> `ubiformat /dev/mtd14` with the
+   image's root UBI (`90ae340c...`, 4,456,448 B; the kernel slot 1794a531 is untouched) -> env
+   `bootflag b` + selector `0x11` -> reboot. Preconditions: recovery card READY, read-only
+   UART capture running, human at the bench, stock pair A active, `tools/bench-link.sh` PASS;
+   the write wipes rootfs_data (overlay loss accepted). Post-boot receipts: `uname -a`; cmdline
+   `ubi.mtd=rootfsb`; `iw reg get` = country US + 5G IR; `hostapd -v`; the image **loads
+   nothing** (`autoload=0`) - run `hi5622-load` with the rung's gate set; re-push the PD4
+   firmware + `wifi_block.bin` by hand (never packaged); page/gates reads. Rollback: stock
+   pair A stays bootable and the previous rootfs UBI can be rewritten. Exact sequence:
+   `opensource/docs/incoming/wifi-image-3/FLASH-FEASIBILITY.md` section 3; the delivery plan is
+   named here (AGENTS rule) and in the handover.
+4. **Host-only lanes in flight (no bench):** rc-impl (task-200, the corrected C2 type 1 +
+   ctx190!=0 readback for the rate-control SET), ax-twt-impl (task-199), dfs-160 (task-205),
+   upstream-v2-folds (task-202).
+5. **Not achievable today:** an on-air client association / RX end-to-end (blocked by 2), the
+   external-observer air test (needs a peer), a 5 GHz AP in service (blocked by 1), and any
+   upstream Wi-Fi driver - the stack needs the PD4 research firmware (bench-only, never ships)
+   and the vendor GPL source request is still unanswered. Bench gates are not upstream progress.
 
 ## 5. Reading the console (read-only)
 
