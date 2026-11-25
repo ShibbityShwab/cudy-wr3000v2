@@ -5,7 +5,8 @@ change from session to session. If one of them conflicts with the newest dated e
 `mem-entries.md`, the hardware or wiring may have changed: STOP, tell the user, and verify
 physically. Do not guess and do not act on memory.
 
-**Updated:** 2026-11-17 (bench re-verified read-only during the harness audit)
+**Updated:** 2026-11-28 (the stock H2D-trace access rules, the pair-switch procedure and the
+TFTP shortcut are new; the physical invariants below are unchanged)
 **See also:** `HARDWARE-IDENTITY.md` (identity and UART history), `STATUS.md` (live state),
 `RUNBOOK.md` (procedure), `LESSONS.md` (rules that cost fires).
 
@@ -151,3 +152,78 @@ Rules (updated):
 - The box tests may use wlan0 freely (it is not the internet path).
 - If the tether drops: nmcli general reload conf + nmcli device connect <tether-iface>; find the name with ip -br link (MAC fa:83:d9:29:58:75).
 - Do NOT restart NetworkManager; nmcli general reload conf re-reads conf.d without dropping connections.
+
+## 7. Stock ETE/H2D register access: mmap only, and the two aliased windows (2026-11-28)
+
+- **`pread()` on `/dev/mem` cannot reach the ETE MMIO.** On this 32-bit ARM kernel
+  `valid_phys_addr_range()` rejects every physical address below `PHYS_OFFSET = 0x80600000`
+  with `-EFAULT`. The v1 H2D sampler ignored that error and printed "ring not seen" for any
+  window - a guaranteed false negative, not evidence about the ring. **Use `mmap()` only**
+  for the ETE window; `pread()` stays valid for the DRAM nodes.
+- **Two windows alias the same on-chip registers.** The stock runs the vendor stack on
+  **EP1 = `0001:00:00.0`**: BAR0 `0x58000000`, region-3 base `0x583b8000`, **ETE window
+  `0x583f2000`** (the stock's own). Our PD4 image enumerates **EP0 = `0000:00:00.0`**:
+  region-3 `0x403b8000` -> **`0x403f2000`**. Read the stock's `0x583f2000`; treat
+  `0x403f2000` as the documented alias (same registers).
+- **The instrument is the v2 mmap sampler**, built from
+  `opensource/docs/incoming/wifi-rx-h2d-window/tools/`: static ARM/musl, **54,364 B,
+  sha256 cb03ee1b85feb7fdd0a81b3b7a4d97461a8ad2eb1a9459134426ddbbbf352805**. The v1 binary
+  is retired; do not rerun it (it fails identically at every `-w`).
+- **Mandatory read-only gate before a capture boot** (stock root shell, vendor AP up):
+  `/usr/bin/omo_h2dsampler -p -w 0x583f2000` must print `access=mmap`, a non-zero SR0
+  base in `0x80000000..0x87ffffff`, `depth=0x1f`, `ring=YES`, and
+  `pread_control=FAIL errno=14 (Bad address)` - the last is the **measured v1 defect**,
+  expected, not a fault. STOP (no capture boot) if the ring is not visible in both windows.
+- **Capture boot:** the aid starts the sampler before the vendor stack loads; sampler args
+  `-w 0x583f2000 -W 180 -t 240`. The SR ring is programmed by the `plat.ko` probe ~14.2 s
+  after boot (the S08 aid starts ~9.8 s, so `-W 180` is margin). PASS = a valid `M`-message
+  list decoded by `tools/decode_h2d.py`. Procedure:
+  `opensource/docs/incoming/wifi-rx-h2d-trace/RUNBOOK.md` + the delta in
+  `opensource/docs/incoming/wifi-rx-h2d-window/RUNBOOK-DELTA.md`.
+
+## 8. Pair switch (stock pair A <-> our pair B): env bootflag + selector cell together
+
+- **The pair is selected by the U-Boot env `bootflag`**
+  (`bootcmd=mtd read kernel${bootflag} ${loadaddr}; bootfip ${loadaddr}`); the SYSCTRL cell
+  `0x10100C08` is the loader's failure record and must **match** the env. A mismatch makes
+  the next boot print `boot from kernelX failed, change to kernelY` and swap pairs - that is
+  why every switch writes both together (`opensource/docs/SELECTOR-0x21.md`).
+- **Interfaces:** the stock 5.10 kernel exposes `/sys/devices/platform/sysenv/boot_reg`
+  (low byte: `0x10` = pair A, `0x11` = pair B; `0x21` is the fire-device manual-B value,
+  normalised by the loader). Our kernel exposes
+  `/sys/devices/platform/boot-selector/{raw,current_pair,next_pair}`; a `next_pair` write
+  was permission-denied as root in 2026-11-26. `/etc/init.d/luofu-pair-record` re-records the
+  running pair in our image, so a correct selection is stable across reboots.
+- **Our pair B -> stock pair A:** a plain reboot of our image (the reboot resets the SYSCTRL
+  selector, the stock boots). No env write needed.
+- **Stock pair A -> our pair B**, from the stock root shell:
+  `ln -sf /bin/fw_printenv /tmp/fw_setenv; /tmp/fw_setenv bootflag b;
+  echo -n 0x11 > /sys/devices/platform/sysenv/boot_reg; sync; reboot`.
+  Verify the U-Boot line `bootflag b bootreg 11` and the image coming up.
+- **Two-stage rule after a RESET-hold recovery:** recover first, switch the recovered stock to
+  pair A (`bootflag a` + `0x10`, verify), then write our image to the inactive pair B and set
+  `bootflag b` + `0x11` in the SAME command (no window for the vendor pair recorder).
+  - The running rootfs is `ubi0`; `cat /sys/class/ubi/ubi*/mtd_num` names the active mtd.
+    Never `ubiformat` the active rootfs; write the inactive pair.
+  - Our image's cmdline hardcodes `ubi.mtd=rootfsb`, so it may be written to pair B only.
+- **A pair switch is a bench operation:** recovery card READY, read-only UART capture running,
+  human present. Never switch pairs unattended.
+
+## 9. TFTP shortcut: move files between the host and the stock shell
+
+- **Host server:** `sudo -n python3 tools/tftp_server.py 69` (or
+  `tools/recovery-card.sh --arm` for the recovery-image path). Start it as a **managed
+  background job** - the `setsid nohup` path the recovery card uses has died mid-session and a
+  dead server looks like a stock-side timeout.
+- **Host firewall:** allow **UDP 69 on the box-link interface** (`enp103s0u1u3` in the
+  corrected 2026-11-26 map). A ufw rule pinned to the old `enp195s0f3u1` silently blocks the
+  stock because that name is now the internet tether.
+- **Stock busybox tftp client** (the stock image has no `nc`/`base64`; this is the way to
+  move a binary payload or a log when SSH/the broker is unavailable):
+  - fetch: `tftp -g -l /tmp/<file> -r <file> 192.168.10.44`
+  - push:  `tftp -p -l <device-file> -r <host-file> 192.168.10.44`
+  The vendor-LAN host address is `192.168.10.44`; the U-Boot loader's recovery TFTP is
+  `192.168.1.88`. TFTP is unauthenticated: bench link only, never for anything trusted;
+  always `sha256sum` after the transfer (the 2026-11-28 trace moved the v2 sampler and the
+  logs this way, byte-exact).
+
