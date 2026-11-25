@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-26 06:30 +07
+**Updated:** 2026-11-26 08:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1100,15 +1100,15 @@ The Wi-Fi research line reached its documented ceiling. Hardware-validated, in o
 
 ## 4. Next action
 
-**Current phase (2026-11-27): the Wi-Fi research line is at its documented ceiling - live AP on a self-contained image, no upstream driver. The next work is external observation, MAC TX-engine completion, and the publication track - not new protocol reversing.**
+**Current phase (2026-11-26): the Wi-Fi research line is at its documented ceiling - live AP on a self-contained image, no upstream driver. The one open bug is the device-side RX capture; the next bench = the stock control, the next decode = the missing pre-RX firmware request.**
 
-State: self-contained final image **flashed and validated** (ae5e28bf; native iw/hostapd/ucode/kmods/driver; AP-ENABLED with zero /tmp deployment); ABI-correct (kernel=6f995278); one-command matrix ALL PASS; real scan results decoded into cfg80211 BSS; first AP + persistence; combined AP+DP module; first air-TX frame POST-ONLY. Details: STATUS.md 3m, ledger 2026-11-27.
+State: the AP is on air and clients hear it at **-32 dBm with the antennas attached** (was -64 without); the boot ladder, C2, the 5-message AP order, RX arm 0x182, WPA3-SAE, TX COMPLETED, and the corrected mgmt-TX carrier (**HCC g0 id6**) are all hardware-proven. The RX hunt (2026-11-26): **R0 parity = the device-side RX state matches vendor stock exactly** (all five device-owned live-bank words DEVICE_OK, config 21/21); **R2 observe = the MAC receives the client's auth frames (status bit10 transition) but writes NOTHING to host memory (frames=0) and the receive path FAULTS the firmware/DMAC** (page golden-loss during the attempts). The swarm's convergent analysis: the fault is **firmware-mediated** (PPDU -> firmware/DMAC -> host write) and fits **F1: the firmware's RX ring/PPDU-descriptor state is never (re)initialised** by our minimal host message set; the vendor's pre-RX request (`enable_trx`/`rx_ring_reset` class) is not in the two decoded modules - the **full vendor module set (recovery-extract/lib/hisilicon/ko, 58 modules; plat = 118 hcc syms) + the vendor rootfs (rootfs-2.4.15/2.5.24) are now being decoded** for it. Also identified: the vendor services status bits 1+8 by forwarding HCC messages (F4) - a host write class we never do.
 
 Next, in order:
 
-1. **AP breadth with an external observer** (needs a second client device): beacon on air, association, WPA2 (if enabled), DHCP. This is the difference between "host-side AP" and "working AP"; the post-AP firmware event family is only indirect evidence.
-2. **MAC TX completion / RX**: the host publish is proven, the device consumer is not. Likely needs vendor TX-engine start/config (MAC/PIE/EQM port setup or a firmware TX-queue start, both [U]); then re-fire the combined-module ladder and check rptr advance / completion magic instead of POST-ONLY.
-3. **Publication track** (the real endpoint): generate the v2 review form (30 + DTS-0001; v1 is stale), land the publication fixes in opensource/docs/incoming/wifi-upstream-final/PUBLICATION-CHECKS.md (history purge, broken links, COPYING/CONTRIBUTING/DCO, Wi-Fi/LAN-switch statement), then the curated repos. The Wi-Fi driver stays research-only until the vendor GPL source or a host-clean boot path exists.
+1. **The rx-format lane's decode (in flight)**: the exact missing pre-RX message (group/id/payload + call context, most likely from the plat driver) + the F4 forwarding implementation (fail-closed). Then a fire: laptop auth -> expect frames>0 and no page loss.
+2. **The stock control (SC-1, decisive)**: boot the vendor image with its own AP, run the same 3 auth frames, read CA 0x40050000 before/after + live +0x04 (ours 0x8000 vs stock 0). Vendor authenticates = our session config is the gap; vendor also faults = device/firmware-level (a PD4-patch interaction). Needs an attended bench session + the recovery armed.
+3. **Publication track** (the real endpoint): the v3 platform submission is advanced (DTS-0001 v3, L1 56/56 PASS, publication checker 18/6/8 with the remaining FAILs owner-only); the Wi-Fi driver stays research-only until the vendor GPL source or a host-clean boot path exists.
 
 
 The box was recovered on 2026-11-23: after the armed-TFTP incident left stock 2.5.24 on both
