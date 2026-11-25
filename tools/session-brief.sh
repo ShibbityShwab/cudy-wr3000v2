@@ -118,7 +118,7 @@ fi
 RECOVERY_MD5='missing'
 if [ -f tftp/recovery.bin ]; then
 	RECOVERY_MD5=$(md5sum tftp/recovery.bin | awk '{print $1}')
-	[ "$RECOVERY_MD5" = "421114c8ea999c925b7aa79cc548af81" ] || warn "tftp/recovery.bin md5 is $RECOVERY_MD5, expected 421114c8ea999c925b7aa79cc548af81"
+	[ "$RECOVERY_MD5" = "bc40580943e8a9865bb8288d3294f687" ] || warn "tftp/recovery.bin md5 is $RECOVERY_MD5, expected bc40580943e8a9865bb8288d3294f687"
 fi
 
 # ---- latest build artifacts ----

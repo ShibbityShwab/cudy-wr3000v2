@@ -63,8 +63,9 @@ physically. Do not guess and do not act on memory.
   never on the watchdog resets the box performs itself.
 - Recovery requires hands on the box. **An agent cannot power-cycle or hold RESET.** Treat every
   fire as a human-attended bench operation with a pre-armed recovery.
-- Recovery image: `tftp/recovery.bin`, 20,975,775 bytes, md5
-  `421114c8ea999c925b7aa79cc548af81`. Serve it with
+- Recovery image: `tftp/recovery.bin`, 22,024,351 bytes, md5
+  `bc40580943e8a9865bb8288d3294f687` (the official 2.5.24 sysupgrade image - the one proven
+  by the 2026-11-23 recovery; the older 2.4.15 image left a broken setup wizard). Serve it with
   `sudo -n python3 tools/tftp_server.py 69`; the host needs `192.168.1.88/24` and UDP 69
   allowed. Full card: `tools/recovery-card.sh`.
 - After recovery the stock LAN comes back at `192.168.10.1`; verify 2 wiphys, 6+ interfaces,

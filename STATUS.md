@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-26 17:00 +07
+**Updated:** 2026-11-26 18:00 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -1100,7 +1100,7 @@ The Wi-Fi research line reached its documented ceiling. Hardware-validated, in o
 
 ## 4. Next action
 
-**Current phase (2026-11-26): the Wi-Fi research line is at its documented ceiling - live AP on a self-contained image, no upstream driver. The one open bug is the device-side RX capture; the next bench = the stock control, the next decode = the missing pre-RX firmware request.**
+**Current phase (2026-11-26): the Wi-Fi research line is at its documented ceiling - live AP on a self-contained image, no upstream driver. The one open bug is the device-side RX capture; the STOCK CONTROL IS DONE (the device is proven fine - the laptop authenticated+associated with the vendor AP on the same chip), so the next work is the firmware RX config/init decode (the vendor's init chain + config events) + the stock H2D trace.**
 
 State: the AP is on air and clients hear it at **-32 dBm with the antennas attached** (was -64 without); the boot ladder, C2, the 5-message AP order, RX arm 0x182, WPA3-SAE, TX COMPLETED, and the corrected mgmt-TX carrier (**HCC g0 id6**) are all hardware-proven. The RX hunt (2026-11-26): **R0 parity = the device-side RX state matches vendor stock exactly** (all five device-owned live-bank words DEVICE_OK, config 21/21); **R2 observe = the MAC receives the client's auth frames (status bit10 transition) but writes NOTHING to host memory (frames=0) and the receive path FAULTS the firmware/DMAC** (page golden-loss during the attempts). The swarm's convergent analysis: the fault is **firmware-mediated** (PPDU -> firmware/DMAC -> host write) and fits **F1: the firmware's RX ring/PPDU-descriptor state is never (re)initialised** by our minimal host message set; the vendor's pre-RX request (`enable_trx`/`rx_ring_reset` class) is not in the two decoded modules - the **full vendor module set (recovery-extract/lib/hisilicon/ko, 58 modules; plat = 118 hcc syms) + the vendor rootfs (rootfs-2.4.15/2.5.24) are now being decoded** for it. Also identified: the vendor services status bits 1+8 by forwarding HCC messages (F4) - a host write class we never do.
 

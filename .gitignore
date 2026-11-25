@@ -74,3 +74,6 @@ tools/vendor-mods/*.ko
 
 # Vendor-derived artifacts stay local (public policy: no vendor blobs in tracked text)
 patched/*.lua
+
+# Bench TFTP serving dir: recovery images are vendor blobs, never tracked
+tftp/
