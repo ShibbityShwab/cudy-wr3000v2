@@ -28579,3 +28579,10 @@ THE dtbs_check: the tooling = NOT available locally (the no jsonschema/dt-dt-sch
 THE PR-READINESS GATES' STATUS: 1/2/3/4/5 = CLEARED; 6 = the PARTIAL (the the validated, the dtbs_check = the the-time); 7 = the owner (the MAINTAINERS/DCO); 8 = the PCIe review items (the next!).
 THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 59/80.
 THE NEXT: the gate 8 (the PCIe review items: the acp-gate -> the ACP power/clock domain, the no MSI/INTx, the static CFG0 viewport!) OR the install path.
+
+## 2026-11-27 17:00 - GOAL ROUND 62: THE CONSOLIDATE/PUBLISH CLAUSE'S THE STATE ESTABLISHED + THE SOURCE TREE CLEANED (the sync's precondition #2!).
+THE PUBLICATION's the STATE (the PUBLISH.md/the publication-status/the SYNC-PLAN!): (1) the ROOT NOTEBOOK = the IN SYNC (the origin/master ✓); (2) the LEGACY opensource/ submodule (the cudy-wr3000v2-open-firmware, the public pre-policy!) = the ~5 commits AHEAD - the NOT PUSHED (the Lead's the go required!); (3) the CURATED cudy-wr3000v2-openwrt = the STALE (the source pin a0aa6b1, 2026-11-22; the 251 source commits + the 92 changed files BEHIND!); (4) the curated cudy-wr3000v2-cve = the CURRENT.
+THE SYNC-PLAN's the 4 HARD PRECONDITIONS: (1) the Lead's explicit go (the user's the decision!); (2) the source tree SETTLED+CLEAN (the opensource's the status --porcelain EMPTY!); (3) the curated clone clean+at the remote tip (the 4bd4360 ✓); (4) the no release claim. THE NEVER-SYNCED: the vendor .ko/.o/the firmware/the rootfs/the calibration/the extracted DTS/the Wi-Fi research trees/the .omo-secrets/the MAC!
+THE ACTION: the source tree's the 7 dirty/untracked files (the appie-wext2/evidence/src/tools + the dfs160/BUILD-NOTES/README/REPORT/TABLES) = the two lanes' the the => COMMITTED (the precondition #2's the closer!) => the opensource's the tree's the CLEAN.
+THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 62/80.
+THE NEXT: the curated sync's the user's go (the SYNC-PLAN's the prepared!) OR the docs/STATUS reconciliation OR the upstream's the remaining.
