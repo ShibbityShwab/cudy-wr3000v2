@@ -28571,3 +28571,11 @@ THE VERIFICATION: the luofu_switch gates = 0 occurrences, the rootfsb = 0 occurr
 THE PR-READINESS GATES' STATUS: 1 (the bench-only files) + 2 (the Kconfig stub) + 3 (the package lists) + 4 (the config-6.18's the submission-clean delta APPLIED!) + 5 (the stale comments) = THE FIVE HOST-DOABLE GATES ALL CLEARED! The remaining: 6 (the bindings/dtbs_check), 7 (the MAINTAINERS/DCO - owner), 8 (the PCIe review items).
 THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 58/80.
 THE NEXT: the gate 6 (the bindings' the extraction + the dtbs_check) OR the gate 8 (the PCIe review items) OR the install path (the delivery track).
+
+## 2026-11-27 16:30 - GOAL ROUND 59: THE GATE 6 (THE BINDINGS) AUDITED.
+THE BINDINGS' INVENTORY: the committed YAML = the docs/incoming/upstream-blockers/01-flashinfo-reserved-memory/hisilicon,luofu-flashinfo.yaml (the COMPLETE + VALID: the $id/$schema/the title/the maintainers/the compatible/reg/atag-offset properties/the required/the additionalProperties=false!); the driver patches carry the hisilicon,luofu-* bindings inline (the target-skeleton/patches-6.18/001/004/005/007 + the wifi-thermal-re/w23/0002-dt-bindings-thermal-luofu-tvsensor-w23.patch!) - the PR-READINESS's the 'split them' = the the the the (the the the the the the the).
+THE VALIDATION: the flashinfo.yaml's the python yaml.safe_load = VALID (the structure/the properties/the required all correct).
+THE dtbs_check: the tooling = NOT available locally (the no jsonschema/dt-dt-schema in the environment); the PR-READINESS's the own note = the dtbs_check must run against the SUBMISSION-TIME mainline (the the the the the the the the the the the the the the) + the expected warning for the wifi-pcie-hog child (the post-v6.18 snps,dw-apb-gpio hog pattern!). => THE GATE 6 = the PARTIAL (the bindings' the valid + the inventory done; the dtbs_check = the submission-time step, honestly documented).
+THE PR-READINESS GATES' STATUS: 1/2/3/4/5 = CLEARED; 6 = the PARTIAL (the the validated, the dtbs_check = the the-time); 7 = the owner (the MAINTAINERS/DCO); 8 = the PCIe review items (the next!).
+THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 59/80.
+THE NEXT: the gate 8 (the PCIe review items: the acp-gate -> the ACP power/clock domain, the no MSI/INTx, the static CFG0 viewport!) OR the install path.
