@@ -28542,3 +28542,11 @@ MISSING: the LEDs (gpio-leds/led_pwm), the buttons (gpio-keys), the RTC, the USB
 THE FEATURE-BACKLOG (the 2026-11-27): the 9 sections (the RX gate = the critical path; the AS; the 5G; the AX; the BA; the RC; the PM; the RO-SV; the IMG-PUB) + the priority order (the RX-1/RX-2 the first).
 THE GOAL: round 53/80 (resumed by the user). THE BOX: the device UNREACHABLE (192.168.10.1, no SSH); the recovery armed; the internet safe.
 THE NEXT (the board features): (1) the DTS's LEDs/buttons (the gpio-leds/gpio-keys on the existing gpio0/gpio1); (2) the RTC/USB bring-up; (3) the install path.
+
+## 2026-11-27 14:30 - GOAL ROUND 54: THE BOARD LEDS + BUTTONS BROUGHT UP IN THE DTS (VALIDATED IN THE DTB!) + THE VENDOR MAP EXTRACTED.
+THE VENDOR MAP (the decompiled vendor DTS): the gpio-leds = the oem:green:status (the gpio0 24), the wan (25), the lan (3), the internet (2), the wifi (0), the wifi5g (1) - all active-low; the gpio-keys-polled (the 20ms poll) = the reset (the gpio0 22, the KEY_RESTART 0x198) + the wps (the gpio0 23, the KEY_WPS_BUTTON 0x211); the phandle 0x0d = the vendor's gpio@10106000's the gpio-port@0 = OUR gpio0/porta (verified!).
+THE PATCH (the opensource/docs/soc/luofu-r116.dts): the added gpio-leds (the 6 the oem:green:* LEDs, the &porta the 24/25/3/2/0/1, the active-low!) + the gpio-keys-polled (the poll-interval 20, the reset/the &porta 22/the 0x198, the wps/the &porta 23/the 0x211!) before the root close.
+THE VALIDATION: the cpp -P (the #defines!) + the dtc -I dts -O dtb => the dtc_rc=0 (the only the pre-existing the unit-name warnings, NO ERRORS!), the DTB 14,695 B; the decompiled DTB PROVES the gpio-leds (the compatible/status/led-status!) + the gpio-keys-polled (the poll-interval 0x14/the status!) are in the tree.
+THE BOARD-FEATURE STATUS: the thermal (present), the watchdog (present), the GPIO (present), the I2C (present), the SPI/NAND (present), the PCIe (present), the Ethernet/MDIO (present), the switch/LSW (present), the UART (present) + the LEDs/BUTTONS (NOW ADDED AND VALIDATED!) => the remaining the board items: the RTC, the USB, the install path.
+THE BOX: the device UNREACHABLE; the recovery armed; the internet safe. THE GOAL: the round 54/80.
+THE NEXT: (1) the upstream's the image rebuild with the new DTS (the LED/keys the on-air image!); (2) the RTC/USB's the nodes; (3) the install path.
