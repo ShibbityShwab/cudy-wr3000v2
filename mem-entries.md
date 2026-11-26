@@ -28631,3 +28631,12 @@ THE OBJECTIVE'S CLAUSES, FINAL STATUS:
 6. UPSTREAM SUBMISSION: the PR gates 1/2/3/4/5/6/8 CLEARED, the 7 the owner; the 12 DT bindings extracted + validated; the v2 review form's 16 folds COMPLETE (the 11 composed entries, 11/11 MATCH); the remaining = the gen-series' composed-entries wiring, the full host acceptance, the one attended boot, the owner identities, the submission-time dtbs_check.
 
 THE GOAL'S PHASE: ACTIVE (the 80/80 cap reached). The objective's remaining work is the owner decisions + the bench-attended items + the gen-series wiring; the host-doable program is complete and verified.
+
+## 2026-11-27 21:00 - THE F1 FIRE EXECUTED (the bench, the user present): the P24 SIX-COUNTER LADDER PRE/POST around a live auth stimulus.
+THE PRECONDITIONS: the bench-link PASS; the recovery armed (the UDP 69); the box UP at 192.168.1.1 (the 6.18.60/the US/the wlan0/the hostapd/the AP 'wr3000v2-apstart' the BSSID 06:05:04:03:02:01/the ch6/the open!). The host's wlan0 = the stimulus client.
+THE PRE-READ: the P20b (the q1+0xC0) = 0x00171E84 = the EXPECTED! the P21 (the chip0+0x1A00) = 0x00174BF0 = non-zero! the P24a (the +0xCC0) = 10; the P24b (the +0xCC1) = 0; the P24e (+0xCC5) = 0; the P24c (+0xCCC) = 0; the P24d (+0xCCD) = 0; the P24f (+0xCCE) = 10; the band1 = all 0; the +0xCC2 = 0xF3.
+THE STIMULUS: the host's wlan0 attempted the connect to the AP (the nmcli/the auth attempt; the association did not complete - the classic F1 symptom; the scan saw the AP/the probe responses worked, so the TX path is fine).
+THE POST-READ: the P24a = 10 (NO MOVE!); the P24b = 0 (NO MOVE); the P24e/0xCCC/0xCCD = 0 (no move); the P24f = 10 (NO MOVE); the P20b = 0x171E84 (stable); the P21 = 0x174BF0 (stable); the +0xCC2 = 0xE3 (MOVED -16).
+THE DECISION (the decision table): the P24a NO MOVE => the SMAC producer did not count the new auth frames => the F1 is UPSTREAM of the producer (not the builder gates!) => the task-221 producer rung (the SMAC/hardware RX input side). The +0xCC2's the -16 delta = the one mover (the unknown counter, the follow-up read).
+THE SAFETY: the whole fire was READ-ONLY (no writes anywhere); the recovery door stayed armed; the box's the healthy (the uptime the continuous/the heartbeat).
+THE NEXT: the task-221's the producer rung (the SMAC RX input side/the the the the) + the +0xCC2's the identity's the decode (the fw_rxdisp2_re's the the the the).
