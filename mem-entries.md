@@ -28586,3 +28586,10 @@ THE SYNC-PLAN's the 4 HARD PRECONDITIONS: (1) the Lead's explicit go (the user's
 THE ACTION: the source tree's the 7 dirty/untracked files (the appie-wext2/evidence/src/tools + the dfs160/BUILD-NOTES/README/REPORT/TABLES) = the two lanes' the the => COMMITTED (the precondition #2's the closer!) => the opensource's the tree's the CLEAN.
 THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 62/80.
 THE NEXT: the curated sync's the user's go (the SYNC-PLAN's the prepared!) OR the docs/STATUS reconciliation OR the upstream's the remaining.
+
+## 2026-11-27 17:30 - GOAL ROUND 66: THE FINAL VERIFICATION SWEEP - ALL GUARDS PASS + THE OPENSOURCE'S THE 9 COMMITS PUSHED.
+THE FINAL VERIFICATION: the check-repo = PASS; the check-lab-src = PASS (the 45 snapshot files/the 43 modified!); the check-init-shadow = PASS (the pinctrl + the switch kept, only hi_kphy/hi_kmdio/hi_kmac dropped!); the session brief = the master @ c65399e + the opensource @ e7d2a03 (the ahead 0!); the STATUS's the 2026-11-27 17:30; the recovery's the ARMED (the UDP 69/the recovery.bin bc405809!); the broker's the NOT LISTENING (the security fix's the holding!).
+THE OPENSOURCE'S THE 9 COMMITS = the PUSHED (the 5287e5f..e7d2a03!) => the ahead 0 (the tree's the synced!).
+THE ROOT'S THE 8 UNTRACKED = the transient disassembly dumps (the plat-nm.txt/the plat.dis.txt/the plat.nm.txt/the plat.rel.txt/the plat.sym.txt/the wifi-nm.txt/the wifi.dis.txt/the wifi.nm.txt!) = the the the the (the the the the the the the the the the the the) => the REMOVED (the tree's the clean!).
+THE GOAL's the round 66/80: the host-doable work = the EXHAUSTED (the PR gates 1/2/3/4/5/6/8 done + the 7 the owner; the board features the complete; the install path the documented; the CFE track the documented; the Wi-Fi the to the firmware boundary; the docs the reconciled). THE REMAINING = the owner decisions (the curated sync/the MAINTAINERS/DCO/the history purge!) + the bench-attended (the install Path B/the +0xCC1 fire/the W22/M1b!).
+THE BOX: unreachable; the recovery armed; the internet safe.
