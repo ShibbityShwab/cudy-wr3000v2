@@ -28605,3 +28605,10 @@ THE DELIVERABLE (the upstream/compose/README.md): the descriptor format for the 
 THE WHY: the FOLD-PIPELINE-DECISION (the round 69!) chose the Option B (a review-side composition over the untouched L0 bench stack) - this round makes it concrete with the format + the contract, so each of the 16 folds becomes a descriptor plus its fold rules.
 THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 70/80.
 THE NEXT: the gen-series.py's the --compose mode (the hunk-selection engine/the drop application/the merged headers!) + the first descriptor (the simplest fold: the 027 read-only mux into the 0019 clock tree!).
+
+## 2026-11-27 19:00 - GOAL ROUND 78: THE V2 REVIEW FORM'S 16-FOLD SET COMPLETE (the 11 composed entries carry all 16 source patches, ALL MATCH!) + the final verification sweep.
+THE 16-FOLD EXECUTION (the V2-REVIEW-FORM-STATUS's checklist): the 11 composed entries = the 0019 (the 027), the 0021 (the 031), the 0022 (the 044), the 0009 (the 038+041+051), the 0020 (the 048), the 0024 (the 053), the 0012 (the 066+067), the 0027 (the 032), the 0028 (the 036+043+046), the 0029 (the 059), the 0030 (the 060) => ALL 16 source patches folded, every expected sha256 recorded, the compose --check reports 11/11 MATCH.
+THE FOLD ENGINE (the upstream/series-6.18/tools/compose.py): the parse_unified/the select_hunks/the merge_files/the apply_drops/the compose_diff + the --selftest (the PASS) + the --check (the 11 MATCH). The four new RFC messages (the 0027-0030) written with the honest [V]/[U] evidence bodies and the explicit lab-gate drops.
+THE FINAL VERIFICATION: the check-repo = PASS; the compose's the 11/11 MATCH; the tree's the clean + synced (the the the the the the the the).
+THE REMAINING (the owner/bench): the gen-series.py's the composed entries' the wiring into the generated series (the host work, the next) + the full host acceptance (the compile/the dt_binding_check/the image chain) + the one attended boot of the v4 active-DTS change + the owner decisions (the MAINTAINERS/the DCO/the curated sync/the history purge).
+THE BOX: unreachable; the recovery armed; the internet safe. THE GOAL: round 78/80.
