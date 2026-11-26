@@ -1,6 +1,6 @@
 # STATUS - Cudy WR3000 v2.0
 
-**Updated:** 2026-11-27 00:10 +07
+**Updated:** 2026-11-27 17:30 +07
 **Pins are not written here.** Derive them with `git rev-parse --short HEAD` and
 `git -C opensource rev-parse --short HEAD`.
 **This is the only live status page.** Regenerate it; do not append to it. The physical
@@ -8,9 +8,9 @@ invariants live in `BENCH-FACTS.md`; the procedure is `RUNBOOK.md`.
 
 ## 1. Bench (re-verified 2026-11-21 12:50 +07)
 
-> **2026-11-28 box state is section 3n.** Pair B = our Wi-Fi image #1 (ae5e28bf) with the
+> **Box state (reconciled 2026-11-27 17:30): pair B = the flashed image #3** (the WPA3-SAE + the
 > per-fire modules loaded by hand; pair A = stock 2.5.24. The W27b record below is the
-> 2026-11-23 recovery baseline (history); the current image deliverable is #3 (not yet flashed).
+> 2026-11-23 recovery baseline (history); the current image deliverable is #3 = FLASHED + ACCEPTED 2026-11-26 (the WPA3-SAE + the Wi-Fi 6 HE on air).
 
 - **Box: running OUR image W27b (sha256 4af1d1fa, 6.18.60 + dma-ranges), healthy, pair B.**
   Recovered 2026-11-23 from the stock 2.5.24 firmware that the armed-TFTP incident had left on
@@ -1158,10 +1158,15 @@ The Wi-Fi research line reached its documented ceiling. Hardware-validated, in o
 
 ## 4. Next action
 
-**Current phase (2026-11-28 04:30): the Wi-Fi research line is two gates from a live 5 GHz AP and
-a live client - (1) the band-1 MAC start send (WAL key 0x0242), (2) the F1 RX delivery gate from
-the captured vendor H2D - plus the Lead-owned image #3 flash (a host-verified image, not yet
-flashed).**
+**Current phase (2026-11-27 17:30): IMAGE #3 IS FLASHED + ACCEPTED.** The flashed image boots 6.18.60
+with the fixed cfg80211 (the US/DFS-FCC regdomain), the ax hostapd, the merged module and the
+WPA3-SAE + Wi-Fi 6 HE on air; the rate control works (the SET + the GET + the firmware replies);
+the TWT is enabled; the BA TX core passed B2; the BSS COLOR is LIVE (the first feature decoded
+from the vendor H2D capture). The 5 GHz beacon is DEFINITIVELY CLOSED: every host-visible element
+is at the working 2.4 GHz band exact values and the vendor own H2D has no beacon-enable
+message (the firmware-internal 0x40101220 gate). The RX gate is host-clean; the rxdisp2 +0xCC1
+lever is the pending bench fire. The objective remaining work = the owner decisions + the
+bench-attended consumer install path B.
 
 Next, in order:
 
