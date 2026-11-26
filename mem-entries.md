@@ -28652,3 +28652,10 @@ THE R7 READS: the #9 (the band0 object+640) = 0x00114F18 = the ATTACH RAM BLOCK 
 THE INTERPRETATION (the R7's matrix row 2): the attach exists (the 0x114F18) but the object+672 keeps the boot default + the TBTT block is all zero => the attach ran but the ISR's active slot and the beacon timer are never programmed => **the TBTT/timer is the discriminator** (the R8b's the prediction confirmed: the beacon timer is the gap!).
 THE SAFETY: read-only; the UART capture ran; the recovery armed; the box healthy.
 THE NEXT: the TBTT lane (the beacon timer's the programming: the 0x40101584..AC per band + the bodies 0xAEB80/TBTT!) + the 5G's the beacon's the the the (the the the the the the the the the).
+
+## 2026-11-27 22:30 - THE TBTT COMPARISON (the R7's the R8b follow-up): the TBTT block is ALL ZERO on BOTH bands - the honest the the.
+THE RESULT: the TBTT block (0x40101584..AC) = ALL ZERO on the band0 (the 2.4 GHz WORKING band that IS beaconing!) AND the band1 (the silent 5G) => the TBTT block is NOT the discriminator the R7 predicted; the 2.4's beacon must be driven elsewhere.
+THE CONSOLIDATED F1 STATE: the attach block (the object+640) = the 0x114F18 PRESENT on both bands; the object+672 (the ISR slot) = the 0x40042000/0x40062000 (the boot defaults); the TBTT = all 0 on both; the P4 (the SMAC status) = the 0xC6000002 (the bit2 CLEAR = the gate OPEN); the producer (+0xCC0) = 10 (the no move on the stimulus); the P7 (the other sources) = serviced (9).
+THE ONE CONSISTENT ASYMMETRY: the P8 (the MAC band0 enable) = 0x0F (the complete the bits 0..3) vs the P9 (the MAC band1) = 0x1039 (the expected 0x1029 + the bit4 = 0x10) => the bit4 is the ONLY MAC-start difference between the working band and the silent one (the the the the the the the the the the the the the the the the the).
+THE HONEST: the F1's the chain's the NOT closed; the next the the (the bit4's the decode + the MAC-mask's the per-band comparison + the 2.4's the beacon's the driver's the identify).
+THE SAFETY: read-only; the box healthy; the recovery armed.

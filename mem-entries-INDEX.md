@@ -8,7 +8,6 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 
 | date | phase | title | line |
 | --- | --- | --- | --- |
-| 2026-11-27 |  | 2026-11-27 01:00 - THE A-RUNG: THE ARM REACHED THE FIRMWARE - THE 0x07E7's REGISTER-ONLY ARM RAN (4/6 sub-base bits!). | `mem-entries.md:28474` |
 | 2026-11-27 |  | 2026-11-27 02:00 - THE FULL 0x2D ARMED PATTERN ACHIEVED (the sub-base's the stock's!) - THE BEACON's the STILL the (the TBTT's the remaining). | `mem-entries.md:28482` |
 | 2026-11-27 |  | 2026-11-27 02:30 - THE TBTT ATTACK: THE TIMER STARTED (0x401015CC = 1) + THE BEACON STATE PRESENT (+0x6C4=0x10/+0x6C6=1!) + THE ALL-ARMED - THE BEACON = STILL ABSENT (the definitive boundary). | `mem-entries.md:28487` |
 | 2026-11-27 |  | 2026-11-27 03:30 - THE COMPLETE BAND-vs-BAND DIFF (the 2.4GHz WORKING live vs the 5GHz A-rung): THE WORKING BAND's SMAC SUB-BASE = 0x106 (NOT the 0x2D!). | `mem-entries.md:28491` |
@@ -48,6 +47,7 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-27 |  | 2026-11-27 21:00 - THE F1 FIRE EXECUTED (the bench, the user present): the P24 SIX-COUNTER LADDER PRE/POST around a live auth stimulus. | `mem-entries.md:28635` |
 | 2026-11-27 |  | 2026-11-27 21:30 - THE F1 task-221 FIRE EXECUTED (the bench, read-only): the P0-P11 producer-attribution pass. | `mem-entries.md:28644` |
 | 2026-11-27 |  | 2026-11-27 22:00 - THE R7 SMAC-CONTEXT DIFFERENTIAL EXECUTED (the bench, read-only): the attach block IS present, the object+672 keeps the boot default, the TBTT block is ALL ZERO. | `mem-entries.md:28650` |
+| 2026-11-27 |  | 2026-11-27 22:30 - THE TBTT COMPARISON (the R7's the R8b follow-up): the TBTT block is ALL ZERO on BOTH bands - the honest the the. | `mem-entries.md:28656` |
 
 ## All dated entries
 
@@ -1128,3 +1128,4 @@ The latest dated entry wins. Read the latest table first, then grep the ledger f
 | 2026-11-27 |  | 2026-11-27 21:00 - THE F1 FIRE EXECUTED (the bench, the user present): the P24 SIX-COUNTER LADDER PRE/POST around a live auth stimulus. | `mem-entries.md:28635` |
 | 2026-11-27 |  | 2026-11-27 21:30 - THE F1 task-221 FIRE EXECUTED (the bench, read-only): the P0-P11 producer-attribution pass. | `mem-entries.md:28644` |
 | 2026-11-27 |  | 2026-11-27 22:00 - THE R7 SMAC-CONTEXT DIFFERENTIAL EXECUTED (the bench, read-only): the attach block IS present, the object+672 keeps the boot default, the TBTT block is ALL ZERO. | `mem-entries.md:28650` |
+| 2026-11-27 |  | 2026-11-27 22:30 - THE TBTT COMPARISON (the R7's the R8b follow-up): the TBTT block is ALL ZERO on BOTH bands - the honest the the. | `mem-entries.md:28656` |
